@@ -19,6 +19,7 @@ mod tests;
 pub use definitions::DefinitionSetup;
 pub use mcp::McpSetup;
 pub use requests::SetupRequests;
+pub use requests::SetupRequestsService;
 pub use requests::SetupUiSurface;
 
 use mixdog_core_ports::ports::setup_actions::{CallerScope, SetupActions, SetupCall, SetupCallers};

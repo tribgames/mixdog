@@ -1,0 +1,33 @@
+{
+  "attachmentCases": 14,
+  "command": "node benchmarks/rust-core/recorders/record-session-reads.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 82054,
+      "path": "golden.json",
+      "sha256": "2d052fec3f6996233b5ba675f9e2e1f20efcd163cbcfa474dfd039de866fd6c3"
+    }
+  ],
+  "finalAnswers": 25,
+  "pages": 244,
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34407
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-reads.mjs",
+  "set": "session-reads",
+  "totalBytes": 82054
+}

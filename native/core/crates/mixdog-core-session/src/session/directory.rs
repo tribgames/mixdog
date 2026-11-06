@@ -88,6 +88,12 @@ impl DeleteHold {
         self.handle.cell.header.load().get("cwd").and_then(Value::as_str).map(str::to_owned)
     }
 
+    /// The thread's header as it stood when the close landed (the stored record `markSessionClosed`
+    /// reads its `createdAt`, `agent` and `owner` from).
+    pub(crate) fn header(&self) -> Arc<mixdog_store::schema::record::Header> {
+        self.handle.cell.header.load_full()
+    }
+
     /// Appends the delete mark and waits for its ack; the thread then leaves the directory,
     /// and a later open finds it gone. False when the mark was not applied.
     pub(crate) async fn mark(self, directory: &DirInner) -> bool {
@@ -103,7 +109,7 @@ impl DeleteHold {
 }
 
 pub(crate) struct DirInner {
-    deps: Arc<SessionDeps>,
+    pub(super) deps: Arc<SessionDeps>,
     shards: Box<[Mutex<HashMap<ThreadId, Slot_>>]>,
     me: std::sync::Weak<DirInner>,
     /// `onGoalStatusChange`: each change goes to its loaded thread's Goal lane.
@@ -195,7 +201,7 @@ impl SessionDirectory {
 
     /// A thread's model context (`session.messages`), read from the store; a thread need not be
     /// loaded.
-    pub(crate) fn model_context(&self, id: &ThreadId) -> super::run::ModelContext {
+    pub fn model_context(&self, id: &ThreadId) -> super::run::ModelContext {
         super::run::ModelContext {
             store: self.inner.deps.store.clone(),
             lanes: self.inner.deps.lanes,
@@ -207,22 +213,7 @@ impl SessionDirectory {
     /// A thread's whole stored history as the transcript shows it, oldest first; a thread need
     /// not be loaded.
     pub(crate) async fn history_items(&self, id: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
-        let deps = &self.inner.deps;
-        let token = CancellationToken::new();
-        let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
-        let (store, thread) = (deps.store.clone(), id.clone());
-        let rows = deps.lanes.io.submit(&token, move |lane| store.history_rows(lane, &thread))?.await.map_err(|_| dropped())??;
-        let transcript = deps.transcript.clone();
-        let items = deps.lanes.cpu.submit(&token, move |lane| {
-            rows.iter()
-                .flat_map(|row| transcript.items(lane, row))
-                .filter_map(|shown| match shown {
-                    super::seams::Shown::Item(item) => Some(item),
-                    super::seams::Shown::Update(_) => None,
-                })
-                .collect()
-        })?;
-        items.await.map_err(|_| dropped())
+        super::reads::history_items(&self.inner.deps, id).await
     }
 
     /// The live history row `iid` with its ordinal, as the transcript reads it.
@@ -299,6 +290,11 @@ impl SessionDirectory {
         let deps = &self.inner.deps;
         let (store, thread) = (deps.store.clone(), id.clone());
         deps.lanes.io.submit(&CancellationToken::new(), move |lane| store.read_header(lane, &thread)).ok()?.await.ok()?.ok()
+    }
+
+    /// `deleteSession(id)` for a session not open in this process: `true` once it is gone.
+    pub async fn delete_stored(&self, id: &str) -> Result<bool, CoreError> {
+        super::delete::delete_session(&self.inner, id).await
     }
 
     /// The ids of every loaded thread (the threads this process hosts).
@@ -488,7 +484,7 @@ impl DirInner {
         }
     }
 
-    fn loaded(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
+    pub(super) fn loaded(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         match lock(self.shard(id)).get(id) {
             Some(Slot_::Loaded(handle)) => Some(handle.clone()),
             _ => None,
@@ -936,6 +932,8 @@ impl ThreadDirectory for SessionDirectory {
                 }))
             }
             "thread/delete" => super::delete::serve(&self.inner, &req.params).await,
+            method if super::reads::serves(method) => self.inner.serve_read(&req).await,
+            "thread/inheritancePreflight" => self.inheritance_preflight(&req.params).await.map(Reply::Value),
             _ => Err(CoreError::InvalidParams {
                 path: "method".into(),
                 expected: "a session-directory method".into(),

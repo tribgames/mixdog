@@ -1,0 +1,398 @@
+//! The daemon's clock for quota auto-resume (`standalone/session-service/quota-resume.mjs`
+//! `createQuotaResumeScheduler`). Waiting lives in the durable queue ([`QuotaResumeStore`]), never
+//! in a session, so an evicted or not-yet-loaded session waits exactly like a live one. One timer
+//! is armed for the earliest due entry; when it fires, the addressed session is materialized, a
+//! fresh usage reading decides whether its provider can serve the model again, and the session's
+//! own lane runs the retry under the entry's generation. Overdue entries run as soon as the
+//! scheduler starts.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
+
+use async_trait::async_trait;
+use mixdog_core_base::quota_resume::{Entry, QuotaError, QuotaResumeStore};
+use mixdog_js::json_number;
+use mixdog_rt::CancellationToken;
+use serde_json::json;
+use tokio::sync::Notify;
+use tokio::task::JoinHandle;
+
+/// A still-exhausted reading is re-taken once, this much later.
+pub const QUOTA_RESUME_RETRY_MS: f64 = 5.0 * 60_000.0;
+/// A busy session is re-checked this much later, without spending an attempt.
+pub const QUOTA_RESUME_BUSY_RECHECK_MS: f64 = 30_000.0;
+/// The longest a JavaScript timer waits.
+const MAX_TIMER_MS: f64 = 2_147_483_647.0;
+
+/// `now` and `setTimer` of the scheduler's options.
+#[async_trait]
+pub trait ResumeClock: Send + Sync {
+    /// `Date.now()`.
+    fn now_ms(&self) -> f64;
+    /// Resolves after `ms`; dropping it clears the timer.
+    async fn sleep(&self, ms: u64);
+}
+
+/// The wall clock and tokio's timer.
+pub struct SystemResumeClock;
+
+#[async_trait]
+impl ResumeClock for SystemResumeClock {
+    fn now_ms(&self) -> f64 {
+        mixdog_core_goal::goal::js::now_wall_ms()
+    }
+
+    async fn sleep(&self, ms: u64) {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+}
+
+/// Why a usage reading failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UsageError {
+    /// `MODEL_PROXY_UNAVAILABLE`: a disconnected PC supplies no reading. The pass defers the entry
+    /// without spending an exhaustion attempt.
+    ProxyUnavailable(String),
+    /// Any other failure: logged, and the reading counts as exhausted.
+    Failed(String),
+}
+
+/// What `runtime.fireQuotaResume({ generation })` answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FireOutcome {
+    Fired,
+    Busy,
+    Rejected,
+    Stale,
+    Superseded,
+    Unreplayable,
+}
+
+impl FireOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fired => "fired",
+            Self::Busy => "busy",
+            Self::Rejected => "rejected",
+            Self::Stale => "stale",
+            Self::Superseded => "superseded",
+            Self::Unreplayable => "unreplayable",
+        }
+    }
+}
+
+/// The route a session's next turn runs on, as its state reports it; an empty field is absent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionRoute {
+    pub provider: String,
+    pub model: String,
+}
+
+/// What the scheduler asks of the daemon: `materializeSession`, the session's state, its
+/// `fireQuotaResume` and `readQuotaUsable`.
+#[async_trait]
+pub trait ResumeHost: Send + Sync {
+    /// Loads the session under daemon ownership; the error text is what the log carries.
+    async fn materialize(&self, session_id: &str) -> Result<(), String>;
+    /// `snapshot.provider || snapshot.sessionProvider || runtime.session.provider`, and the model.
+    async fn route(&self, session_id: &str) -> SessionRoute;
+    async fn usable(&self, provider: &str, model: &str) -> Result<bool, UsageError>;
+    /// The session's own lane runs the retry; an error is the rejection the lane raised.
+    async fn fire(&self, session_id: &str, generation: u64) -> Result<FireOutcome, String>;
+}
+
+enum Outcome {
+    Closed,
+    Unavailable,
+    Cancelled,
+    RouteChanged,
+    ExhaustedRetry,
+    Exhausted,
+    Fire(FireOutcome),
+}
+
+impl Outcome {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Closed => "closed",
+            Self::Unavailable => "unavailable",
+            Self::Cancelled => "cancelled",
+            Self::RouteChanged => "route-changed",
+            Self::ExhaustedRetry => "exhausted-retry",
+            Self::Exhausted => "exhausted",
+            Self::Fire(outcome) => outcome.as_str(),
+        }
+    }
+}
+
+pub type ResumeLog = Arc<dyn Fn(&str) + Send + Sync>;
+
+fn message(error: QuotaError) -> String {
+    error.to_string()
+}
+
+/// One start of the clock: what its task shares.
+struct Pass {
+    store: Arc<QuotaResumeStore>,
+    host: Arc<dyn ResumeHost>,
+    clock: Arc<dyn ResumeClock>,
+    auto_resume: Arc<dyn Fn() -> bool + Send + Sync>,
+    log: ResumeLog,
+    cancel: CancellationToken,
+    /// sessionId -> (generation, at): an entry whose store write failed is not tried again before
+    /// `at`, so a full disk is not retried in a loop. Only that entry waits; the one timer still
+    /// goes to the earliest time any entry may run.
+    not_before: Mutex<HashMap<String, (u64, f64)>>,
+}
+
+fn number(value: &serde_json::Number) -> f64 {
+    value.as_f64().expect("a stored reset time is finite")
+}
+
+impl Pass {
+    fn closed(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+
+    fn is_current(&self, entry: &Entry) -> bool {
+        self.store.entry(&entry.session_id).is_some_and(|stored| stored.generation == entry.generation)
+    }
+
+    fn runnable_at(&self, entry: &Entry) -> f64 {
+        let reset = number(&entry.reset_at);
+        let mut held = self.not_before.lock().unwrap_or_else(PoisonError::into_inner);
+        match held.get(&entry.session_id) {
+            Some((generation, _)) if *generation != entry.generation => {
+                held.remove(&entry.session_id);
+                reset
+            }
+            Some((_, at)) => reset.max(*at),
+            None => reset,
+        }
+    }
+
+    fn hold_off(&self, entry: &Entry) {
+        let at = self.clock.now_ms() + QUOTA_RESUME_RETRY_MS;
+        self.not_before.lock().unwrap_or_else(PoisonError::into_inner).insert(entry.session_id.clone(), (entry.generation, at));
+    }
+
+    /// How long the one timer waits, or none when no entry is queued.
+    fn arm(&self) -> Option<u64> {
+        let entries = self.store.list();
+        self.not_before.lock().unwrap_or_else(PoisonError::into_inner).retain(|id, _| entries.iter().any(|e| &e.session_id == id));
+        let due = entries.iter().map(|e| self.runnable_at(e)).reduce(f64::min)?;
+        Some((due - self.clock.now_ms()).clamp(0.0, MAX_TIMER_MS) as u64)
+    }
+
+    async fn defer(&self, entry: &Entry, reset_at: f64, attempts: u64) -> Result<(), QuotaError> {
+        self.store.defer(&entry.session_id, Some(entry.generation), &json!({ "resetAt": json_number(reset_at), "attempts": attempts })).await.map(drop)
+    }
+
+    /// One due entry: load its session, take the fresh reading, then fire, re-check later, or
+    /// clear it. The error is a failure the pass defers the entry for.
+    async fn resume_due(&self, entry: &Entry) -> Result<Outcome, String> {
+        let id = entry.session_id.as_str();
+        let generation = entry.generation;
+        if let Err(error) = self.host.materialize(id).await {
+            if self.closed() {
+                return Ok(Outcome::Closed);
+            }
+            (self.log)(&format!("quota resume could not load session={id}: {error}"));
+            self.store.cancel(id, Some(generation)).await.map_err(message)?;
+            return Ok(Outcome::Unavailable);
+        }
+        if !self.is_current(entry) {
+            return Ok(Outcome::Cancelled);
+        }
+        let current_route = async {
+            let route = self.host.route(id).await;
+            let pick = |own: String, entry: &str| if own.is_empty() { entry.to_owned() } else { own };
+            (pick(route.provider, &entry.provider), pick(route.model, &entry.model))
+        };
+        let (provider, model) = current_route.await;
+        let usable = match self.host.usable(&provider, &model).await {
+            Ok(usable) => usable,
+            Err(UsageError::ProxyUnavailable(error)) => return Err(error),
+            Err(UsageError::Failed(error)) => {
+                (self.log)(&format!("quota resume usage reading failed provider={provider}: {error}"));
+                false
+            }
+        };
+        if !self.is_current(entry) {
+            return Ok(Outcome::Cancelled);
+        }
+        let selected = self.host.route(id).await;
+        let selected_provider = if selected.provider.is_empty() { entry.provider.clone() } else { selected.provider };
+        let selected_model = if selected.model.is_empty() { entry.model.clone() } else { selected.model };
+        if selected_provider != provider || selected_model != model {
+            // The reading belongs to the old route. Preserve the reservation and check the
+            // selected route on the normal busy-recheck cadence.
+            self.defer(entry, self.clock.now_ms() + QUOTA_RESUME_BUSY_RECHECK_MS, entry.attempts).await.map_err(message)?;
+            return Ok(Outcome::RouteChanged);
+        }
+        if !usable {
+            // One more reading five minutes on; after that the session falls back to the user's
+            // own choice.
+            if entry.attempts < 1 {
+                self.defer(entry, self.clock.now_ms() + QUOTA_RESUME_RETRY_MS, entry.attempts + 1).await.map_err(message)?;
+                return Ok(Outcome::ExhaustedRetry);
+            }
+            self.store.cancel(id, Some(generation)).await.map_err(message)?;
+            return Ok(Outcome::Exhausted);
+        }
+        let outcome = self.host.fire(id, generation).await?;
+        if matches!(outcome, FireOutcome::Busy | FireOutcome::Rejected) {
+            self.defer(entry, self.clock.now_ms() + QUOTA_RESUME_BUSY_RECHECK_MS, entry.attempts).await.map_err(message)?;
+        } else if self.is_current(entry) {
+            // Every other outcome settles the entry; one the session could not address (it now
+            // holds another session id) must not stay due forever.
+            self.store.cancel(id, Some(generation)).await.map_err(message)?;
+        }
+        Ok(Outcome::Fire(outcome))
+    }
+
+    /// Runs every due entry now.
+    async fn tick(&self) {
+        if let Err(error) = self.run_due().await {
+            // Not tied to one entry (the setting's cancel-all): all wait.
+            for entry in self.store.list() {
+                self.hold_off(&entry);
+            }
+            (self.log)(&format!("quota resume pass failed: {error}"));
+        }
+    }
+
+    async fn run_due(&self) -> Result<(), String> {
+        // The setting turned off anywhere (another process, a hand edit), not only through
+        // `setQuotaAutoResumeEnabled` here: nothing pending resumes.
+        if !(self.auto_resume)() {
+            if !self.store.list().is_empty() {
+                self.store.cancel_all().await.map_err(message)?;
+                (self.log)("quota resume off: pending resumes cancelled");
+            }
+            return Ok(());
+        }
+        for entry in self.store.list() {
+            if self.closed() {
+                return Ok(());
+            }
+            if self.runnable_at(&entry) > self.clock.now_ms() || !self.is_current(&entry) {
+                continue;
+            }
+            match self.resume_due(&entry).await {
+                Ok(outcome) => {
+                    self.not_before.lock().unwrap_or_else(PoisonError::into_inner).remove(&entry.session_id);
+                    (self.log)(&format!("quota resume session={} outcome={}", entry.session_id, outcome.as_str()));
+                }
+                Err(error) => {
+                    (self.log)(&format!("quota resume failed session={}: {error}", entry.session_id));
+                    if let Err(store_error) = self.defer(&entry, self.clock.now_ms() + QUOTA_RESUME_RETRY_MS, entry.attempts).await {
+                        // The store keeps the entry as it was on disk: it stays due and is tried
+                        // again by a later pass.
+                        self.hold_off(&entry);
+                        (self.log)(&format!("quota resume could not record the deferral session={}: {store_error}", entry.session_id));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The timer: armed for the earliest entry, re-armed when the queue changes, run when it fires.
+    async fn run(self: Arc<Self>, changed: Arc<Notify>) {
+        loop {
+            let wait = self.arm();
+            let timer = async {
+                match wait {
+                    Some(ms) => self.clock.sleep(ms).await,
+                    None => std::future::pending().await,
+                }
+            };
+            tokio::select! {
+                biased;
+                () = self.cancel.cancelled() => return,
+                () = changed.notified() => {}
+                () = timer => self.tick().await,
+            }
+        }
+    }
+}
+
+struct Started {
+    cancel: CancellationToken,
+    task: JoinHandle<()>,
+}
+
+pub struct QuotaResumeScheduler {
+    store: Arc<QuotaResumeStore>,
+    host: Arc<dyn ResumeHost>,
+    clock: Arc<dyn ResumeClock>,
+    auto_resume: Arc<dyn Fn() -> bool + Send + Sync>,
+    log: ResumeLog,
+    started: Mutex<Option<Started>>,
+}
+
+impl QuotaResumeScheduler {
+    /// `auto_resume` is `quotaAutoResumeEnabled()`: the config's `quotaAutoResume`, on unless off.
+    pub fn new(
+        store: Arc<QuotaResumeStore>,
+        host: Arc<dyn ResumeHost>,
+        clock: Arc<dyn ResumeClock>,
+        auto_resume: Arc<dyn Fn() -> bool + Send + Sync>,
+        log: ResumeLog,
+    ) -> Self {
+        Self { store, host, clock, auto_resume, log, started: Mutex::new(None) }
+    }
+
+    fn pass(&self, cancel: CancellationToken) -> Pass {
+        Pass {
+            store: self.store.clone(),
+            host: self.host.clone(),
+            clock: self.clock.clone(),
+            auto_resume: self.auto_resume.clone(),
+            log: self.log.clone(),
+            cancel,
+            not_before: Mutex::default(),
+        }
+    }
+
+    /// The delay the one timer would wait now, or none when nothing is queued.
+    pub fn armed_ms(&self) -> Option<u64> {
+        self.pass(CancellationToken::new()).arm()
+    }
+
+    /// `tick()`: runs every due entry now, and answers the delay the timer re-arms for.
+    pub async fn tick(&self) -> Option<u64> {
+        let pass = self.pass(CancellationToken::new());
+        pass.tick().await;
+        pass.arm()
+    }
+
+    /// Starts the clock; entries already due run right away.
+    pub fn start(&self) {
+        let mut started = self.started.lock().unwrap_or_else(PoisonError::into_inner);
+        if started.is_some() {
+            return;
+        }
+        let cancel = CancellationToken::new();
+        let changed = Arc::new(Notify::new());
+        let subscription = {
+            let changed = changed.clone();
+            self.store.subscribe(move |_| changed.notify_one())
+        };
+        let pass = Arc::new(self.pass(cancel.clone()));
+
+        let task = tokio::spawn(async move {
+            let _subscription = subscription;
+            pass.run(changed).await;
+        });
+        *started = Some(Started { cancel, task });
+    }
+
+    pub fn stop(&self) {
+        if let Some(started) = self.started.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            started.cancel.cancel();
+            started.task.abort();
+        }
+    }
+}

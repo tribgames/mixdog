@@ -589,6 +589,24 @@ impl ReadState {
         }
     }
 
+    /// `releaseReadSnapshotScope(scope)` of a closing session (`session-close.mjs:releaseSessionReadCaches`):
+    /// its snapshots leave memory and their last content is written, so a resumed session reads
+    /// them back. (`forget_session` is the deleted session's: the stored copy goes too.)
+    pub fn release_session(&self, scope: &str) {
+        let mut inner = self.shared.lock();
+        match inner.scopes.iter().position(|s| s.key == scope) {
+            Some(at) => {
+                let released = inner.scopes.remove(at);
+                self.shared.release(&mut inner, released, false);
+            }
+            None => {
+                inner.timers.retain(|(s, _)| s != scope);
+                inner.outbox.retain(|job| !matches!(job, Job::Flush { scope: s } if s == scope));
+                inner.hydrated.retain(|k| k != scope);
+            }
+        }
+    }
+
     /// `clearReadSnapshotForPath`: the path's cached answers and every session's snapshot of it,
     /// in memory and in every persisted file.
     pub fn forget_path(&self, path: &str) {
@@ -950,6 +968,20 @@ mod tests {
         state.settle().await;
         assert!(store.load("gone").is_none());
         assert!(state.snapshot(Some("gone"), "/x").is_none());
+    }
+
+    /// `session-close.mjs:releaseSessionReadCaches`: a closing session's snapshots leave memory
+    /// and their last content is saved, where a deleted session's file goes.
+    #[tokio::test]
+    async fn a_closed_session_leaves_memory_but_keeps_its_file() {
+        let store = Arc::new(Memory::default());
+        let state = persistent(store.clone());
+        state.record(Some("closed"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        state.release_session("closed");
+        tokio::time::sleep(DEBOUNCE * 4).await;
+        state.settle().await;
+        assert!(state.shared.lock().scopes.iter().all(|s| s.key != "closed"), "gone from memory");
+        assert!(store.load("closed").unwrap().contains("\"/x\""), "its file is what a resume reads");
     }
 
     #[tokio::test]

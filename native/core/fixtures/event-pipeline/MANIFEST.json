@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-event-pipeline.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 54823,
+      "path": "golden.json",
+      "sha256": "8b3934f78198f245a42b34f6b5525fc593f2132ff68f6af8675a519a26bde66f"
+    }
+  ],
+  "product": {
+    "appsSha256": "04b921c4ae348576f68a0a015207ce668e374e6d3cae8c8fdeff8ff229de0afa",
+    "commit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9241,
+    "refComparison": {
+      "closestCommit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-event-pipeline.mjs",
+  "set": "event-pipeline",
+  "totalBytes": 54823
+}

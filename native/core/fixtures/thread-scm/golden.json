@@ -1,0 +1,670 @@
+{
+  "changes": [
+    {
+      "error": {
+        "message": "turn changes changed; refresh"
+      },
+      "name": "revert: stale revision"
+    },
+    {
+      "name": "revert: one file",
+      "ok": {
+        "canReapply": true,
+        "canUndo": true,
+        "checkpointId": "cp",
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "path": "a.txt",
+            "revertable": true,
+            "state": "reverted",
+            "status": "M"
+          },
+          {
+            "additions": 0,
+            "deletions": 1,
+            "path": "b.txt",
+            "revertable": true,
+            "state": "applied",
+            "status": "D"
+          },
+          {
+            "additions": 1,
+            "deletions": 0,
+            "path": "new.txt",
+            "revertable": true,
+            "state": "applied",
+            "status": "A"
+          }
+        ],
+        "revision": 2,
+        "root": "<repo>",
+        "status": "ready"
+      }
+    },
+    {
+      "error": {
+        "message": "a.txt is already undone"
+      },
+      "name": "revert: same file again"
+    },
+    {
+      "name": "revert: whole turn",
+      "ok": {
+        "canReapply": true,
+        "canUndo": false,
+        "checkpointId": "cp",
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "path": "a.txt",
+            "revertable": true,
+            "state": "reverted",
+            "status": "M"
+          },
+          {
+            "additions": 0,
+            "deletions": 1,
+            "path": "b.txt",
+            "revertable": true,
+            "state": "reverted",
+            "status": "D"
+          },
+          {
+            "additions": 1,
+            "deletions": 0,
+            "path": "new.txt",
+            "revertable": true,
+            "state": "reverted",
+            "status": "A"
+          }
+        ],
+        "reason": "all changes in this turn are already undone",
+        "revision": 3,
+        "root": "<repo>",
+        "status": "ready"
+      }
+    },
+    {
+      "error": {
+        "message": "this turn has no changes to be undone"
+      },
+      "name": "revert: nothing left"
+    },
+    {
+      "error": {
+        "message": "turn changes are unavailable: no record for this turn"
+      },
+      "name": "revert: unknown checkpoint"
+    },
+    {
+      "name": "reapply: one file",
+      "ok": {
+        "canReapply": true,
+        "canUndo": true,
+        "checkpointId": "cp",
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "path": "a.txt",
+            "revertable": true,
+            "state": "reverted",
+            "status": "M"
+          },
+          {
+            "additions": 0,
+            "deletions": 1,
+            "path": "b.txt",
+            "revertable": true,
+            "state": "reverted",
+            "status": "D"
+          },
+          {
+            "additions": 1,
+            "deletions": 0,
+            "path": "new.txt",
+            "revertable": true,
+            "state": "applied",
+            "status": "A"
+          }
+        ],
+        "revision": 4,
+        "root": "<repo>",
+        "status": "ready"
+      }
+    },
+    {
+      "name": "reapply: whole turn",
+      "ok": {
+        "canReapply": false,
+        "canUndo": true,
+        "checkpointId": "cp",
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "path": "a.txt",
+            "revertable": true,
+            "state": "applied",
+            "status": "M"
+          },
+          {
+            "additions": 0,
+            "deletions": 1,
+            "path": "b.txt",
+            "revertable": true,
+            "state": "applied",
+            "status": "D"
+          },
+          {
+            "additions": 1,
+            "deletions": 0,
+            "path": "new.txt",
+            "revertable": true,
+            "state": "applied",
+            "status": "A"
+          }
+        ],
+        "revision": 5,
+        "root": "<repo>",
+        "status": "ready"
+      }
+    },
+    {
+      "error": {
+        "message": "this turn has no changes to be reapplied"
+      },
+      "name": "reapply: nothing left"
+    }
+  ],
+  "note": "workspace steps (getBranchMenu, getSessionWorktreeWork, requestWorktree, selectBranch, mergeWorkspace) and turn-change steps (revertTurnChanges, reapplyTurnChanges) of the real 1.4.5 functions; paths, commit ids and times are masked as <repo>, <data>, <worktree>, <sha>, <time>",
+  "steps": [
+    {
+      "name": "menu: never moved",
+      "ok": {
+        "branches": [
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "dev",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": true,
+            "lastCommitAt": "<time>",
+            "name": "main",
+            "remote": false,
+            "upstream": ""
+          }
+        ],
+        "occupancy": [
+          {
+            "branch": "dev",
+            "kind": "free"
+          },
+          {
+            "branch": "main",
+            "kind": "current",
+            "path": "<repo>"
+          }
+        ],
+        "pendingWorktree": null,
+        "retainedWorktree": null,
+        "warnings": [],
+        "workspace": {
+          "baseCommit": null,
+          "branch": "main",
+          "cwd": "<repo>",
+          "mergeTarget": null,
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": null
+        }
+      }
+    },
+    {
+      "name": "work: no ids",
+      "ok": {
+        "sessionIds": []
+      }
+    },
+    {
+      "name": "work: nothing owned",
+      "ok": {
+        "sessionIds": []
+      }
+    },
+    {
+      "name": "request: armed intent",
+      "ok": {
+        "pending": true,
+        "revision": 0,
+        "workspace": {
+          "baseCommit": null,
+          "branch": null,
+          "cwd": "<repo>",
+          "mergeTarget": null,
+          "projectPath": "<repo>",
+          "repoCommonDir": null,
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": null
+        }
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "worktree name is invalid: a name is required"
+      },
+      "name": "request: bad name type"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "carryChanges must be one of leave, carry."
+      },
+      "name": "request: bad carry choice"
+    },
+    {
+      "error": {
+        "code": "WORKTREE_REVISION_CONFLICT",
+        "details": {
+          "expectedRevision": 3,
+          "revision": 0
+        },
+        "message": "The session workspace changed; reload and try again."
+      },
+      "name": "request: stale revision"
+    },
+    {
+      "name": "menu: intent armed",
+      "ok": {
+        "branches": [
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "dev",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": true,
+            "lastCommitAt": "<time>",
+            "name": "main",
+            "remote": false,
+            "upstream": ""
+          }
+        ],
+        "occupancy": [
+          {
+            "branch": "dev",
+            "kind": "free"
+          },
+          {
+            "branch": "main",
+            "kind": "current",
+            "path": "<repo>"
+          }
+        ],
+        "pendingWorktree": {
+          "name": "feat"
+        },
+        "retainedWorktree": null,
+        "warnings": [],
+        "workspace": {
+          "baseCommit": null,
+          "branch": "main",
+          "cwd": "<repo>",
+          "mergeTarget": null,
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": null
+        }
+      }
+    },
+    {
+      "name": "request: provision",
+      "ok": {
+        "pending": false,
+        "revision": 1,
+        "warnings": [],
+        "workspace": {
+          "baseCommit": "<sha>",
+          "branch": "feat",
+          "cwd": "<worktree>",
+          "mergeTarget": "main",
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 1,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": "feat"
+        }
+      }
+    },
+    {
+      "name": "request: bound already",
+      "ok": {
+        "pending": false,
+        "revision": 1,
+        "workspace": {
+          "baseCommit": "<sha>",
+          "branch": "feat",
+          "cwd": "<worktree>",
+          "mergeTarget": "main",
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 1,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": "feat"
+        }
+      }
+    },
+    {
+      "name": "menu: in worktree",
+      "ok": {
+        "branches": [
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "dev",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "feat",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": true,
+            "lastCommitAt": "<time>",
+            "name": "main",
+            "remote": false,
+            "upstream": ""
+          }
+        ],
+        "occupancy": [
+          {
+            "branch": "dev",
+            "kind": "free"
+          },
+          {
+            "branch": "feat",
+            "kind": "session",
+            "path": "<worktree>",
+            "sessionId": "lead"
+          },
+          {
+            "branch": "main",
+            "kind": "current",
+            "path": "<repo>"
+          }
+        ],
+        "pendingWorktree": null,
+        "retainedWorktree": {
+          "baseCommit": "<sha>",
+          "branch": "feat",
+          "createdAt": "<ms>",
+          "disposable": false,
+          "id": "feat",
+          "mergeTarget": "main",
+          "ownerSessionId": "lead",
+          "path": "<worktree>",
+          "projectPath": "<repo>",
+          "projectSubdir": "",
+          "repoCommonDir": "<repo>/.git",
+          "state": "ready",
+          "warnings": []
+        },
+        "warnings": [],
+        "workspace": {
+          "baseCommit": "<sha>",
+          "branch": "feat",
+          "cwd": "<worktree>",
+          "mergeTarget": "main",
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 1,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": "feat"
+        }
+      }
+    },
+    {
+      "name": "work: clean worktree",
+      "ok": {
+        "sessionIds": []
+      }
+    },
+    {
+      "name": "work: unmerged commit holds",
+      "ok": {
+        "sessionIds": [
+          "lead"
+        ]
+      }
+    },
+    {
+      "error": {
+        "code": "WORKTREE_CONFIRM_REQUIRED",
+        "details": null,
+        "message": "mergeWorkspace requires confirmed: true."
+      },
+      "name": "merge: unconfirmed"
+    },
+    {
+      "error": {
+        "code": "WORKTREE_REVISION_CONFLICT",
+        "details": {
+          "expectedRevision": 9,
+          "revision": 1
+        },
+        "message": "The session workspace changed; reload and try again."
+      },
+      "name": "merge: stale revision"
+    },
+    {
+      "name": "merge: confirmed with cleanup",
+      "ok": {
+        "cleanup": {
+          "code": "WORKTREE_BUSY_JOBS",
+          "message": "Sessions or workers still use an affected folder. Finish or move them before continuing.",
+          "reason": "WORKTREE_BUSY_JOBS",
+          "removed": false
+        },
+        "commit": "<sha>",
+        "merged": true,
+        "revision": 1,
+        "target": "main",
+        "workspace": {
+          "baseCommit": "<sha>",
+          "branch": "feat",
+          "cwd": "<worktree>",
+          "mergeTarget": "main",
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 1,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": "feat"
+        }
+      }
+    },
+    {
+      "name": "select: dev",
+      "ok": {
+        "revision": 2,
+        "workspace": {
+          "baseCommit": "<sha>",
+          "branch": "dev",
+          "cwd": "<data>/worktrees-v1/<project>/dev-2",
+          "mergeTarget": "main",
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 2,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": "dev-2"
+        }
+      }
+    },
+    {
+      "name": "select: dev again",
+      "ok": {
+        "revision": 2,
+        "workspace": {
+          "baseCommit": "<sha>",
+          "branch": "dev",
+          "cwd": "<data>/worktrees-v1/<project>/dev-2",
+          "mergeTarget": "main",
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 2,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": "dev-2"
+        }
+      }
+    },
+    {
+      "error": {
+        "code": "WORKTREE_MISSING",
+        "details": null,
+        "message": "Branch does not exist."
+      },
+      "name": "select: unknown branch"
+    },
+    {
+      "error": {
+        "code": "WORKTREE_REVISION_CONFLICT",
+        "details": {
+          "expectedRevision": 40,
+          "revision": 2
+        },
+        "message": "The session workspace changed; reload and try again."
+      },
+      "name": "select: stale revision"
+    },
+    {
+      "name": "menu: on dev",
+      "ok": {
+        "branches": [
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "dev",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "feat",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": true,
+            "lastCommitAt": "<time>",
+            "name": "main",
+            "remote": false,
+            "upstream": ""
+          }
+        ],
+        "occupancy": [
+          {
+            "branch": "dev",
+            "kind": "session",
+            "path": "<data>/worktrees-v1/<project>/dev-2",
+            "sessionId": "lead"
+          },
+          {
+            "branch": "feat",
+            "kind": "session",
+            "path": "<worktree>",
+            "sessionId": "lead"
+          },
+          {
+            "branch": "main",
+            "kind": "current",
+            "path": "<repo>"
+          }
+        ],
+        "pendingWorktree": null,
+        "retainedWorktree": {
+          "baseCommit": "<sha>",
+          "branch": "dev",
+          "createdAt": "<ms>",
+          "disposable": false,
+          "id": "dev-2",
+          "mergeTarget": null,
+          "ownerSessionId": "lead",
+          "path": "<data>/worktrees-v1/<project>/dev-2",
+          "projectPath": "<repo>",
+          "projectSubdir": "",
+          "repoCommonDir": "<repo>/.git",
+          "state": "ready",
+          "warnings": []
+        },
+        "warnings": [],
+        "workspace": {
+          "baseCommit": "<sha>",
+          "branch": "dev",
+          "cwd": "<data>/worktrees-v1/<project>/dev-2",
+          "mergeTarget": "main",
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 2,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": "dev-2"
+        }
+      }
+    },
+    {
+      "name": "work: merged but retained",
+      "ok": {
+        "sessionIds": []
+      }
+    }
+  ]
+}

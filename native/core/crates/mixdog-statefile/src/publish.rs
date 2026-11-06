@@ -403,3 +403,20 @@ pub(crate) fn publish<L: WriteLane>(
     }
     result
 }
+
+/// `readdirSync(path)`: the names in a directory, in the order the OS lists them.
+pub fn list_dir<L: IoLane>(_lane: &InLane<L>, path: &Path) -> io::Result<Vec<String>> {
+    fs::read_dir(path)?.map(|entry| entry.map(|e| e.file_name().to_string_lossy().into_owned())).collect()
+}
+
+/// `readSync` of up to `len` bytes starting at `offset`; shorter when the file ends first.
+pub fn read_range<L: IoLane>(_lane: &InLane<L>, path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+    use std::io::Read;
+    use std::io::Seek;
+    use std::io::SeekFrom;
+    let mut file = fs::File::open(path)?;
+    file.seek(SeekFrom::Start(offset))?;
+    let mut buf = Vec::new();
+    file.take(len as u64).read_to_end(&mut buf)?;
+    Ok(buf)
+}

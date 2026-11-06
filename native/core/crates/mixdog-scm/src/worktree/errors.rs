@@ -134,6 +134,21 @@ pub fn target_mismatch(target: Option<String>, current: Option<String>, expected
     )
 }
 
+/// `target_mismatch` with the text its Node producer wrote (each producer words it for its own caller).
+pub fn target_mismatch_text(
+    message: String,
+    target: Option<String>,
+    current: Option<String>,
+    expected: Option<String>,
+    actual: Option<String>,
+) -> ScmFailure {
+    ScmFailure::coded_with_message(
+        WORKTREE_TARGET_MISMATCH,
+        DomainErrorDetail::WorktreeTargetMismatch { target, current, expected, actual },
+        message,
+    )
+}
+
 pub fn unsupported_repo(project_path: Option<String>, reason_file: Option<String>) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_UNSUPPORTED_REPO,
@@ -158,6 +173,16 @@ pub fn project_unknown(project_path: String, reason: &str) -> ScmFailure {
     )
 }
 
+/// `inspectProjectBranch` of a branch git no longer has: the code with its own text and no details.
+pub fn branch_missing() -> ScmFailure {
+    ScmFailure::Coded {
+        domain: crate::error::WORKTREE_DOMAIN,
+        code: WORKTREE_MISSING,
+        detail: None,
+        message: Some("The local branch no longer exists.".into()),
+    }
+}
+
 pub fn missing(entry_id: Option<String>, worktree_id: Option<String>, path: Option<String>) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_MISSING,
@@ -180,6 +205,22 @@ pub fn revision_conflict(entry_id: Option<String>) -> ScmFailure {
             expected_revision: None,
             revision: None,
         },
+    )
+}
+
+/// `revision_conflict` with the text of the branch-management producer.
+pub fn branch_revision_conflict() -> ScmFailure {
+    ScmFailure::coded_with_message(
+        WORKTREE_REVISION_CONFLICT,
+        DomainErrorDetail::WorktreeRevisionConflict {
+            entry_id: None,
+            remaining: None,
+            branch: None,
+            tx_id: None,
+            expected_revision: None,
+            revision: None,
+        },
+        "The branch changed; reopen the menu and confirm again.".to_owned(),
     )
 }
 

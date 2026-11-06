@@ -92,6 +92,7 @@ fn sonnet_caps() -> ModelCaps {
     ModelCaps {
         adaptive_thinking: true,
         manual_thinking: false,
+        ladder_stated: false,
         effort_levels: vec!["low".into(), "medium".into(), "high".into()],
         max_output_tokens: Some(16384),
         fast_mode: false,

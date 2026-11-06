@@ -1,0 +1,1102 @@
+{
+  "cases": [
+    {
+      "armed": null,
+      "entries": [],
+      "name": "empty queue",
+      "scheduled": [],
+      "steps": []
+    },
+    {
+      "armed": 5000,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 5000,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "name": "future entry waits then fires",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 5000,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": 5000,
+          "fire": [],
+          "log": [],
+          "queue": [
+            {
+              "attempts": 0,
+              "generation": 1,
+              "resetAt": 5000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": []
+        },
+        {
+          "advance": 5000,
+          "armed": null,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=fired"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 2147483647,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 3000000000,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "name": "timer is capped",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 3000000000,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": []
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": -10,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "name": "overdue entry",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": -10,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": null,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=fired"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 4000,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 9000,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        },
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 4000,
+          "sessionId": "s2",
+          "turnKey": "turn:s2"
+        }
+      ],
+      "name": "earliest of two",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 9000,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        },
+        {
+          "attempts": 0,
+          "generation": 2,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 4000,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s2",
+          "turnKey": "turn:s2"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 4000,
+          "armed": 5000,
+          "fire": [
+            {
+              "generation": 2,
+              "sessionId": "s2"
+            }
+          ],
+          "log": [
+            "quota resume session=s2 outcome=fired"
+          ],
+          "queue": [
+            {
+              "attempts": 0,
+              "generation": 1,
+              "resetAt": 9000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        },
+        {
+          "advance": 5000,
+          "armed": null,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=fired"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "name": "exhausted retries once",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": 300000,
+          "fire": [],
+          "log": [
+            "quota resume session=s1 outcome=exhausted-retry"
+          ],
+          "queue": [
+            {
+              "attempts": 1,
+              "generation": 1,
+              "resetAt": 300000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        },
+        {
+          "advance": 300000,
+          "armed": null,
+          "fire": [],
+          "log": [
+            "quota resume session=s1 outcome=exhausted"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ],
+      "usable": false
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "fire": "busy",
+      "name": "busy rechecks without an attempt",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": 30000,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=busy"
+          ],
+          "queue": [
+            {
+              "attempts": 0,
+              "generation": 1,
+              "resetAt": 30000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        },
+        {
+          "advance": 30000,
+          "armed": 30000,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=busy"
+          ],
+          "queue": [
+            {
+              "attempts": 0,
+              "generation": 1,
+              "resetAt": 60000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "fire": "rejected",
+      "name": "rejected rechecks",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": 30000,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=rejected"
+          ],
+          "queue": [
+            {
+              "attempts": 0,
+              "generation": 1,
+              "resetAt": 30000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "fire": "stale",
+      "name": "stale settles",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": null,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=stale"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "fire": "superseded",
+      "name": "superseded settles",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": null,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=superseded"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "fire": "unreplayable",
+      "name": "unreplayable settles",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": null,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=unreplayable"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "fire": {
+        "fail": "lane gone"
+      },
+      "name": "fire throws",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": 300000,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume failed session=s1: lane gone"
+          ],
+          "queue": [
+            {
+              "attempts": 0,
+              "generation": 1,
+              "resetAt": 300000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "materialize": "no such session",
+      "name": "session cannot load",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": null,
+          "fire": [],
+          "log": [
+            "quota resume could not load session=s1: no such session",
+            "quota resume session=s1 outcome=unavailable"
+          ],
+          "queue": [],
+          "usable": []
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "name": "usage reading fails",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": 300000,
+          "fire": [],
+          "log": [
+            "quota resume usage reading failed provider=openai-oauth: timeout",
+            "quota resume session=s1 outcome=exhausted-retry"
+          ],
+          "queue": [
+            {
+              "attempts": 1,
+              "generation": 1,
+              "resetAt": 300000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ],
+      "usable": {
+        "fail": "timeout"
+      }
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "name": "pc disconnected",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": 300000,
+          "fire": [],
+          "log": [
+            "quota resume failed session=s1: pc offline"
+          ],
+          "queue": [
+            {
+              "attempts": 0,
+              "generation": 1,
+              "resetAt": 300000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ],
+      "usable": {
+        "proxy": "pc offline"
+      }
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "name": "route changes under the reading",
+      "routes": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth"
+        },
+        {
+          "model": "claude-y",
+          "provider": "anthropic"
+        }
+      ],
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": 30000,
+          "fire": [],
+          "log": [
+            "quota resume session=s1 outcome=route-changed"
+          ],
+          "queue": [
+            {
+              "attempts": 0,
+              "generation": 1,
+              "resetAt": 30000,
+              "sessionId": "s1"
+            }
+          ],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "name": "session route unknown uses the entry",
+      "routes": [
+        {
+          "model": "",
+          "provider": ""
+        }
+      ],
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": null,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=fired"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "name": "session on another route",
+      "routes": [
+        {
+          "model": "claude-y",
+          "provider": "anthropic"
+        }
+      ],
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": null,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=fired"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "claude-y",
+              "provider": "anthropic"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "autoResume": false,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        },
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 100,
+          "sessionId": "s2",
+          "turnKey": "turn:s2"
+        }
+      ],
+      "name": "setting off cancels all",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        },
+        {
+          "attempts": 0,
+          "generation": 2,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 100,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s2",
+          "turnKey": "turn:s2"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": null,
+          "fire": [],
+          "log": [
+            "quota resume off: pending resumes cancelled"
+          ],
+          "queue": [],
+          "usable": []
+        }
+      ]
+    },
+    {
+      "armed": 0,
+      "entries": [
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        },
+        {
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetIn": 0,
+          "sessionId": "s2",
+          "turnKey": "turn:s2"
+        }
+      ],
+      "name": "two due in one pass",
+      "scheduled": [
+        {
+          "attempts": 0,
+          "generation": 1,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s1",
+          "turnKey": "turn:s1"
+        },
+        {
+          "attempts": 0,
+          "generation": 2,
+          "model": "gpt-x",
+          "provider": "openai-oauth",
+          "resetAt": 0,
+          "routeModel": "",
+          "routeProvider": "",
+          "sessionId": "s2",
+          "turnKey": "turn:s2"
+        }
+      ],
+      "steps": [
+        {
+          "advance": 0,
+          "armed": null,
+          "fire": [
+            {
+              "generation": 1,
+              "sessionId": "s1"
+            },
+            {
+              "generation": 2,
+              "sessionId": "s2"
+            }
+          ],
+          "log": [
+            "quota resume session=s1 outcome=fired",
+            "quota resume session=s2 outcome=fired"
+          ],
+          "queue": [],
+          "usable": [
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            },
+            {
+              "model": "gpt-x",
+              "provider": "openai-oauth"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "domain": "quota-scheduler",
+  "now": 1000000,
+  "recorder": "benchmarks/rust-core/recorders/record-quota-scheduler.mjs"
+}

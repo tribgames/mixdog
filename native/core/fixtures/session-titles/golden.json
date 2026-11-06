@@ -1,0 +1,1390 @@
+{
+  "completion": [
+    {
+      "inits": [
+        {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          },
+          "signal": true
+        }
+      ],
+      "name": "a route sends one title request",
+      "options": {
+        "locale": "ko-KR",
+        "sessionId": "s1"
+      },
+      "result": {
+        "ok": "Build fix"
+      },
+      "route": {
+        "model": "gpt-x",
+        "provider": "openai"
+      },
+      "sent": [
+        {
+          "agent": "title-agent"
+        },
+        {
+          "hasSignal": true,
+          "messages": [
+            {
+              "content": "Create a concise, natural session title of 3-7 words that captures the main topic or goal of the provided message or conversation. Output only one title on one line, at most 32 characters; no quotes, markdown, or trailing period. System language/locale: ko-KR. Prefer that language when the source is ambiguous; preserve a clearly different source language.",
+              "role": "system"
+            },
+            {
+              "content": "Fix the build",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-x",
+          "opts": {
+            "effort": "low",
+            "fast": false,
+            "maxOutputTokens": 128,
+            "promptCacheScope": "shared",
+            "retry529": false,
+            "sourceType": "session-title",
+            "usageSessionId": "s1"
+          },
+          "tools": null
+        }
+      ],
+      "source": "  Fix the build  "
+    },
+    {
+      "inits": [
+        {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          },
+          "signal": true
+        }
+      ],
+      "name": "effort fast and the cache role follow the route",
+      "options": {
+        "locale": "",
+        "sessionId": "s2"
+      },
+      "result": {
+        "ok": "Title"
+      },
+      "route": {
+        "effort": " medium ",
+        "fast": true,
+        "model": "haiku",
+        "provider": "anthropic"
+      },
+      "sent": [
+        {
+          "agent": "title-agent"
+        },
+        {
+          "hasSignal": true,
+          "messages": [
+            {
+              "content": "Create a concise, natural session title of 3-7 words that captures the main topic or goal of the provided message or conversation. Output only one title on one line, at most 32 characters; no quotes, markdown, or trailing period.",
+              "role": "system"
+            },
+            {
+              "content": "text",
+              "role": "user"
+            }
+          ],
+          "model": "haiku",
+          "opts": {
+            "cacheStrategy": {
+              "messages": "none",
+              "system": "1h",
+              "tier3": "1h",
+              "tools": "none"
+            },
+            "effort": "medium",
+            "fast": true,
+            "maxOutputTokens": 128,
+            "promptCacheScope": "shared",
+            "retry529": false,
+            "sourceType": "session-title",
+            "usageSessionId": "s2"
+          },
+          "tools": null
+        }
+      ],
+      "source": "text"
+    },
+    {
+      "inits": [
+        {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          },
+          "signal": true
+        }
+      ],
+      "name": "no session id sends none and structured replies are joined",
+      "options": {},
+      "result": {
+        "ok": "A\nB"
+      },
+      "route": {
+        "model": "m",
+        "provider": "openai"
+      },
+      "sent": [
+        {
+          "agent": "title-agent"
+        },
+        {
+          "hasSignal": true,
+          "messages": [
+            {
+              "content": "Create a concise, natural session title of 3-7 words that captures the main topic or goal of the provided message or conversation. Output only one title on one line, at most 32 characters; no quotes, markdown, or trailing period.",
+              "role": "system"
+            },
+            {
+              "content": "text",
+              "role": "user"
+            }
+          ],
+          "model": "m",
+          "opts": {
+            "effort": "low",
+            "fast": false,
+            "maxOutputTokens": 128,
+            "promptCacheScope": "shared",
+            "retry529": false,
+            "sourceType": "session-title"
+          },
+          "tools": null
+        }
+      ],
+      "source": "text"
+    },
+    {
+      "inits": [],
+      "name": "an empty source is no request",
+      "options": {},
+      "result": {
+        "ok": ""
+      },
+      "route": {
+        "model": "m",
+        "provider": "openai"
+      },
+      "sent": [],
+      "source": "   "
+    },
+    {
+      "inits": [],
+      "name": "an unresolved route carries the machine marker",
+      "options": {},
+      "result": {
+        "code": "MAINTENANCE_ROUTE_UNRESOLVED",
+        "error": "Session title maintenance route is unresolved."
+      },
+      "route": null,
+      "sent": [
+        {
+          "agent": "title-agent"
+        }
+      ],
+      "source": "text"
+    },
+    {
+      "inits": [],
+      "name": "a route without a model is refused",
+      "options": {},
+      "result": {
+        "code": null,
+        "error": "Session title maintenance route requires provider and model."
+      },
+      "route": {
+        "model": " ",
+        "provider": "openai"
+      },
+      "sent": [
+        {
+          "agent": "title-agent"
+        }
+      ],
+      "source": "text"
+    },
+    {
+      "inits": [
+        {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          },
+          "signal": true
+        }
+      ],
+      "name": "a missing provider is refused",
+      "options": {},
+      "result": {
+        "code": null,
+        "error": "Session title provider is unavailable: ghost"
+      },
+      "route": {
+        "model": "m",
+        "provider": "ghost"
+      },
+      "sent": [
+        {
+          "agent": "title-agent"
+        }
+      ],
+      "source": "text"
+    },
+    {
+      "inits": [
+        {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          },
+          "signal": true
+        }
+      ],
+      "name": "a provider init failure escapes",
+      "options": {},
+      "result": {
+        "code": null,
+        "error": "init exploded"
+      },
+      "route": {
+        "model": "m",
+        "provider": "openai"
+      },
+      "sent": [
+        {
+          "agent": "title-agent"
+        }
+      ],
+      "source": "text"
+    }
+  ],
+  "controller": [
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "s1",
+          "source": "please fix the build"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=s1 stage=first chars=20",
+        "[mixdog] llm-title generated id=s1 stage=first title=\"Fix the build\""
+      ],
+      "name": "a plain first prompt is titled by the model",
+      "promoted": [
+        {
+          "id": "s1",
+          "stage": "first",
+          "title": "Fix the build"
+        }
+      ],
+      "steps": [
+        {
+          "op": "first",
+          "prompt": "please fix the build",
+          "returned": true,
+          "session": {
+            "id": "s1",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [],
+      "logs": [
+        "[mixdog] llm-title generated id=g1 stage=first title=\"Greeting\" deterministic=greeting",
+        "[mixdog] llm-title generated id=g2 stage=first title=\"인사\" deterministic=greeting",
+        "[mixdog] llm-title generated id=g3 stage=first title=\"Greeting\" deterministic=greeting",
+        "[mixdog] llm-title generated id=g4 stage=first title=\"Greeting\" deterministic=greeting"
+      ],
+      "name": "a greeting is titled without the model",
+      "promoted": [
+        {
+          "id": "g1",
+          "stage": "first",
+          "title": "Greeting"
+        },
+        {
+          "id": "g2",
+          "stage": "first",
+          "title": "인사"
+        },
+        {
+          "id": "g3",
+          "stage": "first",
+          "title": "Greeting"
+        },
+        {
+          "id": "g4",
+          "stage": "first",
+          "title": "Greeting"
+        }
+      ],
+      "steps": [
+        {
+          "op": "first",
+          "prompt": "hi!",
+          "returned": true,
+          "session": {
+            "id": "g1",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": " 안녕하세요 ",
+          "returned": true,
+          "session": {
+            "id": "g2",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "Hello",
+          "returned": true,
+          "session": {
+            "id": "g3",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "HEY?!",
+          "returned": true,
+          "session": {
+            "id": "g4",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "o1",
+          "source": "work"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=o1 stage=first chars=4",
+        "[mixdog] llm-title generated id=o1 stage=first title=\"One\""
+      ],
+      "name": "a first title is tried once per session",
+      "promoted": [
+        {
+          "id": "o1",
+          "stage": "first",
+          "title": "One"
+        }
+      ],
+      "steps": [
+        {
+          "op": "first",
+          "prompt": "work",
+          "returned": true,
+          "session": {
+            "id": "o1",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "work again",
+          "returned": false,
+          "session": {
+            "id": "o1",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [],
+      "logs": [],
+      "name": "a locked or already titled session is skipped",
+      "promoted": [],
+      "steps": [
+        {
+          "op": "first",
+          "prompt": "work",
+          "returned": false,
+          "session": {
+            "id": "l1",
+            "messages": [],
+            "titleLocked": true
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "work",
+          "returned": false,
+          "session": {
+            "generatedTitleStage": "first",
+            "id": "l2",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "work",
+          "returned": false,
+          "session": {
+            "generatedTitleStage": "third",
+            "id": "l3",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "work",
+          "returned": false,
+          "session": {
+            "id": "",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "p2",
+          "source": "hello there friend"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=p2 stage=first chars=18",
+        "[mixdog] llm-title generated id=p2 stage=first title=\"\""
+      ],
+      "name": "a session that already has a user message is not a first turn",
+      "promoted": [],
+      "steps": [
+        {
+          "op": "first",
+          "prompt": "work",
+          "returned": false,
+          "session": {
+            "id": "p1",
+            "messages": [
+              {
+                "content": "earlier",
+                "role": "user"
+              }
+            ]
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "hello there friend",
+          "returned": true,
+          "session": {
+            "id": "p2",
+            "messages": [
+              {
+                "content": "[mixdog-runtime] note",
+                "role": "user"
+              },
+              {
+                "content": "   ",
+                "role": "user"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "calls": [],
+      "logs": [],
+      "name": "a noise or empty prompt has no source",
+      "promoted": [],
+      "steps": [
+        {
+          "op": "first",
+          "prompt": "",
+          "returned": false,
+          "session": {
+            "id": "n1",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "[mixdog-runtime] hidden",
+          "returned": false,
+          "session": {
+            "id": "n2",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "!!! ???",
+          "returned": false,
+          "session": {
+            "id": "n3",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "ROUTINE_QUIET",
+          "returned": false,
+          "session": {
+            "id": "n4",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "c1",
+          "source": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=c1 stage=first chars=4000",
+        "[mixdog] llm-title generated id=c1 stage=first title=\"Long\""
+      ],
+      "name": "a long prompt is cleaned and cut to 4000 units for the model",
+      "promoted": [
+        {
+          "id": "c1",
+          "stage": "first",
+          "title": "Long"
+        }
+      ],
+      "steps": [
+        {
+          "op": "first",
+          "prompt": "word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  \n\n tail",
+          "returned": true,
+          "session": {
+            "id": "c1",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "a1",
+          "source": "work"
+        },
+        {
+          "locale": "ko-KR",
+          "sessionId": "a2",
+          "source": "work"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=a1 stage=first chars=4",
+        "[mixdog] llm-title generated id=a1 stage=first title=\"Late\"",
+        "[mixdog] llm-title start id=a2 stage=first chars=4",
+        "[mixdog] llm-title generated id=a2 stage=first title=\"\""
+      ],
+      "name": "the first title waits for its release and is dropped when the release fails",
+      "promoted": [
+        {
+          "id": "a1",
+          "stage": "first",
+          "title": "Late"
+        }
+      ],
+      "steps": [
+        {
+          "after": "resolve",
+          "op": "first",
+          "prompt": "work",
+          "returned": true,
+          "session": {
+            "id": "a1",
+            "messages": []
+          }
+        },
+        {
+          "after": "reject",
+          "op": "first",
+          "prompt": "work",
+          "returned": true,
+          "session": {
+            "id": "a2",
+            "messages": []
+          }
+        },
+        {
+          "after": null,
+          "op": "first",
+          "prompt": "work",
+          "returned": true,
+          "session": {
+            "id": "a2",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "t1",
+          "source": "User: question 1\nAssistant: answer 1\nUser: question 2\nAssistant: answer 2\nUser: question 3\nAssistant: answer 3"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=t1 stage=third chars=110",
+        "[mixdog] llm-title generated id=t1 stage=third title=\"Three turns\""
+      ],
+      "name": "the third title takes the first three completed exchanges",
+      "promoted": [
+        {
+          "id": "t1",
+          "stage": "third",
+          "title": "Three turns"
+        }
+      ],
+      "steps": [
+        {
+          "op": "third",
+          "returned": false,
+          "session": {
+            "id": "t1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              }
+            ]
+          }
+        },
+        {
+          "op": "third",
+          "returned": true,
+          "session": {
+            "id": "t1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              },
+              {
+                "content": "question 4",
+                "role": "user"
+              },
+              {
+                "content": "answer 4",
+                "role": "assistant"
+              }
+            ]
+          }
+        },
+        {
+          "op": "third",
+          "returned": false,
+          "session": {
+            "id": "t1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "f1",
+          "source": "User: first ask\nAssistant: final one\nUser: second ask\nAssistant: second reply\nUser: third ask\nAssistant: third reply"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=f1 stage=third chars=116",
+        "[mixdog] llm-title generated id=f1 stage=third title=\"Filtered\""
+      ],
+      "name": "the third title leaves out tools, injected rows and reasoning",
+      "promoted": [
+        {
+          "id": "f1",
+          "stage": "third",
+          "title": "Filtered"
+        }
+      ],
+      "steps": [
+        {
+          "op": "third",
+          "returned": true,
+          "session": {
+            "id": "f1",
+            "messages": [
+              {
+                "content": "rules",
+                "role": "system"
+              },
+              {
+                "content": "first ask",
+                "role": "user"
+              },
+              {
+                "content": "<think>hidden</think>working",
+                "role": "assistant"
+              },
+              {
+                "content": "result",
+                "role": "tool"
+              },
+              {
+                "content": [
+                  {
+                    "text": "final one",
+                    "type": "text"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": "second",
+                "role": "user",
+                "synthetic": true
+              },
+              {
+                "content": "second ask",
+                "role": "user"
+              },
+              {
+                "content": "second answer",
+                "internal": true,
+                "role": "assistant"
+              },
+              {
+                "content": "second reply",
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "text": "third"
+                  },
+                  {
+                    "text": "ask"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": {
+                  "text": "third reply"
+                },
+                "role": "assistant"
+              },
+              {
+                "content": "dangling",
+                "role": "user"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "calls": [],
+      "logs": [],
+      "name": "a locked session or one past its third title is not retitled",
+      "promoted": [],
+      "steps": [
+        {
+          "op": "third",
+          "returned": false,
+          "session": {
+            "id": "k1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ],
+            "titleLocked": true
+          }
+        },
+        {
+          "op": "third",
+          "returned": false,
+          "session": {
+            "generatedTitleStage": "third",
+            "id": "k2",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "r1",
+          "source": "User: question 1\nAssistant: answer 1\nUser: question 2\nAssistant: answer 2\nUser: question 3\nAssistant: answer 3"
+        },
+        {
+          "locale": "ko-KR",
+          "sessionId": "r1",
+          "source": "User: question 1\nAssistant: answer 1\nUser: question 2\nAssistant: answer 2\nUser: question 3\nAssistant: answer 3"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=r1 stage=third chars=110",
+        "[mixdog] llm-title failed id=r1 stage=third error=Error: provider down",
+        "[mixdog] llm-title start id=r1 stage=third chars=110",
+        "[mixdog] llm-title generated id=r1 stage=third title=\"Second try\""
+      ],
+      "name": "a failed generation releases the session to try again",
+      "promoted": [
+        {
+          "id": "r1",
+          "stage": "third",
+          "title": "Second try"
+        }
+      ],
+      "steps": [
+        {
+          "op": "third",
+          "returned": true,
+          "session": {
+            "id": "r1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ]
+          }
+        },
+        {
+          "op": "third",
+          "returned": true,
+          "session": {
+            "id": "r1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "u1",
+          "source": "User: question 1\nAssistant: answer 1\nUser: question 2\nAssistant: answer 2\nUser: question 3\nAssistant: answer 3"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=u1 stage=third chars=110",
+        "[mixdog] llm-title disabled stage=third (maintenance route unresolved; llm titling off)",
+        "[mixdog] llm-title generated id=u4 stage=first title=\"Greeting\" deterministic=greeting"
+      ],
+      "name": "an unresolved route disables the model titles for good",
+      "promoted": [
+        {
+          "id": "u4",
+          "stage": "first",
+          "title": "Greeting"
+        }
+      ],
+      "steps": [
+        {
+          "op": "third",
+          "returned": true,
+          "session": {
+            "id": "u1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ]
+          }
+        },
+        {
+          "op": "third",
+          "returned": false,
+          "session": {
+            "id": "u2",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ]
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "work",
+          "returned": true,
+          "session": {
+            "id": "u3",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "hello",
+          "returned": true,
+          "session": {
+            "id": "u4",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "e1",
+          "source": "work 1"
+        },
+        {
+          "locale": "ko-KR",
+          "sessionId": "e2",
+          "source": "work 2"
+        },
+        {
+          "locale": "ko-KR",
+          "sessionId": "e3",
+          "source": "work 3"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=e1 stage=first chars=6",
+        "[mixdog] llm-title generated id=e1 stage=first title=\"\"",
+        "[mixdog] llm-title start id=e2 stage=first chars=6",
+        "[mixdog] llm-title generated id=e2 stage=first title=\"\"",
+        "[mixdog] llm-title start id=e3 stage=first chars=6",
+        "[mixdog] llm-title generated id=e3 stage=first title=\"\""
+      ],
+      "name": "an empty or unusable answer promotes nothing",
+      "promoted": [],
+      "steps": [
+        {
+          "op": "first",
+          "prompt": "work 1",
+          "returned": true,
+          "session": {
+            "id": "e1",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "work 2",
+          "returned": true,
+          "session": {
+            "id": "e2",
+            "messages": []
+          }
+        },
+        {
+          "op": "first",
+          "prompt": "work 3",
+          "returned": true,
+          "session": {
+            "id": "e3",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "h1",
+          "source": "User: question 1\nAssistant: answer 1\nUser: question 2\nAssistant: answer 2\nUser: question 3\nAssistant: answer 3"
+        },
+        {
+          "locale": "ko-KR",
+          "sessionId": "h1",
+          "source": "User: question 1\nAssistant: answer 1\nUser: question 2\nAssistant: answer 2\nUser: question 3\nAssistant: answer 3"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=h1 stage=third chars=110",
+        "[mixdog] llm-title failed id=h1 stage=third error=Error: Session title generation timed out.",
+        "[mixdog] llm-title start id=h1 stage=third chars=110",
+        "[mixdog] llm-title generated id=h1 stage=third title=\"After\""
+      ],
+      "name": "a generation that outlives its timeout fails and is released",
+      "promoted": [
+        {
+          "id": "h1",
+          "stage": "third",
+          "title": "After"
+        }
+      ],
+      "steps": [
+        {
+          "op": "third",
+          "returned": true,
+          "session": {
+            "id": "h1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ]
+          }
+        },
+        {
+          "op": "third",
+          "returned": true,
+          "session": {
+            "id": "h1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "locale": "ko-KR",
+          "sessionId": "x1",
+          "source": "work"
+        }
+      ],
+      "logs": [
+        "[mixdog] llm-title start id=x1 stage=first chars=4",
+        "[mixdog] llm-title generated id=x1 stage=first title=\"Refused\""
+      ],
+      "name": "a promotion the session refuses is only logged",
+      "promoted": [
+        {
+          "id": "x1",
+          "stage": "first",
+          "title": "Refused"
+        }
+      ],
+      "steps": [
+        {
+          "op": "first",
+          "prompt": "work",
+          "returned": true,
+          "session": {
+            "id": "x1",
+            "messages": []
+          }
+        }
+      ]
+    },
+    {
+      "calls": [],
+      "logs": [],
+      "name": "disposing ends later titles",
+      "promoted": [],
+      "steps": [
+        {
+          "op": "dispose",
+          "returned": null
+        },
+        {
+          "op": "first",
+          "prompt": "work",
+          "returned": false,
+          "session": {
+            "id": "d1",
+            "messages": []
+          }
+        },
+        {
+          "op": "third",
+          "returned": false,
+          "session": {
+            "id": "d1",
+            "messages": [
+              {
+                "content": "question 1",
+                "role": "user"
+              },
+              {
+                "content": "answer 1",
+                "role": "assistant"
+              },
+              {
+                "content": "question 2",
+                "role": "user"
+              },
+              {
+                "content": "answer 2",
+                "role": "assistant"
+              },
+              {
+                "content": "question 3",
+                "role": "user"
+              },
+              {
+                "content": "answer 3",
+                "role": "assistant"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

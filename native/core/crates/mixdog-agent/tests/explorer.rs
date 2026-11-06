@@ -184,6 +184,7 @@ fn env() -> RunEnv {
         reuse: None,
         reactions: None,
         tail: None,
+        side: None,
         step_judge: None,
         artifacts: None,
         images: None,

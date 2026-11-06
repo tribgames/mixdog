@@ -301,10 +301,13 @@ impl AgentEffects for NoEffects {
     async fn set_agent_route(&self, _: &str, _: &Value) -> Result<(), String> {
         Ok(())
     }
+    async fn delete_owned_routines(&self, _: &str) -> Result<OwnedRoutines, String> {
+        Ok(OwnedRoutines::default())
+    }
 }
 
 /// An editor over a fresh data folder whose config file holds `agent`.
-async fn writable(agent: Value) -> (tempfile::TempDir, AgentDefinitions) {
+pub(super) async fn writable(agent: Value) -> (tempfile::TempDir, AgentDefinitions) {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
@@ -320,8 +323,22 @@ async fn writable(agent: Value) -> (tempfile::TempDir, AgentDefinitions) {
         Arc::new(|| Value::Null),
         dir.path().join("workspace"),
     )
-    .with_writes(tokens.durability_io, Arc::new(NoEffects), Arc::new(String::new));
+    .with_writes(tokens.durability_io, Arc::new(NoEffects), Arc::new(|| "2023-11-14T22:13:20.000Z".to_owned()));
     (dir, agents)
+}
+
+#[tokio::test]
+async fn a_connector_edit_keeps_the_definition_and_a_removed_policy_reads_as_none() {
+    let (dir, agents) = writable(json!({})).await;
+    agents.save(json!({ "name": "Switchy", "body": "Body" }).as_object().unwrap()).await.unwrap();
+    assert_eq!(agents.connector_policy("switchy").await.unwrap().json(), Value::Null);
+    let stored = agents.update_connector_policy("switchy", |_| Ok(json!({ "off": ["gmail", "gmail", "drive"] }))).await.unwrap();
+    assert_eq!(stored.json(), json!({ "off": ["drive", "gmail"], "tools": {} }));
+    assert!(!stored.enabled("gmail") && stored.enabled("other"));
+    let file = std::fs::read_to_string(dir.path().join("data/agents/switchy/AGENT.md")).unwrap();
+    assert!(file.contains("Body") && file.contains("Switchy"));
+    let cleared = agents.update_connector_policy("switchy", |_| Ok(Value::Null)).await.unwrap();
+    assert_eq!(cleared.json(), Value::Null);
 }
 
 #[tokio::test]

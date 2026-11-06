@@ -1,0 +1,1378 @@
+{
+  "cursors": [
+    {
+      "cursor": "",
+      "decoded": null
+    },
+    {
+      "cursor": null,
+      "decoded": null
+    },
+    {
+      "cursor": "bm90IGpzb24",
+      "error": "EINVALIDCURSOR"
+    },
+    {
+      "cursor": "WzcsIngiXQ",
+      "decoded": {
+        "activity": 7,
+        "id": "x"
+      }
+    },
+    {
+      "cursor": "WzEsMl0",
+      "error": "EINVALIDCURSOR"
+    },
+    {
+      "cursor": "WyJhIiwiYiJd",
+      "error": "EINVALIDCURSOR"
+    },
+    {
+      "cursor": "WzVd",
+      "error": "EINVALIDCURSOR"
+    },
+    {
+      "cursor": "!!!",
+      "error": "EINVALIDCURSOR"
+    }
+  ],
+  "note": "_sessionSummary + isLeadVisibleRow + the catalog keyset helpers over crafted records, paged as listStoredSessionSummaryPage pages (limit rules, nextCursor)",
+  "sessions": [
+    {
+      "activity": 3000,
+      "leadVisible": true,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_a",
+        "messages": [],
+        "title": "first",
+        "updatedAt": 3000
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_a",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "first",
+        "toolPermission": null,
+        "updatedAt": 3000,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 3000,
+      "leadVisible": true,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_b",
+        "messages": [],
+        "title": "second",
+        "updatedAt": 3000
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_b",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "second",
+        "toolPermission": null,
+        "updatedAt": 3000,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 5000,
+      "leadVisible": true,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_c",
+        "lastUsedAt": 5000,
+        "messages": [],
+        "title": "used later",
+        "updatedAt": 1000
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_c",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 5000,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "used later",
+        "toolPermission": null,
+        "updatedAt": 1000,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 2500,
+      "leadVisible": true,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_d",
+        "messages": [],
+        "sourceType": "cli",
+        "title": "cli",
+        "updatedAt": 2500
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_d",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": "cli",
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "cli",
+        "toolPermission": null,
+        "updatedAt": 2500,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 2600,
+      "leadVisible": false,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_e",
+        "messages": [],
+        "sourceType": "exec",
+        "title": "exec run",
+        "updatedAt": 2600
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_e",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": "exec",
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "exec run",
+        "toolPermission": null,
+        "updatedAt": 2600,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 2400,
+      "leadVisible": true,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_f",
+        "messages": [],
+        "sourceType": "schedule",
+        "title": "schedule",
+        "updatedAt": 2400
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_f",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": "schedule",
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "schedule",
+        "toolPermission": null,
+        "updatedAt": 2400,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 2300,
+      "leadVisible": true,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_g",
+        "messages": [],
+        "sourceType": "webhook",
+        "title": "webhook",
+        "updatedAt": 2300
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_g",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": "webhook",
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "webhook",
+        "toolPermission": null,
+        "updatedAt": 2300,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 2200,
+      "leadVisible": false,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_h",
+        "messages": [],
+        "sourceName": "newsbot",
+        "sourceType": "bot",
+        "title": "by a bot",
+        "updatedAt": 2200
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_h",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": "newsbot",
+        "sourceType": "bot",
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "by a bot",
+        "toolPermission": null,
+        "updatedAt": 2200,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 2100,
+      "leadVisible": true,
+      "record": {
+        "agent": "worker",
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_i",
+        "messages": [],
+        "owner": "agent",
+        "ownerSessionId": "s_a",
+        "title": "worker",
+        "updatedAt": 2100
+      },
+      "summary": {
+        "agent": "worker",
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_i",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "agent",
+        "ownerSessionId": "s_a",
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "worker",
+        "toolPermission": null,
+        "updatedAt": 2100,
+        "visibility": "agent-only"
+      }
+    },
+    {
+      "activity": 2000,
+      "leadVisible": false,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_j",
+        "messages": [],
+        "owner": "importer",
+        "title": "foreign owner",
+        "updatedAt": 2000
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_j",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "importer",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "foreign owner",
+        "toolPermission": null,
+        "updatedAt": 2000,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 1900,
+      "leadVisible": false,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_k",
+        "messages": [],
+        "updatedAt": 1900
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_k",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "",
+        "toolPermission": null,
+        "updatedAt": 1900,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 1800,
+      "leadVisible": true,
+      "record": {
+        "agent": "lead",
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_l",
+        "messages": [],
+        "title": "lead",
+        "updatedAt": 1800
+      },
+      "summary": {
+        "agent": "lead",
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_l",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "lead",
+        "toolPermission": null,
+        "updatedAt": 1800,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 1700,
+      "leadVisible": true,
+      "record": {
+        "agent": "lead",
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_m",
+        "messages": [],
+        "owner": "agent",
+        "ownerSessionId": "s_m",
+        "title": "lead with a self link",
+        "updatedAt": 1700
+      },
+      "summary": {
+        "agent": "lead",
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_m",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "agent",
+        "ownerSessionId": "s_m",
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "lead with a self link",
+        "toolPermission": null,
+        "updatedAt": 1700,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 1600,
+      "leadVisible": true,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_n",
+        "messages": [
+          {
+            "content": "hello there",
+            "role": "user"
+          }
+        ],
+        "updatedAt": 1600
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_n",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "hello there",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 1,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "hello there",
+        "provider": null,
+        "realTurnCount": 1,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "",
+        "toolPermission": null,
+        "updatedAt": 1600,
+        "visibility": "ordinary"
+      }
+    },
+    {
+      "activity": 1500,
+      "leadVisible": true,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_o",
+        "messages": [],
+        "title": "declared agent-only",
+        "updatedAt": 1500,
+        "visibility": "agent-only"
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_o",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": "user",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "declared agent-only",
+        "toolPermission": null,
+        "updatedAt": 1500,
+        "visibility": "agent-only"
+      }
+    },
+    {
+      "activity": 1400,
+      "leadVisible": true,
+      "record": {
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "id": "s_p",
+        "messages": [],
+        "owner": " User ",
+        "title": "mixed case owner",
+        "updatedAt": 1400
+      },
+      "summary": {
+        "agent": null,
+        "agentTag": null,
+        "clientHostPid": null,
+        "closed": false,
+        "compactCount": 0,
+        "createdAt": 500,
+        "cwd": "C:/w",
+        "desktopSession": null,
+        "detachedReason": null,
+        "effort": null,
+        "fast": false,
+        "generation": 0,
+        "id": "s_p",
+        "importKey": null,
+        "inheritedFromSessionId": null,
+        "lastHeartbeatAt": 0,
+        "lastMessagePreview": "",
+        "lastMessageRoutine": null,
+        "lastUsedAt": 0,
+        "messageCount": 0,
+        "model": null,
+        "modelParameters": null,
+        "owner": " User ",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "presetName": null,
+        "preview": "",
+        "provider": null,
+        "realTurnCount": 0,
+        "schemaAllowedTools": null,
+        "scopeKey": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "idle",
+        "storageMtimeMs": 0,
+        "storageSize": 0,
+        "taskType": null,
+        "task_id": null,
+        "title": "mixed case owner",
+        "toolPermission": null,
+        "updatedAt": 1400,
+        "visibility": "ordinary"
+      }
+    }
+  ],
+  "walks": [
+    {
+      "limit": 1,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c"
+          ],
+          "nextCursor": "WzUwMDAsInNfYyJd"
+        },
+        {
+          "cursor": "WzUwMDAsInNfYyJd",
+          "ids": [
+            "s_a"
+          ],
+          "nextCursor": "WzMwMDAsInNfYSJd"
+        },
+        {
+          "cursor": "WzMwMDAsInNfYSJd",
+          "ids": [
+            "s_b"
+          ],
+          "nextCursor": "WzMwMDAsInNfYiJd"
+        },
+        {
+          "cursor": "WzMwMDAsInNfYiJd",
+          "ids": [
+            "s_d"
+          ],
+          "nextCursor": "WzI1MDAsInNfZCJd"
+        },
+        {
+          "cursor": "WzI1MDAsInNfZCJd",
+          "ids": [
+            "s_f"
+          ],
+          "nextCursor": "WzI0MDAsInNfZiJd"
+        },
+        {
+          "cursor": "WzI0MDAsInNfZiJd",
+          "ids": [
+            "s_g"
+          ],
+          "nextCursor": "WzIzMDAsInNfZyJd"
+        },
+        {
+          "cursor": "WzIzMDAsInNfZyJd",
+          "ids": [
+            "s_i"
+          ],
+          "nextCursor": "WzIxMDAsInNfaSJd"
+        },
+        {
+          "cursor": "WzIxMDAsInNfaSJd",
+          "ids": [
+            "s_l"
+          ],
+          "nextCursor": "WzE4MDAsInNfbCJd"
+        },
+        {
+          "cursor": "WzE4MDAsInNfbCJd",
+          "ids": [
+            "s_m"
+          ],
+          "nextCursor": "WzE3MDAsInNfbSJd"
+        },
+        {
+          "cursor": "WzE3MDAsInNfbSJd",
+          "ids": [
+            "s_o"
+          ],
+          "nextCursor": "WzE1MDAsInNfbyJd"
+        },
+        {
+          "cursor": "WzE1MDAsInNfbyJd",
+          "ids": [
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    },
+    {
+      "limit": 2,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c",
+            "s_a"
+          ],
+          "nextCursor": "WzMwMDAsInNfYSJd"
+        },
+        {
+          "cursor": "WzMwMDAsInNfYSJd",
+          "ids": [
+            "s_b",
+            "s_d"
+          ],
+          "nextCursor": "WzI1MDAsInNfZCJd"
+        },
+        {
+          "cursor": "WzI1MDAsInNfZCJd",
+          "ids": [
+            "s_f",
+            "s_g"
+          ],
+          "nextCursor": "WzIzMDAsInNfZyJd"
+        },
+        {
+          "cursor": "WzIzMDAsInNfZyJd",
+          "ids": [
+            "s_i",
+            "s_l"
+          ],
+          "nextCursor": "WzE4MDAsInNfbCJd"
+        },
+        {
+          "cursor": "WzE4MDAsInNfbCJd",
+          "ids": [
+            "s_m",
+            "s_o"
+          ],
+          "nextCursor": "WzE1MDAsInNfbyJd"
+        },
+        {
+          "cursor": "WzE1MDAsInNfbyJd",
+          "ids": [
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    },
+    {
+      "limit": 3,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c",
+            "s_a",
+            "s_b"
+          ],
+          "nextCursor": "WzMwMDAsInNfYiJd"
+        },
+        {
+          "cursor": "WzMwMDAsInNfYiJd",
+          "ids": [
+            "s_d",
+            "s_f",
+            "s_g"
+          ],
+          "nextCursor": "WzIzMDAsInNfZyJd"
+        },
+        {
+          "cursor": "WzIzMDAsInNfZyJd",
+          "ids": [
+            "s_i",
+            "s_l",
+            "s_m"
+          ],
+          "nextCursor": "WzE3MDAsInNfbSJd"
+        },
+        {
+          "cursor": "WzE3MDAsInNfbSJd",
+          "ids": [
+            "s_o",
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    },
+    {
+      "limit": 5,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c",
+            "s_a",
+            "s_b",
+            "s_d",
+            "s_f"
+          ],
+          "nextCursor": "WzI0MDAsInNfZiJd"
+        },
+        {
+          "cursor": "WzI0MDAsInNfZiJd",
+          "ids": [
+            "s_g",
+            "s_i",
+            "s_l",
+            "s_m",
+            "s_o"
+          ],
+          "nextCursor": "WzE1MDAsInNfbyJd"
+        },
+        {
+          "cursor": "WzE1MDAsInNfbyJd",
+          "ids": [
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    },
+    {
+      "limit": 100,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c",
+            "s_a",
+            "s_b",
+            "s_d",
+            "s_f",
+            "s_g",
+            "s_i",
+            "s_l",
+            "s_m",
+            "s_o",
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    },
+    {
+      "limit": null,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c",
+            "s_a",
+            "s_b",
+            "s_d",
+            "s_f",
+            "s_g",
+            "s_i",
+            "s_l",
+            "s_m",
+            "s_o",
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    },
+    {
+      "limit": 0,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c",
+            "s_a",
+            "s_b",
+            "s_d",
+            "s_f",
+            "s_g",
+            "s_i",
+            "s_l",
+            "s_m",
+            "s_o",
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    },
+    {
+      "limit": -4,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c",
+            "s_a",
+            "s_b",
+            "s_d",
+            "s_f",
+            "s_g",
+            "s_i",
+            "s_l",
+            "s_m",
+            "s_o",
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    },
+    {
+      "limit": 2.9,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c",
+            "s_a"
+          ],
+          "nextCursor": "WzMwMDAsInNfYSJd"
+        },
+        {
+          "cursor": "WzMwMDAsInNfYSJd",
+          "ids": [
+            "s_b",
+            "s_d"
+          ],
+          "nextCursor": "WzI1MDAsInNfZCJd"
+        },
+        {
+          "cursor": "WzI1MDAsInNfZCJd",
+          "ids": [
+            "s_f",
+            "s_g"
+          ],
+          "nextCursor": "WzIzMDAsInNfZyJd"
+        },
+        {
+          "cursor": "WzIzMDAsInNfZyJd",
+          "ids": [
+            "s_i",
+            "s_l"
+          ],
+          "nextCursor": "WzE4MDAsInNfbCJd"
+        },
+        {
+          "cursor": "WzE4MDAsInNfbCJd",
+          "ids": [
+            "s_m",
+            "s_o"
+          ],
+          "nextCursor": "WzE1MDAsInNfbyJd"
+        },
+        {
+          "cursor": "WzE1MDAsInNfbyJd",
+          "ids": [
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    },
+    {
+      "limit": 5000,
+      "pages": [
+        {
+          "cursor": null,
+          "ids": [
+            "s_c",
+            "s_a",
+            "s_b",
+            "s_d",
+            "s_f",
+            "s_g",
+            "s_i",
+            "s_l",
+            "s_m",
+            "s_o",
+            "s_p"
+          ],
+          "nextCursor": null
+        }
+      ]
+    }
+  ]
+}

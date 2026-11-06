@@ -113,18 +113,18 @@ pub struct OAuthState {
 #[async_trait]
 pub trait McpRuntime: Send + Sync {
     /// `resolveMcpCatalog()`: the servers this runtime would connect, now.
-    fn catalog(&self) -> Catalog;
-    /// `mcpStatus()`, undecorated.
-    fn status(&self) -> Value;
+    async fn catalog(&self) -> Catalog;
+    ///`mcpStatus()`, undecorated.
+    async fn status(&self) -> Value;
     /// `getMcpServerConfig(name)`.
-    fn server_config(&self, name: &str) -> Result<Value, String>;
+    async fn server_config(&self, name: &str) -> Result<Value, String>;
     /// `pluginsStatus()`.
-    fn plugins_status(&self) -> Value;
+    async fn plugins_status(&self) -> Value;
     async fn await_keychain_prewarm(&self);
     /// `reloadFullConfig()`.
-    fn reload_full_config(&self);
+    async fn reload_full_config(&self);
     /// `getMcpServerOAuthState(cfg)`; `None` for a server that does not use OAuth sign-in.
-    fn oauth_state(&self, cfg: &Value) -> Option<OAuthState>;
+    async fn oauth_state(&self, cfg: &Value) -> Option<OAuthState>;
     /// The interactive login flows (`mcp-oauth-login.mjs`).
     async fn begin_login(&self, name: &str, options: &Value) -> Result<Value, String>;
     async fn login_status(&self, flow_id: &str, options: &Value) -> Result<Value, String>;
@@ -216,20 +216,20 @@ impl McpService {
 
     /// The config with any adoptable plugin server copies already adopted, so every write also
     /// persists the adoption and never re-adds a copy.
-    fn adopted_config(&self) -> Value {
-        with_adopted_copies(&self.agent(), self.runtime.catalog().adoption.as_ref())
+    async fn adopted_config(&self) -> Value {
+        with_adopted_copies(&self.agent(), self.runtime.catalog().await.adoption.as_ref())
     }
 
     /// Persists a new `mcpServers` map; project overrides never survive a global edit. A plugin
     /// server pushed off its name by the edit keeps the collision name it gets.
     async fn save_servers(&self, servers: Map<String, Value>) -> Result<(), Failure> {
         let before = self.agent();
-        let mut next = self.adopted_config().as_object().cloned().unwrap_or_default();
+        let mut next = self.adopted_config().await.as_object().cloned().unwrap_or_default();
         next.shift_remove("mcpProjectOverrides");
         next.insert("mcpServers".to_owned(), Value::Object(servers));
         self.save_config(&before, Value::Object(next)).await?;
         let saved = self.agent();
-        let pinned = with_pinned_collision_names(&saved, &self.runtime.catalog());
+        let pinned = with_pinned_collision_names(&saved, &self.runtime.catalog().await);
         if pinned != saved {
             self.save_config(&saved, pinned).await?;
         }
@@ -237,13 +237,13 @@ impl McpService {
     }
 
     /// The user's `mcpServers`, plugin copies adopted.
-    fn user_servers(&self) -> Map<String, Value> {
-        self.adopted_config().get("mcpServers").and_then(Value::as_object).cloned().unwrap_or_default()
+    async fn user_servers(&self) -> Map<String, Value> {
+        self.adopted_config().await.get("mcpServers").and_then(Value::as_object).cloned().unwrap_or_default()
     }
 
     /// A name no server, plugin server or account has yet: `base`, else `base-2`…
-    fn free_name(&self, servers: &Map<String, Value>, base: &str) -> String {
-        let catalog = self.runtime.catalog();
+    async fn free_name(&self, servers: &Map<String, Value>, base: &str) -> String {
+        let catalog = self.runtime.catalog().await;
         let taken: Vec<String> = servers
             .iter()
             .flat_map(|(name, cfg)| {
@@ -257,11 +257,11 @@ impl McpService {
         (2..).map(|n| format!("{base}-{n}")).find(|name| free(name)).unwrap_or_default()
     }
 
-    fn refuse_plugin_server(&self, name: &str) -> Result<(), Failure> {
+    async fn refuse_plugin_server(&self, name: &str) -> Result<(), Failure> {
         if name.is_empty() {
             return Ok(());
         }
-        match plugin_server(&self.runtime.catalog(), name) {
+        match plugin_server(&self.runtime.catalog().await, name) {
             Some(owner) => Err(format!(
                 "MCP server \"{name}\" is provided by plugin \"{}\" (server \"{}\"); enable or disable it with set_mcp_enabled, or manage the plugin instead",
                 owner.owner_id, owner.owner_key
@@ -282,20 +282,20 @@ impl McpService {
 
     async fn mcp_status(&self, params: &Value) -> Value {
         let cwd = self.host.current_cwd(params.get("threadId").and_then(Value::as_str)).await;
-        decorate_mcp(&self.runtime.status(), &self.scopes(), &cwd)
+        decorate_mcp(&self.runtime.status().await, &self.scopes(), &cwd)
     }
 
     async fn reconnect_mcp(&self, name: Option<&str>) -> Result<Value, Failure> {
         self.runtime.await_keychain_prewarm().await;
-        self.runtime.reload_full_config();
+        self.runtime.reload_full_config().await;
         let requested = name.map(|n| clean(&json!(n))).unwrap_or_default();
         // An account reconnects with its server.
-        let catalog = self.runtime.catalog();
+        let catalog = self.runtime.catalog().await;
         let server_name = account_target(&catalog.servers, &requested).map_or(requested, |t| t.server_name);
         if server_name.is_empty() {
             return Ok(self.host.reconnect_all_mcp_and_announce().await);
         }
-        let config = self.runtime.server_config(&server_name)?;
+        let config = self.runtime.server_config(&server_name).await?;
         Ok(self.host.reconnect_mcp_and_announce(Some(&server_name), config.get("enabled").and_then(Value::as_bool).unwrap_or(true), &[]).await)
     }
 
@@ -323,7 +323,7 @@ impl McpService {
         let lock = self.connector_lock(entry.id);
         let _turn = lock.lock().await;
         // Its name is picked from the servers the additions before it saved.
-        let name = self.free_name(&self.user_servers(), entry.id);
+        let name = self.free_name(&self.user_servers().await, entry.id).await;
         let mut account = if entry.app_password_only {
             gmail_app_password_server_input(&name, field(input, "email"), field(input, "appPassword"))?
         } else {
@@ -374,14 +374,14 @@ impl McpService {
             }
             server_config["connector"] = json!(connector_id);
         }
-        let mut servers = self.user_servers();
+        let mut servers = self.user_servers().await;
         if !connector_id.is_empty() && !field(input, "accounts").is_array() {
             return self.join_connector_account(servers, &connector_id, &name, server_config, input).await;
         }
         if servers.contains_key(&name) || account_target(&servers, &name).is_some() {
             return Err(name_taken_message(&servers, &name));
         }
-        if let Some(owned) = plugin_server(&self.runtime.catalog(), &name) {
+        if let Some(owned) = plugin_server(&self.runtime.catalog().await, &name) {
             return Err(format!("MCP server already exists: {name} (provided by plugin \"{}\")", owned.owner_id));
         }
         self.secrets.store_oauth_client_secret(input, &server_config, &json!({})).await?;
@@ -421,11 +421,11 @@ impl McpService {
             return Ok(json!({"name": server_name, "account": field(same, "name"), "status": status}));
         }
         if server_name.is_empty()
-            && (servers.contains_key(name) || plugin_server(&self.runtime.catalog(), name).is_some() || account_target(&servers, name).is_some())
+            && (servers.contains_key(name) || plugin_server(&self.runtime.catalog().await, name).is_some() || account_target(&servers, name).is_some())
         {
             return Err(name_taken_message(&servers, name));
         }
-        let account_name = if server_name.is_empty() { name.to_owned() } else { self.free_name(&servers, name) };
+        let account_name = if server_name.is_empty() { name.to_owned() } else { self.free_name(&servers, name).await };
         // A fresh identity: a conversation that used a removed account of this name never takes
         // this one for it.
         let mut account = account_entry(&account_name, &account_cfg);
@@ -493,7 +493,7 @@ impl McpService {
     }
 
     async fn save_mcp_server(&self, input: &Value) -> Result<Value, Failure> {
-        let mut servers = self.user_servers();
+        let mut servers = self.user_servers().await;
         // A name of a multi-account connector's account edits that account.
         let wanted = { let o = text(field(input, "originalName")); if o.is_empty() { text(field(input, "name")) } else { o } };
         if let Some(account_of) = account_target(&servers, &wanted)
@@ -505,12 +505,12 @@ impl McpService {
         // creates a new one. Plugin servers are never edited, renamed or shadowed here.
         let explicit = text(field(input, "originalName"));
         if !explicit.is_empty() && !servers.contains_key(&explicit) {
-            self.refuse_plugin_server(&explicit)?;
+            self.refuse_plugin_server(&explicit).await?;
             return Err(format!("MCP server not configured: {explicit}"));
         }
         let bare = text(field(input, "name"));
         if explicit.is_empty() && !servers.contains_key(&bare) {
-            self.refuse_plugin_server(&bare)?;
+            self.refuse_plugin_server(&bare).await?;
         }
         let original = if !explicit.is_empty() { explicit } else if servers.contains_key(&bare) { bare } else { String::new() };
         let existing = if original.is_empty() { json!({}) } else { servers[&original].clone() };
@@ -519,7 +519,7 @@ impl McpService {
             normalize_mcp_server_input(&merged_server_input(input, &existing, &original), &cwd, &self.home)?;
         let name = if !original.is_empty() && text(field(input, "name")) == original { original.clone() } else { normalized_name };
         if name != original
-            && (servers.contains_key(&name) || plugin_server(&self.runtime.catalog(), &name).is_some() || account_target(&servers, &name).is_some())
+            && (servers.contains_key(&name) || plugin_server(&self.runtime.catalog().await, &name).is_some() || account_target(&servers, &name).is_some())
         {
             return Err(name_taken_message(&servers, &name));
         }
@@ -630,7 +630,7 @@ impl McpService {
         if server_name.is_empty() {
             return Err("MCP server name is required".to_owned());
         }
-        let mut servers = self.user_servers();
+        let mut servers = self.user_servers().await;
         // A name of a multi-account connector's account removes that account; the server goes
         // with its last one.
         if let Some(target) = account_target(&servers, &server_name) {
@@ -652,7 +652,7 @@ impl McpService {
             return Ok(with_release(status, released.into_iter().collect()));
         }
         if !servers.contains_key(&server_name) {
-            self.refuse_plugin_server(&server_name)?;
+            self.refuse_plugin_server(&server_name).await?;
             return Err(format!("MCP server not configured: {server_name}"));
         }
         let removed = servers.shift_remove(&server_name).unwrap_or(Value::Null);
@@ -703,19 +703,19 @@ impl McpService {
         // A name a multi-account connector holds as an account switches that account (and, on, its
         // server) rather than the whole server.
         let requested = text(&json!(name));
-        let mut servers = self.user_servers();
+        let mut servers = self.user_servers().await;
         let held = account_target(&servers, &requested);
         let server_name = held.as_ref().map_or(requested.clone(), |h| h.server_name.clone());
         if server_name.is_empty() {
             return Err("MCP server name is required".to_owned());
         }
         let want = enabled != &Value::Bool(false);
-        let catalog = self.runtime.catalog();
+        let catalog = self.runtime.catalog().await;
         if let Some(owned) = plugin_server(&catalog, &server_name) {
             // Server intent only: the effective state still requires the plugin. Only a choice
             // that differs from the declared default is stored.
             let stored = want == owned.declared_enabled.unwrap_or(true);
-            let next = with_plugin_server_intent(&self.adopted_config(), &owned.owner_id, &owned.owner_key, |mut intent| {
+            let next = with_plugin_server_intent(&self.adopted_config().await,&owned.owner_id, &owned.owner_key, |mut intent| {
                 if stored {
                     intent.shift_remove("enabled");
                 } else {
@@ -731,7 +731,7 @@ impl McpService {
             self.host.publish_mcp_changes(&[(server_name, effective)]).await;
             return Ok(status);
         }
-        let known = self.runtime.status().get("servers").and_then(Value::as_array).is_some_and(|rows| rows.iter().any(|s| field(s, "name") == &json!(server_name)));
+        let known = self.runtime.status().await.get("servers").and_then(Value::as_array).is_some_and(|rows| rows.iter().any(|s| field(s, "name") == &json!(server_name)));
         if !known {
             return Err(format!("MCP server not configured: {server_name}"));
         }
@@ -762,10 +762,10 @@ impl McpService {
     /// and enabled. This clears any per-server "off" intent of the plugin's servers and reconnects
     /// them; a disabled plugin stays disabled.
     async fn enable_plugin_mcp(&self, plugin: &Value) -> Result<Value, Failure> {
-        let status = self.runtime.plugins_status();
+        let status = self.runtime.plugins_status().await;
         let registered = find_registered_plugin(&status, plugin).map_err(|m| m)?.cloned().unwrap_or_else(|| plugin.clone());
         let id = text(if truthy(field(&registered, "id")) { field(&registered, "id") } else { field(&registered, "name") });
-        let catalog = self.runtime.catalog();
+        let catalog = self.runtime.catalog().await;
         let Some(row) = catalog.plugins.get(&id) else {
             let shown = clean(if truthy(field(plugin, "id")) { field(plugin, "id") } else if truthy(field(plugin, "name")) { field(plugin, "name") } else { plugin });
             return Err(format!("plugin not registered: {}", if shown.is_empty() { id } else { shown }));
@@ -812,10 +812,10 @@ impl McpService {
             return Err("MCP server name is required".to_owned());
         }
         self.runtime.await_keychain_prewarm().await;
-        self.runtime.reload_full_config();
-        let catalog = self.runtime.catalog();
+        self.runtime.reload_full_config().await;
+        let catalog = self.runtime.catalog().await;
         let Some(cfg) = catalog.servers.get(&server_name) else { return Err(format!("MCP server not configured: {server_name}")) };
-        if self.runtime.oauth_state(cfg).is_none() {
+        if self.runtime.oauth_state(cfg).await.is_none() {
             return Err(format!("MCP server \"{server_name}\" does not use OAuth sign-in"));
         }
         Ok((server_name, cfg.clone()))
@@ -829,10 +829,10 @@ impl McpService {
             return Err("MCP server name is required".to_owned());
         }
         self.runtime.await_keychain_prewarm().await;
-        self.runtime.reload_full_config();
-        let servers = self.runtime.catalog().servers;
+        self.runtime.reload_full_config().await;
+        let servers = self.runtime.catalog().await.servers;
         if let Some(target) = account_target(&servers, &wanted) {
-            if self.runtime.oauth_state(&target.account_cfg).is_none() {
+            if self.runtime.oauth_state(&target.account_cfg).await.is_none() {
                 return Err(format!("MCP server \"{wanted}\" does not use OAuth sign-in"));
             }
             let sign_out = vec![target.account_cfg.clone()];
@@ -842,7 +842,12 @@ impl McpService {
         if accounts_of(&cfg).is_empty() {
             return Ok(None);
         }
-        let sign_ins: Vec<Value> = account_servers(&cfg).into_iter().filter(|a| self.runtime.oauth_state(a).is_some()).collect();
+        let mut sign_ins: Vec<Value> = Vec::new();
+        for account in account_servers(&cfg) {
+            if self.runtime.oauth_state(&account).await.is_some() {
+                sign_ins.push(account);
+            }
+        }
         if every && !sign_ins.is_empty() {
             return Ok(Some(SignIn { server_name: wanted, cfg, account: None, sign_out: sign_ins }));
         }
@@ -874,7 +879,7 @@ impl McpService {
             return Err(format!("MCP server is disabled: {server_name}"));
         }
         // `mode`: `connect`, `reauth` (repair the same connection) or `switch` (change account).
-        if options.get("mode") == Some(&json!("switch")) && !self.runtime.oauth_state(&cfg).is_some_and(|s| s.signed_in) {
+        if options.get("mode") == Some(&json!("switch")) && !self.runtime.oauth_state(&cfg).await.is_some_and(|s| s.signed_in) {
             return Err(format!("MCP server \"{server_name}\" is not signed in"));
         }
         self.runtime.begin_login(&server_name, &Value::Object(options)).await
@@ -964,7 +969,7 @@ impl DomainService for McpService {
         let p = &req.params;
         let value = match req.method.as_str() {
             "mcp/mcpStatus" => Ok(self.mcp_status(p).await),
-            "mcp/getMcpServerConfig" => self.runtime.server_config(&text(field(p, "name"))),
+            "mcp/getMcpServerConfig" => self.runtime.server_config(&text(field(p, "name"))).await,
             "mcp/reconnectMcp" => self.reconnect_mcp(p.get("name").and_then(Value::as_str)).await,
             "mcp/addMcpServer" => self.add_mcp_server(field(p, "input")).await,
             "mcp/saveMcpServer" => self.save_mcp_server(field(p, "input")).await,

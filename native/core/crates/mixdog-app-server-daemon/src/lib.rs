@@ -8,16 +8,22 @@ pub mod barrier;
 pub mod catalog;
 pub mod compat;
 pub mod compose;
+pub mod compose_domains;
 pub mod control;
 pub mod discovery;
 pub mod js_runtime;
+pub mod event_pipeline;
+pub mod held_requests;
 pub mod lifecycle;
 pub mod exec;
 pub mod ownership;
 pub mod pair_code;
 pub mod server;
 pub mod server_ensure;
+pub mod session_sweep;
 pub mod shell_name;
+pub mod signals;
+pub mod update_installer;
 pub mod verdict;
 
 #[derive(Debug, thiserror::Error)]
@@ -42,7 +48,10 @@ pub async fn serve() -> Result<(), ServeError> {
     // Every install ships the manifest: a missing or broken one is a startup error.
     let js_runtime = js_runtime::resolve_current_on(tokens.interactive_io).await?;
     // The install names its ONNX Runtime library in the same manifest; one that names none has no models.
-    let ort_library = js_runtime::resolve_ort_library_current_on(tokens.interactive_io).await?;
+    let ort_library = match js_runtime::resolve_ort_library_current_on(tokens.interactive_io).await? {
+        Some(library) => mixdog_services::effort_judge::model::OrtRuntime::Library(library),
+        None => mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
+    };
     // Node's `resolvePluginData()`, the dir `mixdogd migrate` converts.
     let data_dir = mixdog_store::paths::Paths::from_process(&js_runtime.package_root).ok_or(ServeError::NoDataDir)?.data_dir;
     let config = compose::ComposeConfig {
@@ -55,7 +64,9 @@ pub async fn serve() -> Result<(), ServeError> {
     };
     let core = compose::compose(&tokens, config).await?;
     tracing::info!(mocked = core.mocked_domains().len(), "core composed against mocks");
-    tokio::signal::ctrl_c().await.map_err(ServeError::Signal)?;
+    let signal = signals::stop_requested().await.map_err(ServeError::Signal)?;
+    tracing::info!(signal = signal.name(), "stopping");
+    signals::start_budget(signals::SHUTDOWN_BUDGET, std::sync::Arc::new(lifecycle::ProcessExiter)).map_err(ServeError::Signal)?;
     core.set_state(CoreState::Draining {
         reason: DrainReason::Quit,
     });

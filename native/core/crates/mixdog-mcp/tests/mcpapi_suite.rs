@@ -165,11 +165,11 @@ struct Runtime(Arc<World>);
 
 #[async_trait]
 impl McpRuntime for Runtime {
-    fn catalog(&self) -> Catalog {
+    async fn catalog(&self) -> Catalog {
         self.0.catalog()
     }
 
-    fn status(&self) -> Value {
+    async fn status(&self) -> Value {
         let catalog = self.0.catalog();
         let rows: Vec<Value> = catalog
             .servers
@@ -185,13 +185,13 @@ impl McpRuntime for Runtime {
         json!({"servers": rows})
     }
 
-    fn server_config(&self, name: &str) -> Result<Value, String> {
+    async fn server_config(&self, name: &str) -> Result<Value, String> {
         let catalog = self.0.catalog();
         let server = catalog.servers.get(name.trim()).ok_or_else(|| format!("MCP server not configured: {}", name.trim()))?;
         Ok(json!({"name": name, "enabled": server.get("enabled") != Some(&json!(false))}))
     }
 
-    fn plugins_status(&self) -> Value {
+    async fn plugins_status(&self) -> Value {
         self.0.plugins_status.clone()
     }
 
@@ -199,11 +199,11 @@ impl McpRuntime for Runtime {
         self.0.log.lock().unwrap().push("prewarm".to_owned());
     }
 
-    fn reload_full_config(&self) {
+    async fn reload_full_config(&self) {
         self.0.log.lock().unwrap().push("reload".to_owned());
     }
 
-    fn oauth_state(&self, cfg: &Value) -> Option<OAuthState> {
+    async fn oauth_state(&self, cfg: &Value) -> Option<OAuthState> {
         let url = cfg.get("url").and_then(Value::as_str).unwrap_or_default();
         url.starts_with("http").then(|| OAuthState { signed_in: url.contains("signed.example"), account: String::new() })
     }

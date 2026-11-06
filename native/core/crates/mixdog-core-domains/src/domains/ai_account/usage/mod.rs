@@ -3,6 +3,7 @@
 //! and serves the provider quota dashboard.
 
 pub mod dashboard;
+pub mod session_usage;
 pub mod sources;
 
 use std::sync::Arc;

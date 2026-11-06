@@ -305,6 +305,10 @@ impl ProviderAdapter for DevinAdapter {
         Some(self)
     }
 
+    fn native_pdf(&self) -> bool {
+        false
+    }
+
     fn codec(&self) -> &dyn WireCodec {
         &self.placeholder
     }

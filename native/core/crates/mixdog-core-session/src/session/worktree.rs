@@ -41,11 +41,18 @@ mod worktree_host;
 #[path = "worktree_ops.rs"]
 mod worktree_ops;
 #[path = "worktree_state.rs"]
-mod worktree_state;
+pub(super) mod worktree_state;
 #[path = "worktree_intents.rs"]
 mod worktree_intents;
+#[path = "worktree_menu.rs"]
+mod worktree_menu;
 #[path = "worktree_merge.rs"]
 mod worktree_merge;
+#[path = "worktree_service.rs"]
+mod worktree_service;
+#[cfg(test)]
+#[path = "worktree_service_tests.rs"]
+mod worktree_service_tests;
 #[path = "worktree_session.rs"]
 mod worktree_session;
 #[path = "worktree_maintenance.rs"]
@@ -67,7 +74,7 @@ mod worktree_steps;
 mod worktree_texts;
 #[cfg(test)]
 #[path = "worktree_tests.rs"]
-mod worktree_tests;
+pub(crate) mod worktree_tests;
 #[cfg(test)]
 #[path = "worktree_goldens.rs"]
 mod worktree_goldens;
@@ -108,6 +115,7 @@ pub use self::worktree_setup_run::SetupEvent;
 pub use self::worktree_setup_run::SetupReport;
 pub use self::worktree_setup_run::SetupRunner;
 pub use self::worktree_setup_run::SetupStatus;
+pub use self::worktree_service::ThreadScmService;
 pub use self::worktree_setup_run::SetupStep;
 pub use self::worktree_state::Resumed;
 pub use self::worktree_texts::RECOVERY_TURN_REFUSAL;
@@ -382,6 +390,13 @@ impl SessionWorkspaces {
         Arc::new(Admission { inner: self.inner.clone(), actor: actor.map(str::to_owned) })
     }
 
+    /// Holds the shared checkout `folder` for a session-less change (a New Task draft, the
+    /// source-control dock) until the guard drops: another session working there refuses it
+    /// (`folder-in-use`) and new turns there wait.
+    pub fn hold_project_folder(&self, folder: &str) -> Result<Box<dyn Send>, ScmFailure> {
+        Ok(Box::new(self.inner.hold_project_folder(None, folder, true)?))
+    }
+
     /// The workspace `session` has now: the stored record, or the project folder (revision 0).
     pub fn workspace(&self, session: &str) -> Result<Workspace, ScmFailure> {
         self.inner.workspace(session)
@@ -415,6 +430,17 @@ impl SessionWorkspaces {
         cancel: &CancellationToken,
     ) -> Result<Option<JsonValue>, ScmFailure> {
         self.inner.prepare_turn_workspace(session, start, cancel).await
+    }
+
+    /// `getBranchMenu`: the session's workspace, the project's branches and who holds each.
+    pub async fn branch_menu(&self, session: &str, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
+        self.inner.branch_menu(session, cancel).await
+    }
+
+    /// `getSessionWorktreeWork`: of `session_ids`, the ones owning a managed worktree whose
+    /// removal would be refused without `force`.
+    pub async fn session_worktree_work(&self, session_ids: &[String], cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
+        self.inner.session_worktree_work(session_ids, cancel).await
     }
 
     pub async fn request_worktree(
@@ -534,22 +560,29 @@ impl Inner {
         Ok(())
     }
 
+    /// A worktree-bound record with the branch its checkout has now (a `git branch -m` or switch
+    /// inside it); a detached HEAD keeps the recorded branch.
+    async fn follow_checkout_branch(&self, view: &mut Workspace, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let head = self
+            .ops
+            .wt
+            .scm()
+            .git
+            .outcome(cancel, std::path::Path::new(&view.cwd), &["symbolic-ref", "--quiet", "--short", "HEAD"], &Default::default())
+            .await?;
+        let branch = head.stdout_text().lines().next().unwrap_or("").trim().to_owned();
+        if head.success() && !branch.is_empty() {
+            view.branch = Some(branch);
+        }
+        Ok(())
+    }
+
     /// The workspace the branch menu shows: a bound record with its checkout's branch, a
     /// project-folder session with the folder's checked-out branch.
     async fn workspace_view(&self, session: &str, cancel: &CancellationToken) -> Result<Workspace, ScmFailure> {
         let mut view = self.workspace(session)?;
         if view.is_bound() {
-            let head = self
-                .ops
-                .wt
-                .scm()
-                .git
-                .outcome(cancel, std::path::Path::new(&view.cwd), &["symbolic-ref", "--quiet", "--short", "HEAD"], &Default::default())
-                .await?;
-            let branch = head.stdout_text().lines().next().unwrap_or("").trim().to_owned();
-            if head.success() && !branch.is_empty() {
-                view.branch = Some(branch);
-            }
+            self.follow_checkout_branch(&mut view, cancel).await?;
             return Ok(view);
         }
         match self.ops.inspect(&view.cwd, cancel).await {

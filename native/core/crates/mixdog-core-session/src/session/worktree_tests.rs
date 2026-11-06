@@ -18,7 +18,7 @@ use serde_json::Value;
 
 use super::*;
 
-pub(super) fn git(cwd: &Path, args: &[&str]) -> String {
+pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
     let out = std::process::Command::new("git")
         .current_dir(cwd)
         .args(args)
@@ -33,15 +33,15 @@ pub(super) fn git(cwd: &Path, args: &[&str]) -> String {
 }
 
 #[derive(Default)]
-pub(super) struct HostState {
-    pub(super) workspace: Option<Value>,
-    pub(super) cwd: String,
-    pub(super) turn_running: bool,
-    pub(super) fail_apply: bool,
-    pub(super) live: Vec<LiveSession>,
-    pub(super) shell_jobs: u64,
+pub(crate) struct HostState {
+    pub(crate) workspace: Option<Value>,
+    pub(crate) cwd: String,
+    pub(crate) turn_running: bool,
+    pub(crate) fail_apply: bool,
+    pub(crate) live: Vec<LiveSession>,
+    pub(crate) shell_jobs: u64,
     /// A schedule, webhook, routine or room run: it may only list worktrees.
-    pub(super) unattended: bool,
+    pub(crate) unattended: bool,
 }
 
 struct FakeHost {
@@ -141,17 +141,17 @@ impl SettingsSource for Defaults {
     }
 }
 
-pub(super) struct Rig {
-    pub(super) _dir: tempfile::TempDir,
-    pub(super) repo: PathBuf,
-    pub(super) data: PathBuf,
-    pub(super) state: Arc<Mutex<HostState>>,
-    pub(super) auto_cleanup: Arc<AtomicBool>,
-    pub(super) ws: SessionWorkspaces,
-    pub(super) worktrees: Arc<Worktrees>,
+pub(crate) struct Rig {
+    pub(crate) _dir: tempfile::TempDir,
+    pub(crate) repo: PathBuf,
+    pub(crate) data: PathBuf,
+    pub(crate) state: Arc<Mutex<HostState>>,
+    pub(crate) auto_cleanup: Arc<AtomicBool>,
+    pub(crate) ws: SessionWorkspaces,
+    pub(crate) worktrees: Arc<Worktrees>,
 }
 
-pub(super) fn rig() -> Rig {
+pub(crate) fn rig() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -178,7 +178,7 @@ pub(super) fn rig() -> Rig {
     Rig { _dir: dir, repo, data: data_dir, state, auto_cleanup, ws, worktrees }
 }
 
-pub(super) fn enter(name: &str, call: &str) -> SessionOp {
+pub(crate) fn enter(name: &str, call: &str) -> SessionOp {
     SessionOp::Enter {
         session_id: None,
         name: Some(name.into()),
@@ -190,7 +190,7 @@ pub(super) fn enter(name: &str, call: &str) -> SessionOp {
     }
 }
 
-pub(super) async fn run(rig: &Rig, op: SessionOp) -> Result<Value, ScmFailure> {
+pub(crate) async fn run(rig: &Rig, op: SessionOp) -> Result<Value, ScmFailure> {
     rig.ws.run(op, "lead", &CancellationToken::new()).await
 }
 

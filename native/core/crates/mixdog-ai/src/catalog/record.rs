@@ -103,6 +103,18 @@ pub struct ModelRecord {
     /// The provider catalog's word on a mid-conversation effort change.
     #[serde(default)]
     pub supports_reasoning_effort_updates: Option<bool>,
+    /// The provider catalog's word on reasoning summaries (`supportsReasoningSummaries`).
+    #[serde(default)]
+    pub supports_reasoning_summaries: Option<bool>,
+    /// `thinkingTypes.adaptive` the listed row declares.
+    #[serde(default)]
+    pub thinking_adaptive: Option<bool>,
+    /// `thinkingTypes.enabled` the listed row declares.
+    #[serde(default)]
+    pub thinking_enabled: Option<bool>,
+    /// The row states its effort ladder, possibly empty (`Array.isArray(reasoningOptions)`).
+    #[serde(default)]
+    pub efforts_stated: bool,
     /// The body field the model's thinking is returned and replayed under.
     #[serde(default)]
     pub reasoning_content_field: Option<String>,
@@ -156,6 +168,10 @@ impl ModelRecord {
             provider_name: None,
             manual: false,
             supports_reasoning_effort_updates: None,
+            supports_reasoning_summaries: None,
+            thinking_adaptive: None,
+            thinking_enabled: None,
+            efforts_stated: false,
             reasoning_content_field: None,
             prompt_caching: Capability::Unknown,
             family: None,

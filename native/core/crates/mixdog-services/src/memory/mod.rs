@@ -4,6 +4,7 @@
 
 pub mod clean;
 pub mod core;
+pub mod cycles;
 pub mod embed;
 pub mod error;
 pub mod ingest;
@@ -19,6 +20,8 @@ pub mod schema;
 pub mod sensitive;
 pub mod service;
 pub mod session_search;
+pub mod thread_search;
+pub mod transcript;
 
 #[cfg(test)]
 mod tests;

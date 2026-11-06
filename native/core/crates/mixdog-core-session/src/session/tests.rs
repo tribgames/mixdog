@@ -1056,7 +1056,7 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
         other => panic!("{other}"),
     };
     let s = id.as_str();
-    let mut expected = vec![format!("releaseSessionWork:{s}:desktop-session-delete")];
+    let mut expected = vec![format!("sessionClosed:{s}:desktop-session-delete"), format!("releaseSessionWork:{s}:desktop-session-delete")];
     let unrecorded = ["turnReview", "usageMetrics", "browserSession", "compactionCapture"];
     for hook in golden.iter().map(|path| name(path)).filter(|hook| !unrecorded.contains(hook)).chain(["compactionArchive", "scratchDir"]) {
         expected.push(format!("{hook}:{s}:/ws"));
@@ -1198,7 +1198,9 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     let worktree = format!("releaseDeletedWorktree:{s}");
     eventually(|| lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
     let steps = lock(&rig.deletes.0).clone();
-    assert_eq!(steps[0], format!("toolResultOffload:{s}:/ws"), "the purge hooks run first");
+    // The tombstone's close metric (`markSessionClosed`) precedes the purge hooks.
+    assert_eq!(steps[0], format!("sessionClosed:{s}:desktop-auto-delete"));
+    assert_eq!(steps[1], format!("toolResultOffload:{s}:/ws"), "the purge hooks run next");
     let tail: Vec<&str> = steps[steps.len() - 4..].iter().map(String::as_str).collect();
     assert_eq!(
         tail,
@@ -1965,6 +1967,39 @@ async fn an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_
     // A later open loads it again.
     let reopened = directory.open_handle(&handle.id, &connection()).await.expect("reopen");
     assert!(!Arc::ptr_eq(&reopened.cell, &handle.cell));
+}
+
+/// `idleEvictMs`: a thread nobody ever watched (a worker, a headless run) has no last unsubscribe,
+/// so it unloads once it has been quiet for the idle delay; one still working starts the delay
+/// over, and one that was watched is not on this clock.
+#[tokio::test(start_paused = true)]
+async fn a_thread_nobody_watched_unloads_after_the_idle_delay() {
+    let rig = Rig::new();
+    let (release, gate) = tokio::sync::watch::channel(false);
+    rig.set_script(Arc::new(move |run| {
+        let mut gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = gate.wait_for(|open| *open).await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hold", "op-1").await;
+
+    // Working at the deadline: the whole delay starts again.
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert!(directory.handle(&handle.id).is_some(), "a running thread is never evicted");
+
+    release.send(true).expect("release");
+    eventually(|| idle(&handle).then_some(())).await;
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert!(directory.handle(&handle.id).is_some(), "not before the delay");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

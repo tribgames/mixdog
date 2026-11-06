@@ -1,0 +1,245 @@
+{
+  "clean": [
+    {
+      "answer": {
+        "stopped": 0,
+        "stopping": 0
+      },
+      "caller": "sess_none"
+    },
+    {
+      "answer": {
+        "stopped": 0,
+        "stopping": 0
+      },
+      "caller": null
+    }
+  ],
+  "closes": [
+    {
+      "generation": 1,
+      "line": "[2026-01-02T03:04:05.678Z] [session-close] owner=lead agent=worker reason=cli-agent-close lifeMs=90000 id=sess_close_agent\n",
+      "name": "an agent session",
+      "reason": "cli-agent-close",
+      "record": {
+        "agent": "worker",
+        "createdAt": 1767322955678,
+        "id": "sess_close_agent",
+        "owner": "lead"
+      }
+    },
+    {
+      "generation": 1,
+      "line": "[2026-01-02T03:04:05.678Z] [session-close] owner=- agent=- reason=manual lifeMs=90000 id=sess_close_plain\n",
+      "name": "no owner or agent",
+      "reason": "manual",
+      "record": {
+        "createdAt": 1767322955678,
+        "id": "sess_close_plain"
+      }
+    },
+    {
+      "generation": 1,
+      "line": "[2026-01-02T03:04:05.678Z] [session-close] owner=lead agent=- reason=manual lifeMs=0 id=sess_close_zero\n",
+      "name": "no creation time",
+      "reason": "manual",
+      "record": {
+        "createdAt": 0,
+        "id": "sess_close_zero",
+        "owner": "lead"
+      }
+    },
+    {
+      "generation": 1,
+      "line": "[2026-01-02T03:04:05.678Z] [session-close] owner=- agent=worker reason=desktop-session-delete lifeMs=90000 id=sess_close_delete\n",
+      "name": "the desktop delete reason",
+      "reason": "desktop-session-delete",
+      "record": {
+        "agent": "worker",
+        "createdAt": 1767322955678,
+        "id": "sess_close_delete"
+      }
+    },
+    {
+      "generation": 1,
+      "line": "",
+      "name": "re-closing a tombstone",
+      "reason": "cli-agent-close",
+      "record": {
+        "id": "sess_close_agent"
+      }
+    }
+  ],
+  "releases": [
+    {
+      "answer": {
+        "error": "no unconfirmed termination hold: job_none",
+        "released": false
+      },
+      "caller": "sess_a",
+      "callerCwd": "a",
+      "jobId": "job_none",
+      "name": "nothing is held"
+    },
+    {
+      "answer": {
+        "error": "no unconfirmed termination hold: ",
+        "released": false
+      },
+      "caller": "sess_a",
+      "callerCwd": "a",
+      "jobId": "  ",
+      "name": "a blank id"
+    },
+    {
+      "answer": {
+        "error": "no unconfirmed termination hold: job_h1",
+        "released": false
+      },
+      "caller": "sess_b",
+      "callerCwd": "a/sub",
+      "jobId": "job_h1",
+      "name": "another session while the owner is open"
+    },
+    {
+      "answer": {
+        "error": "no unconfirmed termination hold: job_h1",
+        "released": false
+      },
+      "caller": "sess_c",
+      "callerCwd": "far",
+      "jobId": "job_h1",
+      "name": "the owner has closed but the folder is not seen"
+    },
+    {
+      "answer": {
+        "released": true
+      },
+      "caller": "sess_b",
+      "callerCwd": "a/sub",
+      "jobId": " job_h1 ",
+      "name": "the owner has closed and the folder is seen"
+    },
+    {
+      "answer": {
+        "error": "no unconfirmed termination hold: job_h1",
+        "released": false
+      },
+      "caller": "sess_b",
+      "callerCwd": "a/sub",
+      "jobId": "job_h1",
+      "name": "released once"
+    },
+    {
+      "answer": {
+        "released": true
+      },
+      "caller": "sess_d",
+      "callerCwd": null,
+      "jobId": "job_h2",
+      "name": "the owner releases its own hold"
+    },
+    {
+      "answer": {
+        "released": true
+      },
+      "caller": "sess_e",
+      "callerCwd": null,
+      "jobId": "job_h3",
+      "name": "a hold without an owner"
+    }
+  ],
+  "rows": {
+    "orphaned": [
+      {
+        "command": "run job_gone",
+        "cwd": "/ws/sess_gone",
+        "startedAt": 1767323000000,
+        "taskId": "job_gone",
+        "terminationUnconfirmed": true
+      }
+    ],
+    "own": [
+      {
+        "command": "run job_b",
+        "cwd": "/ws/sess_b",
+        "startedAt": 1767323000000,
+        "taskId": "job_b"
+      }
+    ]
+  },
+  "stoppable": {
+    "null": [],
+    "sess_a": [
+      {
+        "command": "  npm run dev ",
+        "taskId": "job_a1"
+      },
+      {
+        "command": "the label stands in",
+        "taskId": "job_a2"
+      },
+      {
+        "command": "",
+        "taskId": "job_a3"
+      }
+    ],
+    "sess_b": [
+      {
+        "command": "tail -f log",
+        "taskId": "job_b1"
+      }
+    ],
+    "sess_none": []
+  },
+  "stops": [
+    {
+      "answer": {
+        "error": "task_id is required",
+        "stopped": false
+      },
+      "caller": "sess_a",
+      "taskId": ""
+    },
+    {
+      "answer": {
+        "error": "task_id is required",
+        "stopped": false
+      },
+      "caller": "sess_a",
+      "taskId": "   "
+    },
+    {
+      "answer": {
+        "error": "task not found: nope",
+        "stopped": false
+      },
+      "caller": "sess_a",
+      "taskId": "nope"
+    },
+    {
+      "answer": {
+        "error": "task not found: nope",
+        "stopped": false
+      },
+      "caller": "sess_a",
+      "taskId": " nope "
+    },
+    {
+      "answer": {
+        "error": "task not found: agent_x",
+        "stopped": false
+      },
+      "caller": "sess_a",
+      "taskId": "agent_x"
+    },
+    {
+      "answer": {
+        "error": "task not found: job_b1",
+        "stopped": false
+      },
+      "caller": "sess_a",
+      "taskId": "job_b1"
+    }
+  ]
+}

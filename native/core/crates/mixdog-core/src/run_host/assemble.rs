@@ -103,7 +103,7 @@ pub trait SessionSeams: Send + Sync + 'static {
     /// The compaction pipeline for this session's route (`run_host::compactors::SessionCompactors`
     /// over `FreshCompactor::for_session`). `input` is the run's: the settings it compacts by and
     /// the stored rows, archive and blobs its transcript is read through.
-    fn compactor(&self, thread: &ThreadId, header: &Header, input: CompactorInput) -> Option<Arc<dyn Compactor>>;
+    async fn compactor(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> Option<Arc<dyn Compactor>>;
     /// What the route hop reads and writes (`HopHost`). Owner: WP-AI-SVC (registry, wires) with
     /// WP-SESSION (the header write).
     fn hop_host(&self, thread: &ThreadId, header: &Header) -> Option<Arc<dyn HopHost>>;
@@ -153,6 +153,8 @@ pub struct HostServices {
     /// The shared effort-judge model, present when the install has the ONNX Runtime library; each run's judge is
     /// built over it with the run's ladder.
     pub effort_judge: Option<Arc<EffortJudgeModel>>,
+    /// The side-question store the loop's sends record into (the one compaction.requests reads).
+    pub side: super::side_requests::SideRequests,
     pub seams: Arc<dyn SessionSeams>,
     /// The sources of the settings the config does not hold.
     pub settings: super::settings::SettingsSources,
@@ -199,20 +201,44 @@ fn cwd_of(header: &Header) -> Result<PathBuf, TurnError> {
     Ok(Path::new(cwd).to_path_buf())
 }
 
-#[async_trait]
-impl RunParts for HostRunParts {
-    async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
+/// What a request of a thread is made of, the same for the turn that sends it and for the rebuild a
+/// side question forks: the route's provider, the surface's tools, the merged settings and the request
+/// options the header gives.
+struct RequestParts {
+    provider: Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>,
+    cwd: PathBuf,
+    tool_set: ToolSet,
+    settings: RunSettings,
+    options: mixdog_core_api::domain::provider::RequestOptions,
+}
+
+/// The facts of the thread a request is built from.
+struct RequestSource<'a> {
+    thread: &'a ThreadId,
+    header: &'a Header,
+    surface: &'a mixdog_tools::policy::SessionSurface,
+    prior: &'a [Value],
+    request: &'a str,
+    injected: bool,
+    provider_state: Option<mixdog_core_api::domain::provider::ProviderState>,
+    /// The thread's compaction count and the turn the request is for, when there is one.
+    window: u64,
+    turn: Option<mixdog_core_api::ids::TurnId>,
+}
+
+impl HostRunParts {
+    async fn request_parts(&self, source: RequestSource<'_>) -> Result<RequestParts, TurnError> {
         let s = &self.services;
         let seams = &s.seams;
-        let (thread, header) = (input.thread, input.header);
-        let (provider_id, model) = (text(header, "provider"), text(header, "model"));
+        let (thread, header) = (source.thread, source.header);
+        let provider_id = text(header, "provider");
         let provider = s
             .registry
             .get(provider_id)
             .await
             .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
         let cwd = cwd_of(header)?;
-        let SessionTools { tools, builtins } = seams.tools(thread, header, &input.surface).await.map_err(refuse)?;
+        let SessionTools { tools, builtins } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
         let tool_set = ToolSet::with_builtins(tools, builtins);
         let settings = super::settings::merge_settings(
             seams.run_settings(thread, header),
@@ -221,20 +247,91 @@ impl RunParts for HostRunParts {
                 thread,
                 header,
                 provider: &provider,
-                prior: input.prior,
-                request: input.request,
-                injected: input.injected,
+                prior: source.prior,
+                request: source.request,
+                injected: source.injected,
                 tools: &tool_set.definitions(),
                 now_ms: s.clock.now_ms(),
             },
         );
+        let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
+        options.session_id = Some(thread.as_str().to_owned());
+        options.effort = Some(text(header, "effort").to_owned()).filter(|e| !e.is_empty());
+        options.fast = header.get("fast").and_then(Value::as_bool) == Some(true);
+        options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
+        options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
+        options.model_max_output_tokens = settings.model_max_output_tokens;
+        options.thread = Some(RequestThread { id: thread.clone(), window: source.window, turn: source.turn });
+        options.provider_state = source.provider_state;
+        Ok(RequestParts { provider, cwd, tool_set, settings, options })
+    }
+
+    /// `nextMainRequest`: the request the thread's next turn would send, assembled by the same parts
+    /// and the same wire function as the turn's, without the turn's side effects. `None` for a thread
+    /// that has no conversation yet, runs for an agent, or whose provider is not available.
+    pub async fn next_request(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        surface: &mixdog_tools::policy::SessionSurface,
+        prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
+        window: u64,
+    ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
+        if super::compaction_world::is_agent_owner(header) {
+            return None;
+        }
+        let rows: Vec<Value> = prior.iter().map(|(_, body)| body.clone()).collect();
+        if !mixdog_core_session::session::route_session::has_user_conversation(&rows) {
+            return None;
+        }
+        let provider_state = header.get("providerState").and_then(|state| serde_json::from_value(state.clone()).ok());
+        let source = RequestSource { thread, header, surface, prior: &rows, request: "", injected: false, provider_state, window, turn: None };
+        let parts = self.request_parts(source).await.ok()?;
+        let mut messages = super::factory::system_messages(header);
+        for body in &rows {
+            messages.push(super::message_row::message_of(body).ok()?);
+        }
+        let mut options = parts.options;
+        options.iteration = 1;
+        let request = mixdog_agent::wire_request(
+            text(header, "model"),
+            options,
+            mixdog_agent::project::project_for_wire(&messages),
+            None,
+            parts.tool_set.definitions(),
+        );
+        Some((parts.provider, request))
+    }
+}
+
+#[async_trait]
+impl RunParts for HostRunParts {
+    async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
+        let s = &self.services;
+        let seams = &s.seams;
+        let (thread, header) = (input.thread, input.header);
+        let provider_id = text(header, "provider");
+        let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
+        let RequestParts { provider, cwd, tool_set, settings, options } = self
+            .request_parts(RequestSource {
+                thread,
+                header,
+                surface: &input.surface,
+                prior: input.prior,
+                request: input.request,
+                injected: input.injected,
+                provider_state: input.port.provider_state().await,
+                window: directory.thread_window(thread),
+                turn: Some(input.turn.clone()),
+            })
+            .await?;
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
         let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
         let tool_env = ToolEnv {
             thread_id: thread.clone(),
             turn_id: input.turn.clone(),
             cwd: AbsPath::new(cwd.clone()).ok_or_else(|| refuse("the working directory is not absolute"))?,
-            surface: if text(header, "owner") == "agent" { SurfaceKind::Agent } else { SurfaceKind::Lead },
+            surface: if super::compaction_world::is_agent_owner(header) { SurfaceKind::Agent } else { SurfaceKind::Lead },
             io: s.io.clone(),
             approvals: Arc::new(input.port.clone()),
             files: s.files.clone(),
@@ -243,19 +340,10 @@ impl RunParts for HostRunParts {
             deadline_of: None,
             notify: input.notify.clone(),
         };
-        let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         let guards: Arc<dyn TurnGuards> = Arc::new(TodoGuards::new(seams.todo_view(thread, header), hidden));
 
-        let mut config = RunConfig::new(thread.clone(), input.turn.clone(), model);
-        let options = &mut config.options;
-        options.session_id = Some(thread.as_str().to_owned());
-        options.effort = Some(text(header, "effort").to_owned()).filter(|e| !e.is_empty());
-        options.fast = header.get("fast").and_then(Value::as_bool) == Some(true);
-        options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
-        options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
-        options.model_max_output_tokens = settings.model_max_output_tokens;
-        options.thread = Some(RequestThread { id: thread.clone(), window: directory.thread_window(thread), turn: Some(input.turn.clone()) });
-        options.provider_state = input.port.provider_state().await;
+        let mut config = RunConfig::new(thread.clone(), input.turn.clone(), text(header, "model"));
+        config.options = options;
         config.hidden_agent = hidden;
         config.agent_mode = settings.agent_mode;
         config.limits = settings.limits;
@@ -314,9 +402,13 @@ impl RunParts for HostRunParts {
         let rows = Arc::new(mixdog_core_session::session::StoredRows::new());
         let artifacts: Arc<dyn mixdog_agent::offload::ArtifactStore> = Arc::new(ToolResultArtifacts::new(s.io, &seams.data_dir(), session_id));
         // No settings, no compaction policy: Node has no compactor for the session.
-        let compactor = compact_settings.and_then(|settings| {
-            seams.compactor(thread, header, CompactorInput { settings, rows: rows.clone(), archive: artifacts.clone(), blobs: s.blobs.clone() })
-        });
+        let compactor = match compact_settings {
+            Some(settings) => {
+                seams.compactor(thread, header, input.prior, CompactorInput { settings, rows: rows.clone(), archive: artifacts.clone(), blobs: s.blobs.clone() }).await
+            }
+            None => None,
+        };
+        let side = s.side.tap(super::side_requests::RunSide { thread: thread.clone(), provider_name: provider_id.to_owned(), provider: provider.clone(), agent_owner: super::compaction_world::is_agent_owner(header) });
         Ok(Assembled {
             rows: rows.clone(),
             provider,
@@ -341,6 +433,7 @@ impl RunParts for HostRunParts {
             reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
             reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
             tail: Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context: seams.tail_context(header) })),
+            side: Some(side),
             step_judge,
             artifacts: Some(artifacts),
             images: seams.image_compactor(),

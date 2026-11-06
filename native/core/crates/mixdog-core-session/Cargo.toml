@@ -25,9 +25,11 @@ mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-scm = { workspace = true }
 mixdog-services = { workspace = true }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-tools = { workspace = true }
+mixdog-workspace = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -48,7 +50,6 @@ test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/te
 
 [dev-dependencies]
 mixdog-migrate = { workspace = true }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 tempfile = { workspace = true }
 tokio-util = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }

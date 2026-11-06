@@ -36,7 +36,7 @@ use crate::effort_judge::input::{TurnInput, clip_turn};
 use crate::effort_judge::ladder::StepLadder;
 use crate::effort_judge::model::{JudgeModel, ModelConfig, available, available_on, steps_in};
 use crate::model_install::{InstallError, ProgressSink, run_on_lane};
-use crate::tool_state::{JudgeStatus, StateTick, onnx_runtime_supported};
+use crate::tool_state::{JudgeStatus, StateTick};
 
 type Loaded = Option<Result<Arc<JudgeModel>, JudgeError>>;
 
@@ -182,7 +182,7 @@ impl EffortJudgeModel {
     /// `effortJudgeAvailable()`: the platform has a binding, the files hold
     /// data and, for a release install, it is stamped.
     pub fn is_available(&self) -> bool {
-        onnx_runtime_supported() && available(&self.config)
+        self.config.runtime_supported() && available(&self.config)
     }
 
     /// `effortJudgeReady()`.
@@ -275,7 +275,7 @@ impl EffortJudgeModel {
 
     /// Calibrated probabilities over the four levels for one step.
     pub async fn probs(self: &Arc<Self>, input: StepInput) -> Result<Vec<f64>, JudgeError> {
-        if !onnx_runtime_supported() {
+        if !self.config.runtime_supported() {
             return Err(JudgeError::Unsupported);
         }
         self.refresh_once();
@@ -304,7 +304,7 @@ impl EffortJudgeModel {
     /// binding, an install in progress, a missing model, a recent load failure, a load that outlasts
     /// the cold wait, a queue that outlasts the queue wait, an inference that outlasts the deadline.
     pub async fn judge_turn(self: &Arc<Self>, input: TurnInput, timing: JudgeTiming) -> TurnVerdict {
-        if !onnx_runtime_supported() {
+        if !self.config.runtime_supported() {
             return TurnVerdict::skipped("unsupported");
         }
         self.refresh_once();
@@ -454,7 +454,7 @@ impl EffortJudgeModel {
     /// loaded or loading; false when it cannot be: unsupported platform, an
     /// install in progress, not installed, or a remembered load failure.
     pub async fn prewarm(self: &Arc<Self>) -> bool {
-        if !onnx_runtime_supported() || self.is_installing() {
+        if !self.config.runtime_supported() || self.is_installing() {
             return false;
         }
         if !available_on(self.lane, &self.config).await.unwrap_or(false) {

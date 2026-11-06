@@ -152,6 +152,26 @@ fn retained_retry_input(messages: &[Value]) -> bool {
         && transcript.and_then(|t| t.pointer("/completion/status")).and_then(Value::as_str) == Some("failed")
 }
 
+/// `latestFailedTurnKey`: the turn key of the failed turndone that ends the transcript, when no
+/// later turn has begun; empty otherwise.
+pub(crate) fn latest_failed_turn_key(items: &[Value]) -> String {
+    for (index, item) in items.iter().enumerate().rev() {
+        let kind = item.get("kind").and_then(Value::as_str);
+        if kind == Some("user") || item.get("archived") == Some(&json!(true)) {
+            return String::new();
+        }
+        if kind != Some("turndone") {
+            continue;
+        }
+        let failed = item.get("status").and_then(Value::as_str).is_some_and(|status| status.to_lowercase() == "failed");
+        if !failed {
+            return String::new();
+        }
+        return mixdog_core_goal::quota_settlement::transcript_turn_keys(items).swap_remove(index);
+    }
+    String::new()
+}
+
 /// What `hasResumeInput` reads of the session, taken by the actor.
 pub(crate) struct ResumeCheck {
     pub session_id: String,
@@ -167,7 +187,7 @@ pub(crate) struct ResumeCheck {
 
 impl ResumeCheck {
     /// `retainedRetryInput() !== null` over the session's model context.
-    async fn retained_retry(&self) -> bool {
+    pub(crate) async fn retained_retry(&self) -> bool {
         let messages: Vec<Value> = self.context.read().await.map(|rows| rows.into_iter().map(|(_, m)| m).collect()).unwrap_or_default();
         retained_retry_input(&messages)
     }

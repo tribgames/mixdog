@@ -187,6 +187,7 @@ pub(super) fn caps_of(body: &Value) -> Option<ModelCaps> {
     (adaptive || effort).then(|| ModelCaps {
         adaptive_thinking: adaptive,
         manual_thinking: false,
+        ladder_stated: false,
         effort_levels: ["low", "medium", "high", "max"].map(str::to_owned).to_vec(),
         max_output_tokens: body["max_tokens"].as_u64().map(|v| v as u32),
         fast_mode: false,

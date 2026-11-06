@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_agent::text_only::MediaText;
+use mixdog_ai::client_versions::ClientVersions;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ListingLookup, ModelRecord, ModelsDevSource};
 use mixdog_ai::effort::{reasoning_row, RejectionEntry};
 use mixdog_ai::netproxy::NetworkProxy;
@@ -165,12 +166,18 @@ async fn world(env: &[(&str, &str)], providers: Value, records: Vec<ModelRecord>
     World { services, headers, rejections, _dir: dir }
 }
 
-fn anthropic_row(id: &str, levels: &[&str]) -> ModelRecord {
-    let mut record = ModelRecord::new(ProviderId::from("anthropic"), id);
-    record.reasoning_efforts = levels.iter().map(|l| (*l).to_owned()).collect();
+/// A subscription-route row in Node's shape: `reasoningOptions` (a stated ladder, possibly empty)
+/// and `thinkingTypes`, each only where the row has them.
+fn anthropic_row(row: &Value) -> ModelRecord {
+    let mut record = ModelRecord::new(ProviderId::from("anthropic-oauth"), row["id"].as_str().unwrap());
+    if let Some(options) = row.get("reasoningOptions").and_then(Value::as_array) {
+        record.efforts_stated = true;
+        record.picker.reasoning_options = serde_json::from_value(Value::Array(options.clone())).unwrap();
+    }
+    record.thinking_adaptive = row["thinkingTypes"]["adaptive"].as_bool();
+    record.thinking_enabled = row["thinkingTypes"]["enabled"].as_bool();
     record
 }
-
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
 }
@@ -183,16 +190,22 @@ fn host() -> HostInfo {
 
 /// Node's own functions on fixed inputs (`codex-client-meta.mjs`, `openai-ws-headers.mjs`,
 /// `grok-client-version.mjs`, `cursor-client-version.mjs`, `antigravity-oauth-tokens.mjs`).
-#[test]
-fn the_client_identity_follows_nodes_floors_and_overrides() {
-    let none = TestEnv(HashMap::new());
-    let id = client_identity(&none, &host(), "11111111-2222-4333-8444-555555555555");
-    assert_eq!(id.codex.user_agent, "codex_cli_rs/0.166.0 (Windows 10.0.26100; x86_64) unknown");
-    assert_eq!((id.codex.version.as_str(), id.codex.beta_features.as_str()), ("0.166.0", "remote_compaction_v2"));
-    assert_eq!((id.grok, id.cursor, id.antigravity.as_str()), (None, None, "2.19.1"));
+#[tokio::test]
+async fn the_client_identity_follows_nodes_floors_and_overrides() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = |pairs: &[(&str, &str)]| {
+        let env: Arc<dyn Environment> = Arc::new(TestEnv(pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()));
+        let tokens = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let versions = ClientVersions::new(Arc::new(NoNetwork), dir.path().to_owned(), io, env.clone());
+        client_identity(&env, &host(), "11111111-2222-4333-8444-555555555555", &versions)
+    };
+    let id = identity(&[]);
+    assert_eq!(id.codex.user_agent.get(), "codex_cli_rs/0.166.0 (Windows 10.0.26100; x86_64) unknown");
+    assert_eq!((id.codex.version.get().as_str(), id.codex.beta_features.as_str()), ("0.166.0", "remote_compaction_v2"));
+    assert_eq!((id.grok.get().as_str(), id.cursor.get().as_str(), id.antigravity.get().as_str()), ("1.0.70", "cli-2026.10.22-27dcf5f", "2.19.1"));
 
-    let set = |pairs: &[(&str, &str)]| TestEnv(pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect());
-    let env = set(&[
+    let id = identity(&[
         ("MIXDOG_CODEX_ORIGINATOR", " codex_exec "),
         ("TERM_PROGRAM", " vscode "),
         ("MIXDOG_CODEX_VERSION", "0.170.1"),
@@ -201,16 +214,26 @@ fn the_client_identity_follows_nodes_floors_and_overrides() {
         ("MIXDOG_CURSOR_CLIENT_VERSION", "cli-2027.01.01-abc"),
         ("MIXDOG_ANTIGRAVITY_VERSION", "3.0.0"),
     ]);
-    let id = client_identity(&env, &host(), "i");
     // The User-Agent carries the version the client reports live (the floor here), the `version`
     // header the pinned one.
-    assert_eq!(id.codex.user_agent, "codex_exec/0.166.0 (Windows 10.0.26100; x86_64) vscode");
-    assert_eq!((id.codex.version.as_str(), id.codex.beta_features.as_str()), ("0.170.1", "a,b"));
-    assert_eq!((id.grok.as_deref(), id.cursor.as_deref(), id.antigravity.as_str()), (Some("1.0.99"), Some("cli-2027.01.01-abc"), "3.0.0"));
-    let pinned = set(&[("MIXDOG_CODEX_USER_AGENT", "ua/1")]);
-    assert_eq!(client_identity(&pinned, &host(), "i").codex.user_agent, "ua/1");
+    assert_eq!(id.codex.user_agent.get(), "codex_exec/0.166.0 (Windows 10.0.26100; x86_64) vscode");
+    assert_eq!((id.codex.version.get().as_str(), id.codex.beta_features.as_str()), ("0.170.1", "a,b"));
+    assert_eq!((id.grok.get().as_str(), id.cursor.get().as_str(), id.antigravity.get().as_str()), ("1.0.99", "cli-2027.01.01-abc", "3.0.0"));
+    assert_eq!(identity(&[("MIXDOG_CODEX_USER_AGENT", "ua/1")]).codex.user_agent.get(), "ua/1");
 }
 
+/// A network that never answers: only the floors and the overrides are in play.
+struct NoNetwork;
+
+#[async_trait::async_trait]
+impl mixdog_ai::transport::http::HttpSend for NoNetwork {
+    async fn send(&self, _: mixdog_core_api::domain::provider::WireRequest) -> Result<mixdog_ai::transport::http::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+        Err(mixdog_core_api::domain::provider::ProviderError::new(
+            mixdog_core_api::domain::provider::ErrorKind::Transient,
+            mixdog_core_api::domain::provider::DeliveryState::NotSent,
+        ))
+    }
+}
 #[tokio::test]
 async fn the_installation_id_is_the_env_uuid_else_the_file_else_a_new_one_kept() {
     let dir = tempfile::tempdir().unwrap();
@@ -282,28 +305,29 @@ async fn a_remote_client_holds_no_model_credentials() {
     assert_eq!(builder_env(&local.services).keys.get("openai").await.as_deref(), Some("sk-live"));
 }
 
+/// The listed rows the recorder fed Node's `setModelEffortCapabilities`, as the subscription
+/// route lists them: a row that states no `reasoningOptions` states no ladder at all.
+fn listed_rows(rows: &Value) -> Vec<ModelRecord> {
+    rows.as_array().unwrap().iter().map(anthropic_row).collect()
+}
+
 #[tokio::test]
-async fn the_anthropic_caps_are_nodes_floor_and_live_catalog_answers() {
+async fn the_anthropic_caps_are_nodes_floor_live_and_declared_catalog_answers() {
     let golden: Value = serde_json::from_str(CAPS).unwrap();
-    let live: Vec<ModelRecord> = golden["live"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|row| {
-            let values = strings(&row["reasoningOptions"][0]["values"]);
-            anthropic_row(row["id"].as_str().unwrap(), &values.iter().map(String::as_str).collect::<Vec<_>>())
-        })
-        .collect();
     let dir = tempfile::tempdir().unwrap();
     let none = TestEnv(HashMap::new());
-    for (set, catalog) in [("floor", catalog_with(dir.path(), Vec::new()).await), ("withLive", catalog_with(dir.path(), live).await)] {
-        let caps = CatalogCaps::new(catalog, &none);
+    let sets = [
+        ("floor", Vec::new()),
+        ("withLive", listed_rows(&golden["live"])),
+        ("declared", listed_rows(&golden["declaredRows"])),
+    ];
+    for (set, rows) in sets {
+        let caps = CatalogCaps::new(catalog_with(dir.path(), rows).await, &none);
         for row in golden[set].as_array().unwrap() {
             let model = row["model"].as_str().unwrap();
             let got = caps.caps(model);
-            let advertised = got.as_ref().filter(|c| c.supports_effort());
-            let gates = AnthropicEffortGates::for_model(model, advertised);
-            let supports = advertised.is_some();
+            let gates = AnthropicEffortGates::for_model(model, got.as_ref());
+            let supports = got.as_ref().is_some_and(|c| c.supports_effort());
             let adaptive = got.as_ref().is_some_and(|c| c.adaptive_thinking);
             let want = |key: &str| row[key].as_bool().unwrap();
             let ctx = format!("{set} {model}");
@@ -316,6 +340,22 @@ async fn the_anthropic_caps_are_nodes_floor_and_live_catalog_answers() {
     }
 }
 
+/// `m?.supports_reasoning_summaries === true` on the cached Codex roster, read for the exact id;
+/// an id the roster does not hold takes summaries (`_codexModelSupportsReasoningSummaries`).
+#[tokio::test]
+async fn reasoning_summaries_follow_the_cached_codex_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut off = ModelRecord::new(ProviderId::from("openai-oauth"), "gpt-6-sol");
+    off.supports_reasoning_summaries = Some(false);
+    let mut on = ModelRecord::new(ProviderId::from("openai-oauth"), "gpt-6-astra");
+    on.supports_reasoning_summaries = Some(true);
+    let silent = ModelRecord::new(ProviderId::from("openai-oauth"), "gpt-6-luna");
+    let facts = CatalogOpenAiFacts::new(catalog_with(dir.path(), vec![off, on, silent]).await);
+    assert_eq!(facts.facts("gpt-6-sol").reasoning_summaries, Some(false));
+    assert_eq!(facts.facts("gpt-6-astra").reasoning_summaries, Some(true));
+    assert_eq!(facts.facts("gpt-6-luna").reasoning_summaries, None);
+    assert_eq!(facts.facts("gpt-6-terra").reasoning_summaries, None);
+}
 #[tokio::test]
 async fn the_always_enable_switch_gives_every_model_adaptive_effort() {
     let dir = tempfile::tempdir().unwrap();
@@ -407,7 +447,7 @@ async fn the_ladder_reads_the_process_stores() {
         "custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
             "modelOverrides": {"m1": {"manual": true, "reasoning": {"levels": ["low", "high"]}}}},
     });
-    let w = world(&[], providers, vec![anthropic_row("claude-sonnet-4-6", &["low", "medium", "high", "max"])]).await;
+    let w = world(&[], providers, vec![anthropic_row(&json!({"id": "claude-sonnet-4-6", "reasoningOptions": [{"type": "effort", "values": ["low", "medium", "high", "max"]}]}))]).await;
     w.rejections.0.lock().unwrap().insert(("openai".into(), "gpt-5.5".into()), RejectionEntry { rejected: vec!["xhigh".into()], allowed: Vec::new() });
     let ladder = ProcessLadder::new(&w.services);
 

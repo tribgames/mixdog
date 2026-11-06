@@ -313,6 +313,8 @@ pub struct Run {
     pub(crate) request_started_ms: i64,
     /// The logical send in flight (`RequestOptions.send_group`); settled when it ends unsuccessfully.
     pub(crate) send_group: Option<crate::send::SendGroup>,
+    /// The send's capture, opened by its first attempt and ended by the send.
+    pub(crate) side_ticket: Option<Box<dyn crate::env::SendTicket>>,
     /// The provider's last measured context footprint (`session.lastContextTokens`).
     pub(crate) context: crate::boundary::ContextReading,
     pub(crate) no_tool: NoToolState,
@@ -434,6 +436,7 @@ impl Run {
             last_request: None,
             request_started_ms: 0,
             send_group: None,
+            side_ticket: None,
             no_tool: NoToolState::default(),
             carry,
             quiet_compact_retry_used: false,

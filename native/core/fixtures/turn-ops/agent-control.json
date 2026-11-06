@@ -1,0 +1,55 @@
+[
+  {
+    "args": {
+      "action": "list"
+    },
+    "context": {
+      "callerCwd": "C:\\work\\app",
+      "callerSessionId": "s1",
+      "clientHostPid": 4321,
+      "invocationSource": "user-command"
+    },
+    "cwd": "C:\\work\\app",
+    "name": "a session with a host pid",
+    "result": "ran",
+    "session": {
+      "clientHostPid": 4321,
+      "id": "s1"
+    }
+  },
+  {
+    "args": {
+      "action": "list"
+    },
+    "context": {
+      "callerCwd": "/work/app",
+      "callerSessionId": "s2",
+      "clientHostPid": "process.pid",
+      "invocationSource": "user-command"
+    },
+    "cwd": "/work/app",
+    "name": "a session without a host pid",
+    "result": "ran",
+    "session": {
+      "id": "s2"
+    }
+  },
+  {
+    "args": {
+      "action": "list"
+    },
+    "context": {
+      "callerCwd": "/w",
+      "callerSessionId": "s3",
+      "clientHostPid": "process.pid",
+      "invocationSource": "user-command"
+    },
+    "cwd": "/w",
+    "name": "a zero host pid reads as none",
+    "result": "ran",
+    "session": {
+      "clientHostPid": 0,
+      "id": "s3"
+    }
+  }
+]

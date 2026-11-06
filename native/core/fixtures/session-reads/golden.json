@@ -1,0 +1,4176 @@
+{
+  "attachmentRows": [
+    {
+      "expected": [],
+      "items": []
+    },
+    {
+      "expected": [],
+      "items": [
+        {
+          "kind": "user",
+          "text": "no attachments"
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "attachments": [
+            {
+              "id": "att_1",
+              "kind": "file",
+              "mimeType": "text/plain",
+              "name": "a.txt",
+              "size": 12
+            }
+          ],
+          "kind": "user"
+        }
+      ],
+      "items": [
+        {
+          "attachments": [
+            {
+              "extra": "dropped",
+              "id": "att_1",
+              "kind": "file",
+              "mimeType": "text/plain",
+              "name": "a.txt",
+              "path": "/secret",
+              "size": 12
+            }
+          ],
+          "id": "u",
+          "kind": "user"
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "attachments": [
+            {
+              "id": "att_2",
+              "size": 0
+            }
+          ],
+          "kind": "user"
+        }
+      ],
+      "items": [
+        {
+          "attachments": [
+            {
+              "id": "att_2",
+              "name": null,
+              "size": 0
+            }
+          ],
+          "kind": "user"
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "images": [
+            {
+              "attachmentRef": "ref_1",
+              "bytes": 5,
+              "mimeType": "image/png",
+              "name": "i.png"
+            }
+          ],
+          "kind": "user"
+        }
+      ],
+      "items": [
+        {
+          "images": [
+            {
+              "attachmentRef": "ref_1",
+              "bytes": 5,
+              "data": "x",
+              "mimeType": "image/png",
+              "name": "i.png"
+            }
+          ],
+          "kind": "user"
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "imageRefs": [
+            {
+              "ref": "r1"
+            },
+            {
+              "ref": "r2"
+            }
+          ],
+          "kind": "user"
+        }
+      ],
+      "items": [
+        {
+          "imageRefs": [
+            {
+              "other": 1,
+              "ref": "r1"
+            },
+            {
+              "ref": "r2"
+            }
+          ],
+          "kind": "user"
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "attachments": [
+            {
+              "id": "att_3"
+            }
+          ],
+          "kind": "notice",
+          "routine": {
+            "kind": "schedule"
+          }
+        }
+      ],
+      "items": [
+        {
+          "attachments": [
+            {
+              "id": "att_3"
+            }
+          ],
+          "kind": "notice",
+          "routine": {
+            "kind": "schedule",
+            "name": "n"
+          }
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "attachments": [
+            {
+              "id": "att_3"
+            }
+          ],
+          "kind": "notice"
+        }
+      ],
+      "items": [
+        {
+          "attachments": [
+            {
+              "id": "att_3"
+            }
+          ],
+          "kind": "notice",
+          "routine": {
+            "kind": ""
+          }
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "images": [
+            {
+              "name": "i"
+            }
+          ],
+          "kind": "notice",
+          "room": {
+            "kind": "agent"
+          }
+        }
+      ],
+      "items": [
+        {
+          "images": [
+            {
+              "name": "i"
+            }
+          ],
+          "kind": "notice",
+          "room": {
+            "kind": "agent",
+            "who": "x"
+          }
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "attachments": [
+            {
+              "id": "a"
+            }
+          ],
+          "imageRefs": [
+            {
+              "ref": "z"
+            }
+          ],
+          "images": [
+            {
+              "bytes": 1
+            }
+          ],
+          "kind": "notice"
+        }
+      ],
+      "items": [
+        {
+          "attachments": [
+            {
+              "id": "a"
+            }
+          ],
+          "imageRefs": [
+            {
+              "ref": "z"
+            }
+          ],
+          "images": [
+            {
+              "bytes": 1
+            }
+          ],
+          "kind": "notice",
+          "room": {},
+          "routine": null
+        }
+      ]
+    },
+    {
+      "expected": [],
+      "items": [
+        {
+          "attachments": [],
+          "imageRefs": [],
+          "images": [],
+          "kind": "user"
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "attachments": [
+            {}
+          ],
+          "kind": "user"
+        }
+      ],
+      "items": [
+        {
+          "attachments": [
+            {
+              "ignored": 1
+            }
+          ],
+          "kind": "user"
+        }
+      ]
+    },
+    {
+      "expected": [],
+      "items": [
+        {
+          "attachments": "not a list",
+          "imageRefs": null,
+          "images": {},
+          "kind": "user"
+        }
+      ]
+    },
+    {
+      "expected": [
+        {
+          "attachments": [
+            {
+              "id": "one"
+            }
+          ],
+          "kind": "user"
+        },
+        {
+          "attachments": [
+            {
+              "id": "two"
+            }
+          ],
+          "kind": "user"
+        }
+      ],
+      "items": [
+        {
+          "attachments": [
+            {
+              "id": "one"
+            }
+          ],
+          "kind": "user"
+        },
+        {
+          "kind": "assistant",
+          "text": "between"
+        },
+        {
+          "attachments": [
+            {
+              "id": "two"
+            }
+          ],
+          "kind": "user"
+        }
+      ]
+    }
+  ],
+  "finalAnswers": [
+    {
+      "expected": {
+        "at": 100,
+        "id": "d1",
+        "status": "done",
+        "text": "the answer"
+      },
+      "name": "done with its answer",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "the answer"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "answer before startedAt",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "the answer"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 101
+    },
+    {
+      "expected": {
+        "at": 100,
+        "id": "d1",
+        "status": "done",
+        "text": "the answer"
+      },
+      "name": "answer exactly at startedAt",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "the answer"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 100
+    },
+    {
+      "expected": null,
+      "name": "busy",
+      "snapshot": {
+        "busy": true,
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "the answer"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "streaming tail",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "the answer"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ],
+        "streamingTail": {
+          "id": "t"
+        }
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "no turndone",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "x"
+          }
+        ]
+      },
+      "startedAt": 0
+    },
+    {
+      "expected": null,
+      "name": "empty items",
+      "snapshot": {
+        "items": []
+      },
+      "startedAt": 0
+    },
+    {
+      "expected": null,
+      "name": "done without id",
+      "snapshot": {
+        "items": [
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "x"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 0
+    },
+    {
+      "expected": null,
+      "name": "done at not a number",
+      "snapshot": {
+        "items": [
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "x"
+          },
+          {
+            "at": "100",
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 0
+    },
+    {
+      "expected": null,
+      "name": "newer prompt after the end",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "the answer"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "id": "u2",
+            "kind": "user",
+            "text": "q"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "newer assistant after the end",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "the answer"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "id": "a2",
+            "kind": "assistant",
+            "text": "more"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": {
+        "at": 100,
+        "id": "d1",
+        "status": "failed",
+        "text": ""
+      },
+      "name": "failed",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "at": 100,
+            "id": "d1",
+            "kind": "turndone",
+            "status": "failed"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": {
+        "at": 100,
+        "id": "d1",
+        "status": "cancelled",
+        "text": ""
+      },
+      "name": "cancelled",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "at": 100,
+            "id": "d1",
+            "kind": "turndone",
+            "status": "cancelled"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": {
+        "at": 100,
+        "id": "d1",
+        "reacted": true,
+        "status": "done",
+        "text": ""
+      },
+      "name": "reaction alone",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "at": 100,
+            "id": "d1",
+            "kind": "turndone",
+            "reacted": true,
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "done with no final id, not reacted",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "at": 100,
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "final id names no assistant row",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a9",
+            "kind": "assistant",
+            "text": "x"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "final id names a tool row",
+      "snapshot": {
+        "items": [
+          {
+            "id": "u1",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a1",
+            "kind": "tool"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "an earlier turn end between",
+      "snapshot": {
+        "items": [
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "x"
+          },
+          {
+            "at": 90,
+            "id": "d0",
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "id": "u2",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "answer still streaming",
+      "snapshot": {
+        "items": [
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "streaming": true,
+            "text": "part"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "answer blank",
+      "snapshot": {
+        "items": [
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "  \n\t "
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": null,
+      "name": "answer without text",
+      "snapshot": {
+        "items": [
+          {
+            "id": "a1",
+            "kind": "assistant"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": {
+        "at": 100,
+        "id": "d1",
+        "status": "done",
+        "text": "  hi  "
+      },
+      "name": "answer text is padded",
+      "snapshot": {
+        "items": [
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "  hi  "
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": {
+        "at": 100,
+        "id": 8,
+        "status": "done",
+        "text": "n"
+      },
+      "name": "numeric ids",
+      "snapshot": {
+        "items": [
+          {
+            "id": 7,
+            "kind": "assistant",
+            "text": "n"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": 7,
+            "id": 8,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 50
+    },
+    {
+      "expected": {
+        "at": 200,
+        "id": "d2",
+        "status": "done",
+        "text": "new"
+      },
+      "name": "the newest end wins",
+      "snapshot": {
+        "items": [
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "old"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "id": "u2",
+            "kind": "user",
+            "text": "q"
+          },
+          {
+            "id": "a2",
+            "kind": "assistant",
+            "text": "new"
+          },
+          {
+            "at": 200,
+            "finalAssistantId": "a2",
+            "id": "d2",
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 150
+    },
+    {
+      "expected": null,
+      "name": "unknown status",
+      "snapshot": {
+        "items": [
+          {
+            "id": "a1",
+            "kind": "assistant",
+            "text": "x"
+          },
+          {
+            "at": 100,
+            "finalAssistantId": "a1",
+            "id": "d1",
+            "kind": "turndone",
+            "status": "weird"
+          }
+        ]
+      },
+      "startedAt": 50
+    }
+  ],
+  "note": "sessionFinalAnswer, attachmentHistoryRows and storedHistorySlice({cursor}) over crafted display rows; `sizes` are the rows' JSON byte lengths",
+  "pages": {
+    "requests": [
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 2,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 2,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 2,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 2,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 2,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 4,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 4,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 4,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 4,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 4,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 0,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r0",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 1
+        },
+        "request": {
+          "after": "r0",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 3,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 3,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 3,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 3,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 3,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 10,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 10,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 10,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 10,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 10,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 10,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 10,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 10,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 1,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r1",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "after": "r1",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 7,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 7,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 7,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 7,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 7,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 2
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 9,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 11
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 11
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 11
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 11
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 11
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 14,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 9
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 16,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 9
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 16,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 9
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 16,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 9
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 16,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 9
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 16,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 21,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 21,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 21,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 21,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 21,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 21,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 21,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 4
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 21,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 12,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r12",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 13
+        },
+        "request": {
+          "after": "r12",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 19
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 22,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 19
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 22,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 19
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 22,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 19
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 22,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 19
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 22,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 17
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 17
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 17
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 17
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 17
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 12
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 12
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 12
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 12
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 12
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 12
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 12
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 12
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 20,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r20",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 21
+        },
+        "request": {
+          "after": "r20",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 22
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": null,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 22
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 1,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 22
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 300,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 22
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 900,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 22
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 5654,
+          "maxRows": 1
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 20
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": null,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 20
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 1,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 20
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 300,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 20
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 900,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 20
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 5654,
+          "maxRows": 3
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 15
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 15
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 1,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 15
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 300,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 15
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 900,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 15
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 5654,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": null,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 15
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 1,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 15
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 300,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 15
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 900,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 23,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r23",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "end": 24,
+          "hasNewer": false,
+          "hasOlder": true,
+          "start": 24
+        },
+        "request": {
+          "after": "r23",
+          "byteBudget": 5654,
+          "maxRows": 30
+        }
+      },
+      {
+        "expected": {
+          "cursorMissing": true
+        },
+        "request": {
+          "before": "nope",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "cursorMissing": true
+        },
+        "request": {
+          "after": "nope",
+          "byteBudget": null,
+          "maxRows": 8
+        }
+      },
+      {
+        "expected": {
+          "end": 5,
+          "hasNewer": true,
+          "hasOlder": false,
+          "start": 0
+        },
+        "request": {
+          "before": "r5",
+          "byteBudget": null,
+          "maxRows": 9999
+        }
+      },
+      {
+        "expected": {
+          "end": 7,
+          "hasNewer": true,
+          "hasOlder": true,
+          "start": 6
+        },
+        "request": {
+          "after": "r5",
+          "byteBudget": null,
+          "maxRows": 0
+        }
+      }
+    ],
+    "sizes": [
+      45,
+      205,
+      365,
+      85,
+      245,
+      405,
+      125,
+      285,
+      445,
+      165,
+      326,
+      46,
+      206,
+      366,
+      86,
+      246,
+      406,
+      126,
+      286,
+      446,
+      166,
+      326,
+      46,
+      206
+    ]
+  }
+}

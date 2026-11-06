@@ -217,7 +217,7 @@ fn is_reference_files(message: &Value) -> bool {
 }
 
 /// `hasUserConversationMessage` (`prompt-utils.mjs:610`).
-fn has_user_conversation(messages: &[Value]) -> bool {
+pub fn has_user_conversation(messages: &[Value]) -> bool {
     messages.iter().any(|message| {
         message.get("role").and_then(Value::as_str) == Some("user")
             && !mixdog_store::user_message_kind::is_protected_context_user_message(message)

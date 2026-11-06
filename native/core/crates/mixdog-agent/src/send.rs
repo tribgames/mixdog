@@ -190,6 +190,27 @@ fn request_policy(provider: &dyn ProviderAdapter, retry_529: bool) -> std::borro
     std::borrow::Cow::Owned(policy)
 }
 
+/// The request the loop sends: the projected transcript, the tail reminder when the turn has one
+/// (it rides on this request only), the tool definitions and the options. A side question rebuilds
+/// the request of the session's next turn through the same function.
+pub fn wire_request(
+    model: &str,
+    options: mixdog_core_api::domain::provider::RequestOptions,
+    mut messages: Vec<mixdog_core_api::domain::provider::Message>,
+    tail_reminder: Option<&str>,
+    tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+) -> ModelRequest {
+    if let Some(text) = tail_reminder {
+        let mut reminder = mixdog_core_api::domain::provider::Message::new(
+            mixdog_core_api::domain::provider::Role::User,
+            mixdog_core_api::domain::provider::Content::Text(text.to_owned()),
+        );
+        reminder.source = Some(mixdog_core_api::domain::provider::MessageSource::TailReminder);
+        messages.push(reminder);
+    }
+    ModelRequest { model: model.to_owned(), messages, tools, options }
+}
+
 impl Run {
     fn build_request(&mut self) -> ModelRequest {
         let mut options = self.config.options.clone();
@@ -198,7 +219,7 @@ impl Run {
         options.send_group = Some(self.send_group.get_or_insert_with(|| SendGroup::new(provider)).id.clone());
         // The output-limit escalation is one-shot: this attempt alone carries it.
         options.max_output_tokens_override = self.max_output_override.take().or(options.max_output_tokens_override);
-        let mut messages = if self.unprojected {
+        let messages = if self.unprojected {
             self.messages.iter().map(AgentMessage::wire).collect()
         } else if self.image_strip_active {
             crate::project::project_for_wire(&crate::recovery::without_latest_images(&self.messages))
@@ -208,31 +229,21 @@ impl Run {
         // The tail reminder rides on this request only; the assistant turn it
         // produces keeps its text.
         self.last_reminder = self.env.tail.as_ref().and_then(|t| t.text(&self.model));
-        if let Some(text) = &self.last_reminder {
-            let mut reminder = mixdog_core_api::domain::provider::Message::new(
-                mixdog_core_api::domain::provider::Role::User,
-                mixdog_core_api::domain::provider::Content::Text(text.clone()),
-            );
-            reminder.source = Some(mixdog_core_api::domain::provider::MessageSource::TailReminder);
-            messages.push(reminder);
-        }
-        ModelRequest {
-            model: self.model.clone(),
-            messages,
-            tools: self
-                .tools
-                .definitions()
-                .into_iter()
-                .filter(|t| !self.dropped_tools.contains_key(&t.name))
-                .collect(),
-            options,
-        }
+        let tools = self.tools.definitions().into_iter().filter(|t| !self.dropped_tools.contains_key(&t.name)).collect();
+        wire_request(&self.model, options, messages, self.last_reminder.as_deref(), tools)
     }
 
     /// Sends the transcript, recovering from failures. The returned response
     /// is whole; a retry never leaks a dead attempt's output.
     pub(crate) async fn send_provider_request(&mut self) -> Result<SendResult, AgentError> {
         let result = self.send_attempts().await;
+        // sideQuestion.settle(response) on a proceed, discard() on anything else.
+        if let Some(ticket) = self.side_ticket.take() {
+            match &result {
+                Ok(SendResult::Proceed(response)) => ticket.settle(response),
+                _ => ticket.discard(),
+            }
+        }
         // Whatever left the group open ended without a success: a surfaced failure (a recovered
         // partial, a route switch, an error), or the user's abort. Settled before any other send.
         let end = match &result {
@@ -253,6 +264,9 @@ impl Run {
             self.drop_eager();
             let request = Arc::new(self.build_request());
             self.last_request = Some(request.clone());
+            if self.side_ticket.is_none() && let Some(tap) = &self.env.side {
+                self.side_ticket = Some(tap.begin(&request));
+            }
             let failure = match self.attempt_once(request).await? {
                 Ok(response) => {
                     // A completed send ends the outage the budgets covered.

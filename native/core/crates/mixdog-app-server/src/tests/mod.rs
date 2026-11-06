@@ -198,6 +198,10 @@ impl CoreHandle for TestCore {
         self.mock.app_feed()
     }
 
+    fn scoped_feed(&self, id: &mixdog_core_api::ids::FeedId) -> Option<Arc<dyn FeedSource>> {
+        self.mock.scoped_feed(id)
+    }
+
     fn ops(&self) -> &dyn OpIndex {
         self.mock.ops()
     }

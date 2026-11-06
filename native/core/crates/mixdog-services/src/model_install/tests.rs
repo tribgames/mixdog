@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
 use crate::effort_judge::install::{self, Manifest, ManifestFile};
-use crate::effort_judge::model::ModelConfig;
+use crate::effort_judge::model::{ModelConfig, OrtRuntime};
 use crate::memory::embed::engine::EmbedConfig;
 use crate::memory::embed::install as embed_install;
 use crate::memory::embed::provider::EmbeddingProvider;
@@ -119,7 +119,7 @@ pub(super) fn manifest(server: &Server, release: &str, files: &[(&str, &[u8])]) 
 }
 
 pub(super) fn config(dir: &Path) -> ModelConfig {
-    ModelConfig { dir: dir.to_owned(), explicit: false, ort_library: PathBuf::from("unused") }
+    ModelConfig { dir: dir.to_owned(), explicit: false, ort_library: OrtRuntime::Library(PathBuf::from("unused")) }
 }
 
 pub(super) fn big(seed: u8, len: usize) -> Vec<u8> {

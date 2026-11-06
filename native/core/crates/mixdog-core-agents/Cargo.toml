@@ -12,6 +12,7 @@ doctest = false
 
 [dependencies]
 async-trait = { workspace = true }
+base64 = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
@@ -32,7 +33,6 @@ mixdog-core-ports = { workspace = true }
 mixdog-core-rooms = { workspace = true }
 
 [dev-dependencies]
-base64 = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await"] }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }

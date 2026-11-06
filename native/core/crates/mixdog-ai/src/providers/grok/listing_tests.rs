@@ -41,7 +41,7 @@ fn listing(script: Value) -> (Arc<Replay>, GrokListing) {
         http.clone(),
         Arc::new(credential),
         super::codec(VERSION),
-        VERSION.to_owned(),
+        VERSION.into(),
         Arc::new(SeedEffortRule),
         // Empty tables: the catalog answers "not found", as in the recording.
         ListingLookup::new(),

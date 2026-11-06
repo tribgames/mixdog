@@ -78,6 +78,91 @@ use mixdog_core_base::approvals::ApprovalIds;
 use mixdog_core_base::approvals::DeviceInfo;
 use mixdog_core_base::approvals::Devices;
 
+/// The compaction engine: `result` answers each compaction; `calls` keeps the order the host
+/// was called in.
+#[derive(Default)]
+pub struct TestCompaction {
+    pub result: Mutex<Option<Value>>,
+    pub calls: Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl super::turn_ops::ManualCompaction for TestCompaction {
+    async fn compact(&self, _: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
+        lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
+        Ok(lock(&self.result).clone())
+    }
+    async fn post_compact(&self, _: &ThreadId, trigger: &str) {
+        lock(&self.calls).push(format!("post {trigger}"));
+    }
+    async fn rearm(&self, _: &ThreadId) {
+        lock(&self.calls).push("rearm".into());
+    }
+    fn recover_workers(&self, _: &ThreadId) {
+        lock(&self.calls).push("recover".into());
+    }
+    fn invalidate_context_status(&self, _: &ThreadId) {
+        lock(&self.calls).push("invalidate".into());
+    }
+}
+
+/// The heir-route policy: `basis` answers every measurement (the targets and message counts it
+/// was asked about are kept); `None` is an unmeasurable route.
+#[derive(Default)]
+pub struct TestInherit {
+    pub basis: Mutex<Option<(u64, u64, bool)>>,
+    pub asked: Mutex<Vec<(String, String, Option<u64>, Option<ThreadId>, usize)>>,
+}
+
+#[async_trait::async_trait]
+impl super::inheritance::InheritanceFit for TestInherit {
+    async fn basis(&self, target: &super::inheritance::InheritTarget, messages: &[Value]) -> Option<super::inheritance::FitBasis> {
+        lock(&self.asked).push((target.provider.clone(), target.model.clone(), target.selected_context_window, target.tools_of.clone(), messages.len()));
+        let (limit, used, compactable) = (*lock(&self.basis))?;
+        Some(super::inheritance::FitBasis { limit, used, compactable })
+    }
+}
+
+/// A side-question store: a session has a request once `request` is set; `send` answers `reply`
+/// (or waits for the cancel when `reply` is `None`); each send's prompt and the begins are kept.
+#[derive(Default)]
+pub struct TestSide {
+    pub request: std::sync::atomic::AtomicBool,
+    pub reply: Mutex<Option<Result<super::turn_ops::SideReply, super::turn_ops::SideFailure>>>,
+    pub prompts: Mutex<Vec<String>>,
+    pub begins: std::sync::atomic::AtomicUsize,
+    active: Mutex<Option<mixdog_rt::CancellationToken>>,
+}
+
+#[async_trait::async_trait]
+impl super::turn_ops::SideQuestions for TestSide {
+    async fn has_request(&self, _: &ThreadId) -> bool {
+        self.request.load(Ordering::SeqCst)
+    }
+    fn begin(&self, _: &ThreadId) -> super::turn_ops::SideRun {
+        self.begins.fetch_add(1, Ordering::SeqCst);
+        let cancel = mixdog_rt::CancellationToken::new();
+        if let Some(previous) = lock(&self.active).replace(cancel.clone()) {
+            previous.cancel();
+        }
+        super::turn_ops::SideRun { cancel, end: Box::new(()) }
+    }
+    fn cancel(&self, _: &ThreadId) -> bool {
+        lock(&self.active).take().map(|token| token.cancel()).is_some()
+    }
+    async fn send(&self, _: &ThreadId, prompt: &str, _: &str, cancel: &mixdog_rt::CancellationToken) -> Result<super::turn_ops::SideReply, super::turn_ops::SideFailure> {
+        let scripted = lock(&self.reply).take();
+        lock(&self.prompts).push(prompt.to_owned());
+        match scripted {
+            Some(reply) => reply,
+            None => {
+                cancel.cancelled().await;
+                Err(super::turn_ops::SideFailure::Aborted)
+            }
+        }
+    }
+}
+
 pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
@@ -660,6 +745,12 @@ pub struct Rig {
     /// reads them.
     pub todos: Arc<TestTodos>,
     pub work: Arc<TestWork>,
+    /// The side-question store `thread/askSide` reads.
+    pub side: Arc<TestSide>,
+    /// The heir-route policy `thread/inheritancePreflight` measures on.
+    pub inherit: Arc<TestInherit>,
+    /// The compaction engine `thread/compact/start` calls.
+    pub compaction: Arc<TestCompaction>,
     /// The quota-resume queue over the temp data dir.
     pub quota: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
     /// The route change a clear reads its environment reset from.
@@ -744,6 +835,9 @@ impl super::delete::PurgeHook for Hook {
 impl super::delete::DeleteSeams for Deletes {
     async fn release_session_work(&self, session_id: &str, reason: &str) {
         self.note(format!("releaseSessionWork:{session_id}:{reason}"));
+    }
+    fn session_closed(&self, session_id: &str, reason: &str, _: &mixdog_store::schema::record::Header) {
+        self.note(format!("sessionClosed:{session_id}:{reason}"));
     }
     fn forget_session_search(&self, session_id: &str) {
         self.note(format!("forgetSessionSearch:{session_id}"));
@@ -833,6 +927,9 @@ impl Rig {
             goals,
             todos: Arc::default(),
             work: Arc::default(),
+            side: Arc::default(),
+            inherit: Arc::default(),
+            compaction: Arc::default(),
             prompts: Arc::new(FilePromptHistory::new(data.path())),
             _data: data,
             store,
@@ -895,6 +992,9 @@ impl Rig {
             goals: Arc::new(self.goals.clone()),
             todos: self.todos.clone(),
             work: self.work.clone(),
+            side: self.side.clone(),
+            inherit: self.inherit.clone(),
+            compaction: self.compaction.clone(),
             cycles: Arc::default(),
             quota: super::quota_lane::SessionQuota {
                 goals: mixdog_core_goal::goal::quota::GoalQuotaResume::new(self.quota.clone(), self.goals.clone()),

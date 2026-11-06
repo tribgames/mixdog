@@ -1,0 +1,322 @@
+{
+  "accountScopedIds": {
+    "session-a": "account-02fb351f57dc8aa6801b5636190f7126bdd9243efc235958b0abca7fed7f0fa1"
+  },
+  "accounts": {
+    "anthropic-oauth": [
+      {
+        "id": "7d1f3c52-0a4e-4b8e-9c61-2f5a6b3d8e10"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "own",
+      "options": {},
+      "result": {
+        "cacheHitRate": 0.7271,
+        "cacheRead": 16000,
+        "cacheWrite": 2000,
+        "costKnownTurns": 0,
+        "costUnpricedTurns": 4,
+        "costUsd": 0,
+        "input": 4006,
+        "output": 406,
+        "outputTokensPerSecond": 50.8,
+        "sessionId": "session-a",
+        "tokens": 22412,
+        "turns": 4,
+        "unmeasuredTurns": 0
+      },
+      "session": "session-a"
+    },
+    {
+      "name": "no options",
+      "options": null,
+      "result": {
+        "cacheHitRate": 0.7271,
+        "cacheRead": 16000,
+        "cacheWrite": 2000,
+        "costKnownTurns": 0,
+        "costUnpricedTurns": 4,
+        "costUsd": 0,
+        "input": 4006,
+        "output": 406,
+        "outputTokensPerSecond": 50.8,
+        "sessionId": "session-a",
+        "tokens": 22412,
+        "turns": 4,
+        "unmeasuredTurns": 0
+      },
+      "session": "session-a"
+    },
+    {
+      "name": "others",
+      "options": {
+        "sessionIds": [
+          "session-b",
+          "agent-1",
+          "",
+          7,
+          "session-a",
+          "session-b"
+        ]
+      },
+      "result": {
+        "cacheHitRate": 0.7271,
+        "cacheRead": 16000,
+        "cacheWrite": 2000,
+        "costKnownTurns": 0,
+        "costUnpricedTurns": 4,
+        "costUsd": 0,
+        "input": 4006,
+        "output": 406,
+        "outputTokensPerSecond": 50.8,
+        "sessionId": "session-a",
+        "sessions": {
+          "agent-1": {
+            "cacheHitRate": 0.7263,
+            "cacheRead": 4000,
+            "cacheWrite": 500,
+            "costKnownTurns": 0,
+            "costUnpricedTurns": 1,
+            "costUsd": 0,
+            "input": 1007,
+            "output": 107,
+            "outputTokensPerSecond": 53.5,
+            "tokens": 5614,
+            "turns": 1,
+            "unmeasuredTurns": 0
+          },
+          "session-b": {
+            "cacheHitRate": 0.7265,
+            "cacheRead": 8000,
+            "cacheWrite": 1000,
+            "costKnownTurns": 0,
+            "costUnpricedTurns": 2,
+            "costUsd": 0,
+            "input": 2011,
+            "output": 211,
+            "outputTokensPerSecond": 52.8,
+            "tokens": 11222,
+            "turns": 2,
+            "unmeasuredTurns": 0
+          }
+        },
+        "tokens": 22412,
+        "turns": 4,
+        "unmeasuredTurns": 0
+      },
+      "session": "session-a"
+    },
+    {
+      "name": "agents",
+      "options": {
+        "agents": true,
+        "sessionIds": [
+          "agent-1",
+          "agent-2",
+          "agent-3"
+        ]
+      },
+      "result": {
+        "agents": {
+          "cacheHitRate": 0.7262,
+          "cacheRead": 12000,
+          "cacheWrite": 1500,
+          "costKnownTurns": 0,
+          "costUnpricedTurns": 3,
+          "costUsd": 0,
+          "input": 3024,
+          "output": 324,
+          "outputTokensPerSecond": 54,
+          "tokens": 16848,
+          "turns": 3,
+          "unmeasuredTurns": 0
+        },
+        "cacheHitRate": 0.7271,
+        "cacheRead": 16000,
+        "cacheWrite": 2000,
+        "costKnownTurns": 0,
+        "costUnpricedTurns": 4,
+        "costUsd": 0,
+        "input": 4006,
+        "output": 406,
+        "outputTokensPerSecond": 50.8,
+        "sessionId": "session-a",
+        "sessions": {
+          "agent-1": {
+            "cacheHitRate": 0.7263,
+            "cacheRead": 4000,
+            "cacheWrite": 500,
+            "costKnownTurns": 0,
+            "costUnpricedTurns": 1,
+            "costUsd": 0,
+            "input": 1007,
+            "output": 107,
+            "outputTokensPerSecond": 53.5,
+            "tokens": 5614,
+            "turns": 1,
+            "unmeasuredTurns": 0
+          },
+          "agent-2": {
+            "cacheHitRate": 0.7262,
+            "cacheRead": 4000,
+            "cacheWrite": 500,
+            "costKnownTurns": 0,
+            "costUnpricedTurns": 1,
+            "costUsd": 0,
+            "input": 1008,
+            "output": 108,
+            "outputTokensPerSecond": 54,
+            "tokens": 5616,
+            "turns": 1,
+            "unmeasuredTurns": 0
+          },
+          "agent-3": {
+            "cacheHitRate": 0.7261,
+            "cacheRead": 4000,
+            "cacheWrite": 500,
+            "costKnownTurns": 0,
+            "costUnpricedTurns": 1,
+            "costUsd": 0,
+            "input": 1009,
+            "output": 109,
+            "outputTokensPerSecond": 54.5,
+            "tokens": 5618,
+            "turns": 1,
+            "unmeasuredTurns": 0
+          }
+        },
+        "tokens": 22412,
+        "turns": 4,
+        "unmeasuredTurns": 0
+      },
+      "session": "session-a"
+    },
+    {
+      "name": "agents without names",
+      "options": {
+        "agents": true
+      },
+      "result": {
+        "agents": {
+          "cacheHitRate": 0.7263,
+          "cacheRead": 8000,
+          "cacheWrite": 1000,
+          "costKnownTurns": 0,
+          "costUnpricedTurns": 2,
+          "costUsd": 0,
+          "input": 2015,
+          "output": 215,
+          "outputTokensPerSecond": 53.8,
+          "tokens": 11230,
+          "turns": 2,
+          "unmeasuredTurns": 0
+        },
+        "cacheHitRate": 0.7271,
+        "cacheRead": 16000,
+        "cacheWrite": 2000,
+        "costKnownTurns": 0,
+        "costUnpricedTurns": 4,
+        "costUsd": 0,
+        "input": 4006,
+        "output": 406,
+        "outputTokensPerSecond": 50.8,
+        "sessionId": "session-a",
+        "tokens": 22412,
+        "turns": 4,
+        "unmeasuredTurns": 0
+      },
+      "session": "session-a"
+    },
+    {
+      "name": "agents not true",
+      "options": {
+        "agents": "yes",
+        "sessionIds": [
+          "session-b"
+        ]
+      },
+      "result": {
+        "cacheHitRate": 0.7271,
+        "cacheRead": 16000,
+        "cacheWrite": 2000,
+        "costKnownTurns": 0,
+        "costUnpricedTurns": 4,
+        "costUsd": 0,
+        "input": 4006,
+        "output": 406,
+        "outputTokensPerSecond": 50.8,
+        "sessionId": "session-a",
+        "sessions": {
+          "session-b": {
+            "cacheHitRate": 0.7265,
+            "cacheRead": 8000,
+            "cacheWrite": 1000,
+            "costKnownTurns": 0,
+            "costUnpricedTurns": 2,
+            "costUsd": 0,
+            "input": 2011,
+            "output": 211,
+            "outputTokensPerSecond": 52.8,
+            "tokens": 11222,
+            "turns": 2,
+            "unmeasuredTurns": 0
+          }
+        },
+        "tokens": 22412,
+        "turns": 4,
+        "unmeasuredTurns": 0
+      },
+      "session": "session-a"
+    },
+    {
+      "name": "unknown session",
+      "options": {
+        "sessionIds": [
+          "also-nobody"
+        ]
+      },
+      "result": {
+        "cacheHitRate": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costKnownTurns": 0,
+        "costUnpricedTurns": 0,
+        "costUsd": 0,
+        "input": 0,
+        "output": 0,
+        "outputTokensPerSecond": null,
+        "sessionId": "nobody",
+        "sessions": {
+          "also-nobody": {
+            "cacheHitRate": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "costKnownTurns": 0,
+            "costUnpricedTurns": 0,
+            "costUsd": 0,
+            "input": 0,
+            "output": 0,
+            "outputTokensPerSecond": null,
+            "tokens": 0,
+            "turns": 0,
+            "unmeasuredTurns": 0
+          }
+        },
+        "tokens": 0,
+        "turns": 0,
+        "unmeasuredTurns": 0
+      },
+      "session": "nobody"
+    },
+    {
+      "name": "no session",
+      "options": {},
+      "result": null,
+      "session": null
+    }
+  ],
+  "note": "getSessionUsage of the real 1.4.5 createUsageStatsApi over ledger.sqlite; the account pool holds 7d1f3c52-0a4e-4b8e-9c61-2f5a6b3d8e10 under anthropic-oauth"
+}

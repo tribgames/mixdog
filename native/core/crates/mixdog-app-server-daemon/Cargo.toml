@@ -14,6 +14,9 @@ mixdog-app-server-transport = { workspace = true }
 mixdog-app-server-client = { workspace = true }
 mixdog-core-base = { workspace = true }
 mixdog-core-domains = { workspace = true }
+mixdog-core-config = { workspace = true }
+mixdog-core-ports = { workspace = true }
+mixdog-js = { workspace = true }
 mixdog-remote = { workspace = true }
 mixdog-tools = { workspace = true }
 mixdog-workspace = { workspace = true }

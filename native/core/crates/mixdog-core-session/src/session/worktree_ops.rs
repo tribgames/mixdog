@@ -11,7 +11,6 @@ use mixdog_rt::CancellationToken;
 use mixdog_scm::error::ScmFailure;
 use mixdog_scm::locks::path_key;
 use mixdog_scm::repo::on_lane;
-use mixdog_scm::repo::operation_in_progress;
 use mixdog_scm::worktree::errors;
 use mixdog_scm::worktree::manager::CreateRequest;
 use mixdog_scm::worktree::manager::RepoFacts;
@@ -148,39 +147,7 @@ impl Ops {
 
     /// What the removal of a ready worktree would refuse, checked before anything moves.
     pub async fn assert_removable(&self, entry_id: &str, force: bool, session: &str, cancel: &CancellationToken) -> Result<(), ScmFailure> {
-        let record = self
-            .wt
-            .record(cancel, entry_id)
-            .await?
-            .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
-        let record = self.with_branch(record, cancel).await?;
-        let mut others: Vec<String> = record.shared_session_ids.clone();
-        others.extend(record.owner_session_id.clone());
-        others.retain(|id| id != session);
-        others.sort();
-        others.dedup();
-        if !others.is_empty() {
-            return Err(errors::busy_with("workspace-shared", Some(others), None, None));
-        }
-        if record.state != "ready" || force {
-            return Ok(());
-        }
-        let path = PathBuf::from(&record.path);
-        if self.exists(&record.path, cancel).await? {
-            if let Ok(repo) = self.wt.scm().open(&path, cancel).await {
-                if operation_in_progress(&repo.identity.git_dir).is_some() {
-                    return Err(errors::dirty(Some(record.id.clone()), None, None, None));
-                }
-            }
-        }
-        let dirty = self.wt.dirty_paths(&record, cancel).await?;
-        if !dirty.is_empty() {
-            return Err(errors::dirty_files(record.id.clone(), dirty));
-        }
-        if self.wt.checkout_unmerged_count(&record, cancel).await? > 0 {
-            return Err(errors::unmerged(Some(record.id.clone()), None, record.branch.clone(), record.merge_target.clone()));
-        }
-        Ok(())
+        self.wt.assert_worktree_removable(entry_id, force, Some(session), cancel).await
     }
 
     /// The project folder's uncommitted changes (tracked and untracked, ignored excluded).

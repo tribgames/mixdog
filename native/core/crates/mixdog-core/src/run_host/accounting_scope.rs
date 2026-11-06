@@ -56,7 +56,7 @@ impl SendScope for HeaderScope {
             });
         Scope {
             session_id: options.usage_session_id.clone().filter(|s| !s.is_empty()).or_else(|| options.session_id.clone().filter(|s| !s.is_empty())).or_else(|| from_header("id")),
-            source_type: from_header("sourceType").or_else(|| options.request_kind.clone().filter(|s| !s.is_empty())).unwrap_or_default(),
+            source_type: from_header("sourceType").or_else(|| options.source_type.clone().filter(|s| !s.is_empty())).or_else(|| options.request_kind.clone().filter(|s| !s.is_empty())).unwrap_or_default(),
             owner_session_id: from_header("ownerSessionId").or_else(|| from_header("parentSessionId")),
             primary,
         }

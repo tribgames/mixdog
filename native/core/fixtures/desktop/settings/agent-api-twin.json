@@ -1,0 +1,2574 @@
+{
+ "domain": "agent-api-twin",
+ "now": 1700000000000,
+ "recorder": "benchmarks/rust-core/recorders/record-agent-api.mjs",
+ "servers": [
+  "gmail",
+  "gmail-2",
+  "github"
+ ],
+ "tools": [
+  [
+   "gmail",
+   "send_email"
+  ],
+  [
+   "gmail",
+   "read_email"
+  ],
+  [
+   "github",
+   "create_issue"
+  ]
+ ],
+ "steps": [
+  {
+   "method": "agentDefinitionPresence",
+   "params": {
+    "agentIds": [
+     "ghost",
+     "alpha"
+    ]
+   },
+   "ok": {
+    "ghost": "deleted",
+    "alpha": "deleted"
+   }
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "name": "Alpha",
+     "body": "Be brief."
+    }
+   },
+   "ok": {
+    "id": "alpha",
+    "name": "Alpha",
+    "description": "",
+    "body": "Be brief.",
+    "custom": true,
+    "userOverride": true,
+    "path": "<data>\\agents\\alpha\\AGENT.md",
+    "route": null,
+    "routeConfigured": false,
+    "kind": null,
+    "disabled": false,
+    "avatar": null,
+    "persona": "",
+    "revision": "f92e1d2f79e28f72c4b82b1f"
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n"
+   }
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "name": "Beta",
+     "body": "Second.",
+     "description": "the other"
+    }
+   },
+   "ok": {
+    "id": "beta",
+    "name": "Beta",
+    "description": "the other",
+    "body": "Second.",
+    "custom": true,
+    "userOverride": true,
+    "path": "<data>\\agents\\beta\\AGENT.md",
+    "route": null,
+    "routeConfigured": false,
+    "kind": null,
+    "disabled": false,
+    "avatar": null,
+    "persona": "",
+    "revision": "4e83e69d733a42a19e1b3d74"
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "agentDefinitionPresence",
+   "params": {
+    "agentIds": [
+     "alpha",
+     "beta",
+     "ghost"
+    ]
+   },
+   "ok": {
+    "alpha": "present",
+    "beta": "present",
+    "ghost": "deleted"
+   }
+  },
+  {
+   "method": "getAgentDefinition",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": {
+    "id": "alpha",
+    "name": "Alpha",
+    "description": "",
+    "body": "Be brief.",
+    "custom": true,
+    "userOverride": true,
+    "path": "<data>\\agents\\alpha\\AGENT.md",
+    "route": null,
+    "routeConfigured": false,
+    "kind": null,
+    "disabled": false,
+    "avatar": null,
+    "persona": "",
+    "revision": "f92e1d2f79e28f72c4b82b1f"
+   }
+  },
+  {
+   "method": "getAgentDefinition",
+   "params": {
+    "agentId": "ghost"
+   },
+   "error": "agent \"ghost\" not found"
+  },
+  {
+   "method": "getAgentAvatarImage",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": null
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "id": "alpha",
+     "name": "Alpha",
+     "body": "Be brief.",
+     "avatar": {
+      "kind": "custom",
+      "states": {
+       "idle": {
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAAAAAAAAAAAAAAAAAElFTkQAAAAA"
+       }
+      }
+     }
+    }
+   },
+   "ok": {
+    "id": "alpha",
+    "name": "Alpha",
+    "description": "",
+    "body": "Be brief.",
+    "custom": true,
+    "userOverride": true,
+    "path": "<data>\\agents\\alpha\\AGENT.md",
+    "route": null,
+    "routeConfigured": false,
+    "kind": null,
+    "disabled": false,
+    "avatar": {
+     "kind": "custom",
+     "states": {
+      "idle": "idle-255809de8ff5.png"
+     }
+    },
+    "persona": "",
+    "revision": "ebeec76f7111318bd3a19f38"
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "getAgentAvatarImage",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": {
+    "states": {
+     "idle": {
+      "file": "idle-255809de8ff5.png",
+      "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAAAAAAAAAAAAAAAAAElFTkQAAAAA",
+      "poster": ""
+     }
+    }
+   }
+  },
+  {
+   "method": "getAgentAvatarImage",
+   "params": {
+    "agentId": "ghost"
+   },
+   "ok": null
+  },
+  {
+   "method": "getAgentConnectors",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": [
+    {
+     "id": "gmail",
+     "enabled": true
+    },
+    {
+     "id": "gmail-2",
+     "enabled": true
+    },
+    {
+     "id": "github",
+     "enabled": true
+    }
+   ]
+  },
+  {
+   "method": "getAgentConnectorTools",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": [
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "needs_approval",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "read_email",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "github",
+     "tool": "create_issue",
+     "permission": "auto",
+     "explicit": false
+    }
+   ]
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "enabled": false
+   },
+   "ok": [
+    {
+     "id": "gmail",
+     "enabled": false
+    },
+    {
+     "id": "gmail-2",
+     "enabled": true
+    },
+    {
+     "id": "github",
+     "enabled": true
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "enabled": true,
+    "options": {
+     "noWiden": true
+    }
+   },
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": " ",
+    "enabled": true
+   },
+   "error": "connector id is required",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "github",
+    "enabled": false,
+    "options": {
+     "noWiden": true
+    }
+   },
+   "ok": [
+    {
+     "id": "gmail",
+     "enabled": false
+    },
+    {
+     "id": "gmail-2",
+     "enabled": true
+    },
+    {
+     "id": "github",
+     "enabled": false
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "getAgentConnectors",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": [
+    {
+     "id": "gmail",
+     "enabled": false
+    },
+    {
+     "id": "gmail-2",
+     "enabled": true
+    },
+    {
+     "id": "github",
+     "enabled": false
+    }
+   ]
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "toolName": "send_email",
+    "permission": "auto"
+   },
+   "ok": {
+    "off": [
+     "github",
+     "gmail"
+    ],
+    "tools": {
+     "gmail": {
+      "send_email": "auto"
+     }
+    }
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail-2",
+    "toolName": "read_email",
+    "permission": "needs_approval"
+   },
+   "ok": {
+    "off": [
+     "github",
+     "gmail"
+    ],
+    "tools": {
+     "gmail": {
+      "send_email": "auto",
+      "read_email": "needs_approval"
+     }
+    }
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\",\n        \"read_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail-2",
+    "toolName": "send_email",
+    "permission": "disabled"
+   },
+   "ok": {
+    "off": [
+     "github",
+     "gmail"
+    ],
+    "tools": {
+     "gmail": {
+      "send_email": "disabled",
+      "read_email": "needs_approval"
+     }
+    }
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\",\n        \"read_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "toolName": "read_email",
+    "permission": "bogus"
+   },
+   "error": "permission must be one of auto, needs_approval, disabled",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\",\n        \"read_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "toolName": "  ",
+    "permission": "auto"
+   },
+   "error": "tool name is required",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\",\n        \"read_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "github",
+    "toolName": "create_issue",
+    "permission": "auto",
+    "options": {
+     "noWiden": true
+    }
+   },
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\",\n        \"read_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "getAgentAlwaysAllowedTools",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": []
+  },
+  {
+   "method": "getAgentConnectorTools",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": [
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "disabled",
+     "explicit": true
+    },
+    {
+     "connector": "gmail",
+     "tool": "read_email",
+     "permission": "needs_approval",
+     "explicit": true
+    },
+    {
+     "connector": "gmail-2",
+     "tool": "send_email",
+     "permission": "disabled",
+     "explicit": true
+    },
+    {
+     "connector": "gmail-2",
+     "tool": "read_email",
+     "permission": "needs_approval",
+     "explicit": true
+    },
+    {
+     "connector": "github",
+     "tool": "create_issue",
+     "permission": "auto",
+     "explicit": false
+    }
+   ]
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "toolName": "send_email",
+    "permission": null
+   },
+   "ok": {
+    "off": [
+     "github",
+     "gmail"
+    ],
+    "tools": {
+     "gmail": {
+      "read_email": "needs_approval"
+     }
+    }
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"read_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "getAgentAlwaysAllowedTools",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": []
+  },
+  {
+   "method": "setAgentConnectors",
+   "params": {
+    "agentId": "alpha",
+    "connectors": {
+     "off": [
+      "github",
+      " x "
+     ],
+     "tools": {
+      "gmail": {
+       "send_email": "auto"
+      }
+     }
+    }
+   },
+   "ok": {
+    "off": [
+     "github",
+     "x"
+    ],
+    "tools": {
+     "gmail": {
+      "send_email": "auto"
+     }
+    }
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"x\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectors",
+   "params": {
+    "agentId": "alpha",
+    "connectors": {
+     "off": []
+    },
+    "options": {
+     "noWiden": true
+    }
+   },
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"x\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectors",
+   "params": {
+    "agentId": "alpha",
+    "connectors": {
+     "off": "z"
+    }
+   },
+   "error": "connectors.off must be a list",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"x\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "getAgentConnectors",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": [
+    {
+     "id": "gmail",
+     "enabled": true
+    },
+    {
+     "id": "gmail-2",
+     "enabled": true
+    },
+    {
+     "id": "github",
+     "enabled": false
+    }
+   ]
+  },
+  {
+   "method": "setAgentConnectors",
+   "params": {
+    "agentId": "alpha",
+    "connectors": null
+   },
+   "ok": null,
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n"
+   }
+  },
+  {
+   "method": "getAgentConnectors",
+   "params": {
+    "agentId": "ghost"
+   },
+   "error": "agent \"ghost\" not found"
+  },
+  {
+   "method": "getAgentPermissions",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": [
+    {
+     "action": "comment",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "review",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "message",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "email",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "publish",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "form",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "payment",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "delete",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "trash",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_submit",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_post",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_upload",
+     "mode": "ask",
+     "rememberable": true
+    }
+   ]
+  },
+  {
+   "method": "getAgentPermissions",
+   "params": {
+    "agentId": "*"
+   },
+   "error": "agent id is invalid"
+  },
+  {
+   "method": "getAgentPermissions",
+   "params": {
+    "agentId": "  "
+   },
+   "error": "agent id is invalid"
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "comment",
+    "mode": "allow"
+   },
+   "ok": [
+    {
+     "action": "comment",
+     "mode": "allow",
+     "rememberable": true
+    },
+    {
+     "action": "review",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "message",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "email",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "publish",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "form",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "payment",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "delete",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "trash",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_submit",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_post",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_upload",
+     "mode": "ask",
+     "rememberable": true
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "email",
+    "mode": "block"
+   },
+   "ok": [
+    {
+     "action": "comment",
+     "mode": "allow",
+     "rememberable": true
+    },
+    {
+     "action": "review",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "message",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "email",
+     "mode": "block",
+     "rememberable": true
+    },
+    {
+     "action": "publish",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "form",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "payment",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "delete",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "trash",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_submit",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_post",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_upload",
+     "mode": "ask",
+     "rememberable": true
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "comment",
+    "mode": "ask",
+    "options": {
+     "noWiden": true
+    }
+   },
+   "ok": [
+    {
+     "action": "comment",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "review",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "message",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "email",
+     "mode": "block",
+     "rememberable": true
+    },
+    {
+     "action": "publish",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "form",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "payment",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "delete",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "trash",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_submit",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_post",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_upload",
+     "mode": "ask",
+     "rememberable": true
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "email",
+    "mode": "allow",
+    "options": {
+     "noWiden": true
+    }
+   },
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "payment",
+    "mode": "allow"
+   },
+   "error": "payment always asks; it cannot be allowed",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "tool:shell",
+    "mode": "allow"
+   },
+   "error": "tool:shell can only be set back to ask",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "tool:shell",
+    "mode": "block"
+   },
+   "error": "tool:shell can only be set back to ask",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "nope",
+    "mode": "ask"
+   },
+   "error": "action must be one of comment, review, message, email, publish, form, payment, delete, trash, browser_submit, browser_post, browser_upload",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "comment",
+    "mode": "maybe"
+   },
+   "error": "mode must be one of ask, allow, block",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentPermission",
+   "params": {
+    "agentId": "alpha",
+    "action": "comment",
+    "mode": "allow",
+    "options": {
+     "noWiden": "yes"
+    }
+   },
+   "ok": [
+    {
+     "action": "comment",
+     "mode": "allow",
+     "rememberable": true
+    },
+    {
+     "action": "review",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "message",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "email",
+     "mode": "block",
+     "rememberable": true
+    },
+    {
+     "action": "publish",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "form",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "payment",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "delete",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "trash",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_submit",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_post",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_upload",
+     "mode": "ask",
+     "rememberable": true
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "getAgentPermissions",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": [
+    {
+     "action": "comment",
+     "mode": "allow",
+     "rememberable": true
+    },
+    {
+     "action": "review",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "message",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "email",
+     "mode": "block",
+     "rememberable": true
+    },
+    {
+     "action": "publish",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "form",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "payment",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "delete",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "trash",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_submit",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_post",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_upload",
+     "mode": "ask",
+     "rememberable": true
+    }
+   ]
+  },
+  {
+   "method": "getAgentPermissions",
+   "params": {
+    "agentId": "beta"
+   },
+   "ok": [
+    {
+     "action": "comment",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "review",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "message",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "email",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "publish",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "form",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "payment",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "delete",
+     "mode": "ask",
+     "rememberable": false
+    },
+    {
+     "action": "trash",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_submit",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_post",
+     "mode": "ask",
+     "rememberable": true
+    },
+    {
+     "action": "browser_upload",
+     "mode": "ask",
+     "rememberable": true
+    }
+   ]
+  },
+  {
+   "method": "recordAgentApprovalAudit",
+   "params": {
+    "agentId": "alpha",
+    "action": "form",
+    "decision": "granted"
+   },
+   "ok": null,
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "recordAgentApprovalAudit",
+   "params": {
+    "agentId": "alpha",
+    "action": "form",
+    "decision": "dev-allow-all"
+   },
+   "ok": null,
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "recordAgentApprovalAudit",
+   "params": {
+    "agentId": "alpha",
+    "action": "form",
+    "decision": "whatever"
+   },
+   "error": "decision must be one of approve, deny, granted, remembered, session-granted, session-remembered, run-allowed, blocked, dev-allow-all",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "recordAgentApprovalAudit",
+   "params": {
+    "agentId": "alpha",
+    "action": "nope",
+    "decision": "approve"
+   },
+   "error": "action must be one of comment, review, message, email, publish, form, payment, delete, trash, browser_submit, browser_post, browser_upload",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "recordAgentApprovalAudit",
+   "params": {
+    "agentId": "*",
+    "action": "form",
+    "decision": "approve"
+   },
+   "error": "agent id is invalid",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "enabled": "yes"
+   },
+   "error": "enabled must be a boolean",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "enabled": null
+   },
+   "error": "enabled must be a boolean",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "enabled": 1
+   },
+   "error": "enabled must be a boolean",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail"
+   },
+   "error": "enabled must be a boolean",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": " ",
+    "enabled": "yes"
+   },
+   "error": "connector id is required",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": 5,
+    "enabled": "yes"
+   },
+   "error": "connector id is required",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "alpha",
+    "enabled": "yes"
+   },
+   "error": "connector id is required",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "ghost",
+    "connectorId": "gmail",
+    "enabled": "yes"
+   },
+   "error": "enabled must be a boolean",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "ghost",
+    "connectorId": "gmail",
+    "enabled": true
+   },
+   "error": "agent \"ghost\" not found",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "ghost",
+    "connectorId": "",
+    "enabled": true
+   },
+   "error": "connector id is required",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "ghost",
+    "connectorId": "",
+    "toolName": "",
+    "permission": "bogus"
+   },
+   "error": "permission must be one of auto, needs_approval, disabled",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "",
+    "toolName": "",
+    "permission": "bogus"
+   },
+   "error": "permission must be one of auto, needs_approval, disabled",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "",
+    "toolName": "",
+    "permission": "auto"
+   },
+   "error": "connector id is required",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "toolName": "",
+    "permission": "auto"
+   },
+   "error": "tool name is required",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "alpha",
+    "connectorId": "gmail",
+    "toolName": "send_email",
+    "permission": 3
+   },
+   "error": "permission must be one of auto, needs_approval, disabled",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "ghost",
+    "connectorId": "gmail",
+    "toolName": "send_email",
+    "permission": "auto"
+   },
+   "error": "agent \"ghost\" not found",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectors",
+   "params": {
+    "agentId": "ghost",
+    "connectors": {
+     "off": [
+      "gmail"
+     ]
+    }
+   },
+   "error": "agent \"ghost\" not found",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectors",
+   "params": {
+    "agentId": "alpha",
+    "connectors": {
+     "off": [
+      "gmail"
+     ]
+    },
+    "options": {
+     "noWiden": true
+    }
+   },
+   "ok": {
+    "off": [
+     "gmail"
+    ],
+    "tools": {}
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectors",
+   "params": {
+    "agentId": "alpha",
+    "connectors": "text",
+    "options": {
+     "noWiden": true
+    }
+   },
+   "error": "connectors must be { off: [connector id…], tools? }",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "getAgentConnectors",
+   "params": {
+    "agentId": ""
+   },
+   "error": "unknown agent \"\""
+  },
+  {
+   "method": "getAgentConnectors",
+   "params": {
+    "agentId": "*"
+   },
+   "error": "unknown agent \"*\""
+  },
+  {
+   "method": "getAgentConnectorTools",
+   "params": {
+    "agentId": "ghost"
+   },
+   "error": "agent \"ghost\" not found"
+  },
+  {
+   "method": "getAgentAlwaysAllowedTools",
+   "params": {
+    "agentId": "ghost"
+   },
+   "error": "agent \"ghost\" not found"
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "name": "Legacy",
+     "body": "Old.",
+     "connectors": [
+      "gmail"
+     ]
+    }
+   },
+   "error": "connectors must be { off: [connector id…], tools? } or null",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "name": "Legacy",
+     "body": "Old."
+    }
+   },
+   "ok": {
+    "id": "legacy",
+    "name": "Legacy",
+    "description": "",
+    "body": "Old.",
+    "custom": true,
+    "userOverride": true,
+    "path": "<data>\\agents\\legacy\\AGENT.md",
+    "route": null,
+    "routeConfigured": false,
+    "kind": null,
+    "disabled": false,
+    "avatar": null,
+    "persona": "",
+    "revision": "48c2cc45cd599993cb06281b"
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: Legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"Legacy\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "seedManifest",
+   "params": {
+    "agentId": "legacy",
+    "manifest": {
+     "connectors": [
+      "gmail"
+     ]
+    }
+   },
+   "ok": null,
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: Legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"connectors\": [\n    \"gmail\"\n  ]\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "getAgentConnectors",
+   "params": {
+    "agentId": "legacy"
+   },
+   "ok": [
+    {
+     "id": "gmail",
+     "enabled": false
+    },
+    {
+     "id": "gmail-2",
+     "enabled": false
+    },
+    {
+     "id": "github",
+     "enabled": false
+    }
+   ]
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "legacy",
+    "connectorId": "gmail",
+    "enabled": true
+   },
+   "ok": [
+    {
+     "id": "gmail",
+     "enabled": true
+    },
+    {
+     "id": "gmail-2",
+     "enabled": false
+    },
+    {
+     "id": "github",
+     "enabled": false
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail-2\"\n    ]\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "getAgentConnectors",
+   "params": {
+    "agentId": "legacy"
+   },
+   "ok": [
+    {
+     "id": "gmail",
+     "enabled": true
+    },
+    {
+     "id": "gmail-2",
+     "enabled": false
+    },
+    {
+     "id": "github",
+     "enabled": false
+    }
+   ]
+  },
+  {
+   "method": "seedManifest",
+   "params": {
+    "agentId": "legacy",
+    "manifest": {
+     "connectors": [
+      "gmail"
+     ]
+    }
+   },
+   "ok": null,
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"connectors\": [\n    \"gmail\"\n  ]\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorToolPermission",
+   "params": {
+    "agentId": "legacy",
+    "connectorId": "gmail",
+    "toolName": "send_email",
+    "permission": "auto"
+   },
+   "ok": {
+    "off": [
+     "github",
+     "gmail",
+     "gmail-2"
+    ],
+    "tools": {
+     "gmail": {
+      "send_email": "auto"
+     }
+    }
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "getAgentConnectors",
+   "params": {
+    "agentId": "legacy"
+   },
+   "ok": [
+    {
+     "id": "gmail",
+     "enabled": false
+    },
+    {
+     "id": "gmail-2",
+     "enabled": false
+    },
+    {
+     "id": "github",
+     "enabled": false
+    }
+   ]
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "name": "Locked",
+     "body": "Fixed."
+    }
+   },
+   "ok": {
+    "id": "locked",
+    "name": "Locked",
+    "description": "",
+    "body": "Fixed.",
+    "custom": true,
+    "userOverride": true,
+    "path": "<data>\\agents\\locked\\AGENT.md",
+    "route": null,
+    "routeConfigured": false,
+    "kind": null,
+    "disabled": false,
+    "avatar": null,
+    "persona": "",
+    "revision": "d0b8dd358a2a7d73177f15cc"
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/locked/AGENT.md": "---\nname: Locked\n---\n\nFixed.\n",
+    "agents/locked/agent.json": "{\n  \"name\": \"Locked\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setManifestReadOnly",
+   "params": {
+    "agentId": "locked",
+    "readOnly": true
+   },
+   "ok": null
+  },
+  {
+   "method": "setAgentConnectors",
+   "params": {
+    "agentId": "locked",
+    "connectors": {
+     "off": [
+      "gmail"
+     ]
+    }
+   },
+   "error": "<data>\\agents\\locked\\agent.json is not writable (EPERM); make it writable, then save again",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/locked/AGENT.md": "---\nname: Locked\n---\n\nFixed.\n",
+    "agents/locked/agent.json": "{\n  \"name\": \"Locked\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setAgentConnectorEnabled",
+   "params": {
+    "agentId": "locked",
+    "connectorId": "gmail",
+    "enabled": false
+   },
+   "error": "<data>\\agents\\locked\\agent.json is not writable (EPERM); make it writable, then save again",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/locked/AGENT.md": "---\nname: Locked\n---\n\nFixed.\n",
+    "agents/locked/agent.json": "{\n  \"name\": \"Locked\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "deleteAgentDefinition",
+   "params": {
+    "agentId": "locked"
+   },
+   "ok": {
+    "id": "locked",
+    "deleted": true,
+    "revertedToBuiltIn": false
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/locked/agent.json": "{\n  \"name\": \"Locked\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "setManifestReadOnly",
+   "params": {
+    "agentId": "locked",
+    "readOnly": false
+   },
+   "ok": null
+  },
+  {
+   "method": "deleteAgentDefinition",
+   "params": {
+    "agentId": "locked"
+   },
+   "error": "agent \"locked\" not found",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/locked/agent.json": "{\n  \"name\": \"Locked\"\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "purgeAgentDefinition",
+   "params": {
+    "agentId": "locked"
+   },
+   "ok": {
+    "id": "locked",
+    "purged": true
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "name": "Empty",
+     "body": "   "
+    }
+   },
+   "error": "AGENT.md body must not be empty",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "name": "Empty"
+    }
+   },
+   "error": "AGENT.md body must not be empty",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "body": "No name."
+    }
+   },
+   "error": "agent name must not be empty",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "id": "alpha",
+     "name": "Alpha",
+     "body": "Again.",
+     "expectedRevision": "stale"
+    }
+   },
+   "error": "AGENT_DEFINITION_CONFLICT: agent \"alpha\" changed since it was loaded",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "id": "ghost",
+     "name": "Alpha",
+     "body": "x",
+     "expectedRevision": "stale"
+    }
+   },
+   "error": "AGENT_DEFINITION_CONFLICT: agent \"ghost\" changed since it was loaded",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "saveAgentDefinition",
+   "params": {
+    "payload": {
+     "id": "alpha",
+     "body": "Bad.",
+     "connectors": "text"
+    },
+    "options": {
+     "noWiden": true
+    }
+   },
+   "error": "connectors must be { off: [connector id…], tools? }",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "deleteAgentDefinition",
+   "params": {
+    "agentId": "ghost"
+   },
+   "error": "agent \"ghost\" not found",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "deleteAgentDefinition",
+   "params": {
+    "agentId": ""
+   },
+   "error": "unknown agent \"\"",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "deleteAgentDefinition",
+   "params": {
+    "agentId": "maintainer"
+   },
+   "error": "agent \"maintainer\" has no user override to reset",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "restoreAgentDefinition",
+   "params": {
+    "agentId": "alpha"
+   },
+   "error": "agent \"alpha\" is not deleted",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "restoreAgentDefinition",
+   "params": {
+    "agentId": ""
+   },
+   "error": "unknown agent \"\"",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "purgeAgentDefinition",
+   "params": {
+    "agentId": ""
+   },
+   "error": "unknown agent \"\"",
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "purgeAgentDefinition",
+   "params": {
+    "agentId": "alpha"
+   },
+   "ok": {
+    "id": "alpha",
+    "purged": false
+   },
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"avatar\": {\n    \"kind\": \"custom\",\n    \"states\": {\n      \"idle\": \"idle-255809de8ff5.png\"\n    }\n  },\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/beta/AGENT.md": "---\nname: Beta\ndescription: the other\n---\n\nSecond.\n",
+    "agents/beta/agent.json": "{\n  \"name\": \"Beta\",\n  \"description\": \"the other\"\n}\n",
+    "agents/legacy/AGENT.md": "---\nname: legacy\n---\n\nOld.\n",
+    "agents/legacy/agent.json": "{\n  \"name\": \"legacy\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\",\n      \"gmail-2\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"granted\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"browser\",\"action\":\"form\",\"tool\":\"browser\",\"target\":\"\",\"decision\":\"dev-allow-all\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_aff43eb7e8bdfb7fad1e64a0\",\n      \"agentId\": \"alpha\",\n      \"action\": \"email\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    },\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"allow\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "method": "getAgentDefinition",
+   "params": {
+    "agentId": ""
+   },
+   "error": "unknown agent \"\""
+  },
+  {
+   "method": "getAgentAvatarImage",
+   "params": {
+    "agentId": ""
+   },
+   "ok": null
+  },
+  {
+   "method": "deleteAgentDefinition",
+   "params": {
+    "agentId": "beta"
+   },
+   "ok": {
+    "id": "beta",
+    "deleted": true,
+    "revertedToBuiltIn": false
+   }
+  },
+  {
+   "method": "agentDefinitionPresence",
+   "params": {
+    "agentIds": [
+     "alpha",
+     "beta",
+     "ghost"
+    ]
+   },
+   "ok": {
+    "alpha": "present",
+    "beta": "deleted",
+    "ghost": "deleted"
+   }
+  },
+  {
+   "method": "archivedAgentIdentities",
+   "params": {
+    "agentIds": [
+     "beta",
+     "alpha",
+     "ghost"
+    ]
+   },
+   "ok": {
+    "beta": {
+     "name": "Beta",
+     "avatar": null
+    },
+    "alpha": null,
+    "ghost": null
+   }
+  },
+  {
+   "method": "restoreAgentDefinition",
+   "params": {
+    "agentId": "beta"
+   },
+   "ok": {
+    "id": "beta",
+    "name": "Beta",
+    "description": "the other",
+    "body": "Second.",
+    "custom": true,
+    "userOverride": true,
+    "path": "<data>\\agents\\beta\\AGENT.md",
+    "route": null,
+    "routeConfigured": false,
+    "kind": null,
+    "disabled": false,
+    "avatar": null,
+    "persona": "",
+    "revision": "4e83e69d733a42a19e1b3d74"
+   }
+  },
+  {
+   "method": "agentDefinitionPresence",
+   "params": {
+    "agentIds": [
+     "beta"
+    ]
+   },
+   "ok": {
+    "beta": "present"
+   }
+  },
+  {
+   "method": "restoreAgentDefinition",
+   "params": {
+    "agentId": "ghost"
+   },
+   "error": "agent \"ghost\" is not deleted"
+  },
+  {
+   "method": "purgeAgentDefinition",
+   "params": {
+    "agentId": "beta"
+   },
+   "ok": {
+    "id": "beta",
+    "purged": false
+   }
+  },
+  {
+   "method": "deleteAgentDefinition",
+   "params": {
+    "agentId": "beta"
+   },
+   "ok": {
+    "id": "beta",
+    "deleted": true,
+    "revertedToBuiltIn": false
+   }
+  },
+  {
+   "method": "purgeAgentDefinition",
+   "params": {
+    "agentId": "beta"
+   },
+   "ok": {
+    "id": "beta",
+    "purged": true
+   }
+  },
+  {
+   "method": "agentDefinitionPresence",
+   "params": {
+    "agentIds": [
+     "beta",
+     "alpha"
+    ]
+   },
+   "ok": {
+    "beta": "deleted",
+    "alpha": "present"
+   }
+  },
+  {
+   "method": "archivedAgentIdentities",
+   "params": {
+    "agentIds": [
+     "beta"
+    ]
+   },
+   "ok": {
+    "beta": null
+   }
+  },
+  {
+   "method": "purgeAgentDefinition",
+   "params": {
+    "agentId": "ghost"
+   },
+   "ok": {
+    "id": "ghost",
+    "purged": false
+   }
+  }
+ ]
+}

@@ -152,7 +152,11 @@ impl Inner {
         cancel: &CancellationToken,
     ) -> Result<JsonValue, ScmFailure> {
         if !input.confirmed {
-            return Err(errors::confirm_required());
+            let mut failure = errors::confirm_required();
+            if let ScmFailure::Coded { message, .. } = &mut failure {
+                *message = Some("mergeWorkspace requires confirmed: true.".into());
+            }
+            return Err(failure);
         }
         self.hosted(session)?;
         let merged = self.merge_retained(session, input.target.as_deref(), own_turn, input.expected_revision, cancel).await?;

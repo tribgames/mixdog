@@ -109,7 +109,7 @@ pub struct AgentMessage {
 }
 
 impl AgentMessage {
-    fn new(message: Message) -> Self {
+    pub fn new(message: Message) -> Self {
         Self {
             message,
             source: None,

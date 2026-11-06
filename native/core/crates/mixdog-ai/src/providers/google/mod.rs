@@ -95,7 +95,7 @@ pub fn vertex_express(
 /// refuses to send.
 pub async fn antigravity(
     store: Arc<dyn TokenStore>,
-    client_version: String,
+    client_version: crate::client_versions::Live,
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
     now_ms: Box<dyn Fn() -> u64 + Send + Sync>,

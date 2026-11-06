@@ -13,6 +13,7 @@ mixdog-tools = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-app-protocol = { workspace = true }
 # Linked as a library by path (not a workspace member), as mixdog-tools does.
 mixdog-graph = { path = "../../../mixdog-graph" }
 mixdog-agent = { workspace = true }
@@ -21,6 +22,8 @@ mixdog-protocol = { workspace = true }
 mixdog-remote = { workspace = true }
 mixdog-workspace = { workspace = true }
 mixdog-exthost = { workspace = true }
+mixdog-core-base = { workspace = true }
+mixdog-statefile = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }

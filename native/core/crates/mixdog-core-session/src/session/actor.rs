@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
+use std::time::Duration;
 
 use mixdog_agent::agent_tool::flow::seams::TurnOutcome;
 use mixdog_agent::agent_tool::flow::seams::TurnResult;
@@ -139,8 +140,14 @@ use mixdog_core_base::approvals::request_frame;
 use mixdog_core_base::approvals::request_params;
 use mixdog_core_base::approvals::resolved_frame;
 
+mod turn_ops;
+
 /// The header key of the session's saved provider state (Node `session.providerState`).
 const PROVIDER_STATE: &str = "providerState";
+
+/// How long a thread nobody ever watched may sit quiet before it unloads (`idleEvictMs` of
+/// `session-service.mjs`: `MIXDOG_SESSION_IDLE_EVICT_MS`, default 5 minutes).
+pub(super) const IDLE_EVICT: Duration = Duration::from_secs(5 * 60);
 
 /// `item/completed` of an item a history row shows.
 fn item_completed(thread: &ThreadId, row: &ItemRecord, item: &ThreadItem) -> Note {
@@ -244,6 +251,12 @@ pub(crate) enum JobDone {
     ReminderGoal(Box<InputStart>, Option<Goal>),
     /// The quota-failed turn has nothing a resume could replay.
     QuotaUnresumable(TurnId),
+    /// A turn operation's answer (`session/turn_ops.rs`) for the request that asked.
+    Replied { op: Option<OpId>, tx: Waiter, result: Result<Value, CoreError> },
+    /// A manual compaction ran and its PostCompact hook did: the actor re-marks the Goal reminder.
+    Compacted { op: Option<OpId>, tx: Waiter, result: Value, recover: bool },
+    /// `retainedRetryInput() !== null` for a `turn/retryFailed` that passed its first gates.
+    RetryChecked { op: Option<OpId>, tx: Waiter, key: String, retained: bool },
 }
 
 /// What `shouldRunGoalContinuation` read for a Goal entry.
@@ -351,6 +364,9 @@ pub(crate) struct SessionActor {
     starting: bool,
     /// A dequeued Goal entry waits on `shouldRunGoalContinuation`: no other turn starts.
     goal_checking: bool,
+    /// When a thread nobody ever watched, quiet since, is unloaded (Node's `idleEvictMs` deadline
+    /// on the idle clock); `None` while it is not waiting for that.
+    idle_evict_at: Option<tokio::time::Instant>,
     /// A continuation was asked for while that check ran; it is decided once the check is back.
     goal_deferred: bool,
     /// The last Goal runtime call: each waits for the one before.
@@ -372,6 +388,9 @@ pub(crate) struct SessionActor {
     surface: watch::Sender<Arc<SessionSurface>>,
     /// The quota-settlement guard and its store calls.
     quota: super::quota_lane::QuotaLane,
+    /// `retryClaim`: the `<thread>\0<turnKey>` of the retry already admitted, so a late second
+    /// click cannot enqueue another.
+    retry_claim: String,
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
@@ -454,6 +473,7 @@ impl SessionActor {
             agent_done: None,
             starting: false,
             goal_checking: false,
+            idle_evict_at: None,
             goal_deferred: false,
             goal_tail: None,
             delete_closed: None,
@@ -467,6 +487,7 @@ impl SessionActor {
             jobs_tx,
             jobs_rx,
             quota: super::quota_lane::QuotaLane::new(&deps.quota),
+            retry_claim: String::new(),
             deps,
         }
     }
@@ -490,6 +511,9 @@ impl SessionActor {
         }
         self.load_persisted_prompts();
         self.pump();
+        // A thread opened for a caller that never attaches a feed (a worker, a headless run) has
+        // no last unsubscribe to unload it: it starts on the idle clock.
+        self.arm_idle_evict();
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
@@ -501,6 +525,7 @@ impl SessionActor {
                 Some(msg) = self.ch.dur_rx.recv() => self.on_durability(msg),
                 Some(done) = self.jobs_rx.recv() => self.on_job(done),
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
+                _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
                 Some(msg) = self.ch.inbox_rx.recv() => self.on_inbox(msg),
                 else => break,
@@ -588,19 +613,46 @@ impl SessionActor {
     /// input, no pending approval. The memory ingest fires without waiting (today's
     /// `void ingestSessionIntoMemory(session)` when the CLI closes a session).
     fn try_unload(&mut self) {
-        let cell = &self.cell;
-        if !cell.ever_subscribed.load(SeqCst)
-            || self.deleting
+        if !self.quiet() {
+            return;
+        }
+        // Nobody ever attached: there is no last unsubscribe, so the idle clock decides.
+        if !self.cell.ever_subscribed.load(SeqCst) {
+            self.arm_idle_evict();
+            return;
+        }
+        self.unload();
+    }
+
+    /// Nothing is live: not deleting or settling, no run, no queued input, no pending approval,
+    /// no feed subscriber.
+    fn quiet(&self) -> bool {
+        !(self.deleting
             || self.settling
             || self.starting
             || self.goal_checking
-            || cell.subscribers.load(SeqCst) != 0
+            || self.cell.subscribers.load(SeqCst) != 0
             || self.run.is_some()
             || !self.projected.queue.is_empty()
-            || !self.projected.approvals.is_empty()
-        {
-            return;
+            || !self.projected.approvals.is_empty())
+    }
+
+    /// The idle clock of a thread nobody watched starts over.
+    fn arm_idle_evict(&mut self) {
+        self.idle_evict_at = (!self.cell.ever_subscribed.load(SeqCst)).then(|| tokio::time::Instant::now() + IDLE_EVICT);
+    }
+
+    /// The idle deadline came: a thread found working waits the whole delay again.
+    fn on_idle_evict(&mut self) {
+        self.idle_evict_at = None;
+        if self.quiet() {
+            self.unload();
+        } else {
+            self.arm_idle_evict();
         }
+    }
+
+    fn unload(&mut self) {
         let Some(directory) = self.ch.directory.upgrade() else {
             return;
         };
@@ -786,6 +838,9 @@ impl SessionActor {
                 }));
             }
             JobDone::ReminderGoal(start, goal) => self.start_run_read(*start, goal),
+            JobDone::Replied { op, tx, result } => self.replied(op, tx, result),
+            JobDone::Compacted { op, tx, result, recover } => self.compacted(op, tx, result, recover),
+            JobDone::RetryChecked { op, tx, key, retained } => self.retry_checked(op, tx, key, retained),
             JobDone::QuotaUnresumable(turn) => {
                 let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
                 self.show_live(turn, item, None);
@@ -2450,6 +2505,9 @@ impl SessionActor {
                 JobDone::GoalControlled { op, tx, result }
             }));
             return Ok(());
+        }
+        if super::turn_ops::is_actor_method(req.method.as_str()) {
+            return self.turn_op(req, tx);
         }
         // A conditional header patch (`expect`): the read-modify-write of a caller that computed
         // its change from the header, decided here against the header as projected.

@@ -1,0 +1,151 @@
+//! The domain rows of `mixdog-core-domains` this composition builds: `client`, `host`,
+//! `instructions`, `feedback`, `blob`, `update`, and `system`.
+
+use std::sync::Arc;
+
+use mixdog_core_api::DomainService;
+use mixdog_core_base::support::on_lane;
+use mixdog_core_config::config::Config;
+use mixdog_core_config::config::Settings;
+use mixdog_core_config::tool_modules::ToolModules;
+use mixdog_core_domains::domains::blob::AttachmentSource;
+use mixdog_core_domains::domains::blob::BlobService;
+use mixdog_core_domains::domains::client::ClientService;
+use mixdog_core_domains::domains::client::StderrPerf;
+use mixdog_core_domains::domains::feedback::FeedbackService;
+use mixdog_core_domains::domains::feedback::RelayUrl;
+use mixdog_core_domains::domains::host::HostService;
+use mixdog_core_domains::domains::instructions::InstructionPaths;
+use mixdog_core_domains::domains::instructions::InstructionsService;
+use mixdog_core_domains::domains::update::REGISTRY_URL;
+use mixdog_core_domains::domains::update::UpdateConfig;
+use mixdog_core_domains::domains::update::UpdateService;
+use mixdog_remote::leg::validated_relay_url;
+use mixdog_store::blobs::BlobStore;
+use mixdog_workspace::transfer::TransferSource;
+use serde_json::Value;
+use tokio_util::sync::CancellationToken;
+
+use super::ComposeDomainsError;
+use super::DomainInputs;
+use super::adapters::ActivityInput;
+use super::adapters::RemotePower;
+use crate::update_installer::StagedConfig;
+use crate::update_installer::StagedInstaller;
+
+/// Packaged default of the desktop pairing relay (`DEFAULT_RELAY_URL`, `remote-relay-device.ts`).
+const DEFAULT_RELAY_URL: &str = "wss://192-255-139-161.sslip.io";
+
+/// `resolveRelayUrl(process.env)` of the desktop: `Ok(None)` when switched off (`0`, `false`,
+/// `off`), the validated URL otherwise; the error is the desktop's sentence.
+fn relay_url(env: &super::EnvReader) -> RelayUrl {
+    let env = env.clone();
+    Arc::new(move || {
+        let raw = env("MIXDOG_RELAY_URL").unwrap_or_default();
+        let raw = mixdog_js::js_trim(&raw);
+        if matches!(raw.to_lowercase().as_str(), "0" | "false" | "off") {
+            return Ok(None);
+        }
+        let raw = if raw.is_empty() { DEFAULT_RELAY_URL } else { raw };
+        validated_relay_url(raw).map(|url| Some(url.to_string())).map_err(|error| error.to_string())
+    })
+}
+
+/// The `version` of `package.json` at the package root (`package.json` `version`).
+#[allow(clippy::disallowed_methods, reason = "runs as an interactive-io lane job")]
+async fn package_version(inputs: &DomainInputs) -> Result<String, ComposeDomainsError> {
+    let path = inputs.paths.package_root.join("package.json");
+    let shown = path.display().to_string();
+    let text = on_lane(inputs.tokens.interactive_io, &CancellationToken::new(), move |_lane| std::fs::read_to_string(path))
+        .await
+        .map_err(|error| ComposeDomainsError::Build(format!("reading {shown}: {error:?}")))?
+        .map_err(|error| ComposeDomainsError::Build(format!("reading {shown}: {error}")))?;
+    let package: Value =
+        serde_json::from_str(&text).map_err(|error| ComposeDomainsError::Build(format!("{shown} is not valid: {error}")))?;
+    package
+        .get("version")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| ComposeDomainsError::Build(format!("{shown} has no version")))
+}
+
+pub(super) struct Rows {
+    pub services: Vec<Arc<dyn DomainService>>,
+    pub transfer_sources: Vec<Arc<dyn TransferSource>>,
+    pub system: Arc<mixdog_spawn::service::SystemService>,
+    pub package_version: String,
+}
+
+pub(super) async fn build(
+    inputs: &DomainInputs,
+    config: &Config,
+    publisher: Arc<dyn mixdog_core_api::state::StatePublisher>,
+    tool_modules: Arc<ToolModules>,
+) -> Result<Rows, ComposeDomainsError> {
+    let tokens = &inputs.tokens;
+    let seams = &inputs.seams;
+    let mut services: Vec<Arc<dyn DomainService>> = Vec::new();
+    let mut transfer_sources: Vec<Arc<dyn TransferSource>> = Vec::new();
+
+    let perf = StderrPerf::new(inputs.env.as_ref()("MIXDOG_DESKTOP_PERF").as_deref() == Some("1"));
+    services.push(ClientService::new(Arc::new(ActivityInput::new(seams.user_activity.clone())), Arc::new(perf)));
+
+    let power = Arc::new(RemotePower::new(seams.remote.clone(), seams.local_target.clone()));
+    services.push(HostService::new(publisher, power.clone(), power, seams.notification_clicks.clone()));
+
+    services.push(InstructionsService::new(
+        InstructionPaths {
+            shipped_orchestration: inputs.paths.package_root.join("orchestration"),
+            shipped_output_styles: inputs.paths.package_root.join("output-styles"),
+            data_dir: inputs.paths.data_dir.clone(),
+        },
+        tool_modules,
+        seams.instructions_changed.clone(),
+        inputs.scopes.scopes("instructions")?,
+        tokens,
+    ));
+    services.push(FeedbackService::new(relay_url(&inputs.env), inputs.scopes.scopes("feedback")?));
+
+    let blobs = BlobStore::new(&inputs.paths.data_dir);
+    services.push(BlobService::new(blobs.clone(), tokens, &inputs.limits));
+    transfer_sources.push(AttachmentSource::new(blobs, seams.session_attachments.clone(), tokens));
+
+    let current_version = package_version(inputs).await?;
+    let dev = on_lane(tokens.interactive_io, &CancellationToken::new(), {
+        let root = inputs.paths.package_root.clone();
+        move |_lane| StagedInstaller::probe_dev_install(&root)
+    })
+    .await
+    .map_err(|error| ComposeDomainsError::Build(format!("probing the install: {error:?}")))?;
+    let installer = StagedInstaller::new(
+        StagedConfig {
+            data_dir: inputs.paths.data_dir.clone(),
+            package_root: inputs.paths.package_root.clone(),
+            node: inputs.paths.node.clone(),
+            electron: inputs.paths.electron,
+        },
+        tokens.maintenance_io,
+        seams.system_proxy.clone(),
+        dev,
+    );
+    let auto = config.clone();
+    services.push(UpdateService::new(
+        UpdateConfig {
+            current_version: current_version.clone(),
+            registry_url: REGISTRY_URL.to_owned(),
+            data_dir: inputs.paths.data_dir.clone(),
+            // `config.update.auto !== false`, read on each use.
+            auto_update: Arc::new(move || auto.get("update.auto") != Some(Value::Bool(false))),
+            auto_switch: Arc::new(Settings::new(config.clone(), seams.settings_effects.clone(), inputs.env.clone())),
+        },
+        Arc::new(installer),
+        inputs.host.clone(),
+        inputs.scopes.scopes("update")?,
+        inputs.scopes.scopes("config")?,
+        tokens,
+    ));
+
+    let system = mixdog_spawn::service::SystemService::new(inputs.scoped_feeds.clone());
+    services.push(system.clone());
+    Ok(Rows { services, transfer_sources, system, package_version: current_version })
+}

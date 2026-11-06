@@ -1,0 +1,504 @@
+[
+  {
+    "name": "a stage stores the blob and records the entry",
+    "steps": [
+      {
+        "after": {
+          "blobs": [
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+          ],
+          "index": "[\n  {\n    \"ref\": \"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\",\n    \"size\": 5,\n    \"at\": 1000\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        },
+        "step": {
+          "now": 1000,
+          "op": "stage",
+          "text": "hello"
+        }
+      }
+    ]
+  },
+  {
+    "name": "an empty buffer is refused",
+    "steps": [
+      {
+        "after": {
+          "blobs": [],
+          "index": null,
+          "named": []
+        },
+        "result": {
+          "error": {
+            "message": "staged original is empty",
+            "name": "TypeError"
+          }
+        },
+        "step": {
+          "empty": true,
+          "now": 1,
+          "op": "stage"
+        }
+      }
+    ]
+  },
+  {
+    "name": "a buffer over the quota is refused",
+    "steps": [
+      {
+        "after": {
+          "blobs": [],
+          "index": null,
+          "named": []
+        },
+        "result": {
+          "error": {
+            "message": "staged original exceeds the staging quota",
+            "name": "RangeError"
+          }
+        },
+        "step": {
+          "maxBytes": 4,
+          "now": 1,
+          "op": "stage",
+          "text": "12345"
+        }
+      }
+    ]
+  },
+  {
+    "name": "the oldest entries are evicted to fit the quota",
+    "steps": [
+      {
+        "after": {
+          "blobs": [
+            "ed02457b5c41d964dbd2f2a609d63fe1bb7528dbe55e1abf5b52c249cd735797"
+          ],
+          "index": "[\n  {\n    \"ref\": \"ed02457b5c41d964dbd2f2a609d63fe1bb7528dbe55e1abf5b52c249cd735797\",\n    \"size\": 6,\n    \"at\": 1\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "ed02457b5c41d964dbd2f2a609d63fe1bb7528dbe55e1abf5b52c249cd735797"
+        },
+        "step": {
+          "maxBytes": 10,
+          "now": 1,
+          "op": "stage",
+          "text": "aaaaaa"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "4625fd63b0e96fc0d656ae7381605e48d4a0f63a319fc743adf22688613883c7"
+          ],
+          "index": "[\n  {\n    \"ref\": \"4625fd63b0e96fc0d656ae7381605e48d4a0f63a319fc743adf22688613883c7\",\n    \"size\": 6,\n    \"at\": 2\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "4625fd63b0e96fc0d656ae7381605e48d4a0f63a319fc743adf22688613883c7"
+        },
+        "step": {
+          "maxBytes": 10,
+          "now": 2,
+          "op": "stage",
+          "text": "bbbbbb"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "355b1bbfc96725cdce8f4a2708fda310a80e6d13315aec4e5eed2a75fe8032ce",
+            "4625fd63b0e96fc0d656ae7381605e48d4a0f63a319fc743adf22688613883c7"
+          ],
+          "index": "[\n  {\n    \"ref\": \"4625fd63b0e96fc0d656ae7381605e48d4a0f63a319fc743adf22688613883c7\",\n    \"size\": 6,\n    \"at\": 2\n  },\n  {\n    \"ref\": \"355b1bbfc96725cdce8f4a2708fda310a80e6d13315aec4e5eed2a75fe8032ce\",\n    \"size\": 2,\n    \"at\": 3\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "355b1bbfc96725cdce8f4a2708fda310a80e6d13315aec4e5eed2a75fe8032ce"
+        },
+        "step": {
+          "maxBytes": 10,
+          "now": 3,
+          "op": "stage",
+          "text": "cc"
+        }
+      }
+    ]
+  },
+  {
+    "name": "staging the same bytes again refreshes the entry",
+    "steps": [
+      {
+        "after": {
+          "blobs": [
+            "b4c9e14061c2fd453b36700e3b0da008db2189c711ac629f0f583089164e267d"
+          ],
+          "index": "[\n  {\n    \"ref\": \"b4c9e14061c2fd453b36700e3b0da008db2189c711ac629f0f583089164e267d\",\n    \"size\": 5,\n    \"at\": 1\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "b4c9e14061c2fd453b36700e3b0da008db2189c711ac629f0f583089164e267d"
+        },
+        "step": {
+          "now": 1,
+          "op": "stage",
+          "text": "again"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "b4c9e14061c2fd453b36700e3b0da008db2189c711ac629f0f583089164e267d"
+          ],
+          "index": "[\n  {\n    \"ref\": \"b4c9e14061c2fd453b36700e3b0da008db2189c711ac629f0f583089164e267d\",\n    \"size\": 5,\n    \"at\": 5\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "b4c9e14061c2fd453b36700e3b0da008db2189c711ac629f0f583089164e267d"
+        },
+        "step": {
+          "now": 5,
+          "op": "stage",
+          "text": "again"
+        }
+      }
+    ]
+  },
+  {
+    "name": "an expired entry goes with its blob and named copies",
+    "steps": [
+      {
+        "after": {
+          "blobs": [
+            "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4"
+          ],
+          "index": "[\n  {\n    \"ref\": \"cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4\",\n    \"size\": 3,\n    \"at\": 0\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4"
+        },
+        "step": {
+          "now": 0,
+          "op": "stage",
+          "text": "old",
+          "ttlMs": 100
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4"
+          ],
+          "index": "[\n  {\n    \"ref\": \"cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4\",\n    \"size\": 3,\n    \"at\": 0\n  }\n]\n",
+          "named": [
+            "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4",
+            "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4/picked.png"
+          ]
+        },
+        "step": {
+          "op": "plantNamed",
+          "text": "old"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"
+          ],
+          "index": "[\n  {\n    \"ref\": \"11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437\",\n    \"size\": 3,\n    \"at\": 200\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"
+        },
+        "step": {
+          "now": 200,
+          "op": "stage",
+          "text": "new",
+          "ttlMs": 100
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"
+          ],
+          "index": "[\n  {\n    \"ref\": \"11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437\",\n    \"size\": 3,\n    \"at\": 301\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"
+        },
+        "step": {
+          "now": 301,
+          "op": "stage",
+          "text": "new",
+          "ttlMs": 100
+        }
+      }
+    ]
+  },
+  {
+    "name": "an entry exactly at the retention edge is kept",
+    "steps": [
+      {
+        "after": {
+          "blobs": [
+            "a1cb100f57e971cacf269e7c26e4630a25a8e9d4bdd35e32df1a80b66b896254"
+          ],
+          "index": "[\n  {\n    \"ref\": \"a1cb100f57e971cacf269e7c26e4630a25a8e9d4bdd35e32df1a80b66b896254\",\n    \"size\": 4,\n    \"at\": 0\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "a1cb100f57e971cacf269e7c26e4630a25a8e9d4bdd35e32df1a80b66b896254"
+        },
+        "step": {
+          "now": 0,
+          "op": "stage",
+          "text": "edge",
+          "ttlMs": 100
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "a1cb100f57e971cacf269e7c26e4630a25a8e9d4bdd35e32df1a80b66b896254",
+            "d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa"
+          ],
+          "index": "[\n  {\n    \"ref\": \"a1cb100f57e971cacf269e7c26e4630a25a8e9d4bdd35e32df1a80b66b896254\",\n    \"size\": 4,\n    \"at\": 0\n  },\n  {\n    \"ref\": \"d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa\",\n    \"size\": 5,\n    \"at\": 100\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa"
+        },
+        "step": {
+          "now": 100,
+          "op": "stage",
+          "text": "other",
+          "ttlMs": 100
+        }
+      }
+    ]
+  },
+  {
+    "name": "bytes already stored for a message are not tracked",
+    "steps": [
+      {
+        "after": {
+          "blobs": [
+            "cc1eede4cf1f1cf0235ad1457e355eabd463fc2c8efa3ba1868e92ddbb3d5988"
+          ],
+          "index": null,
+          "named": []
+        },
+        "step": {
+          "op": "plantBlob",
+          "text": "kept-by-message"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "cc1eede4cf1f1cf0235ad1457e355eabd463fc2c8efa3ba1868e92ddbb3d5988"
+          ],
+          "index": "[]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "cc1eede4cf1f1cf0235ad1457e355eabd463fc2c8efa3ba1868e92ddbb3d5988"
+        },
+        "step": {
+          "now": 1,
+          "op": "stage",
+          "text": "kept-by-message"
+        }
+      }
+    ]
+  },
+  {
+    "name": "an entry whose blob is gone is dropped",
+    "steps": [
+      {
+        "after": {
+          "blobs": [
+            "00aa382d048dd3c2424ce3931d019b615c9db1a6cfc08c4ee5ce5c6c6fa56bb0"
+          ],
+          "index": "[\n  {\n    \"ref\": \"00aa382d048dd3c2424ce3931d019b615c9db1a6cfc08c4ee5ce5c6c6fa56bb0\",\n    \"size\": 9,\n    \"at\": 1\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "00aa382d048dd3c2424ce3931d019b615c9db1a6cfc08c4ee5ce5c6c6fa56bb0"
+        },
+        "step": {
+          "now": 1,
+          "op": "stage",
+          "text": "vanishing"
+        }
+      },
+      {
+        "after": {
+          "blobs": [],
+          "index": "[\n  {\n    \"ref\": \"00aa382d048dd3c2424ce3931d019b615c9db1a6cfc08c4ee5ce5c6c6fa56bb0\",\n    \"size\": 9,\n    \"at\": 1\n  }\n]\n",
+          "named": []
+        },
+        "step": {
+          "op": "dropBlob",
+          "text": "vanishing"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "c6c1c9a9c8543f1e4cd980064cf1625eeb61a90703b2464fff039f21682508b3"
+          ],
+          "index": "[\n  {\n    \"ref\": \"c6c1c9a9c8543f1e4cd980064cf1625eeb61a90703b2464fff039f21682508b3\",\n    \"size\": 4,\n    \"at\": 2\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "c6c1c9a9c8543f1e4cd980064cf1625eeb61a90703b2464fff039f21682508b3"
+        },
+        "step": {
+          "now": 2,
+          "op": "stage",
+          "text": "next"
+        }
+      }
+    ]
+  },
+  {
+    "name": "a damaged index reads as empty",
+    "steps": [
+      {
+        "after": {
+          "blobs": [],
+          "index": "not json",
+          "named": []
+        },
+        "step": {
+          "op": "plantIndex",
+          "text": "not json"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "d098ab5e44b9aabb755f76d806598f43573c662b35e4a2eab1e312ec9ad195e2"
+          ],
+          "index": "[\n  {\n    \"ref\": \"d098ab5e44b9aabb755f76d806598f43573c662b35e4a2eab1e312ec9ad195e2\",\n    \"size\": 5,\n    \"at\": 1\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "d098ab5e44b9aabb755f76d806598f43573c662b35e4a2eab1e312ec9ad195e2"
+        },
+        "step": {
+          "now": 1,
+          "op": "stage",
+          "text": "fresh"
+        }
+      }
+    ]
+  },
+  {
+    "name": "a stored entry keeps what else it carries and its odd size",
+    "steps": [
+      {
+        "after": {
+          "blobs": [
+            "309074dc4898c3d17a5e7bc8294d0b0d9e69d7e4b7f6ef05674d3ce596b0a629"
+          ],
+          "index": null,
+          "named": []
+        },
+        "step": {
+          "op": "plantBlob",
+          "text": "carried"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "309074dc4898c3d17a5e7bc8294d0b0d9e69d7e4b7f6ef05674d3ce596b0a629"
+          ],
+          "index": "[{\"ref\":\"309074dc4898c3d17a5e7bc8294d0b0d9e69d7e4b7f6ef05674d3ce596b0a629\",\"size\":\"7\",\"at\":5,\"note\":\"x\"},{\"ref\":\"nothex\",\"size\":1},{\"ref\":\"f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243\",\"size\":0},null]",
+          "named": []
+        },
+        "step": {
+          "op": "plantIndex",
+          "text": "[{\"ref\":\"309074dc4898c3d17a5e7bc8294d0b0d9e69d7e4b7f6ef05674d3ce596b0a629\",\"size\":\"7\",\"at\":5,\"note\":\"x\"},{\"ref\":\"nothex\",\"size\":1},{\"ref\":\"f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243\",\"size\":0},null]"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "16367aacb67a4a017c8da8ab95682ccb390863780f7114dda0a0e0c55644c7c4",
+            "309074dc4898c3d17a5e7bc8294d0b0d9e69d7e4b7f6ef05674d3ce596b0a629"
+          ],
+          "index": "[\n  {\n    \"ref\": \"309074dc4898c3d17a5e7bc8294d0b0d9e69d7e4b7f6ef05674d3ce596b0a629\",\n    \"size\": \"7\",\n    \"at\": 5,\n    \"note\": \"x\"\n  },\n  {\n    \"ref\": \"16367aacb67a4a017c8da8ab95682ccb390863780f7114dda0a0e0c55644c7c4\",\n    \"size\": 6,\n    \"at\": 6\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "16367aacb67a4a017c8da8ab95682ccb390863780f7114dda0a0e0c55644c7c4"
+        },
+        "step": {
+          "now": 6,
+          "op": "stage",
+          "text": "second"
+        }
+      }
+    ]
+  },
+  {
+    "name": "an entry without a time never expires",
+    "steps": [
+      {
+        "after": {
+          "blobs": [
+            "2eef75362c5d08a31384dedf71617445c31969f405ad2d554da73ad6fc5fe327"
+          ],
+          "index": null,
+          "named": []
+        },
+        "step": {
+          "op": "plantBlob",
+          "text": "timeless"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "2eef75362c5d08a31384dedf71617445c31969f405ad2d554da73ad6fc5fe327"
+          ],
+          "index": "[{\"ref\":\"2eef75362c5d08a31384dedf71617445c31969f405ad2d554da73ad6fc5fe327\",\"size\":8}]",
+          "named": []
+        },
+        "step": {
+          "op": "plantIndex",
+          "text": "[{\"ref\":\"2eef75362c5d08a31384dedf71617445c31969f405ad2d554da73ad6fc5fe327\",\"size\":8}]"
+        }
+      },
+      {
+        "after": {
+          "blobs": [
+            "1d9283d848ea941ace1fe0d2378ef8b70056a0d4d1648b95a322d90163e78285",
+            "2eef75362c5d08a31384dedf71617445c31969f405ad2d554da73ad6fc5fe327"
+          ],
+          "index": "[\n  {\n    \"ref\": \"2eef75362c5d08a31384dedf71617445c31969f405ad2d554da73ad6fc5fe327\",\n    \"size\": 8\n  },\n  {\n    \"ref\": \"1d9283d848ea941ace1fe0d2378ef8b70056a0d4d1648b95a322d90163e78285\",\n    \"size\": 5,\n    \"at\": 1000000000000\n  }\n]\n",
+          "named": []
+        },
+        "result": {
+          "ok": "1d9283d848ea941ace1fe0d2378ef8b70056a0d4d1648b95a322d90163e78285"
+        },
+        "step": {
+          "now": 1000000000000,
+          "op": "stage",
+          "text": "later",
+          "ttlMs": 1
+        }
+      }
+    ]
+  }
+]

@@ -63,6 +63,9 @@ impl AgentEffects for NoEffects {
         self.0.lock().unwrap().push(json!({ "id": id, "route": route }));
         Ok(())
     }
+    async fn delete_owned_routines(&self, _: &str) -> Result<crate::agents::OwnedRoutines, String> {
+        Ok(crate::agents::OwnedRoutines::default())
+    }
 }
 
 /// The recorder's three sessions: Mixy's chat, a coding task and a contact's chat.

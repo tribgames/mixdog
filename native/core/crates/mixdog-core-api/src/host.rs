@@ -113,6 +113,13 @@ pub trait ConnectionNotifier: Send + Sync {
     fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), CoreError>;
 }
 
+/// Whether a desktop window is attached: a connection of kind `desktop` live on the app feed
+/// (Node's `mainWindow` check in `main/index.ts` `sendToWindow`). Paired phones, remote
+/// desktops, TUIs and the CLI are not windows.
+pub trait DesktopPresence: Send + Sync {
+    fn desktop_attached(&self) -> bool;
+}
+
 /// Binary media frames from a host-role connection (X17: 16-byte header + payload), routed
 /// into the live-view encoder. Never waits; the receiver keeps only what its encoder can take.
 pub trait HostMediaSink: Send + Sync {

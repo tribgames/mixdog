@@ -220,6 +220,25 @@ fn image_upload(data_url: Option<&Value>, label: &str) -> Result<(Vec<u8>, Image
     Ok((bytes, info))
 }
 
+/// A state image fit to show: its data URL and whether it is a PNG still.
+pub(super) struct Shown {
+    pub url: String,
+    pub animated: bool,
+    pub still_png: bool,
+}
+
+/// `readAvatarImage`'s check of one file's bytes: an image the editor would have accepted, as a
+/// data URL (a hand-placed file never reaches an `<img>` otherwise).
+pub(super) fn shown(bytes: &[u8]) -> Option<Shown> {
+    use base64::Engine as _;
+    if image_problem(bytes).is_some() {
+        return None;
+    }
+    let info = image_info(bytes)?;
+    let url = format!("data:image/{};base64,{}", info.format, base64::engine::general_purpose::STANDARD.encode(bytes));
+    Some(Shown { url, animated: info.animated, still_png: info.format == "png" && !info.animated })
+}
+
 fn sha12(bytes: &[u8]) -> String {
     use sha2::Digest as _;
     sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect::<String>()[..12].to_owned()

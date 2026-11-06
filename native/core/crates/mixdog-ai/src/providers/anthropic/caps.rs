@@ -12,6 +12,9 @@ pub struct ModelCaps {
     pub manual_thinking: bool,
     /// Effort levels the model advertises (`capabilities.effort`), lowercase.
     pub effort_levels: Vec<String>,
+    /// A catalog row states the ladder, possibly empty: a stated empty ladder is a model that takes
+    /// no effort, where no statement leaves the gates to the release-generation floor.
+    pub ladder_stated: bool,
     /// Declared output limit (`max_tokens`).
     pub max_output_tokens: Option<u32>,
     pub fast_mode: bool,

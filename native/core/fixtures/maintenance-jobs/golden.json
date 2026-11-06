@@ -1,0 +1,1461 @@
+{
+  "T0": 1000000000000,
+  "attachments": {
+    "blobs": [
+      {
+        "ageMs": 691200000,
+        "kept": false,
+        "name": "orphan-old",
+        "referenced": false
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": false,
+        "name": "orphan-older",
+        "referenced": false
+      },
+      {
+        "ageMs": 518400000,
+        "kept": true,
+        "name": "orphan-fresh",
+        "referenced": false
+      },
+      {
+        "ageMs": 0,
+        "kept": true,
+        "name": "orphan-today",
+        "referenced": false
+      },
+      {
+        "ageMs": 604801000,
+        "kept": false,
+        "name": "orphan-just-over",
+        "referenced": false
+      },
+      {
+        "ageMs": 604800000,
+        "kept": false,
+        "name": "orphan-exactly-min-age",
+        "referenced": false
+      },
+      {
+        "ageMs": 604799000,
+        "kept": true,
+        "name": "orphan-just-under",
+        "referenced": false
+      },
+      {
+        "ageMs": 2592000000,
+        "kept": true,
+        "name": "kept-by-session",
+        "referenced": true
+      },
+      {
+        "ageMs": 2592000000,
+        "kept": true,
+        "name": "kept-by-session-too",
+        "referenced": true
+      },
+      {
+        "ageMs": 2592000000,
+        "kept": true,
+        "name": "kept-by-checkpoint",
+        "referenced": true
+      },
+      {
+        "ageMs": 2592000000,
+        "kept": true,
+        "name": "kept-by-set-aside-log",
+        "referenced": true
+      },
+      {
+        "ageMs": 86400000,
+        "kept": true,
+        "name": "fresh-and-referenced",
+        "referenced": true
+      }
+    ],
+    "constants": {
+      "defaultMinAgeMs": 604800000,
+      "spacingMs": 21600000,
+      "startDelayMs": 5000
+    },
+    "leftovers": [
+      {
+        "ageMs": 691200000,
+        "kept": false,
+        "name": "<ref>.mixdog-tmp-ab12"
+      },
+      {
+        "ageMs": 604800000,
+        "kept": false,
+        "name": "<ref>.mixdog-tmp-cd34"
+      },
+      {
+        "ageMs": 604799000,
+        "kept": true,
+        "name": "<ref>.mixdog-tmp-ef56"
+      },
+      {
+        "ageMs": 86400000,
+        "kept": true,
+        "name": "<ref>.mixdog-tmp-0a"
+      },
+      {
+        "ageMs": 691200000,
+        "kept": false,
+        "name": ".<ref>.9f8e7d.tmp"
+      },
+      {
+        "ageMs": 691200000,
+        "kept": false,
+        "name": "<ref>.4242.9f8e7d.tmp"
+      },
+      {
+        "ageMs": 86400000,
+        "kept": true,
+        "name": "<ref>.4343.9f8e7d.tmp"
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": true,
+        "name": "<ref>.mixdog-tmp-"
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": true,
+        "name": "<ref>.mixdog-tmp-XYZ"
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": true,
+        "name": "<ref>.other"
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": true,
+        "name": "<ref>.tmp"
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": true,
+        "name": "<ref-1>.1.tmp"
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": true,
+        "name": ".notes.tmp-0123456789abcdef"
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": true,
+        "name": "notes.mixdog-tmp-ab12"
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": true,
+        "name": ".notes.9f8e7d.tmp"
+      },
+      {
+        "ageMs": 8640000000,
+        "kept": true,
+        "name": ".78D3075EA924DBFCBEC97DB7C5DDBE6D863C4D28A3332D754F40CE237DF932B4.tmp-0123456789abcdef"
+      }
+    ],
+    "minAgeMs": 604800000,
+    "report": {
+      "deleted": 4,
+      "fresh": 3,
+      "referenced": 5,
+      "scanned": 12
+    }
+  },
+  "constants": {
+    "cleanupInitialDelayMs": 180000,
+    "cleanupIntervalMs": 3600000
+  },
+  "schedule": [
+    {
+      "errors": [],
+      "runs": [
+        "worktree-cleanup",
+        "worktree-cleanup",
+        "worktree-cleanup"
+      ],
+      "steps": [
+        {
+          "at": 0,
+          "busy": false,
+          "idle": true,
+          "ran": []
+        },
+        {
+          "at": 179999,
+          "busy": false,
+          "idle": true,
+          "ran": []
+        },
+        {
+          "at": 180000,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "worktree-cleanup"
+          ]
+        },
+        {
+          "at": 180001,
+          "busy": false,
+          "idle": true,
+          "ran": []
+        },
+        {
+          "at": 3779999,
+          "busy": false,
+          "idle": true,
+          "ran": []
+        },
+        {
+          "at": 3780000,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "worktree-cleanup"
+          ]
+        },
+        {
+          "at": 7380005,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "worktree-cleanup"
+          ]
+        },
+        {
+          "at": 10980000,
+          "busy": false,
+          "idle": true,
+          "ran": []
+        }
+      ],
+      "tasks": [
+        [
+          "worktree-cleanup",
+          3600000,
+          180000,
+          false
+        ]
+      ]
+    },
+    {
+      "errors": [],
+      "runs": [
+        "worktree-cleanup",
+        "worktree-cleanup"
+      ],
+      "steps": [
+        {
+          "at": 180000,
+          "busy": true,
+          "idle": false,
+          "ran": []
+        },
+        {
+          "at": 240000,
+          "busy": true,
+          "idle": false,
+          "ran": []
+        },
+        {
+          "at": 300000,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "worktree-cleanup"
+          ]
+        },
+        {
+          "at": 360000,
+          "busy": false,
+          "idle": true,
+          "ran": []
+        },
+        {
+          "at": 3900000,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "worktree-cleanup"
+          ]
+        }
+      ],
+      "tasks": [
+        [
+          "worktree-cleanup",
+          3600000,
+          180000,
+          false
+        ]
+      ]
+    },
+    {
+      "errors": [
+        "worktree-cleanup",
+        "worktree-cleanup"
+      ],
+      "runs": [
+        "worktree-cleanup",
+        "worktree-cleanup"
+      ],
+      "steps": [
+        {
+          "at": 180000,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "worktree-cleanup"
+          ]
+        },
+        {
+          "at": 180001,
+          "busy": false,
+          "idle": true,
+          "ran": []
+        },
+        {
+          "at": 3780000,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "worktree-cleanup"
+          ]
+        }
+      ],
+      "tasks": [
+        [
+          "worktree-cleanup",
+          3600000,
+          180000,
+          true
+        ]
+      ]
+    },
+    {
+      "errors": [],
+      "runs": [
+        "a",
+        "b",
+        "a",
+        "a",
+        "b"
+      ],
+      "steps": [
+        {
+          "at": 0,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "a"
+          ]
+        },
+        {
+          "at": 300000,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "b"
+          ]
+        },
+        {
+          "at": 600000,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "a"
+          ]
+        },
+        {
+          "at": 2100000,
+          "busy": false,
+          "idle": true,
+          "ran": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "tasks": [
+        [
+          "a",
+          600000,
+          0,
+          false
+        ],
+        [
+          "b",
+          1800000,
+          300000,
+          false
+        ]
+      ]
+    }
+  ],
+  "worktree": {
+    "NOW": 86400000000,
+    "constants": {
+      "maxRemovals": 20,
+      "minAgeMs": 3600000
+    },
+    "select": [
+      {
+        "input": {
+          "rows": [
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "a",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85968000000,
+              "dirty": 0,
+              "id": "b",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 86313600000,
+              "dirty": 0,
+              "id": "c",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": true,
+            "maxWorktrees": 1,
+            "unusedDays": 7
+          }
+        },
+        "selected": [
+          {
+            "id": "a",
+            "lastActiveAt": 85536000000,
+            "reason": "age"
+          },
+          {
+            "id": "b",
+            "lastActiveAt": 85968000000,
+            "reason": "count"
+          }
+        ]
+      },
+      {
+        "input": {
+          "rows": [
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "a",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85968000000,
+              "dirty": 0,
+              "id": "b",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 86313600000,
+              "dirty": 0,
+              "id": "c",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": false,
+            "maxWorktrees": 1,
+            "unusedDays": 7
+          }
+        },
+        "selected": []
+      },
+      {
+        "input": {
+          "rows": [
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "a",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85968000000,
+              "dirty": 0,
+              "id": "b",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 86313600000,
+              "dirty": 0,
+              "id": "c",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": true,
+            "maxWorktrees": 0,
+            "unusedDays": 0
+          }
+        },
+        "selected": []
+      },
+      {
+        "input": {
+          "favoriteSessionIds": [
+            "fav"
+          ],
+          "rows": [
+            {
+              "createdAt": 85536000000,
+              "dirty": 1,
+              "id": "dirty",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "unmerged",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 2
+            },
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "live",
+              "kind": "branch",
+              "ownerLive": true,
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "busy",
+              "inUse": true,
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "shared",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "sharedSessionIds": [
+                "s"
+              ],
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "favorite",
+              "kind": "branch",
+              "ownerSessionId": "fav",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 86399940000,
+              "dirty": 0,
+              "id": "young",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 86396400000,
+              "dirty": 0,
+              "id": "exactly-an-hour",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "snap",
+              "kind": "snapshot",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "creating",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "creating",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "ok",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": true,
+            "maxWorktrees": 0,
+            "unusedDays": 1
+          }
+        },
+        "selected": [
+          {
+            "id": "ok",
+            "lastActiveAt": 85536000000,
+            "reason": "age"
+          }
+        ]
+      },
+      {
+        "input": {
+          "activity": {
+            "s1": 86227200000,
+            "s2": 82944000000
+          },
+          "rows": [
+            {
+              "createdAt": 82944000000,
+              "dirty": 0,
+              "id": "old-turn",
+              "kind": "branch",
+              "ownerSessionId": "s1",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82944000000,
+              "dirty": 0,
+              "id": "new-turn",
+              "kind": "branch",
+              "ownerSessionId": "s2",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82944000000,
+              "dirty": 0,
+              "id": "none",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": true,
+            "maxWorktrees": 0,
+            "unusedDays": 30
+          }
+        },
+        "selected": [
+          {
+            "id": "new-turn",
+            "lastActiveAt": 82944000000,
+            "reason": "age"
+          },
+          {
+            "id": "none",
+            "lastActiveAt": 82944000000,
+            "reason": "age"
+          }
+        ]
+      },
+      {
+        "input": {
+          "rows": [
+            {
+              "createdAt": 86140800000,
+              "dirty": 0,
+              "id": "z",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 86140800000,
+              "dirty": 0,
+              "id": "y",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 86140800000,
+              "dirty": 0,
+              "id": "x",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": true,
+            "maxWorktrees": 1,
+            "unusedDays": 0
+          }
+        },
+        "selected": [
+          {
+            "id": "x",
+            "lastActiveAt": 86140800000,
+            "reason": "count"
+          },
+          {
+            "id": "y",
+            "lastActiveAt": 86140800000,
+            "reason": "count"
+          }
+        ]
+      },
+      {
+        "input": {
+          "repoCommonDir": "/r/.git",
+          "rows": [
+            {
+              "createdAt": 84672000000,
+              "dirty": 0,
+              "id": "other",
+              "kind": "branch",
+              "repoCommonDir": "/o/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85622400000,
+              "dirty": 0,
+              "id": "mine1",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85708800000,
+              "dirty": 0,
+              "id": "mine2",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": true,
+            "maxWorktrees": 1,
+            "unusedDays": 0
+          }
+        },
+        "selected": [
+          {
+            "id": "mine1",
+            "lastActiveAt": 85622400000,
+            "reason": "count"
+          }
+        ]
+      },
+      {
+        "input": {
+          "rows": [
+            {
+              "createdAt": 82944000000,
+              "dirty": 0,
+              "id": "w00",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82857600000,
+              "dirty": 0,
+              "id": "w01",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82771200000,
+              "dirty": 0,
+              "id": "w02",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82684800000,
+              "dirty": 0,
+              "id": "w03",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82598400000,
+              "dirty": 0,
+              "id": "w04",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82512000000,
+              "dirty": 0,
+              "id": "w05",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82425600000,
+              "dirty": 0,
+              "id": "w06",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82339200000,
+              "dirty": 0,
+              "id": "w07",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82252800000,
+              "dirty": 0,
+              "id": "w08",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82166400000,
+              "dirty": 0,
+              "id": "w09",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82080000000,
+              "dirty": 0,
+              "id": "w10",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81993600000,
+              "dirty": 0,
+              "id": "w11",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81907200000,
+              "dirty": 0,
+              "id": "w12",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81820800000,
+              "dirty": 0,
+              "id": "w13",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81734400000,
+              "dirty": 0,
+              "id": "w14",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81648000000,
+              "dirty": 0,
+              "id": "w15",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81561600000,
+              "dirty": 0,
+              "id": "w16",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81475200000,
+              "dirty": 0,
+              "id": "w17",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81388800000,
+              "dirty": 0,
+              "id": "w18",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81302400000,
+              "dirty": 0,
+              "id": "w19",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81216000000,
+              "dirty": 0,
+              "id": "w20",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81129600000,
+              "dirty": 0,
+              "id": "w21",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81043200000,
+              "dirty": 0,
+              "id": "w22",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 80956800000,
+              "dirty": 0,
+              "id": "w23",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 80870400000,
+              "dirty": 0,
+              "id": "w24",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": true,
+            "maxWorktrees": 0,
+            "unusedDays": 30
+          }
+        },
+        "selected": [
+          {
+            "id": "w24",
+            "lastActiveAt": 80870400000,
+            "reason": "age"
+          },
+          {
+            "id": "w23",
+            "lastActiveAt": 80956800000,
+            "reason": "age"
+          },
+          {
+            "id": "w22",
+            "lastActiveAt": 81043200000,
+            "reason": "age"
+          },
+          {
+            "id": "w21",
+            "lastActiveAt": 81129600000,
+            "reason": "age"
+          },
+          {
+            "id": "w20",
+            "lastActiveAt": 81216000000,
+            "reason": "age"
+          },
+          {
+            "id": "w19",
+            "lastActiveAt": 81302400000,
+            "reason": "age"
+          },
+          {
+            "id": "w18",
+            "lastActiveAt": 81388800000,
+            "reason": "age"
+          },
+          {
+            "id": "w17",
+            "lastActiveAt": 81475200000,
+            "reason": "age"
+          },
+          {
+            "id": "w16",
+            "lastActiveAt": 81561600000,
+            "reason": "age"
+          },
+          {
+            "id": "w15",
+            "lastActiveAt": 81648000000,
+            "reason": "age"
+          },
+          {
+            "id": "w14",
+            "lastActiveAt": 81734400000,
+            "reason": "age"
+          },
+          {
+            "id": "w13",
+            "lastActiveAt": 81820800000,
+            "reason": "age"
+          },
+          {
+            "id": "w12",
+            "lastActiveAt": 81907200000,
+            "reason": "age"
+          },
+          {
+            "id": "w11",
+            "lastActiveAt": 81993600000,
+            "reason": "age"
+          },
+          {
+            "id": "w10",
+            "lastActiveAt": 82080000000,
+            "reason": "age"
+          },
+          {
+            "id": "w09",
+            "lastActiveAt": 82166400000,
+            "reason": "age"
+          },
+          {
+            "id": "w08",
+            "lastActiveAt": 82252800000,
+            "reason": "age"
+          },
+          {
+            "id": "w07",
+            "lastActiveAt": 82339200000,
+            "reason": "age"
+          },
+          {
+            "id": "w06",
+            "lastActiveAt": 82425600000,
+            "reason": "age"
+          },
+          {
+            "id": "w05",
+            "lastActiveAt": 82512000000,
+            "reason": "age"
+          }
+        ]
+      },
+      {
+        "input": {
+          "maxRemovals": 3,
+          "rows": [
+            {
+              "createdAt": 82944000000,
+              "dirty": 0,
+              "id": "w00",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82857600000,
+              "dirty": 0,
+              "id": "w01",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82771200000,
+              "dirty": 0,
+              "id": "w02",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82684800000,
+              "dirty": 0,
+              "id": "w03",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82598400000,
+              "dirty": 0,
+              "id": "w04",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82512000000,
+              "dirty": 0,
+              "id": "w05",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82425600000,
+              "dirty": 0,
+              "id": "w06",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82339200000,
+              "dirty": 0,
+              "id": "w07",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82252800000,
+              "dirty": 0,
+              "id": "w08",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82166400000,
+              "dirty": 0,
+              "id": "w09",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 82080000000,
+              "dirty": 0,
+              "id": "w10",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81993600000,
+              "dirty": 0,
+              "id": "w11",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81907200000,
+              "dirty": 0,
+              "id": "w12",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81820800000,
+              "dirty": 0,
+              "id": "w13",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81734400000,
+              "dirty": 0,
+              "id": "w14",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81648000000,
+              "dirty": 0,
+              "id": "w15",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81561600000,
+              "dirty": 0,
+              "id": "w16",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81475200000,
+              "dirty": 0,
+              "id": "w17",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81388800000,
+              "dirty": 0,
+              "id": "w18",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81302400000,
+              "dirty": 0,
+              "id": "w19",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81216000000,
+              "dirty": 0,
+              "id": "w20",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81129600000,
+              "dirty": 0,
+              "id": "w21",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 81043200000,
+              "dirty": 0,
+              "id": "w22",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 80956800000,
+              "dirty": 0,
+              "id": "w23",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 80870400000,
+              "dirty": 0,
+              "id": "w24",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": true,
+            "maxWorktrees": 0,
+            "unusedDays": 30
+          }
+        },
+        "selected": [
+          {
+            "id": "w24",
+            "lastActiveAt": 80870400000,
+            "reason": "age"
+          },
+          {
+            "id": "w23",
+            "lastActiveAt": 80956800000,
+            "reason": "age"
+          },
+          {
+            "id": "w22",
+            "lastActiveAt": 81043200000,
+            "reason": "age"
+          }
+        ]
+      },
+      {
+        "input": {
+          "potential": true,
+          "rows": [
+            {
+              "createdAt": 85536000000,
+              "dirty": 0,
+              "id": "a",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 85968000000,
+              "dirty": 0,
+              "id": "b",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            },
+            {
+              "createdAt": 86313600000,
+              "dirty": 1,
+              "id": "c",
+              "kind": "branch",
+              "repoCommonDir": "/r/.git",
+              "state": "ready",
+              "unmerged": 0
+            }
+          ],
+          "settings": {
+            "autoCleanup": true,
+            "maxWorktrees": 1,
+            "unusedDays": 0
+          }
+        },
+        "selected": [
+          {
+            "id": "a",
+            "lastActiveAt": 85536000000,
+            "reason": "count"
+          },
+          {
+            "id": "b",
+            "lastActiveAt": 85968000000,
+            "reason": "count"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::process::ProcessError;
+use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolAnnotations;
@@ -187,14 +188,22 @@ async fn read_or_wait(
     ok(rendered)
 }
 
-async fn cancel(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>) -> ToolOutcome {
-    let id = job.id.clone();
-    if !job.is_running() && !job.survivors {
-        // Node answers a cancel of a task it still retains with the success text.
-        return ok(format!("status: completed\ntask_id: {id}\ncancelled: shell/shell"));
-    }
+/// How a cancel of one task ended (`cancelShellTaskOutcome`'s `cancelled` and `unconfirmed`;
+/// the `task` tool and the structured stop answer both read it).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum CancelOutcome {
+    Cancelled,
+    /// The kill was delivered but the exit could not be confirmed.
+    Unconfirmed,
+    /// The command exited but processes it started are still alive.
+    Pending,
+}
+
+/// The one cancel path of a task: the `task` tool's `cancel` and the surfaces' stop go through it.
+pub(super) async fn cancel_job(runtime: &ExecRuntime, processes: &dyn ProcessManager, job: &Job) -> CancelOutcome {
+    // Node answers a cancel of a task it still retains with the success text.
     if !job.is_running() {
-        return ok(format!("status: completed\ntask_id: {id}\ncancelled: shell/shell"));
+        return CancelOutcome::Cancelled;
     }
     if job.survivors {
         // What a finished command left running: the observer terminates the set and reports
@@ -204,19 +213,28 @@ async fn cancel(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>) -> Tool
             None => false,
         };
         if !terminated {
-            return ok(cancel_pending(&id));
+            return CancelOutcome::Pending;
         }
-        runtime.finish_survivors(&job, true).await;
-        return ok(format!("status: completed\ntask_id: {id}\ncancelled: shell/shell"));
+        runtime.finish_survivors(job, true).await;
+        return CancelOutcome::Cancelled;
     }
-    match runtime.config.tasks.terminate(&id, &*ctx.processes) {
+    match runtime.config.tasks.terminate(&job.id, processes) {
         Ok(()) | Err(TaskError::Process(ProcessError::AlreadyExited)) => {}
-        Err(_) => return ok(cancel_unconfirmed(&id)),
+        Err(_) => return CancelOutcome::Unconfirmed,
     }
     if tokio::time::timeout(super::KILL_VERIFY, job.settled()).await.is_err() {
-        return ok(cancel_unconfirmed(&id));
+        return CancelOutcome::Unconfirmed;
     }
-    ok(format!("status: completed\ntask_id: {id}\ncancelled: shell/shell"))
+    CancelOutcome::Cancelled
+}
+
+async fn cancel(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>) -> ToolOutcome {
+    let id = job.id.clone();
+    match cancel_job(runtime, &*ctx.processes, &job).await {
+        CancelOutcome::Cancelled => ok(format!("status: completed\ntask_id: {id}\ncancelled: shell/shell")),
+        CancelOutcome::Unconfirmed => ok(cancel_unconfirmed(&id)),
+        CancelOutcome::Pending => ok(cancel_pending(&id)),
+    }
 }
 
 fn cancel_pending(id: &str) -> String {

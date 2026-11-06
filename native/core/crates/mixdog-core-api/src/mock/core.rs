@@ -132,6 +132,11 @@ impl CoreHandle for MockCore {
         self.app_feed.clone()
     }
 
+    /// The mock holds no scoped feeds: they belong to the domain that creates them.
+    fn scoped_feed(&self, _id: &crate::ids::FeedId) -> Option<Arc<dyn FeedSource>> {
+        None
+    }
+
     fn ops(&self) -> &dyn OpIndex {
         &self.ops
     }

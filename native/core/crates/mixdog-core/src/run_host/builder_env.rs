@@ -13,6 +13,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use mixdog_ai::catalog::CatalogService;
+use mixdog_ai::client_versions::{ClientVersions, Live};
 use mixdog_ai::oauth::pace::SystemPace;
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::providers::anthropic::{CapsLookup, ModelCaps};
@@ -34,18 +35,19 @@ use mixdog_core_run::run_host::route_wiring::MANUAL_REJECTED_FLOOR;
 use mixdog_core_run::run_host::route_wiring::MAX_FLOOR;
 use mixdog_core_run::run_host::route_wiring::XHIGH_FLOOR;
 
-/// `CODEX_CLIENT_VERSION_FLOOR`: the version when no live answer is known.
-pub const CODEX_CLIENT_VERSION_FLOOR: &str = "0.166.0";
+pub use mixdog_ai::client_versions::CODEX_CLIENT_VERSION_FLOOR;
 const CODEX_ORIGINATOR: &str = "codex_cli_rs";
 const CODEX_BETA_FEATURES: &str = "remote_compaction_v2";
 
-/// What the dialects send about the client.
+/// What the dialects send about the client. The versions are read when a request is built:
+/// the live answer of [`ClientVersions`] above Node's floors, and the configured overrides above
+/// that.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClientIdentity {
     pub codex: CodexIdentity,
-    pub grok: Option<String>,
-    pub cursor: Option<String>,
-    pub antigravity: String,
+    pub grok: Live,
+    pub cursor: Live,
+    pub antigravity: Live,
 }
 
 fn set(env: &dyn Environment, name: &str) -> Option<String> {
@@ -53,30 +55,33 @@ fn set(env: &dyn Environment, name: &str) -> Option<String> {
 }
 
 /// `codexUserAgent()`, `codexVersionHeader()`, `_codexBetaFeatures()`, `_codexInstallationId`'s
-/// result and the client versions of the three dialects that gate on one. Node adds a live
-/// answer (the npm registry's latest, the 426 body, the update manifest) above these floors;
-/// a version learned that way arrives as the dialect's own configured override.
-pub fn client_identity(env: &dyn Environment, host: &HostInfo, installation_id: &str) -> ClientIdentity {
-    let originator = set(env, "MIXDOG_CODEX_ORIGINATOR").unwrap_or_else(|| CODEX_ORIGINATOR.to_owned());
-    let terminal = set(env, "TERM_PROGRAM").unwrap_or_else(|| "unknown".to_owned());
-    let user_agent = set(env, "MIXDOG_CODEX_USER_AGENT").unwrap_or_else(|| {
-        format!("{originator}/{CODEX_CLIENT_VERSION_FLOOR} ({} {}; {}) {terminal}", host.os_type, host.os_release, host.arch)
+/// result and the client versions of the three dialects that gate on one. Node reads the
+/// overrides from the environment at each call, so the headers do here.
+pub fn client_identity(env: &Arc<dyn Environment>, host: &HostInfo, installation_id: &str, versions: &Arc<ClientVersions>) -> ClientIdentity {
+    let (agent_env, agent_host, agent_versions) = (Arc::clone(env), host.clone(), Arc::clone(versions));
+    let user_agent = Live::new(move || {
+        set(&*agent_env, "MIXDOG_CODEX_USER_AGENT").unwrap_or_else(|| {
+            let originator = set(&*agent_env, "MIXDOG_CODEX_ORIGINATOR").unwrap_or_else(|| CODEX_ORIGINATOR.to_owned());
+            let terminal = set(&*agent_env, "TERM_PROGRAM").unwrap_or_else(|| "unknown".to_owned());
+            format!(
+                "{originator}/{} ({} {}; {}) {terminal}",
+                agent_versions.codex(),
+                agent_host.os_type,
+                agent_host.os_release,
+                agent_host.arch
+            )
+        })
     });
+    let (version_env, version_versions) = (Arc::clone(env), Arc::clone(versions));
+    let version = Live::new(move || set(&*version_env, "MIXDOG_CODEX_VERSION").unwrap_or_else(|| version_versions.codex()));
     let beta_features = env.var("MIXDOG_CODEX_BETA_FEATURES").filter(|v| !v.is_empty()).unwrap_or_else(|| CODEX_BETA_FEATURES.to_owned());
     ClientIdentity {
-        codex: CodexIdentity {
-            installation_id: installation_id.to_owned(),
-            user_agent,
-            version: set(env, "MIXDOG_CODEX_VERSION").unwrap_or_else(|| CODEX_CLIENT_VERSION_FLOOR.to_owned()),
-            beta_features,
-        },
-        grok: set(env, "MIXDOG_GROK_CLIENT_VERSION"),
-        cursor: set(env, "MIXDOG_CURSOR_CLIENT_VERSION"),
-        antigravity: set(env, "MIXDOG_ANTIGRAVITY_VERSION")
-            .unwrap_or_else(|| mixdog_ai::providers::google::auth::antigravity::VERSION_FALLBACK.to_owned()),
+        codex: CodexIdentity { installation_id: installation_id.to_owned(), user_agent, version, beta_features },
+        grok: versions.grok_live(),
+        cursor: versions.cursor_live(),
+        antigravity: versions.antigravity_live(),
     }
 }
-
 const LEVEL_ORDER: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
 const CONTROL_KEYS: [&str; 3] = ["supported", "enabled", "default"];
 
@@ -126,11 +131,20 @@ fn emits_progress_updates(id: &str) -> bool {
         .any(|m| rest.strip_prefix(m).is_some_and(|t| t.is_empty() || (t.len() == 9 && t.starts_with('-') && t[1..].bytes().all(|b| b.is_ascii_digit()))))
 }
 
-/// The Anthropic model capabilities the codec reads (`anthropic-effort.mjs`): the catalog first
-/// (the listed rows of the provider, then the shared catalog), the release-generation floor for
-/// an id no catalog describes. A row that lists no effort at all reads as undescribed (the
-/// catalog keeps no "known to take none"), and a row's own `thinking.types` flags are not kept,
-/// so the floor decides the thinking kind.
+/// What the Anthropic catalog states of a model (`_catalogEntry`).
+struct Entry {
+    levels: Vec<String>,
+    /// `thinkingTypes.enabled`.
+    manual: Option<bool>,
+    /// `thinkingTypes.adaptive`.
+    adaptive: Option<bool>,
+}
+
+/// The Anthropic model capabilities the codec reads (`anthropic-effort.mjs`), in Node's order for
+/// one model: the live roster index (the subscription route's listed rows), then the shared
+/// catalog, then the release-generation floor for an id no catalog describes. A listed row that
+/// states an empty effort ladder is a model that takes no effort, and its own `thinkingTypes`
+/// flags decide the thinking kind; the floor decides only where the catalog is silent.
 #[derive(Clone)]
 pub struct CatalogCaps {
     catalog: Arc<CatalogService>,
@@ -148,38 +162,31 @@ impl CatalogCaps {
         Arc::new(move |model| self.caps(model))
     }
 
-    fn listed_ladder(&self, model: &str) -> Vec<String> {
+    /// `setModelEffortCapabilities` + `_catalogEntry`: the index over the listed rows (rows that
+    /// state no ladder skipped; a bare alias shared by several rows keeps the richer ladder), the
+    /// shared catalog's ladder for an id the index does not hold.
+    fn entry(&self, model: &str) -> Option<Entry> {
         let wanted = keys_of(model);
         let snapshot = self.catalog.snapshot();
-        for key in &wanted {
-            for record in snapshot.models_of(&ProviderId::from("anthropic")) {
-                if !keys_of(&record.id).contains(key) {
+        let mut index: std::collections::HashMap<String, Entry> = std::collections::HashMap::new();
+        for record in snapshot.models_of(&ProviderId::from("anthropic-oauth")) {
+            if !record.efforts_stated {
+                continue;
+            }
+            let levels = ladder_of(Some(&json!(record.picker.reasoning_options)));
+            for key in keys_of(&record.id) {
+                if index.get(&key).is_some_and(|e| !e.levels.is_empty()) && levels.is_empty() {
                     continue;
                 }
-                let listed: &[String] = if record.reasoning_efforts.is_empty() {
-                    match &record.thinking {
-                        mixdog_ai::catalog::Thinking::Levels(levels) => levels,
-                        _ => &[],
-                    }
-                } else {
-                    &record.reasoning_efforts
-                };
-                if !listed.is_empty() {
-                    return ladder_of(Some(&json!([{"type": "effort", "values": listed}])));
-                }
+                index.insert(key, Entry { levels: levels.clone(), manual: record.thinking_enabled, adaptive: record.thinking_adaptive });
             }
         }
-        Vec::new()
-    }
-
-    /// The ladder the catalog advertises for the model; empty when no catalog describes one.
-    fn ladder(&self, model: &str) -> Vec<String> {
-        let listed = self.listed_ladder(model);
-        if !listed.is_empty() {
-            return listed;
+        if let Some(entry) = wanted.iter().find_map(|key| index.remove(key)) {
+            return Some(entry);
         }
         let id = normalized(model);
-        self.catalog.sync_meta(&id, "anthropic").map(|meta| ladder_of(meta.get("reasoningOptions"))).unwrap_or_default()
+        let levels = self.catalog.sync_meta(&id, "anthropic").map(|meta| ladder_of(meta.get("reasoningOptions"))).unwrap_or_default();
+        (!levels.is_empty()).then_some(Entry { levels, manual: None, adaptive: None })
     }
 
     pub fn caps(&self, model: &str) -> Option<ModelCaps> {
@@ -187,31 +194,43 @@ impl CatalogCaps {
         let at_least = |floor: f64| generation.is_some_and(|g| g >= floor);
         let id = normalized(model);
         let meta = self.catalog.sync_meta(&id, "anthropic");
-        let mut effort_levels = self.ladder(model);
-        if effort_levels.is_empty() && (self.always_effort || at_least(ADAPTIVE_FLOOR)) {
-            effort_levels = ["low", "medium", "high"].map(str::to_owned).to_vec();
+        let entry = self.entry(model);
+        let mut effort_levels = entry.as_ref().map(|e| e.levels.clone());
+        let floor_levels = || {
+            let mut levels = ["low", "medium", "high"].map(str::to_owned).to_vec();
             if at_least(XHIGH_FLOOR) {
-                effort_levels.push("xhigh".into());
+                levels.push("xhigh".into());
             }
             if at_least(MAX_FLOOR) {
-                effort_levels.push("max".into());
+                levels.push("max".into());
             }
-        }
-        if effort_levels.is_empty() && generation.is_none() && meta.is_none() {
+            levels
+        };
+        // `modelSupportsEffort`: the switch enables it whatever the ladder, floor-gated top tiers
+        // only where no ladder is advertised.
+        let levels = match effort_levels.take() {
+            Some(l) if l.is_empty() && self.always_effort => vec!["low".to_owned(), "medium".into(), "high".into()],
+            Some(l) => l,
+            None if self.always_effort || at_least(ADAPTIVE_FLOOR) => floor_levels(),
+            None => Vec::new(),
+        };
+        if levels.is_empty() && generation.is_none() && meta.is_none() && entry.is_none() {
             return None;
         }
         let positive = |key: &str| meta.as_ref().and_then(|m| m.get(key)).and_then(Value::as_f64).filter(|n| *n > 0.0);
         Some(ModelCaps {
-            adaptive_thinking: self.always_effort || at_least(ADAPTIVE_FLOOR),
-            manual_thinking: !at_least(MANUAL_REJECTED_FLOOR),
-            effort_levels,
+            // `_usesAdaptiveThinking`: a declared `adaptive` flag, else the generation floor.
+            adaptive_thinking: self.always_effort || entry.as_ref().and_then(|e| e.adaptive).unwrap_or_else(|| at_least(ADAPTIVE_FLOOR)),
+            // `isAnthropicAdaptiveOnlyModel`: a declared `enabled` flag, else the generation.
+            manual_thinking: entry.as_ref().and_then(|e| e.manual).unwrap_or_else(|| !at_least(MANUAL_REJECTED_FLOOR)),
+            ladder_stated: entry.is_some(),
+            effort_levels: levels,
             max_output_tokens: positive("outputTokens").map(|n| n as u32),
             fast_mode: self.catalog.supports_anthropic_fast_mode(&id),
             context_window: positive("contextWindow").map(|n| n as u64),
             thinking_display_updates: emits_progress_updates(&id),
         })
     }
-
     /// `anthropicEffortLevelsFor(model)`: the levels the wire builder sends unchanged (reserved
     /// `max` excluded); none for a model without adaptive effort.
     pub fn effort_levels_for(&self, model: &str) -> Vec<String> {
@@ -296,7 +315,15 @@ impl ModelFactsSource for CatalogOpenAiFacts {
         let row = json!({ "id": id });
         ModelFacts {
             reasoning: Some(reasoning),
-            reasoning_summaries: None,
+            // `_codexModelSupportsReasoningSummaries`: the cached Codex roster's row for the exact
+            // id (`findCachedCodexModel`); an id it does not hold takes summaries.
+            reasoning_summaries: self
+                .catalog
+                .snapshot()
+                .models_of(&ProviderId::from("openai-oauth"))
+                .iter()
+                .find(|r| r.id == model)
+                .and_then(|r| r.supports_reasoning_summaries),
             verbosity: Some(at_least(version, 5, 0)),
             native_tool_search: Some(at_least(version, 5, 4)),
             fast_tier: self.catalog.fast_capable("openai", &row, None, &json!({})),
@@ -313,7 +340,8 @@ pub fn builder_env(p: &ProcessServices) -> BuilderEnv {
     let link = Arc::new(ReqwestLink::routed(&schedule, false, p.network.clone()));
     let io = CredentialIo { read: p.lanes.interactive_io, write: p.lanes.durability_io };
     let client = remote_client(&*p.env);
-    let identity = client_identity(&*p.env, &p.host, &p.installation_id);
+    let versions = ClientVersions::new(link.clone(), p.plugin_data.clone(), io, p.env.clone());
+    let identity = client_identity(&p.env, &p.host, &p.installation_id, &versions);
     let (config, env) = (p.config.clone(), p.env.clone());
     BuilderEnv {
         http: link.clone(),
@@ -329,8 +357,9 @@ pub fn builder_env(p: &ProcessServices) -> BuilderEnv {
         pace: Arc::new(SystemPace),
         gzip_lane: p.lanes.cpu_bulk,
         client_version: p.build_version.clone(),
-        grok_client_version: identity.grok,
-        cursor_client_version: identity.cursor,
+        client_versions: Some(versions),
+        grok_client_version: Some(identity.grok),
+        cursor_client_version: Some(identity.cursor),
         antigravity_client_version: identity.antigravity,
         listing: p.listing.clone(),
         env: p.env.clone(),

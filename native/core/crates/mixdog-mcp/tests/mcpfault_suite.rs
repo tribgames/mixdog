@@ -103,26 +103,26 @@ struct Runtime(Arc<Config>);
 
 #[async_trait]
 impl McpRuntime for Runtime {
-    fn catalog(&self) -> Catalog {
+    async fn catalog(&self) -> Catalog {
         resolve_mcp_server_catalog(&Value::Object(self.0.agent()), &[], "", "")
     }
 
-    fn status(&self) -> Value {
+    async fn status(&self) -> Value {
         json!({"servers": []})
     }
 
-    fn server_config(&self, name: &str) -> Result<Value, String> {
+    async fn server_config(&self, name: &str) -> Result<Value, String> {
         Err(format!("MCP server not configured: {name}"))
     }
 
-    fn plugins_status(&self) -> Value {
+    async fn plugins_status(&self) -> Value {
         json!({"plugins": []})
     }
 
     async fn await_keychain_prewarm(&self) {}
-    fn reload_full_config(&self) {}
+    async fn reload_full_config(&self) {}
 
-    fn oauth_state(&self, _: &Value) -> Option<OAuthState> {
+    async fn oauth_state(&self, _: &Value) -> Option<OAuthState> {
         None
     }
 

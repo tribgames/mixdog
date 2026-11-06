@@ -96,11 +96,12 @@ impl AnthropicEffortGates {
         Self { xhigh: has("xhigh"), max: has("max") || has("xhigh") }
     }
 
-    /// `modelSupportsXhighEffort` / `modelSupportsMaxEffort`: the catalog's caps when they
-    /// advertise a ladder, else the release-generation floor of the model id (a new release
+    /// `modelSupportsXhighEffort` / `modelSupportsMaxEffort`: the catalog's caps when the
+    /// catalog describes the model (a stated empty ladder is a model that takes no effort; the
+    /// caps carry the generation floor where it is silent), else the floor of the model id (a new release
     /// inherits it; a non-claude id has no generation and gets neither).
     pub fn for_model(model: &str, caps: Option<&ModelCaps>) -> Self {
-        if let Some(caps) = caps.filter(|c| c.supports_effort()) {
+        if let Some(caps) = caps.filter(|c| c.ladder_stated || c.supports_effort()) {
             return Self::from_caps(caps);
         }
         let generation = claude_generation(model);

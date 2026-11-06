@@ -211,6 +211,29 @@ async fn a_host_notification_goes_to_the_claimant() {
     assert!(frames[0].body.get("id").is_none());
 }
 
+#[tokio::test]
+async fn only_a_desktop_live_on_the_app_feed_is_a_window() {
+    use mixdog_core_api::DesktopPresence;
+    let rig = Rig::new();
+    assert!(!rig.outgoing.desktop_attached(), "nobody connected");
+
+    // A phone subscribed to the app feed is not a window.
+    let phone = rig.ready_as(1, "Pixel", "phone");
+    phone.request(1, "app/subscribe", json!({}));
+    phone.response(1).await;
+    let remote = rig.ready_as(2, "Away", "remoteDesktop");
+    remote.request(1, "app/subscribe", json!({}));
+    remote.response(1).await;
+    assert!(!rig.outgoing.desktop_attached(), "phones and remote desktops never count");
+
+    // A desktop that has not subscribed yet cannot take the request either.
+    let desktop = rig.ready_as(3, "PC", "desktop");
+    assert!(!rig.outgoing.desktop_attached());
+    desktop.request(1, "app/subscribe", json!({}));
+    desktop.response(1).await;
+    assert!(rig.outgoing.desktop_attached());
+}
+
 const EXECUTE: Method = Method("model/proxy/execute");
 
 #[tokio::test]

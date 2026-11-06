@@ -26,7 +26,6 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 
 use super::accounting::{Completed, Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid};
-use crate::accounts::ACCOUNT_PROVIDERS;
 
 /// What the session knows about a send that the request does not say.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -50,8 +49,12 @@ pub struct RequestScope;
 
 impl SendScope for RequestScope {
     fn of(&self, _provider: &str, request: &ModelRequest) -> Scope {
-        let RequestOptions { session_id, usage_session_id, request_kind, .. } = &request.options;
-        Scope { session_id: usage_session_id.clone().or_else(|| session_id.clone()), source_type: request_kind.clone().unwrap_or_default(), ..Scope::default() }
+        let RequestOptions { session_id, usage_session_id, source_type, request_kind, .. } = &request.options;
+        Scope {
+            session_id: usage_session_id.clone().or_else(|| session_id.clone()),
+            source_type: source_type.clone().or_else(|| request_kind.clone()).unwrap_or_default(),
+            ..Scope::default()
+        }
     }
 }
 
@@ -65,9 +68,10 @@ pub fn requested_route(primary: Option<(String, String)>, provider: &str, model:
     }
 }
 
-/// The account a send is bound to (`currentProviderAccountId`), read where the send starts. An
-/// unreadable roster is the error text Node's read throws inside the row's write, which fails
-/// that recording (`usageAccountingError`).
+/// The account a send is bound to (`currentProviderAccountId`), read where its row is written
+/// (`usage-accounting.mjs:161`): a send that switched accounts mid-request is recorded under the
+/// account current at that point. An unreadable roster is the error text Node's read throws inside
+/// the row's write, which fails that recording (`usageAccountingError`).
 #[async_trait]
 pub trait AccountOf: Send + Sync {
     async fn of(&self, provider: &str) -> Result<String, String>;
@@ -97,7 +101,7 @@ pub struct AccountingDeps {
     /// `getUsageLedger()`, read per send: `None` while no ledger is open.
     pub ledger: Arc<dyn Fn() -> Option<Arc<dyn UsageSink>> + Send + Sync>,
     pub scope: Arc<dyn SendScope>,
-    /// The account a send is bound to (account providers only; `""` otherwise).
+    /// The account a row is recorded under (account providers only; `""` otherwise).
     pub account: Arc<dyn AccountOf>,
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
     pub new_id: Arc<dyn Fn() -> String + Send + Sync>,
@@ -162,10 +166,10 @@ impl AccountedAdapter {
             note_failed(&mut accounting, failed);
             return accounting;
         }
-        self.begin(request).await
+        self.begin(request)
     }
 
-    async fn begin(&self, request: &ModelRequest) -> SendAccounting {
+    fn begin(&self, request: &ModelRequest) -> SendAccounting {
         let deps = &self.deps;
         let provider = self.name.as_str();
         let scope = deps.scope.of(provider, request);
@@ -183,13 +187,13 @@ impl AccountedAdapter {
             source_type: scope.source_type,
             input_tokens_inclusive: !input_excludes_cache(provider),
             request_service_tier: String::new(),
-            account: if ACCOUNT_PROVIDERS.contains(&provider) { deps.account.of(provider).await } else { Ok(String::new()) },
+            account: Ok(String::new()),
             request_id: (deps.new_id)(),
             started_at,
         };
-        let accounting = SendAccounting::new(identity, Arc::clone(&deps.pricing), (deps.ledger)())
-            .with_sources(Arc::clone(&deps.now), Arc::clone(&deps.new_id));
-        accounting
+        SendAccounting::new(identity, Arc::clone(&deps.pricing), (deps.ledger)())
+            .with_sources(Arc::clone(&deps.now), Arc::clone(&deps.new_id))
+            .with_account(Arc::clone(&deps.account))
     }
 }
 
@@ -215,6 +219,12 @@ impl ProviderAdapter for AccountedAdapter {
     }
     fn release_session(&self, session_id: &str) {
         self.inner.release_session(session_id);
+    }
+    fn native_pdf(&self) -> bool {
+        self.inner.native_pdf()
+    }
+    fn native_documents(&self) -> Option<bool> {
+        self.inner.native_documents()
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {

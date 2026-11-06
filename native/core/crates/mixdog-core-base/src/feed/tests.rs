@@ -74,6 +74,19 @@ fn passes_the_scoped_feed_conformance_scenarios() {
     });
 }
 
+#[test]
+fn a_scoped_feed_is_found_by_its_id_while_its_owner_holds_it() {
+    use mixdog_core_api::feed::ScopedFeeds;
+    let feeds = super::CoreScopedFeeds::new(feed_limits(MockLimits::default()), cpu());
+    let id = FeedId::from("login:flow1");
+    assert!(feeds.find(&id).is_none());
+    let feed = feeds.create(id.clone(), Arc::new(EchoView));
+    assert_eq!(feeds.find(&id).expect("live").feed_id(), id);
+    assert!(feeds.find(&FeedId::from("login:other")).is_none());
+    drop(feed);
+    assert!(feeds.find(&id).is_none());
+}
+
 // ── scripted actor ──────────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

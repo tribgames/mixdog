@@ -458,6 +458,20 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     let source: Arc<dyn FeedSource> = feed.clone();
     let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &conn).unwrap();
     mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
+    struct Epoch;
+    impl crate::session::Clock for Epoch {
+        fn now_ms(&self) -> i64 {
+            0
+        }
+    }
+    #[derive(Default)]
+    struct Shells(Mutex<Vec<String>>);
+    impl crate::session::shell_jobs::OwnedShells for Shells {
+        fn cancel_owned(&self, owner: &mixdog_core_api::ids::ThreadId) {
+            self.0.lock().unwrap().push(owner.as_str().to_owned());
+        }
+    }
+    let shells = Arc::new(Shells::default());
     let rig = rig();
     let cancelled = Arc::new(Mutex::new(Vec::new()));
     let data = tempfile::tempdir().unwrap();
@@ -472,10 +486,13 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
         worktrees: Arc::new(open_maintenance(&rig, cancelled.clone())),
         board: board.clone(),
         gateway_routes: crate::session::gateway_routes::GatewaySessionRoutes::new(data.path(), maintenance),
+        shells: shells.clone(),
+        tool_events: Arc::new(crate::session::tool_events::ToolEventsLog::new(data.path(), maintenance, Arc::new(Epoch))),
     };
 
     deletion.release_session_work("sess_gone", "desktop-session-delete").await;
     assert_eq!(*stopped.lock().unwrap(), ["sess_gone"]);
+    assert_eq!(*shells.0.lock().unwrap(), ["sess_gone"], "the session's shells go with its work");
     // Gone when the release returns, as Node's synchronous clear is.
     let left: Value = serde_json::from_str(&std::fs::read_to_string(&routes_file).unwrap()).unwrap();
     assert_eq!(left["sessions"], json!({ "sess_kept": route }));
@@ -514,6 +531,35 @@ async fn a_gateway_route_clear_keeps_what_node_keeps() {
         assert_eq!(job.expect("lane").await.expect("ran"), Ok(cleared), "{id}");
         assert!(!path.exists(), "{id}");
     }
+}
+
+/// The daemon's jobs: the startup reconcile runs at once and logs what it did; the cleanup task
+/// is due 3 minutes after the start and every hour after that (never earlier).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_daemon_jobs_reconcile_at_start_and_clean_up_on_the_hour() {
+    use mixdog_core_base::maintenance::MaintenanceSchedule;
+    let rig = rig();
+    run(&rig, enter("feat", "c1")).await.unwrap();
+    run(&rig, SessionOp::Return { session_id: None, tx_id: "c2:return".into() }).await.unwrap();
+    // No stored session keeps the returned, merged worktree: the reconcile removes it.
+    let maintenance = Arc::new(open_maintenance(&rig, Arc::default()));
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = lines.clone();
+    let schedule = MaintenanceSchedule::new();
+    let clock: mixdog_core_base::maintenance::Clock = Arc::new(|| 1_000);
+    maintenance.start(&schedule, &clock, Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())), CancellationToken::new());
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while lines.lock().unwrap().is_empty() {
+        assert!(std::time::Instant::now() < deadline, "the startup reconcile logged nothing");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(*lines.lock().unwrap(), ["worktree reconcile: removed 1, recovered 0, pruned 0, incomplete 0, errors 0"]);
+    let (due, hour) = (1_000 + 3 * 60_000, 60 * 60_000);
+    assert!(schedule.run_tasks(false, due - 1).await.ran.is_empty());
+    assert_eq!(schedule.run_tasks(false, due).await.ran, ["worktree-cleanup"]);
+    assert!(schedule.run_tasks(false, due + hour - 1).await.ran.is_empty());
+    assert_eq!(schedule.run_tasks(false, due + hour).await.ran, ["worktree-cleanup"]);
+    assert_eq!(lines.lock().unwrap().len(), 1, "a cleanup that did nothing logs nothing");
 }
 
 #[test]

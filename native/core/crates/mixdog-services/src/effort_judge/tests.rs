@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::effort_judge::input::{step_judge_text, step_result_window};
 use crate::effort_judge::ladder::{AutoLadder, StepLadder, resolve_auto_effort};
-use crate::effort_judge::model::{JudgeModel, ModelConfig};
+use crate::effort_judge::model::{JudgeModel, ModelConfig, OrtRuntime};
 use crate::effort_judge::tokenizer::BpeTokenizer;
 use crate::effort_judge::{EffortJudge, EffortJudgeModel};
 
@@ -27,7 +27,7 @@ fn config() -> ModelConfig {
     ModelConfig {
         dir: PathBuf::from(std::env::var_os("MIXDOG_EFFORT_JUDGE_DIR").expect("MIXDOG_EFFORT_JUDGE_DIR")),
         explicit: true,
-        ort_library: PathBuf::from(std::env::var_os("MIXDOG_ORT_LIBRARY").expect("MIXDOG_ORT_LIBRARY")),
+        ort_library: OrtRuntime::Library(PathBuf::from(std::env::var_os("MIXDOG_ORT_LIBRARY").expect("MIXDOG_ORT_LIBRARY"))),
     }
 }
 
@@ -158,7 +158,7 @@ async fn probabilities_and_efforts_match_the_node_judge() {
 async fn a_missing_model_answers_none_without_hanging() {
     let dir = tempfile::tempdir().expect("dir");
     let model = EffortJudgeModel::new(
-        ModelConfig { dir: dir.path().to_owned(), explicit: false, ort_library: PathBuf::from("unused") },
+        ModelConfig { dir: dir.path().to_owned(), explicit: false, ort_library: OrtRuntime::Library(PathBuf::from("unused")) },
         lane(),
     ).expect("model");
     let judge = EffortJudge::new(model, Arc::new(AutoLadder { base: "medium".into(), options: vec!["low".into(), "medium".into()] }));
@@ -173,7 +173,7 @@ async fn a_missing_model_answers_none_without_hanging() {
 #[tokio::test(flavor = "multi_thread")]
 async fn step_support_follows_calibration_steps_one_and_is_read_once() {
     let judge_in = |dir: &std::path::Path| {
-        EffortJudgeModel::new(ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: PathBuf::from("unused") }, lane()).expect("model")
+        EffortJudgeModel::new(ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: OrtRuntime::Library(PathBuf::from("unused")) }, lane()).expect("model")
     };
     let dir = tempfile::tempdir().expect("dir");
     // Not installed: no steps.
@@ -196,7 +196,7 @@ async fn a_corrupt_model_answers_none() {
     std::fs::write(dir.path().join("model.onnx"), b"not an onnx model").expect("write");
     std::fs::write(dir.path().join("tokenizer.json"), b"{}").expect("write");
     let model = EffortJudgeModel::new(
-        ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: PathBuf::from("unused") },
+        ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::Library(PathBuf::from("unused")) },
         lane(),
     ).expect("model");
     let case = &golden()["cases"][0];
@@ -278,7 +278,7 @@ async fn status_follows_load_failure_and_ticks_on_each_change() {
     let tick = StateTick::default();
     let rx = tick.subscribe();
     let model = EffortJudgeModel::with_options(
-        ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: PathBuf::from("unused") },
+        ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::Library(PathBuf::from("unused")) },
         lane(),
         crate::effort_judge::judge::JudgeOptions { tick, ..Default::default() },
     )
@@ -292,4 +292,28 @@ async fn status_follows_load_failure_and_ticks_on_each_change() {
     let after = model.status();
     assert!(!after.ready && after.last_error.starts_with("effort judge load failed"), "{}", after.last_error);
     assert_eq!(*rx.borrow(), 1);
+}
+
+/// Node's `onnxRuntimeSupported()` false (macOS Intel, no binding): the judge answers as Node does there and
+/// never tries to load a library.
+#[tokio::test]
+async fn a_platform_without_a_binding_answers_unsupported_and_never_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::NoBinding };
+    assert!(!config.runtime_supported());
+    assert!(matches!(JudgeModel::load(&config), Err(crate::effort_judge::error::JudgeError::Unsupported)));
+    let judge = EffortJudgeModel::new(config, lane()).unwrap();
+    assert!(!judge.is_available());
+    assert!(!judge.prewarm().await);
+}
+
+/// A known library on a platform that has a binding: the judge is supported and reaches the model files.
+#[tokio::test]
+async fn a_known_library_leaves_the_judge_to_the_installed_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::Library(dir.path().join("ort")) };
+    assert_eq!(config.runtime_supported(), crate::tool_state::onnx_runtime_supported());
+    if config.runtime_supported() {
+        assert!(matches!(JudgeModel::load(&config), Err(crate::effort_judge::error::JudgeError::NotInstalled(_))));
+    }
 }

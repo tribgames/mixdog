@@ -7,15 +7,31 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
+use futures::FutureExt;
+use mixdog_core_base::maintenance::Clock;
+use mixdog_core_base::maintenance::ErrorSink;
+use mixdog_core_base::maintenance::MaintenanceSchedule;
+use mixdog_core_base::maintenance::TaskFn;
+use mixdog_core_base::maintenance::TaskOptions;
+use mixdog_core_base::maintenance::TaskRegistration;
 use mixdog_js::json_stringify;
 use mixdog_js::slice_utf16;
 use mixdog_rt::CancellationToken;
+use mixdog_rt::TaskClass;
 use mixdog_scm::error::ScmFailure;
 use mixdog_scm::worktree::maintenance::CleanupOptions;
 use mixdog_scm::worktree::maintenance::SessionSource;
 use mixdog_scm::worktree::manager::Worktrees;
 use serde_json::Value;
+
+#[cfg(test)]
+#[path = "worktree_maintenance/golden_tests.rs"]
+mod golden_tests;
+
+const CLEANUP_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const CLEANUP_INITIAL_DELAY: Duration = Duration::from_secs(3 * 60);
 
 /// The ids of every session open in this process.
 pub type LiveSessions = Arc<dyn Fn() -> HashSet<String> + Send + Sync>;
@@ -100,6 +116,45 @@ impl WorktreeMaintenance {
     /// favorites are known), run while no session is mid-turn.
     pub async fn run_cleanup(&self, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         self.worktrees.run_worktree_cleanup(&self.sessions, &self.options(), cancel).await
+    }
+
+    /// The daemon's worktree jobs (Node `daemon.mjs`): the startup reconcile, off the boot path,
+    /// and the `worktree-cleanup` task on `schedule` (due 3 minutes after this call, then
+    /// hourly, only at an idle tick). Both report through `log`; `schedule` must be ticking
+    /// (`MaintenanceSchedule::start`) and carry the "no session is mid-turn" idle probe.
+    pub fn start(self: &Arc<Self>, schedule: &Arc<MaintenanceSchedule>, clock: &Clock, log: ErrorSink, cancel: CancellationToken) -> TaskRegistration {
+        let (reconcile, log_reconcile) = (self.clone(), log.clone());
+        let reconcile_cancel = cancel.clone();
+        drop(mixdog_rt::spawn("worktree.reconcile", TaskClass::Work, async move {
+            match reconcile.reconcile_at_startup(&reconcile_cancel).await {
+                Ok(report) => {
+                    if let Some(line) = startup_summary(&report) {
+                        log_reconcile(&line);
+                    }
+                }
+                Err(error) => log_reconcile(&format!("worktree reconcile failed: {error}")),
+            }
+        }));
+        let cleanup = self.clone();
+        let (log_cleanup, log_error) = (log.clone(), log);
+        let run: TaskFn = Arc::new(move || {
+            let (cleanup, log, cancel) = (cleanup.clone(), log_cleanup.clone(), cancel.clone());
+            async move {
+                let report = cleanup.run_cleanup(&cancel).await.map_err(|e| e.to_string())?;
+                if let Some(line) = cleanup_summary(&report) {
+                    log(&line);
+                }
+                Ok(())
+            }
+            .boxed()
+        });
+        let on_error: ErrorSink = Arc::new(move |error| log_error(&format!("worktree cleanup failed: {error}")));
+        schedule.register_task(
+            "worktree-cleanup",
+            run,
+            TaskOptions { interval: CLEANUP_INTERVAL, initial_delay: CLEANUP_INITIAL_DELAY, on_error: Some(on_error) },
+            clock(),
+        )
     }
 
     /// After `session_id` was deleted: its snapshots go with it, so no turn cleanup keeps

@@ -75,7 +75,7 @@ fn judge(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool) -> A
 fn judge_over(dir: &Path, manifest: &Manifest, tick: &StateTick, explicit: bool, ort_library: PathBuf) -> Arc<EffortJudgeModel> {
     let mut model = config(dir);
     model.explicit = explicit;
-    model.ort_library = ort_library;
+    model.ort_library = crate::effort_judge::model::OrtRuntime::Library(ort_library);
     EffortJudgeModel::with_options(model, lane(), JudgeOptions { tick: tick.clone(), manifest: Some(manifest.clone()), progress: None })
         .expect("judge")
 }

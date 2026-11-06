@@ -23,6 +23,16 @@ pub fn notice_item(id: &str, turn: &str, text: &str, tone: &str) -> ThreadItem {
     live_item(row, turn)
 }
 
+/// [`notice_item`] shown outside any turn (`pushLiveSessionNotice`): the row has no turn.
+pub fn idle_notice_item(id: &str, text: &str, tone: &str) -> ThreadItem {
+    let mut row = Row::new();
+    row.insert("kind".into(), json!("notice"));
+    row.insert("id".into(), json!(id));
+    row.insert("text".into(), json!(text));
+    row.insert("tone".into(), json!(tone));
+    item_of(row, &Ctx { turn: None, message: None, counts_prompt: false, source: None })
+}
+
 /// The compact marker (`applyCompactEvent`'s `doneItem`): `{kind: 'statusdone', id, label,
 /// detail}`.
 pub fn compact_marker_item(id: &str, turn: &str, label: &str, detail: &str) -> ThreadItem {

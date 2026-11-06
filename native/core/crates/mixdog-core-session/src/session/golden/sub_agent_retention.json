@@ -1,0 +1,582 @@
+{
+  "members": [
+    {
+      "doc": {
+        "agent": "worker",
+        "createdAt": 10,
+        "id": "sess_w1",
+        "lastUsedAt": 1000,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead",
+        "updatedAt": 5000
+      },
+      "id": "sess_w1",
+      "member": {
+        "id": "sess_w1",
+        "lastActive": 1000,
+        "parentIds": [
+          "sess_lead"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "createdAt": 10,
+        "id": "sess_w2",
+        "owner": "agent",
+        "ownerSessionId": "sess_lead",
+        "updatedAt": 5000
+      },
+      "id": "sess_w2",
+      "member": {
+        "id": "sess_w2",
+        "lastActive": 5000,
+        "parentIds": [
+          "sess_lead"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "createdAt": 10,
+        "id": "sess_w3",
+        "owner": "agent",
+        "ownerSessionId": "sess_lead"
+      },
+      "id": "sess_w3",
+      "member": {
+        "id": "sess_w3",
+        "lastActive": 10,
+        "parentIds": [
+          "sess_lead"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_w4",
+        "lastHeartbeatAt": 9000,
+        "lastUsedAt": 1000,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead"
+      },
+      "id": "sess_w4",
+      "member": {
+        "id": "sess_w4",
+        "lastActive": 9000,
+        "parentIds": [
+          "sess_lead"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_w5",
+        "lastUsedAt": "2000",
+        "owner": "agent",
+        "ownerSessionId": "sess_lead",
+        "updatedAt": "x"
+      },
+      "id": "sess_w5",
+      "member": {
+        "id": "sess_w5",
+        "lastActive": 2000,
+        "parentIds": [
+          "sess_lead"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "createdAt": null,
+        "id": "sess_w6",
+        "lastUsedAt": -5,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead",
+        "updatedAt": 0
+      },
+      "id": "sess_w6",
+      "member": {
+        "id": "sess_w6",
+        "lastActive": 0,
+        "parentIds": [
+          "sess_lead"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_w7",
+        "lastUsedAt": 700,
+        "owner": "agent",
+        "ownerSessionId": "sess_w1",
+        "parentSessionId": "sess_w2"
+      },
+      "id": "sess_w7",
+      "member": {
+        "id": "sess_w7",
+        "lastActive": 700,
+        "parentIds": [
+          "sess_w1",
+          "sess_w2"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_w8",
+        "lastUsedAt": 700,
+        "owner": "agent",
+        "ownerSessionId": "  sess_w1  ",
+        "parentSessionId": "sess_w8"
+      },
+      "id": "sess_w8",
+      "member": {
+        "id": "sess_w8",
+        "lastActive": 700,
+        "parentIds": [
+          "sess_w1"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_w9",
+        "lastUsedAt": 700,
+        "owner": "agent",
+        "ownerSessionId": "sess_w1",
+        "parentSessionId": "sess_w1"
+      },
+      "id": "sess_w9",
+      "member": {
+        "id": "sess_w9",
+        "lastActive": 700,
+        "parentIds": [
+          "sess_w1"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "id": "sess_declared",
+        "lastUsedAt": 400,
+        "visibility": "agent-only"
+      },
+      "id": "sess_declared",
+      "member": {
+        "id": "sess_declared",
+        "lastActive": 400,
+        "parentIds": []
+      }
+    },
+    {
+      "doc": {
+        "id": "sess_declared2",
+        "lastUsedAt": 400,
+        "ownerSessionId": "sess_w1",
+        "sessionVisibility": "Agent-Only"
+      },
+      "id": "sess_declared2",
+      "member": {
+        "id": "sess_declared2",
+        "lastActive": 400,
+        "parentIds": [
+          "sess_w1"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "id": "sess_ordinary",
+        "lastUsedAt": 400,
+        "owner": "user",
+        "ownerSessionId": "sess_lead"
+      },
+      "id": "sess_ordinary",
+      "member": null
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_ownerless",
+        "lastUsedAt": 400,
+        "owner": "agent"
+      },
+      "id": "sess_ownerless",
+      "member": null
+    },
+    {
+      "doc": {
+        "id": "sess_selfowned",
+        "lastUsedAt": 400,
+        "owner": "agent",
+        "ownerSessionId": "sess_selfowned"
+      },
+      "id": "sess_selfowned",
+      "member": null
+    },
+    {
+      "doc": {
+        "agent": "Lead",
+        "id": "sess_lead",
+        "lastUsedAt": 400,
+        "visibility": "agent-only"
+      },
+      "id": "sess_lead",
+      "member": null
+    },
+    {
+      "doc": {
+        "agent": "lead",
+        "id": "sess_lead_self",
+        "lastUsedAt": 400,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead_self"
+      },
+      "id": "sess_lead_self",
+      "member": null
+    },
+    {
+      "doc": {
+        "agent": "lead",
+        "id": "sess_lead_child",
+        "lastUsedAt": 400,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead"
+      },
+      "id": "sess_lead_child",
+      "member": {
+        "id": "sess_lead_child",
+        "lastActive": 400,
+        "parentIds": [
+          "sess_lead"
+        ]
+      }
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_task",
+        "lastUsedAt": 400,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead",
+        "taskOrigin": {
+          "sessionId": "sess_lead"
+        }
+      },
+      "id": "sess_task",
+      "member": null
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_home_bot",
+        "lastUsedAt": 400,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead"
+      },
+      "id": "sess_home_bot",
+      "member": null
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_room_x",
+        "lastUsedAt": 400,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead"
+      },
+      "id": "sess_room_x",
+      "member": null
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_rmem_x",
+        "lastUsedAt": 400,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead"
+      },
+      "id": "sess_rmem_x",
+      "member": null
+    },
+    {
+      "doc": {
+        "agent": "worker",
+        "id": "sess_homeless",
+        "lastUsedAt": 400,
+        "owner": "agent",
+        "ownerSessionId": "sess_lead"
+      },
+      "id": "sess_homeless",
+      "member": {
+        "id": "sess_homeless",
+        "lastActive": 400,
+        "parentIds": [
+          "sess_lead"
+        ]
+      }
+    }
+  ],
+  "trees": [
+    {
+      "input": [],
+      "trees": []
+    },
+    {
+      "input": [
+        {
+          "id": "a",
+          "lastActive": 1,
+          "parentIds": []
+        }
+      ],
+      "trees": [
+        [
+          "a"
+        ]
+      ]
+    },
+    {
+      "input": [
+        {
+          "id": "a",
+          "lastActive": 1,
+          "parentIds": []
+        },
+        {
+          "id": "b",
+          "lastActive": 1,
+          "parentIds": [
+            "a"
+          ]
+        },
+        {
+          "id": "c",
+          "lastActive": 1,
+          "parentIds": [
+            "b"
+          ]
+        }
+      ],
+      "trees": [
+        [
+          "a",
+          "b",
+          "c"
+        ]
+      ]
+    },
+    {
+      "input": [
+        {
+          "id": "c",
+          "lastActive": 1,
+          "parentIds": [
+            "b"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1,
+          "parentIds": [
+            "a"
+          ]
+        },
+        {
+          "id": "a",
+          "lastActive": 1,
+          "parentIds": []
+        }
+      ],
+      "trees": [
+        [
+          "a",
+          "b",
+          "c"
+        ]
+      ]
+    },
+    {
+      "input": [
+        {
+          "id": "a",
+          "lastActive": 1,
+          "parentIds": [
+            "lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1,
+          "parentIds": [
+            "lead"
+          ]
+        },
+        {
+          "id": "c",
+          "lastActive": 1,
+          "parentIds": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "trees": [
+        [
+          "a",
+          "c",
+          "b"
+        ]
+      ]
+    },
+    {
+      "input": [
+        {
+          "id": "a",
+          "lastActive": 1,
+          "parentIds": []
+        },
+        {
+          "id": "b",
+          "lastActive": 1,
+          "parentIds": []
+        },
+        {
+          "id": "c",
+          "lastActive": 1,
+          "parentIds": [
+            "a"
+          ]
+        },
+        {
+          "id": "d",
+          "lastActive": 1,
+          "parentIds": [
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "trees": [
+        [
+          "a",
+          "c",
+          "d",
+          "b"
+        ]
+      ]
+    },
+    {
+      "input": [
+        {
+          "id": "x",
+          "lastActive": 1,
+          "parentIds": [
+            "y"
+          ]
+        },
+        {
+          "id": "y",
+          "lastActive": 1,
+          "parentIds": [
+            "x"
+          ]
+        }
+      ],
+      "trees": [
+        [
+          "x",
+          "y"
+        ]
+      ]
+    },
+    {
+      "input": [
+        {
+          "id": "x",
+          "lastActive": 1,
+          "parentIds": [
+            "y"
+          ]
+        },
+        {
+          "id": "y",
+          "lastActive": 1,
+          "parentIds": [
+            "x"
+          ]
+        },
+        {
+          "id": "z",
+          "lastActive": 1,
+          "parentIds": [
+            "y"
+          ]
+        }
+      ],
+      "trees": [
+        [
+          "x",
+          "y",
+          "z"
+        ]
+      ]
+    },
+    {
+      "input": [
+        {
+          "id": "a",
+          "lastActive": 1,
+          "parentIds": [
+            "nope"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1,
+          "parentIds": [
+            "a"
+          ]
+        }
+      ],
+      "trees": [
+        [
+          "a",
+          "b"
+        ]
+      ]
+    },
+    {
+      "input": [
+        {
+          "id": "k",
+          "lastActive": 1,
+          "parentIds": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "id": "a",
+          "lastActive": 1,
+          "parentIds": []
+        }
+      ],
+      "trees": [
+        [
+          "a",
+          "k"
+        ]
+      ]
+    }
+  ]
+}

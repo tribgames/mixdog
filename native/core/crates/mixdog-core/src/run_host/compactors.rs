@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use mixdog_agent::compact::compactor::{FreshCompactor, FreshParts, SessionCompactor, TriggerSeams};
 use mixdog_agent::compact::dropped::Redactor;
 use mixdog_agent::compact::estimate::MediaMeter;
@@ -46,9 +47,11 @@ pub struct CompactionFacts {
 }
 
 /// The session side of a compaction.
+#[async_trait]
 pub trait CompactionWorld: Send + Sync + 'static {
-    /// The session's facts. Runs once per turn, ahead of its first request.
-    fn facts(&self, thread: &ThreadId, header: &Header) -> CompactionFacts;
+    /// The session's facts. Runs once per turn, ahead of its first request. Async: the account that
+    /// would serve the session's next request is read from the roster.
+    async fn facts(&self, thread: &ThreadId, header: &Header, prior: &[Value]) -> CompactionFacts;
     /// The saved `config.compaction` object, the one `normalizeCompactionSummaryMode` reads
     /// (`fresh-context.mjs:113`); `None` when the install saved none.
     fn compaction_config(&self) -> Option<Value>;
@@ -78,17 +81,18 @@ fn conversation_threshold(header: &Header) -> Option<u64> {
     mixdog_agent::agent_tool::scope::positive_int(header.get("compaction").and_then(|c| c.get("conversationThresholdTokens")))
 }
 
+#[async_trait]
 impl CompactorSource for SessionCompactors {
-    fn compactor(&self, thread: &ThreadId, header: &Header, input: CompactorInput) -> Option<Arc<dyn Compactor>> {
-        let compactor: Arc<dyn Compactor> = self.fresh(thread, header, input)?;
+    async fn compactor(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> Option<Arc<dyn Compactor>> {
+        let compactor: Arc<dyn Compactor> = self.fresh(thread, header, prior, input).await?;
         Some(compactor)
     }
 }
 
 impl SessionCompactors {
     /// The session's compactor; `None` when the session knows no boundary (Node has no policy).
-    fn fresh(&self, thread: &ThreadId, header: &Header, input: CompactorInput) -> Option<Arc<FreshCompactor>> {
-        let facts = self.world.facts(thread, header);
+    async fn fresh(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> Option<Arc<FreshCompactor>> {
+        let facts = self.world.facts(thread, header, prior).await;
         let provider = header.get("provider").and_then(Value::as_str).map_or("", mixdog_js::js_trim);
         let parts = Arc::new(FreshParts {
             media: facts.media,
@@ -253,8 +257,9 @@ mod tests {
         compaction: Option<Value>,
         asked: Mutex<Vec<String>>,
     }
+    #[async_trait]
     impl CompactionWorld for World {
-        fn facts(&self, thread: &ThreadId, _: &Header) -> CompactionFacts {
+        async fn facts(&self, thread: &ThreadId, _: &Header, _: &[Value]) -> CompactionFacts {
             self.asked.lock().unwrap().push(thread.as_str().to_owned());
             CompactionFacts {
                 media: Arc::new(TextOnly),
@@ -301,39 +306,42 @@ mod tests {
         vec![AgentMessage::user("hello"), AgentMessage::assistant("hi", Vec::new())]
     }
 
-    #[test]
-    fn a_session_with_a_boundary_gets_a_compactor_sized_by_its_settings_and_without_one_none() {
+    #[tokio::test]
+    async fn a_session_with_a_boundary_gets_a_compactor_sized_by_its_settings_and_without_one_none() {
         let rows = Arc::new(StoredRows::new());
         let (compactors, world) = source(None);
         let header = header("openai", json!({}));
-        let compactor = compactors.compactor(&thread(), &header, input(Some(200_000), &rows)).expect("a compactor");
+        let compactor = compactors.compactor(&thread(), &header, &[], input(Some(200_000), &rows)).await.expect("a compactor");
         assert!(compactor.estimate_tokens(&short()) > 0);
-        assert!(compactors.compactor(&thread(), &header, input(None, &rows)).is_none(), "no window, no policy");
+        assert!(compactors.compactor(&thread(), &header, &[], input(None, &rows)).await.is_none(), "no window, no policy");
         assert_eq!(*world.asked.lock().unwrap(), ["sess_a", "sess_a"]);
     }
 
     /// The summary threshold is the session's `positiveInt(conversationThresholdTokens)`: 1
     /// summarizes a short chat, a non-positive or absent one is the window's default.
-    #[test]
-    fn the_summary_threshold_is_the_sessions_conversation_threshold() {
+    #[tokio::test]
+    async fn the_summary_threshold_is_the_sessions_conversation_threshold() {
         let rows = Arc::new(StoredRows::new());
         let (compactors, _) = source(None);
         let triggered = |compaction: Value| {
-            let compactor = compactors.fresh(&thread(), &header("openai", compaction), input(Some(200_000), &rows)).unwrap();
-            compactor.summary.as_ref().unwrap().triggered(&short())
+            let (compactors, rows) = (&compactors, &rows);
+            async move {
+                let compactor = compactors.fresh(&thread(), &header("openai", compaction), &[], input(Some(200_000), rows)).await.unwrap();
+                compactor.summary.as_ref().unwrap().triggered(&short())
+            }
         };
-        assert!(triggered(json!({ "conversationThresholdTokens": 1 })));
-        assert!(triggered(json!({ "conversationThresholdTokens": "1.9" })), "floor of the number, as positiveInt");
+        assert!(triggered(json!({ "conversationThresholdTokens": 1 })).await);
+        assert!(triggered(json!({ "conversationThresholdTokens": "1.9" })).await, "floor of the number, as positiveInt");
         for default in [json!({}), json!({ "conversationThresholdTokens": 0 }), json!({ "conversationThresholdTokens": "x" }), json!({ "conversationThresholdTokens": null })] {
-            assert!(!triggered(default.clone()), "{default}");
+            assert!(!triggered(default.clone()).await, "{default}");
         }
     }
 
-    #[test]
-    fn the_replay_owner_is_the_sessions_provider_and_the_rows_are_the_runs_own() {
+    #[tokio::test]
+    async fn the_replay_owner_is_the_sessions_provider_and_the_rows_are_the_runs_own() {
         let rows = Arc::new(StoredRows::new());
         let (compactors, _) = source(None);
-        let compactor = compactors.fresh(&thread(), &header(" anthropic ", json!({})), input(Some(200_000), &rows)).unwrap();
+        let compactor = compactors.fresh(&thread(), &header(" anthropic ", json!({})), &[], input(Some(200_000), &rows)).await.unwrap();
         assert_eq!(compactor.parts.replay_owner, ProviderId::from("anthropic"));
         let run_rows: Arc<dyn MessageRows> = rows.clone();
         assert!(std::ptr::addr_eq(Arc::as_ptr(&compactor.parts.rows), Arc::as_ptr(&run_rows)));

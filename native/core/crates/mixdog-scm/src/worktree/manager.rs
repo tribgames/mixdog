@@ -760,6 +760,35 @@ impl Worktrees {
         }
     }
 
+    /// `assertWorktreeRemovable`: the refusal a removal would raise, checked before anything
+    /// moves. An unknown entry is `WORKTREE_MISSING`; another session's reference and retained
+    /// recovery records refuse whatever `force` is; only a ready entry has a checkout to check,
+    /// and dirty or unmerged work in it needs `force`. `session_id` is the session asking (the
+    /// owner when none).
+    pub async fn assert_worktree_removable(
+        &self,
+        entry_id: &str,
+        force: bool,
+        session_id: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<(), ScmFailure> {
+        let mut record = self
+            .record(cancel, entry_id)
+            .await?
+            .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
+        record.branch = self.checked_out_branch_of(&record, cancel).await?;
+        Self::assert_not_shared(&record, session_id.or(record.owner_session_id.as_deref()))?;
+        self.assert_recovery_stores_clear(&record, cancel).await?;
+        if record.state != "ready" {
+            return Ok(());
+        }
+        self.assert_managed_path(&record, cancel).await?;
+        if force {
+            return Ok(());
+        }
+        self.assert_removable(&record, cancel).await
+    }
+
     /// Removes a managed worktree. Dirty or unmerged work needs `force`; the branch goes with it
     /// once git considers it merged.
     pub async fn remove(

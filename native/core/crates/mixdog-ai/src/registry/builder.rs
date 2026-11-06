@@ -81,7 +81,9 @@ use crate::providers::openai::adapter::Credential as OpenAiBearer;
 use crate::providers::openai::adapter::CredentialSource;
 use crate::providers::openai::adapter::OpenAiAdapter;
 use crate::providers::openai::adapter::SessionContext;
+use crate::client_versions::Dialect;
 use crate::providers::openai::codec::OpenAiCodec;
+use super::versioned::VersionedAdapter;
 use crate::providers::openai::config::CodexIdentity;
 use crate::providers::openai::config::ModelFactsSource;
 use crate::providers::openai::config::OpenAiConfig;
@@ -113,9 +115,12 @@ pub struct BuilderEnv {
     pub gzip_lane: CpuBulk,
     /// The mixdog build, sent as the client version where a dialect sends one.
     pub client_version: String,
-    pub grok_client_version: Option<String>,
-    pub cursor_client_version: Option<String>,
-    pub antigravity_client_version: String,
+    pub grok_client_version: Option<crate::client_versions::Live>,
+    pub cursor_client_version: Option<crate::client_versions::Live>,
+    pub antigravity_client_version: crate::client_versions::Live,
+    /// The live versions the dialects gate on: warmed before a send of theirs, and where a 426
+    /// teaches Grok a minimum (None: no dialect warms).
+    pub client_versions: Option<Arc<crate::client_versions::ClientVersions>>,
     /// The tables the adapters' listing steps (enrichment, sanitizer) read;
     /// the catalog service publishes into the same handle.
     pub listing: ListingLookup,
@@ -881,9 +886,8 @@ impl DefaultProviderBuilder {
     }
 }
 
-#[async_trait]
-impl ProviderBuilder for DefaultProviderBuilder {
-    async fn build(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+impl DefaultProviderBuilder {
+    async fn build_unversioned(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         if name.starts_with("custom-") && text(cfg, "type") == Some("custom") {
             return self.build_custom(name, cfg);
         }
@@ -915,6 +919,19 @@ impl ProviderBuilder for DefaultProviderBuilder {
             "mixdog-local" => Err("mixdog-local is built per turn from the managed runtime's endpoint".into()),
             other => Err(format!("unknown enabled provider: {other}")),
         }
+    }
+}
+
+#[async_trait]
+impl ProviderBuilder for DefaultProviderBuilder {
+    /// The adapter, and for a dialect that gates on a client version, a wrapper that warms the
+    /// version before each send and learns a Grok minimum from a 426.
+    async fn build(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+        let built = self.build_unversioned(name, cfg).await?;
+        Ok(match (self.env.client_versions.as_ref(), Dialect::of_provider(name)) {
+            (Some(versions), Some(dialect)) => VersionedAdapter::wrap(built, dialect, Arc::clone(versions)),
+            _ => built,
+        })
     }
 
     async fn custom_key_ids(&self, name: &str) -> Vec<String> {

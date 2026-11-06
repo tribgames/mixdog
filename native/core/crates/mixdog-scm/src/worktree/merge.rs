@@ -115,7 +115,11 @@ impl Scm {
         let current = self.checked_out_branch(cancel, cwd).await?;
         if let Some(target) = target {
             if Some(target) != current.as_deref() {
-                return Err(errors::target_mismatch(None, None, Some(target.to_owned()), current.clone()));
+                let message = format!(
+                    "The project folder is on {}, not {target}; reload and try again.",
+                    current.as_deref().unwrap_or("a detached HEAD")
+                );
+                return Err(errors::target_mismatch_text(message, None, None, Some(target.to_owned()), current.clone()));
             }
         }
         let Some(current) = current else {
@@ -187,7 +191,8 @@ impl Scm {
         if self.rev_parse(cancel, cwd, "HEAD^{commit}").await?.as_deref() != Some(head.as_str())
             || self.checked_out_branch(cancel, cwd).await?.as_deref() != Some(current.as_str())
         {
-            return Err(errors::target_mismatch(None, None, Some(current), None));
+            let message = "The project folder changed during the merge; try again.".to_owned();
+            return Err(errors::target_mismatch_text(message, None, None, Some(current), None));
         }
         let default_message = format!("Merge branch '{source_name}' into {current}");
         let merge_message = message.unwrap_or(&default_message);

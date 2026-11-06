@@ -282,14 +282,27 @@ pub struct FileGrantStore {
     durability: DurabilityIo,
     /// Orders grant read-modify-writes.
     writes: tokio::sync::Mutex<()>,
+    /// Epoch ms stamped on a grant or audit line that carries none.
+    clock: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
 
 impl FileGrantStore {
     /// `dir` is `<data>/human-gate`.
-    #[allow(clippy::disallowed_types, reason = "builds the `writes` lock; see the struct")]
     pub fn new(dir: impl Into<PathBuf>, interactive: InteractiveIo, durability: DurabilityIo) -> Arc<Self> {
+        Self::with_clock(dir, interactive, durability, Arc::new(now_ms))
+    }
+
+    /// [`Self::new`] stamping with `clock` (epoch ms) instead of the wall clock.
+    #[allow(clippy::disallowed_types, reason = "builds the `writes` lock; see the struct")]
+    pub fn with_clock(
+        dir: impl Into<PathBuf>,
+        interactive: InteractiveIo,
+        durability: DurabilityIo,
+        clock: Arc<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Arc<Self> {
         let dir = dir.into();
         Arc::new(Self {
+            clock,
             grants_path: dir.join(GRANTS_FILE),
             audit_path: dir.join(AUDIT_FILE),
             interactive,
@@ -356,8 +369,9 @@ impl FileGrantStore {
         no_widen: bool,
     ) -> Result<Result<Option<Grant>, WouldWiden>, StoreError> {
         let (agent, action, device) = (agent_id.to_owned(), action.clone(), device.to_owned());
+        let now = (self.clock)();
         self.update(move |table| {
-            let result = table.set_mode(&agent, &action, mode, &device, now_ms(), no_widen);
+            let result = table.set_mode(&agent, &action, mode, &device, now, no_widen);
             let changed = result.is_ok();
             (result, changed)
         })
@@ -421,14 +435,16 @@ impl GrantStore for FileGrantStore {
         device: &str,
     ) -> Result<bool, StoreError> {
         let (agent, action, device) = (agent_id.to_owned(), action.clone(), device.to_owned());
+        let now = (self.clock)();
         self.update(move |table| {
-            let stored = table.grant(&agent, &action, scope, &device, now_ms()).is_some();
+            let stored = table.grant(&agent, &action, scope, &device, now).is_some();
             (stored, stored)
         })
         .await
     }
 
-    async fn record_audit(&self, entry: AuditEntry) -> Result<(), StoreError> {
+    async fn record_audit(&self, mut entry: AuditEntry) -> Result<(), StoreError> {
+        entry.at_ms.get_or_insert_with(|| (self.clock)());
         let path = self.audit_path.clone();
         run(self.durability, move |lane| append_audit(lane, &path, &entry)).await
     }

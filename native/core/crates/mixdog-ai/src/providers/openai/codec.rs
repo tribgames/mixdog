@@ -67,8 +67,8 @@ impl OpenAiCodec {
                 if !ws {
                     push("x-client-request-id", ctx.request_id());
                 }
-                push("User-Agent", identity.user_agent.clone());
-                push("version", identity.version.clone());
+                push("User-Agent", identity.user_agent.get());
+                push("version", identity.version.get());
                 push("x-codex-beta-features", identity.beta_features.clone());
                 if ws {
                     // The socket opens as a prewarm: one identity block, the

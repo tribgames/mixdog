@@ -195,6 +195,20 @@ impl Worktrees {
         }
     }
 
+    /// A git command whose failure reads as Node's `gitFailure` (`git <args> failed (exit N): <diagnostic>`,
+    /// code `GIT_FAILED`) rather than git's bare stderr.
+    async fn checked_git(&self, cancel: &CancellationToken, cwd: &Path, args: &[&str]) -> Result<String, ScmFailure> {
+        let out = self.scm().git.outcome(cancel, cwd, args, &RunOptions::default()).await?;
+        if out.success() {
+            return Ok(out.stdout_text().to_string());
+        }
+        let stderr = out.stderr_text().trim().to_owned();
+        let stdout = out.stdout_text().trim().to_owned();
+        let detail = if !stderr.is_empty() { stderr } else if !stdout.is_empty() { stdout } else { "no diagnostic".to_owned() };
+        let code = out.code.map_or("null".to_owned(), |code| code.to_string());
+        Err(ScmFailure::refused("GIT_FAILED", format!("git {} failed (exit {code}): {detail}", args.join(" "))))
+    }
+
     /// `WORKTREE_DIRTY` (`project-dirty`) while the project folder has uncommitted tracked
     /// changes. Nothing is carried: `git switch` keeps compatible uncommitted changes, which
     /// would silently move them onto the other commit.
@@ -218,7 +232,7 @@ impl Worktrees {
             return Ok(json!({ "branch": null, "changed": false, "commit": commit, "detached": true }));
         }
         self.assert_project_folder_clean(&facts, cancel).await?;
-        self.scm().git.run(cancel, &facts.project_path, &["switch", "--detach", &commit]).await?;
+        self.checked_git(cancel, &facts.project_path, &["switch", "--detach", &commit]).await?;
         repo.touched();
         Ok(json!({ "branch": null, "changed": true, "commit": commit, "detached": true }))
     }
@@ -314,7 +328,7 @@ impl Worktrees {
         } else if let Some(tracking) = &tracking {
             args = vec!["switch", "-c", &branch, "--track", tracking];
         }
-        git.run(cancel, &cwd, &args).await?;
+        self.checked_git(cancel, &cwd, &args).await?;
         let head = git.run(cancel, &cwd, &["rev-parse", "HEAD"]).await?.trim().to_owned();
         repo.touched();
         let mut out = json!({ "branch": branch, "changed": true, "commit": head });
@@ -387,7 +401,7 @@ impl Worktrees {
         let commit = self
             .branch_commit(&facts.project_path, branch, cancel)
             .await?
-            .ok_or_else(|| errors::missing(None, None, None))?;
+            .ok_or_else(errors::branch_missing)?;
         let holder = self
             .list_git_worktrees(&facts.project_path, cancel)
             .await?
@@ -443,7 +457,8 @@ impl Worktrees {
             return Err(errors::unsupported_repo(Some(project.to_string_lossy().into_owned()), None));
         };
         if target.is_some_and(|t| t != current) {
-            return Err(errors::target_mismatch(target.map(str::to_owned), Some(current), None, None));
+            let message = format!("The project folder is now on \"{current}\"; confirm the merge again.");
+            return Err(errors::target_mismatch_text(message, target.map(str::to_owned), Some(current), None, None));
         }
         self.manage_project_branch(
             ManageRequest {
@@ -473,7 +488,8 @@ impl Worktrees {
             return Err(errors::confirm_required());
         }
         if !matches!(request.action.as_str(), "merge" | "remove-worktree" | "delete-branch") {
-            return Err(ScmFailure::invalid("action", "merge, remove-worktree or delete-branch"));
+            // Node throws a plain TypeError here, not an input-shape refusal.
+            return Err(ScmFailure::git("Unknown branch action."));
         }
         let removing = request.action == "remove-worktree";
         let (initial_facts, initial) = self.inspect_branch(&request.project_path, &request.branch, cancel).await?;
@@ -493,7 +509,7 @@ impl Worktrees {
             || state.path != initial.path
             || (!removing && (state.target != request.target || state.target_commit != request.target_commit))
         {
-            return Err(errors::revision_conflict(None));
+            return Err(errors::branch_revision_conflict());
         }
         let record = match &state.worktree_id {
             Some(id) => self.record(cancel, id).await?,
@@ -536,7 +552,7 @@ impl Worktrees {
             return self.remove(&record.id, false, None, cancel).await;
         }
         let Some(target) = request.target.clone().filter(|t| *t != request.branch) else {
-            return Err(errors::target_mismatch(None, None, None, None));
+            return Err(errors::target_mismatch_text("Select a different source branch.".to_owned(), None, None, None, None));
         };
         if request.action == "delete-branch" {
             if state.path.is_some() {
@@ -556,7 +572,7 @@ impl Worktrees {
                 .outcome(cancel, &project, &["merge-base", "--is-ancestor", &request.commit, &target_commit], &RunOptions::default())
                 .await?;
             if merged.success() {
-                git.run(cancel, &project, &["branch", "-d", "--", &request.branch]).await?;
+                self.checked_git(cancel, &project, &["branch", "-d", "--", &request.branch]).await?;
                 repo.touched();
                 return Ok(json!({ "deleted": true, "branch": request.branch }));
             }
