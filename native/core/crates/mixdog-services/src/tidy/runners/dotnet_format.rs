@@ -7,9 +7,11 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use async_trait::async_trait;
+use mixdog_rt::DurabilityIo;
 use serde_json::Value;
 
 use super::shared::*;
+use crate::lane::{io_on_lane, on_lane};
 
 pub const ID: &str = "dotnet-format";
 pub const INSTALL_HINT: &str = "install the .NET SDK (dotnet format)";
@@ -71,7 +73,14 @@ fn with_install_hint(mut result: RunnerResult, timed_out: bool) -> RunnerResult 
     result
 }
 
-fn read_report(path: &Path) -> String {
+/// The report a spawn wrote, read on the lane; empty when there is none.
+async fn read_report(lane: DurabilityIo, path: &Path) -> String {
+    let path = path.to_owned();
+    on_lane(lane, move || read_report_blocking(&path)).await.unwrap_or_default()
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn read_report_blocking(path: &Path) -> String {
     let try_dir = |p: &Path| std::fs::read_to_string(p.join("format-report.json")).ok();
     if path.is_dir() { try_dir(path) } else { std::fs::read_to_string(path).ok().or_else(|| try_dir(path)) }.unwrap_or_default()
 }
@@ -119,7 +128,8 @@ async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
         return RunnerResult::default();
     }
     let root = std::env::temp_dir().join(format!("mixdog-dotnet-format-{}", uuid::Uuid::new_v4().simple()));
-    if std::fs::create_dir_all(&root).is_err() {
+    let (lane, made) = (req.lane, root.clone());
+    if io_on_lane(lane, move || create_report_dir(&made)).await.is_err() {
         return spawn_failure_result(ID, "cannot create a report directory", false, -1, "");
     }
     let outcome = async {
@@ -146,7 +156,7 @@ async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
             if !verify {
                 continue;
             }
-            let parsed = parse_dotnet_format_report(&read_report(&report), &req.cwd);
+            let parsed = parse_dotnet_format_report(&read_report(lane, &report).await, &req.cwd);
             if parsed.changed_files.is_empty() && parsed.diagnostics.is_empty() && r.code != 0 {
                 let error = if mixdog_js::js_trim(&r.stderr).is_empty() { format!("exit {}", r.code) } else { tail600(&r.stderr) };
                 return spawn_failure_result(ID, &error, r.timed_out, r.code, &r.stderr);
@@ -159,8 +169,18 @@ async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
         RunnerResult { diagnostics: if verify { diagnostics } else { Vec::new() }, changed_files: if verify { unique } else { Vec::new() }, stderr_tail: t, ..Default::default() }
     }
     .await;
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = on_lane(lane, move || remove_report_dir(&root)).await;
     outcome
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn create_report_dir(root: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(root)
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn remove_report_dir(root: &Path) {
+    let _ = std::fs::remove_dir_all(root);
 }
 
 pub struct DotnetFormat;

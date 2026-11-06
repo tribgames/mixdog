@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
+use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
@@ -121,6 +122,7 @@ pub struct HttpAdapter {
     credential: Arc<dyn Credential>,
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
+    listing: Option<Arc<dyn ModelListing>>,
 }
 
 impl HttpAdapter {
@@ -138,7 +140,14 @@ impl HttpAdapter {
             credential,
             policy,
             keepalive: KeepaliveSchedule::SPEC,
+            listing: None,
         }
+    }
+
+    /// The provider's model listing, served through [`ProviderAdapter::models`].
+    pub fn with_listing(mut self, listing: Arc<dyn ModelListing>) -> Self {
+        self.listing = Some(listing);
+        self
     }
 }
 
@@ -162,5 +171,9 @@ impl ProviderAdapter for HttpAdapter {
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         run_attempt(self.codec.as_ref(), self.http.as_ref(), self.credential.as_ref(), &request).await
+    }
+
+    fn models(&self) -> Option<&dyn ModelListing> {
+        self.listing.as_deref()
     }
 }

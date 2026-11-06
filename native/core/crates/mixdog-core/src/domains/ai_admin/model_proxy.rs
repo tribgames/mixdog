@@ -58,7 +58,7 @@ fn part_out(part: &p::ContentPart) -> w::ProxyPart {
                 p::ImageSource::FileId(id) => w::ProxyImage::FileId { id: id.clone() },
             },
         },
-        p::ContentPart::File { source, mime_type, filename } => w::ProxyPart::File {
+        p::ContentPart::File { source, mime_type, filename, .. } => w::ProxyPart::File {
             source: match source {
                 p::BinarySource::Base64(data) => w::ProxyBinary::Base64 { data: data.clone() },
                 // A reference past the sender's inline budget (or unreadable) stays a reference.
@@ -197,7 +197,7 @@ fn part_in(part: w::ProxyPart) -> Result<p::ContentPart, Invalid> {
             p::ContentPart::Text(unavailable_text(filename.as_deref(), &mime_type))
         }
         w::ProxyPart::File { source: w::ProxyBinary::Base64 { data }, mime_type, filename } => {
-            p::ContentPart::File { source: p::BinarySource::Base64(data), mime_type, filename }
+            p::ContentPart::File { source: p::BinarySource::Base64(data), mime_type, filename, text: None }
         }
         w::ProxyPart::Document { source, title } => p::ContentPart::Document {
             source: match source {
@@ -497,6 +497,7 @@ pub fn failure_out(e: &p::ProviderError, outcome: w::ProxyOutcome) -> w::ProxyFa
         }),
         message: redacted_text(&e.message, MAX_ERROR_TEXT),
         partial_usage: e.partial_usage.as_deref().map(usage_out),
+        partial_model: e.partial_model.as_deref().map(str::to_owned),
         verification_url: e.verification_url.as_deref().map(str::to_owned),
         rejected_tool: e.rejected_tool.as_deref().map(str::to_owned),
         account_blocked: e.account_blocked,
@@ -548,6 +549,7 @@ pub fn failure_in(f: w::ProxyFailure) -> Result<(p::ProviderError, w::ProxyOutco
     });
     e.message = f.message;
     e.partial_usage = f.partial_usage.map(|u| Box::new(usage_in(u)));
+    e.partial_model = f.partial_model.map(String::into_boxed_str);
     e.verification_url = f.verification_url.map(String::into_boxed_str);
     e.rejected_tool = f.rejected_tool.map(String::into_boxed_str);
     e.account_blocked = f.account_blocked;
@@ -558,6 +560,51 @@ pub fn failure_in(f: w::ProxyFailure) -> Result<(p::ProviderError, w::ProxyOutco
 
 // -- models ---------------------------------------------------------------------------------
 
+fn picker_out(p: &p::PickerFields) -> w::ProxyPicker {
+    w::ProxyPicker {
+        release_date: p.release_date.clone(),
+        access_programs: p.access_programs.clone(),
+        model_parameter_options: p
+            .model_parameter_options
+            .iter()
+            .map(|o| w::ProxyParameterOption {
+                id: o.id.clone(),
+                label: o.label.clone(),
+                kind: o.kind.clone(),
+                options: o.options.iter().map(|v| w::ProxyParameterValue { value: v.value.clone(), label: v.label.clone(), context_window: v.context_window }).collect(),
+            })
+            .collect(),
+        parameter_variants: p.parameter_variants.clone(),
+        fast_efforts: p.fast_efforts.clone(),
+        service_tiers: p.service_tiers.iter().map(|t| w::ProxyServiceTier { id: t.id.clone(), name: t.name.clone(), description: t.description.clone() }).collect(),
+        additional_speed_tiers: p.additional_speed_tiers.clone(),
+        reasoning_options: p.reasoning_options.iter().map(|r| w::ProxyReasoningOption { kind: r.kind.clone(), values: r.values.clone() }).collect(),
+        custom_reasoning: p.custom_reasoning.as_ref().map(|c| w::ProxyCustomReasoning { wire_format: c.wire_format.clone(), wire_values: c.wire_values.clone(), replay: c.replay }),
+    }
+}
+
+fn picker_in(p: w::ProxyPicker) -> p::PickerFields {
+    p::PickerFields {
+        release_date: p.release_date,
+        access_programs: p.access_programs,
+        model_parameter_options: p
+            .model_parameter_options
+            .into_iter()
+            .map(|o| p::ParameterOption {
+                id: o.id,
+                label: o.label,
+                kind: o.kind,
+                options: o.options.into_iter().map(|v| p::ParameterValue { value: v.value, label: v.label, context_window: v.context_window }).collect(),
+            })
+            .collect(),
+        parameter_variants: p.parameter_variants,
+        fast_efforts: p.fast_efforts,
+        service_tiers: p.service_tiers.into_iter().map(|t| p::ServiceTier { id: t.id, name: t.name, description: t.description }).collect(),
+        additional_speed_tiers: p.additional_speed_tiers,
+        reasoning_options: p.reasoning_options.into_iter().map(|r| p::ReasoningOption { kind: r.kind, values: r.values }).collect(),
+        custom_reasoning: p.custom_reasoning.map(|c| p::CustomReasoning { wire_format: c.wire_format, wire_values: c.wire_values, replay: c.replay }),
+    }
+}
 pub fn model_out(m: &p::ModelRecord) -> w::ProxyModel {
     w::ProxyModel {
         id: m.id.clone(),
@@ -570,6 +617,37 @@ pub fn model_out(m: &p::ModelRecord) -> w::ProxyModel {
         supports_images: m.supports_images,
         hidden: m.hidden,
         raw: m.raw.clone(),
+        mode: m.mode.clone(),
+        created: m.created,
+        alias_target: m.alias_target.clone(),
+        picker: picker_out(&m.picker),
+        first_response_budget: None,
+    }
+}
+
+/// A row of the PC's catalog as the remote catalog lists it (it enriches the row itself).
+pub fn catalog_model_out(m: &mixdog_ai::catalog::ModelRecord) -> w::ProxyModel {
+    use mixdog_ai::catalog::Capability;
+    let tri = |c: Capability| match c {
+        Capability::Yes => Some(true),
+        Capability::No => Some(false),
+        Capability::Unknown => None,
+    };
+    w::ProxyModel {
+        id: m.id.clone(),
+        display_name: m.display_name.clone(),
+        context_window: m.context_window,
+        max_output_tokens: m.output_tokens,
+        supports_reasoning: tri(m.reasoning),
+        reasoning_levels: m.reasoning_efforts.clone(),
+        default_reasoning_level: m.default_effort.clone(),
+        supports_images: tri(m.vision),
+        hidden: m.hidden,
+        raw: None,
+        mode: m.mode.clone(),
+        created: m.created,
+        alias_target: m.alias_target.clone(),
+        picker: picker_out(&m.picker),
         first_response_budget: None,
     }
 }
@@ -585,6 +663,10 @@ pub fn model_in(m: w::ProxyModel) -> p::ModelRecord {
     out.supports_images = m.supports_images;
     out.hidden = m.hidden;
     out.raw = m.raw;
+    out.mode = m.mode;
+    out.created = m.created;
+    out.alias_target = m.alias_target;
+    out.picker = picker_in(m.picker);
     out
 }
 
@@ -618,7 +700,7 @@ pub trait QuotaProbe: Send + Sync {
 /// `resolveWireRoute`: the PC adapter's wire for a model (its config and roster decide).
 #[async_trait]
 pub trait WireRouter: Send + Sync {
-    async fn route(&self, provider: &str, model: &str, agent: bool) -> Option<w::ProxyWireRoute>;
+    async fn route(&self, provider: &str, model: &str, context: w::ProxyRouteContext) -> Option<w::ProxyWireRoute>;
 }
 
 /// `providerConfig`: the PC's registry as `mixdog_ai::service::model_proxy::public_provider_config`
@@ -634,6 +716,8 @@ pub struct ProxyRunner {
     pub quota: Arc<dyn QuotaProbe>,
     pub wire: Arc<dyn WireRouter>,
     pub config: Arc<dyn ProviderConfigSource>,
+    /// The PC's catalog: listModels answers from its snapshot; refresh re-reads it first.
+    pub catalog: Arc<mixdog_ai::catalog::CatalogService>,
 }
 
 struct EventSink<'a>(&'a dyn ProxyEvents);
@@ -671,15 +755,20 @@ impl ProxyRunner {
             }
             w::ProxyCall::ResolveWireRoute { provider, model, context } => {
                 self.adapter(&provider).await?;
-                Ok(w::ProxyAnswer::Route { route: self.wire.route(&provider, &model, context.agent).await })
+                Ok(w::ProxyAnswer::Route { route: self.wire.route(&provider, &model, context).await })
             }
-            w::ProxyCall::ListModels { provider, refresh: _ } => {
-                let adapter = self.adapter(&provider).await?;
-                let listing = adapter.models().ok_or_else(|| {
-                    refusal("MODEL_PROXY_PROVIDER_UNAVAILABLE", format!("Provider \"{provider}\" lists no models."), p::ErrorKind::InvalidRequest)
-                })?;
-                let models = listing.list_models().await.map_err(|e| failure_out(&e, w::ProxyOutcome::Provider))?;
-                Ok(w::ProxyAnswer::Models { models: models.iter().map(model_out).collect() })
+            w::ProxyCall::ListModels { provider, refresh } => {
+                self.adapter(&provider).await?;
+                if refresh {
+                    self.catalog.refresh().await;
+                }
+                let snapshot = self.catalog.snapshot();
+                let id = mixdog_protocol::ProviderId::from(provider.as_str());
+                let models = snapshot.models_of(&id);
+                if let (true, Some(mixdog_ai::catalog::ProviderStatus::Missing { message, .. })) = (models.is_empty(), snapshot.status.get(&id)) {
+                    return Err(refusal("MODEL_PROXY_LISTING_FAILED", message.clone(), p::ErrorKind::Transient));
+                }
+                Ok(w::ProxyAnswer::Models { models: models.iter().map(catalog_model_out).collect() })
             }
             w::ProxyCall::Send { provider, request } => {
                 let adapter = self.adapter(&provider).await?;
@@ -836,4 +925,4 @@ impl AttachmentReader for StoreAttachments {
 
 #[cfg(test)]
 #[path = "model_proxy_tests.rs"]
-mod tests;
+pub(super) mod tests;

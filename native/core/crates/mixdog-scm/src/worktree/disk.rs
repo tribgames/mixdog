@@ -1,6 +1,8 @@
 //! Disk estimate for a new worktree: tracked checkout bytes (blob sizes of the base commit's
 //! tree) + include copies + a safety margin, compared with free space on the destination volume.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::path::Path;
 use std::path::PathBuf;
 

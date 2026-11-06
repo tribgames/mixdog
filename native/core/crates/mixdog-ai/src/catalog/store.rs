@@ -146,7 +146,9 @@ fn deadline_error(provider: &ProviderId) -> ProviderError {
 
 struct Listed {
     epoch: u64,
-    entries: Vec<(ProviderId, Listing)>,
+    /// Each listing with the instant it ended (`now_ms`): a failure's backoff
+    /// runs from there, not from when the whole refresh publishes.
+    entries: Vec<(ProviderId, Listing, u64)>,
 }
 
 pub struct ProviderCatalog {
@@ -154,6 +156,10 @@ pub struct ProviderCatalog {
     /// Bumped on an auth/account change: listings started before it are not
     /// joined and publish nothing.
     epoch: AtomicU64,
+    /// Serializes the epoch check + publish of a refresh against
+    /// `invalidate_accounts`, so a stale listing can never land after the
+    /// snapshot was cleared.
+    publish_lock: Mutex<()>,
     serial: AtomicU64,
     flights: Mutex<HashMap<ProviderId, Flight>>,
     now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
@@ -164,6 +170,7 @@ impl ProviderCatalog {
         Self {
             current: ArcSwap::from_pointee(initial),
             epoch: AtomicU64::new(0),
+            publish_lock: Mutex::new(()),
             serial: AtomicU64::new(0),
             flights: Mutex::new(HashMap::new()),
             now_ms: Arc::new(|| {
@@ -185,6 +192,7 @@ impl ProviderCatalog {
     /// asks every provider, and listings still running for the old one are
     /// neither joined nor published.
     pub fn invalidate_accounts(&self) {
+        let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
         self.epoch.fetch_add(1, Ordering::SeqCst);
         self.flights.lock().unwrap_or_else(PoisonError::into_inner).clear();
         self.current.rcu(|current| {
@@ -298,11 +306,12 @@ impl ProviderCatalog {
                 }
             })
             .collect();
-        let listings = futures::future::join_all(asked.iter().map(|s| self.list_bounded(s, epoch))).await;
-        Listed {
-            epoch,
-            entries: asked.iter().map(|s| s.provider().clone()).zip(listings).collect(),
-        }
+        let entries = futures::future::join_all(asked.iter().map(|s| async move {
+            let listing = self.list_bounded(s, epoch).await;
+            (s.provider().clone(), listing, (self.now_ms)())
+        }))
+        .await;
+        Listed { epoch, entries }
     }
 
     fn publish(&self, listed: Listed, layer: Option<&ModelsDev>) -> RefreshOutcome {
@@ -310,9 +319,8 @@ impl ProviderCatalog {
             refreshed: Vec::new(),
             failed: Vec::new(),
         };
-        let retry_at = (self.now_ms)() + RETRY_AFTER_MS;
         let mut answers = Vec::new();
-        for (provider, listing) in listed.entries {
+        for (provider, listing, ended_at) in listed.entries {
             match listing {
                 Ok(mut list) => {
                     list.sort_by(|a, b| a.id.cmp(&b.id));
@@ -320,7 +328,7 @@ impl ProviderCatalog {
                     outcome.refreshed.push(provider);
                 }
                 Err(err) => {
-                    let status = ProviderStatus::Missing { retry_at, message: err.message.clone() };
+                    let status = ProviderStatus::Missing { retry_at: ended_at + RETRY_AFTER_MS, message: err.message.clone() };
                     answers.push((provider.clone(), Vec::new(), status));
                     outcome.failed.push((provider, err));
                 }
@@ -329,6 +337,7 @@ impl ProviderCatalog {
         // Concurrent refreshes each publish a complete snapshot; the later
         // generation number wins. A listing begun before an account change
         // describes the previous account and is not published.
+        let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
         if self.epoch.load(Ordering::SeqCst) != listed.epoch {
             return outcome;
         }
@@ -523,6 +532,35 @@ mod tests {
         catalog.refresh(&sources).await;
         assert_eq!(calls.load(Ordering::SeqCst), 2, "the new epoch asks again");
         assert_eq!(catalog.snapshot().models_of(&"one".into()).len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failures_backoff_runs_from_when_it_failed_not_from_the_slowest_listing() {
+        let start = tokio::time::Instant::now();
+        let catalog = ProviderCatalog::new(CatalogSnapshot::default())
+            .with_clock(Arc::new(move || 1_000 + start.elapsed().as_millis() as u64));
+        let failing = ModelSource::new("a".into(), Arc::new(Keyed { key: None }));
+        let (slow_ok, _) = slow("b", Some(Duration::from_secs(3)));
+        catalog.refresh(&[failing, slow_ok]).await;
+        match catalog.snapshot().status.get(&ProviderId::from("a")) {
+            Some(ProviderStatus::Missing { retry_at, .. }) => assert_eq!(*retry_at, 1_000 + RETRY_AFTER_MS),
+            other => panic!("a should be missing, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_account_change_cannot_land_inside_a_publish() {
+        let catalog = Arc::new(ProviderCatalog::new(CatalogSnapshot::default()));
+        let publishing = catalog.publish_lock.lock().unwrap();
+        let changer = {
+            let catalog = catalog.clone();
+            std::thread::spawn(move || catalog.invalidate_accounts())
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(catalog.epoch.load(Ordering::SeqCst), 0, "the change waits for the publish to finish");
+        drop(publishing);
+        changer.join().unwrap();
+        assert_eq!(catalog.epoch.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

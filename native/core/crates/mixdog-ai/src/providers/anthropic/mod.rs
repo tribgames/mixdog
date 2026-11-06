@@ -15,11 +15,14 @@ mod decoder;
 mod effort_updates;
 mod errors;
 mod lowering;
+mod models;
 pub mod oauth;
 mod policy;
 
 #[cfg(test)]
 mod effort_tests;
+#[cfg(test)]
+mod models_tests;
 #[cfg(test)]
 mod shared_prefix_tests;
 #[cfg(test)]
@@ -38,6 +41,8 @@ pub use codec::AnthropicConfig;
 pub use codec::DEFAULT_BASE_URL;
 pub use codec::DEFAULT_CLI_VERSION;
 pub use codec::Flavor;
+pub use models::AnthropicModel;
+pub use models::Tier;
 pub use oauth::AnthropicLogin;
 pub use oauth::OAuthSession;
 pub use oauth::StoredOAuth;

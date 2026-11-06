@@ -161,7 +161,8 @@ impl MediaJobs {
             jobs.insert(id.clone(), Job { snapshot: snapshot.clone(), cancel: cancel.clone() });
         }
         // Remembering the selection is a convenience: a full disk never blocks the generation.
-        let _ = self.store.set_default(&json!({"kind": resolved.kind, "lane": resolved.lane, "model": resolved.model}));
+        let selection = json!({"kind": resolved.kind, "lane": resolved.lane, "model": resolved.model});
+        let _ = self.store.run(move |store| store.set_default(&selection)).await;
         let _ = self.updates.send(snapshot.clone());
         let this = self.clone();
         tokio::spawn(async move { this.run(id, resolved, prompt, options, references, board_id, cancel).await });
@@ -188,24 +189,30 @@ impl MediaJobs {
             .generator
             .generate(GenerationRequest { resolved: resolved.clone(), prompt: prompt.clone(), options: options.clone(), references, cancel: cancel.clone(), progress })
             .await;
-        let outcome = result.and_then(|media| {
-            if media.bytes.is_empty() || media.bytes.len() > MAX_GENERATED_MEDIA_BYTES {
-                return Err(MediaFailure::new("generated media exceeds the media size limit", "MEDIA_RESULT_TOO_LARGE"));
+        let outcome = match result {
+            Err(failure) => Err(failure),
+            Ok(media) if media.bytes.is_empty() || media.bytes.len() > MAX_GENERATED_MEDIA_BYTES => {
+                Err(MediaFailure::new("generated media exceeds the media size limit", "MEDIA_RESULT_TOO_LARGE"))
             }
-            let mut meta = Map::new();
-            if !board_id.is_empty() {
-                meta.insert("boardId".into(), json!(board_id));
+            Ok(media) => {
+                let mut meta = Map::new();
+                if !board_id.is_empty() {
+                    meta.insert("boardId".into(), json!(board_id));
+                }
+                if let Some(p) = media.revised_prompt.filter(|p| !p.is_empty()) {
+                    meta.insert("revisedPrompt".into(), json!(p));
+                }
+                if let Some(d) = media.duration_seconds.filter(|d| *d > 0) {
+                    meta.insert("durationSeconds".into(), json!(d));
+                }
+                let (mime, bytes) = (media.mime, media.bytes);
+                self.store
+                    .run(move |store| store.save_asset(&resolved.kind, &resolved.lane, &resolved.model, &prompt, options, &mime, &bytes, meta))
+                    .await
+                    .and_then(|saved| saved)
+                    .map_err(|e| MediaFailure::new(e.to_string(), e.code()))
             }
-            if let Some(p) = media.revised_prompt.filter(|p| !p.is_empty()) {
-                meta.insert("revisedPrompt".into(), json!(p));
-            }
-            if let Some(d) = media.duration_seconds.filter(|d| *d > 0) {
-                meta.insert("durationSeconds".into(), json!(d));
-            }
-            self.store
-                .save_asset(&resolved.kind, &resolved.lane, &resolved.model, &prompt, options, &media.mime, &media.bytes, meta)
-                .map_err(|e| MediaFailure::new(e.to_string(), e.code()))
-        });
+        };
         self.update(&id, |s| {
             s.insert("endedAt".into(), json!(now_ms()));
             match outcome {
@@ -287,7 +294,7 @@ mod tests {
 
     fn jobs(fail: bool, max: usize) -> (tempfile::TempDir, Arc<MediaStore>, Arc<MediaJobs>, Arc<Fake>) {
         let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(MediaStore::new(dir.path()));
+        let store = Arc::new(MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io));
         let fake = Arc::new(Fake { gate: tokio::sync::Semaphore::new(0), fail });
         let jobs = MediaJobs::new(store.clone(), fake.clone(), Some(max));
         (dir, store, jobs, fake)

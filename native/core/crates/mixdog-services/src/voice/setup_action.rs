@@ -26,7 +26,7 @@ pub fn voice_feature_status(status: &Value) -> Value {
 /// installs any missing whisper/ffmpeg component first).
 pub async fn set_voice_enabled(setup: &VoiceSetup, enabled: bool) -> Result<Value, PortError> {
     let result = setup.toggle(Some(enabled)).await;
-    let status = setup.status();
+    let status = setup.status().await;
     if (status["enabled"] == true) != enabled || (enabled && status["installed"] != true) {
         let state = if enabled { "installed and enabled" } else { "disabled" };
         let reason = result.notice_error().map(|e| format!(": {e}")).unwrap_or_default();
@@ -98,7 +98,7 @@ mod tests {
 
     fn setup(dir: &std::path::Path, enabled: bool, fail_off: Option<&'static str>, installer: Installer) -> Arc<VoiceSetup> {
         let flag = Arc::new(AtomicBool::new(enabled));
-        let pipeline = Arc::new(VoicePipeline::new(dir.to_owned(), manifest(), Arc::new(Flag(flag.clone())), Arc::new(FakeEngine::default()), Arc::new(FakeTools::default())));
+        let pipeline = Arc::new(VoicePipeline::new(dir.to_owned(), manifest(), Arc::new(Flag(flag.clone())), Arc::new(FakeEngine::default()), Arc::new(FakeTools::default()), mixdog_rt::testing::tokens().durability_io));
         Arc::new(VoiceSetup::new(pipeline, Arc::new(Store { flag, fail_off }), Arc::new(installer)))
     }
 
@@ -148,7 +148,7 @@ mod tests {
                         let voice = voice.clone();
                         async move { set_voice_enabled(&voice, true).await }
                     });
-                    while voice.status()["busy"] != true {
+                    while voice.status().await["busy"] != true {
                         tokio::task::yield_now().await;
                     }
                     let second = set_voice_enabled(&voice, true).await;

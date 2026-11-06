@@ -5,6 +5,10 @@
 //! on the wire copy.
 #![allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
 
+pub mod listing;
+#[cfg(test)]
+mod listing_tests;
+
 use std::sync::Arc;
 
 use mixdog_core_api::domain::provider::ErrorKind;
@@ -18,6 +22,8 @@ use mixdog_protocol::ProviderId;
 use serde_json::Value;
 use serde_json::json;
 
+use self::listing::InstalledModels;
+use self::listing::LocalListing;
 use crate::transport::http::HttpSend;
 use crate::providers::connect::rewrite::HttpAdapter;
 use crate::providers::connect::rewrite::RewriteCodec;
@@ -99,11 +105,13 @@ pub fn codec(base_url: &str) -> Arc<dyn WireCodec> {
 }
 
 /// The adapter for the endpoint the managed runtime reported for this turn.
+/// Its model listing is the runtime's installed models, not the endpoint's.
 pub fn adapter(
     http: Arc<dyn HttpSend>,
     base_url: String,
     api_key: &str,
     retry_policy: RetryPolicy,
+    installed: Arc<dyn InstalledModels>,
 ) -> HttpAdapter {
     let credential = (!api_key.is_empty()).then(|| ("authorization".to_owned(), format!("Bearer {api_key}")));
     HttpAdapter::new(
@@ -113,6 +121,7 @@ pub fn adapter(
         Arc::new(StaticCredential(credential)),
         retry_policy,
     )
+    .with_listing(Arc::new(LocalListing::new(installed)))
 }
 
 #[cfg(test)]

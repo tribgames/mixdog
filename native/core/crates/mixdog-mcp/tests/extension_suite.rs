@@ -5,6 +5,8 @@
 #![cfg(windows)]
 #![allow(clippy::disallowed_methods, reason = "test fixtures lay out plugin folders")]
 
+mod support;
+
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -115,9 +117,9 @@ fn masked(base: &str, value: &Value) -> Value {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn every_plugin_method_answers_saves_and_triggers_what_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("golden/pluginsapi.json")).unwrap();
-    let base = golden["base"].as_str().unwrap().to_owned();
-    let _ = std::fs::remove_dir_all(&base);
+    let scratch = tempfile::tempdir().unwrap();
+    let base = scratch.path().to_string_lossy().into_owned();
+    let golden: Value = serde_json::from_str(&support::relocate(include_str!("golden/pluginsapi.json"), &base)).unwrap();
     for (name, files) in golden["fixtures"].as_object().unwrap() {
         for (relative, text) in files.as_object().unwrap() {
             let file = Path::new(&base).join("src").join(name).join(relative);

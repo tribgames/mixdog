@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 
+use super::ListingLookup;
 use super::ModelSource;
 use super::ModelsDev;
 use super::lookup::Lookup;
@@ -29,6 +30,8 @@ pub struct CatalogService {
     roster_dir: Option<(PathBuf, CredentialIo)>,
     /// The LiteLLM price table, the metadata lookup's base layer.
     litellm: Option<Arc<ModelsDevSource>>,
+    /// The tables adapters run their listing steps against.
+    listing: ListingLookup,
 }
 
 impl CatalogService {
@@ -45,14 +48,37 @@ impl CatalogService {
         if let Some(layer) = metadata.current() {
             catalog.apply_metadata(&layer);
         }
-        Self {
+        let service = Self {
             catalog,
             sources,
             metadata,
             rosters: ArcSwap::from_pointee(RosterSnapshot::default()),
             roster_dir: None,
             litellm: None,
-        }
+            listing: ListingLookup::new(),
+        };
+        service.publish_listing();
+        service
+    }
+
+    /// Shares `handle` (already given to the adapters) as this service's
+    /// listing tables, so adapters built before the service see them.
+    pub fn with_listing_lookup(mut self, handle: ListingLookup) -> Self {
+        self.listing = handle;
+        self.publish_listing();
+        self
+    }
+
+    pub fn listing_lookup(&self) -> ListingLookup {
+        self.listing.clone()
+    }
+
+    fn publish_listing(&self) {
+        self.listing.publish(
+            self.litellm.as_ref().and_then(|s| s.current()),
+            self.metadata.current(),
+            self.rosters.load_full(),
+        );
     }
 
     /// Adds the LiteLLM price table (a [`ModelsDevSource::litellm`] source):
@@ -60,6 +86,7 @@ impl CatalogService {
     pub async fn with_litellm(mut self, source: Arc<ModelsDevSource>) -> Self {
         source.warm_from_disk().await;
         self.litellm = Some(source);
+        self.publish_listing();
         self
     }
 
@@ -90,6 +117,7 @@ impl CatalogService {
     pub async fn with_rosters(mut self, data_dir: PathBuf, io: CredentialIo) -> Self {
         self.rosters.store(Arc::new(RosterSnapshot::load(&data_dir, &io).await));
         self.roster_dir = Some((data_dir, io));
+        self.publish_listing();
         self
     }
 
@@ -97,6 +125,7 @@ impl CatalogService {
     pub async fn reload_rosters(&self) {
         if let Some((dir, io)) = &self.roster_dir {
             self.rosters.store(Arc::new(RosterSnapshot::load(dir, io).await));
+            self.publish_listing();
         }
     }
 
@@ -139,6 +168,7 @@ impl CatalogService {
         )
         .await;
         self.reload_rosters().await;
+        self.publish_listing();
         outcome
     }
 }

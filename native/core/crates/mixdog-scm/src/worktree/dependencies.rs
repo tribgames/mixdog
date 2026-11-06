@@ -3,11 +3,15 @@
 //! linked artefact is never installed through. The plan is what the session's first turn runs;
 //! this module only names the commands and the notes for what it leaves alone.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
+
+use std::sync::Arc;
 
 use mixdog_core_api::domain::command::PathIndex;
 use mixdog_core_api::domain::command::spawn_form;
@@ -552,7 +556,7 @@ pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input:
         std::env::var("PATH").or_else(|_| std::env::var("Path")).unwrap_or_default()
     });
     let path_env = HashMap::from([("PATH".to_owned(), path_var)]);
-    let path_index = PathIndex::new(Some(&path_env));
+    let path_index = Arc::new(PathIndex::new(Some(&path_env)));
     let folders = find_lockfile_folders(scm, cancel, &input.worktree_dir, input.main_dir.as_deref()).await?;
     if folders.is_empty() {
         return Ok(DependencyPlan {
@@ -598,14 +602,21 @@ pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input:
             plan.notes.push(format!("{where_} was not prepared; {} {}.", links.join(", "), shared_clause(links.len())));
             continue;
         }
-        let Some(found) = named.tools.iter().find(|candidate| which(candidate, Some(&path_env), Some(&path_index)).is_some()) else {
+        let candidates: Vec<&'static str> = named.tools.clone();
+        let (lookup_env, lookup_index) = (path_env.clone(), path_index.clone());
+        let located = on_lane(scm.lane, cancel, move || {
+            candidates.into_iter().find_map(|candidate| {
+                which(candidate, Some(&lookup_env), Some(&*lookup_index)).map(|found| (candidate, found.to_string_lossy().into_owned()))
+            })
+        })
+        .await?;
+        let Some((found, tool)) = located else {
             plan.notes.push(format!(
                 "{first} is not on PATH; {where_} was not prepared (run `{}` there if tests need it).",
                 command_line(first, &named)
             ));
             continue;
         };
-        let tool = which(found, Some(&path_env), Some(&path_index)).expect("found above").to_string_lossy().into_owned();
         let Some(spec) = install(scm, cancel, entry, &cwd, Some(&tool)).await? else {
             plan.notes.push(format!("{found} could not be queried; {where_} was not prepared."));
             continue;

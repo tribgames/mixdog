@@ -3,6 +3,8 @@
 //! when it no longer hashes to what the caller saw, and applies only the selected runs to the
 //! index. The ids mean something only together with their `diff_id`.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::path::Path;

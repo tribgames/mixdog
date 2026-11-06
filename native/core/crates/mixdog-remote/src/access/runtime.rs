@@ -6,7 +6,7 @@
 //! decrypted here and handed to the bridge byte for byte (R25); a slow phone stalls only its own
 //! bridge task.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -30,7 +30,6 @@ use crate::leg::frame::{Payload, encode_binary_frame, json_frame};
 use crate::leg::inbound::Inbound;
 use crate::leg::socket::{LegConfig, LegEvent, Outgoing, run_leg, validated_relay_url};
 use crate::leg::{MAX_WS_PAYLOAD_BYTES, open_envelopes};
-use crate::clients::foreground::{Report, parse_report};
 use crate::pair_code::{PairCode, PairCodeEffects, PairCodeView};
 use crate::push::native_crypto::{NativePushContent, Reason, collapse_key, encrypt_native_push_fresh};
 use crate::push::web::{RelayWebPush, WebPushTarget, encrypt_for_target};
@@ -1000,23 +999,29 @@ impl RemoteRuntime {
             .unwrap_or_default()
     }
 
-    /// Whether a phone of `client_id` shows `thread_id` right now (push-notifier.ts
-    /// `isClientForeground`): a paired credential with a live leg painting it, or a leg that
-    /// reported the id as its browser id (what a direct Web Push subscription names).
-    pub fn is_client_foreground(&self, client_id: &str, thread_id: &str) -> bool {
-        let state = self.inner.state();
-        state.table.credential_shows(client_id, thread_id) || state.table.browser_shows(client_id, thread_id)
+    /// The paired devices with their roster rows (`id`, `browser`, `created_at`, ...), without
+    /// those pending removal. Empty until `prepare()` has loaded the roster.
+    pub fn paired_clients(&self) -> Vec<ClientInfo> {
+        self.inner
+            .roster
+            .get()
+            .map(|roster| lock(roster).list().into_iter().filter(|row| !row.pending_removal).collect())
+            .unwrap_or_default()
     }
 
-    /// `setForeground(visible, browserId?)` from the leg `peer_id`.
-    pub fn report_foreground(&self, peer_id: &str, visible: bool, browser_id: Option<&str>) {
-        let report = Report::Visible { visible, browser_id: browser_id.map(str::to_owned) };
-        self.inner.state().table.report(peer_id, report);
+    /// Whether an attached connection of the paired credential `client_id` is painting
+    /// `thread_id`: the question of native and relay Web Push, which are keyed by credential
+    /// (`remote-relay-session-wiring.ts:146`). The phone states it with
+    /// `ui/screenSessions/changed`, which the core records in the registry.
+    pub fn is_credential_foreground(&self, client_id: &str, thread_id: &str) -> bool {
+        self.inner.cfg.registry.credential_shows(client_id, thread_id)
     }
 
-    /// `setScreenSessions(ids)` from the leg `peer_id`; the ids are taken as filtered.
-    pub fn report_screen_sessions(&self, peer_id: &str, ids: HashSet<String>) {
-        self.inner.state().table.report(peer_id, Report::Screens(ids));
+    /// Whether an attached connection that reported `browser_id` is painting `thread_id`: the
+    /// question of direct Web Push, which is keyed by the browser id (`:159-160`). A phone's
+    /// report never answers for a credential.
+    pub fn is_browser_foreground(&self, browser_id: &str, thread_id: &str) -> bool {
+        self.inner.cfg.registry.browser_shows(browser_id, thread_id)
     }
 
     /// Delivers one notification the engine decided on to one paired device, over every path
@@ -1346,15 +1351,7 @@ impl RemoteRuntime {
                     Frame::Binary(bytes)
                 } else {
                     match String::from_utf8(bytes) {
-                        // The phone's account of its own screen is the relay layer's, not the
-                        // core's: recorded here and answered by nothing.
-                        Ok(text) => match parse_report(&text) {
-                            Some(Report::Visible { visible, browser_id }) => {
-                                return self.report_foreground(client_id, visible, browser_id.as_deref());
-                            }
-                            Some(Report::Screens(ids)) => return self.report_screen_sessions(client_id, ids),
-                            None => Frame::Text(text),
-                        },
+                        Ok(text) => Frame::Text(text),
                         Err(_) => return self.close_client(client_id, "invalid encrypted relay frame"),
                     }
                 };
@@ -1378,7 +1375,8 @@ impl RemoteRuntime {
         let alias = self.inner.cfg.settings.device_aliases().get(&credential).cloned().unwrap_or_default();
         let listed = row.map(|row| mixdog_js::slice_utf16(mixdog_js::js_trim(&row.name), 80)).unwrap_or_default();
         let name = if !alias.is_empty() { alias } else { listed };
-        self.inner.cfg.registry.attach_peer(client_id, if name.is_empty() { crate::registry::DEFAULT_DEVICE_NAME } else { &name }, &browser);
+        let device = if name.is_empty() { crate::registry::DEFAULT_DEVICE_NAME } else { &name };
+        self.inner.cfg.registry.attach_peer(client_id, &credential, device, &browser);
     }
 
     fn close_client(&self, client_id: &str, reason: &str) {

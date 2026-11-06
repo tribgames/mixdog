@@ -8,6 +8,9 @@
 #![allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
 
 pub mod auth;
+pub mod listing;
+#[cfg(test)]
+mod listing_tests;
 
 use std::sync::Arc;
 
@@ -20,6 +23,9 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 
 use self::auth::GrokCredential;
+use self::listing::GrokListing;
+use self::listing::SeedEffortRule;
+use crate::catalog::ListingLookup;
 use crate::transport::http::HttpSend;
 use crate::providers::connect::rewrite::HttpAdapter;
 use crate::providers::connect::rewrite::RewriteCodec;
@@ -33,7 +39,19 @@ use crate::providers::compat::responses::CompatResponsesCodec;
 
 pub const PROVIDER_ID: &str = "grok-oauth";
 pub const PROXY_BASE_URL: &str = "https://cli-chat-proxy.grok.com/v1";
+/// The xAI catalog: release dates and the public SKUs. The proxy serves
+/// inference and its own catalog; the two are merged by the listing.
+pub const INFERENCE_BASE_URL: &str = "https://api.x.ai/v1";
 const CLIENT_IDENTIFIER: &str = "grok-shell";
+
+/// The CLI identity every proxy request carries, the version gate's inputs.
+pub fn identity_headers(client_version: &str) -> Vec<(String, String)> {
+    vec![
+        ("x-grok-client-version".to_owned(), client_version.to_owned()),
+        ("x-grok-client-identifier".to_owned(), CLIENT_IDENTIFIER.to_owned()),
+        ("user-agent".to_owned(), format!("xai-grok-build/{client_version}")),
+    ]
+}
 /// The oldest CLI release the proxy accepts; a newer one is configured.
 pub const CLIENT_VERSION_FLOOR: &str = "1.0.70";
 
@@ -46,10 +64,8 @@ pub struct GrokRewriter {
 impl Rewriter for GrokRewriter {
     fn rewrite(&self, mut wire: WireRequest, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let opts = &request.options;
+        wire.headers.extend(identity_headers(&self.client_version));
         let mut add = |name: &str, value: String| wire.headers.push((name.to_owned(), value));
-        add("x-grok-client-version", self.client_version.clone());
-        add("x-grok-client-identifier", CLIENT_IDENTIFIER.to_owned());
-        add("user-agent", format!("xai-grok-build/{}", self.client_version));
         // The session id is Mixdog's own; no Grok conversation id is made up.
         if let Some(session) = opts.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             add("x-grok-session-id", session.to_owned());
@@ -84,17 +100,22 @@ pub fn adapter(
     credential: Arc<GrokCredential>,
     client_version: Option<String>,
     retry_policy: RetryPolicy,
+    lookup: ListingLookup,
 ) -> HttpAdapter {
     let client_version = client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.to_owned());
     let rewriter = GrokRewriter {
         client_version: client_version.clone(),
         credential: credential.clone(),
     };
-    HttpAdapter::new(
-        ProviderId::from(PROVIDER_ID),
-        Arc::new(RewriteCodec::new(codec(&client_version), rewriter)),
-        http,
-        credential,
-        retry_policy,
-    )
+    let codec: Arc<dyn WireCodec> = Arc::new(RewriteCodec::new(codec(&client_version), rewriter));
+    let listing = GrokListing::new(
+        http.clone(),
+        credential.clone(),
+        codec.clone(),
+        client_version,
+        Arc::new(SeedEffortRule),
+        lookup,
+    );
+    HttpAdapter::new(ProviderId::from(PROVIDER_ID), codec, http, credential, retry_policy)
+        .with_listing(Arc::new(listing))
 }

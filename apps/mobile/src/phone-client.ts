@@ -10,7 +10,8 @@ import {
   type ThreadReducer,
 } from '../../../packages/protocol-client/src/index.ts';
 import { phoneConnectionOf, terminalOfClose, type PhoneConnection } from './phone-status.ts';
-import { createRelayConnector, type RelayConnector, type RelayConnectorDeps } from './relay-connector.ts';
+import { createScreenReporter, type ScreenReporter, type ScreenSource } from './screen-reporter.ts';
+import { createRelayConnector,type RelayConnector, type RelayConnectorDeps } from './relay-connector.ts';
 
 export interface PhoneClientOptions extends Omit<RelayConnectorDeps, 'closed'> {
   /** The relay-hosted desktop this phone is paired with; one reconnect ladder per target. */
@@ -25,12 +26,16 @@ export interface PhoneClientOptions extends Omit<RelayConnectorDeps, 'closed'> {
   readonly onConnection: (connection: PhoneConnection) => void;
   /** Stops the first-connect retries. */
   readonly signal?: AbortSignal;
+  /** What the phone shows; the core reads it as `ui/screenSessions/changed` to hold back pushes for a thread being looked at. */
+  readonly screen?: ScreenSource;
 }
 
 export interface PhoneClient {
   readonly client: ProtocolClient<SessionFold>;
   /** Page lifecycle hooks of the transport session. */
   readonly link: Pick<RelayConnector, 'hidden' | 'wake'>;
+  /** Present when `PhoneClientOptions.screen` was given: call `refresh()` when the page or the shown threads change. */
+  readonly screen?: ScreenReporter;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
@@ -94,5 +99,6 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
   });
   report(phoneConnectionOf(client.status));
   if (terminal) void client.close();
-  return { client, link: connector };
+  const screen = options.screen ? createScreenReporter(client, options.screen) : undefined;
+  return { client, link: connector, ...(screen ? { screen } : {}) };
 }

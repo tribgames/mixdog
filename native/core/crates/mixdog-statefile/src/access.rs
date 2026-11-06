@@ -6,6 +6,11 @@ use std::fs::OpenOptions;
 use std::io;
 use std::path::Path;
 
+use mixdog_rt::InLane;
+
+use crate::IoLane;
+use crate::WriteLane;
+
 /// Who may open a new file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
@@ -18,8 +23,75 @@ pub enum Access {
 
 /// Creates `path`, which must not exist, with `access`. `unix_mode` applies to `Inherit` on
 /// Unix; elsewhere it is ignored.
-pub fn create_new(path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
+pub fn create_new<L: WriteLane>(_lane: &InLane<L>, path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
     create_new_platform(path, access, unix_mode)
+}
+
+/// The same three primitives without a lane proof, for `mixdog_store::fsio` alone: its
+/// `create_new_file`, `is_owner_only` and `sync_dir` are entry points that migration and remote
+/// code call from their own threads, outside the lane contract. Every other caller uses the
+/// lane-proofed functions.
+// Hidden from the docs so it is not mistaken for API: `mixdog_store::fsio` is the only caller.
+#[doc(hidden)]
+pub mod unlaned {
+    use std::fs::File;
+    use std::io;
+    use std::path::Path;
+
+    use super::Access;
+
+    /// [`super::create_new`].
+    pub fn create_new(path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
+        super::create_new_platform(path, access, unix_mode)
+    }
+
+    /// [`super::is_owner_only`].
+    pub fn is_owner_only(path: &Path) -> io::Result<bool> {
+        super::is_owner_only_platform(path)
+    }
+
+    /// [`super::sync_dir`].
+    pub fn sync_dir(dir: &Path) -> io::Result<()> {
+        super::open_dir(dir)?.sync_all()
+    }
+}
+
+/// Creates `path` and every missing ancestor as a private directory: Unix mode 0700 (Node's
+/// `mkdirSync(path, { recursive: true, mode: 0o700 })`, subject to the umask); Windows a
+/// protected DACL with one full-access entry for the current user, inherited by what the
+/// directory holds. A directory that exists is left as it is.
+pub fn create_private_dir_all<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    if path.is_dir() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        create_private_dir(parent)?;
+    }
+    create_private_dir(path)
+}
+
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    if path.is_dir() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        create_private_dir(parent)?;
+    }
+    match create_dir_platform(path) {
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
+        other => other,
+    }
+}
+
+#[cfg(unix)]
+fn create_dir_platform(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new().mode(0o700).create(path)
+}
+
+#[cfg(windows)]
+fn create_dir_platform(path: &Path) -> io::Result<()> {
+    owner_only::create_dir(path)
 }
 
 #[cfg(unix)]
@@ -39,7 +111,7 @@ fn create_new_platform(path: &Path, access: Access, _unix_mode: u32) -> io::Resu
 
 /// Whether only the current user can open `path`: Unix no group/other mode bits; Windows
 /// exactly the protected owner-only DACL `create_new` sets.
-pub fn is_owner_only(path: &Path) -> io::Result<bool> {
+pub fn is_owner_only<L: IoLane>(_lane: &InLane<L>, path: &Path) -> io::Result<bool> {
     is_owner_only_platform(path)
 }
 
@@ -56,7 +128,7 @@ fn is_owner_only_platform(path: &Path) -> io::Result<bool> {
 
 /// `fsync` / `FlushFileBuffers` of a directory's entries. Windows needs a write handle opened
 /// with `FILE_FLAG_BACKUP_SEMANTICS`; a read-only directory handle is refused.
-pub fn sync_dir(dir: &Path) -> io::Result<()> {
+pub fn sync_dir<L: WriteLane>(_lane: &InLane<L>, dir: &Path) -> io::Result<()> {
     open_dir(dir)?.sync_all()
 }
 
@@ -138,6 +210,7 @@ mod owner_only {
     use windows_sys::Win32::Security::TOKEN_USER;
     use windows_sys::Win32::Security::TokenUser;
     use windows_sys::Win32::Storage::FileSystem::CREATE_NEW;
+    use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
     use windows_sys::Win32::Storage::FileSystem::CreateFileW;
     use windows_sys::Win32::Storage::FileSystem::DELETE;
     use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
@@ -198,13 +271,40 @@ mod owner_only {
         result
     }
 
-    /// Protected, one entry: full access for the current user.
-    fn owner_only_sddl() -> io::Result<String> {
-        Ok(format!("D:P(A;;FA;;;{})", user_sid()?))
+    /// Protected, one entry: full access for the current user; for a directory the entry is
+    /// inherited by the files and directories created in it.
+    fn owner_only_sddl(directory: bool) -> io::Result<String> {
+        let inherit = if directory { "OICI" } else { "" };
+        Ok(format!("D:P(A;{inherit};FA;;;{})", user_sid()?))
+    }
+
+    /// Creates the directory `path` (its parent exists) with the owner-only DACL.
+    pub fn create_dir(path: &Path) -> io::Result<()> {
+        let sddl = wide(std::ffi::OsStr::new(&owner_only_sddl(true)?));
+        let mut descriptor = null_mut();
+        // SAFETY: `sddl` is NUL-terminated; the descriptor is freed below.
+        if unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut())
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: descriptor,
+            bInheritHandle: 0,
+        };
+        let name = super::verbatim_wide(path)?;
+        // SAFETY: `name` is NUL-terminated and `attributes` outlives the call.
+        let created = unsafe { CreateDirectoryW(name.as_ptr(), &attributes) };
+        let error = io::Error::last_os_error();
+        // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+        unsafe { LocalFree(descriptor) };
+        if created == 0 { Err(error) } else { Ok(()) }
     }
 
     pub fn create_new(path: &Path) -> io::Result<File> {
-        let sddl = wide(std::ffi::OsStr::new(&owner_only_sddl()?));
+        let sddl = wide(std::ffi::OsStr::new(&owner_only_sddl(false)?));
         let mut descriptor = null_mut();
         // SAFETY: `sddl` is NUL-terminated; the descriptor is freed below.
         if unsafe {
@@ -280,6 +380,6 @@ mod owner_only {
         }
         // SAFETY: allocated by the conversion above.
         let actual = unsafe { take_wide(text) };
-        Ok(actual == owner_only_sddl()?)
+        Ok(actual == owner_only_sddl(false)? || actual == owner_only_sddl(true)?)
     }
 }

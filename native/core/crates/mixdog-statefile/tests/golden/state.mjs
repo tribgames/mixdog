@@ -2,8 +2,8 @@
 // files it leaves behind and the order of its file-system calls: the golden the Rust
 // `mixdog-statefile` replays. Usage: node state.mjs <repo-root> <out.json>
 //
-// Lock files (`*.lock`) are left out of both the listing and the trace: the Rust port locks with
-// an OS advisory lock on a file it leaves in place, where Node publishes and unlinks a lock file.
+// Lock files (`*.lock`) are left out of both the listing and the trace: a held-lock scenario
+// leaves its holder's record, and the lock traffic is not a data-file operation.
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';

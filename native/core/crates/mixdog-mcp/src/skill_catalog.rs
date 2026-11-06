@@ -191,7 +191,12 @@ impl SkillCatalog {
         let Some(text) = self.run(move |lane| read_text(lane, &path)).await?.map_err(CatalogError::Read)? else {
             return Ok(SkillLoad::NotFound);
         };
-        let Ok(document) = parse_document(&text) else { return Ok(SkillLoad::NotFound) };
+        // `readSafe`: the file's text is trimmed, and an empty file is no skill.
+        let text = js_trim(&text);
+        if text.is_empty() {
+            return Ok(SkillLoad::NotFound);
+        }
+        let Ok(document) = parse_document(text) else { return Ok(SkillLoad::NotFound) };
         let parent = skill.file_path.parent().unwrap_or_else(|| Path::new(""));
         let dir = skill_execution_dir(parent, skill.source);
         Ok(SkillLoad::Loaded(SkillResource { body: document.body, dir, skill }))

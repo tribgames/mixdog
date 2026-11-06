@@ -50,6 +50,7 @@ fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
         grok_client_version: None,
         cursor_client_version: None,
         antigravity_client_version: "1.0.0".into(),
+        listing: crate::catalog::ListingLookup::new(),
         env,
         home_dir: dir.path().to_path_buf(),
         io: CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },

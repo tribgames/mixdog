@@ -1,14 +1,21 @@
 //! Which wire a gateway model is reached on (`wire-route.mjs`). One answer
 //! per provider and model, in this order: a wire the session already pinned,
-//! the user's per-model override, the catalog's wire for the model (the
-//! models.dev SDK package, [`wire_of_package`]), the single wire the roster
-//! advertises, the agent wire of a tool session, the provider default, then
-//! the provider's preference. Every tier is limited to the wires the gateway
-//! offers for that model. No tier reads the model id: when nothing describes
-//! the model, the provider default applies and the route says `Unknown`, so
-//! a session never pins a guess.
+//! (for a session that predates the table) the wire it started on, the user's
+//! per-model override, the catalog's wire for the model (the models.dev SDK
+//! package, [`wire_of_package`]), the single wire the roster advertises, the
+//! profile's model-family table, the provider default, then the provider's
+//! preference. Every tier is limited to the wires the gateway offers for that
+//! model. The code never reads a model id itself: the family and legacy
+//! patterns are rows of the profile ([`WireOffer`]). When nothing describes
+//! the model, the provider default (or a `cold` family) applies and the route
+//! says `Unknown`, so a session never pins a guess.
 
-use super::profile::{CompatProfile, Wire};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
+
+use mixdog_js::JsRegex;
+
+use super::profile::{CompatProfile, LegacyWire, Wire, WireOffer};
 
 /// Why a wire was chosen.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -17,10 +24,41 @@ pub enum RouteSource {
     Override,
     Catalog,
     Endpoints,
-    Agent,
+    Family,
     Default,
+    /// The wire a session that predates the table started on.
+    Legacy,
     /// Nothing describes the model; the conventional wire, never pinned.
     Unknown,
+}
+
+impl RouteSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pinned => "pinned",
+            Self::Override => "override",
+            Self::Catalog => "catalog",
+            Self::Endpoints => "endpoints",
+            Self::Family => "family",
+            Self::Default => "default",
+            Self::Legacy => "legacy",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// `pattern.test(id)` for a profile row; each pattern is compiled once.
+fn id_matches(pattern: &'static str, id: &str) -> bool {
+    static COMPILED: Mutex<Option<HashMap<&'static str, Arc<JsRegex>>>> = Mutex::new(None);
+    let regex = {
+        let mut cache = COMPILED.lock().unwrap_or_else(PoisonError::into_inner);
+        cache
+            .get_or_insert_with(HashMap::new)
+            .entry(pattern)
+            .or_insert_with(|| Arc::new(JsRegex::new_static(pattern, "i")))
+            .clone()
+    };
+    regex.is_match(id)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -32,8 +70,12 @@ pub struct Route {
 /// What is known about one model.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WireFacts<'a> {
+    /// The routing id (an alias slug stays the alias).
+    pub model: &'a str,
     /// The wire the session started on.
     pub keep: Option<Wire>,
+    /// A session that predates the table: the wire it started on.
+    pub legacy: bool,
     /// The user's per-model wire.
     pub override_wire: Option<Wire>,
     /// The wire the catalog assigns (see [`wire_of_package`]).
@@ -50,18 +92,44 @@ pub struct WireFacts<'a> {
 
 /// The wire models.dev's `npm` package names (`WIRE_API_BY_NPM`); no package
 /// means Chat.
-pub fn wire_of_package(package: Option<&str>) -> Wire {
-    match package {
-        Some("@ai-sdk/openai") => Wire::Responses,
-        Some("@ai-sdk/anthropic") => Wire::Messages,
-        Some("@ai-sdk/google") => Wire::Gemini,
-        _ => Wire::Chat,
+pub fn wire_of_package(package: Option<&str>) -> Option<Wire> {
+    match package? {
+        "@ai-sdk/openai" => Some(Wire::Responses),
+        "@ai-sdk/anthropic" => Some(Wire::Messages),
+        "@ai-sdk/google" => Some(Wire::Gemini),
+        "@ai-sdk/openai-compatible" => Some(Wire::Chat),
+        _ => None,
     }
+}
+
+/// The route a hook answers with, from the facts the adapter gathered and the
+/// caller's context (`resolveWireRoute`).
+pub fn route_for(
+    profile: &CompatProfile,
+    provider: &str,
+    model: &str,
+    facts: WireFacts<'_>,
+    context: &mixdog_core_api::domain::provider::WireRouteContext,
+) -> Option<mixdog_core_api::domain::provider::WireRoute> {
+    let exclude: Vec<Wire> = context.exclude.iter().filter_map(|w| Wire::parse(w)).collect();
+    let facts = WireFacts {
+        model,
+        agent: context.agent,
+        legacy: context.legacy,
+        keep: context.keep.as_deref().and_then(Wire::parse),
+        exclude: &exclude,
+        ..facts
+    };
+    resolve_wire(profile, &facts).map(|route| mixdog_core_api::domain::provider::WireRoute {
+        wire: route.wire.as_str().to_owned(),
+        source: route.source.as_str().to_owned(),
+        profile_id: format!("{provider}:{}", route.wire.as_str()),
+    })
 }
 
 /// `None` when the gateway offers the model on no wire.
 pub fn resolve_wire(profile: &CompatProfile, facts: &WireFacts<'_>) -> Option<Route> {
-    let offer = profile.wires;
+    let offer = &profile.wires;
     let advertised: Vec<Wire> = offer
         .offered
         .iter()
@@ -71,28 +139,44 @@ pub fn resolve_wire(profile: &CompatProfile, facts: &WireFacts<'_>) -> Option<Ro
         .collect();
     let usable = |wire: Wire| advertised.contains(&wire);
     let route = |wire, source| Some(Route { wire, source });
+    // A wire the session already pinned stays while the model is still offered
+    // on it (a model nothing describes keeps its pin: no metadata, no change).
     if let Some(keep) = facts.keep {
-        let pool: Vec<Wire> = if facts.known {
-            advertised.clone()
-        } else {
-            offer.offered.to_vec()
-        };
+        let pool: &[Wire] = if facts.known { &advertised } else { offer.offered };
         if pool.contains(&keep) {
             return route(keep, RouteSource::Pinned);
+        }
+    }
+    // The preferred advertised wire when the default is not one of them.
+    let preferred = || {
+        let order = if offer.preference.is_empty() { offer.offered } else { offer.preference };
+        order.iter().copied().find(|w| usable(*w))
+    };
+    // Nothing describes the model: the gateway's conventional wire, flagged so
+    // a session never pins the guess. A family that is certain without
+    // metadata outranks it.
+    let unknown = || {
+        let cold = offer.families.iter().find(|f| f.cold && id_matches(f.pattern, facts.model) && usable(f.wire));
+        let wire = cold.map(|f| f.wire).or_else(|| if usable(profile.default_wire) { Some(profile.default_wire) } else { preferred() });
+        wire.and_then(|wire| route(wire, RouteSource::Unknown))
+    };
+    if facts.legacy {
+        if !facts.known {
+            return unknown();
+        }
+        // The wire a pre-table session started on, while the model still offers
+        // it; otherwise the fresh resolution below (never an unadvertised wire).
+        let catalog = facts.catalog_wire.filter(|w| usable(*w));
+        let wire = legacy_wire(offer, facts.model, catalog, &advertised);
+        if usable(wire) {
+            return route(wire, RouteSource::Legacy);
         }
     }
     if let Some(wire) = facts.override_wire.filter(|w| usable(*w)) {
         return route(wire, RouteSource::Override);
     }
-    let fallback = || {
-        if usable(profile.default_wire) {
-            return Some(profile.default_wire);
-        }
-        let order = if offer.preference.is_empty() { offer.offered } else { offer.preference };
-        order.iter().copied().find(|w| usable(*w))
-    };
     if !facts.known {
-        return fallback().and_then(|wire| route(wire, RouteSource::Unknown));
+        return unknown();
     }
     if let Some(wire) = facts.catalog_wire.filter(|w| usable(*w)) {
         return route(wire, RouteSource::Catalog);
@@ -100,15 +184,34 @@ pub fn resolve_wire(profile: &CompatProfile, facts: &WireFacts<'_>) -> Option<Ro
     if facts.endpoints.is_some() && advertised.len() == 1 {
         return route(advertised[0], RouteSource::Endpoints);
     }
-    if facts.agent
-        && let Some(wire) = offer.agent_wire.filter(|w| usable(*w))
-    {
-        return route(wire, RouteSource::Agent);
+    let family = offer
+        .families
+        .iter()
+        .find(|f| id_matches(f.pattern, facts.model) && (!f.agent_only || facts.agent) && usable(f.wire));
+    if let Some(family) = family {
+        return route(family.wire, RouteSource::Family);
     }
     if usable(profile.default_wire) {
         return route(profile.default_wire, RouteSource::Default);
     }
-    fallback().and_then(|wire| route(wire, RouteSource::Endpoints))
+    preferred().and_then(|wire| route(wire, RouteSource::Endpoints))
+}
+
+/// `PROFILES[..].legacy`: `catalog` is the catalog's wire when the model is
+/// still offered on it; `advertised` the wires left after narrowing.
+fn legacy_wire(offer: &WireOffer, model: &str, catalog: Option<Wire>, advertised: &[Wire]) -> Wire {
+    match offer.legacy {
+        LegacyWire::Fixed(wire) => wire,
+        LegacyWire::Catalog { except, patterns, otherwise } => {
+            if let Some(wire) = catalog.filter(|w| *w != except) {
+                return wire;
+            }
+            patterns.iter().find(|(pattern, _)| id_matches(pattern, model)).map_or(otherwise, |(_, wire)| *wire)
+        }
+        LegacyWire::Advertised { prefer, fallback } => {
+            if advertised.contains(&prefer) || !advertised.contains(&fallback) { prefer } else { fallback }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -127,11 +230,13 @@ mod tests {
             (Some("@ai-sdk/anthropic"), Wire::Messages),
             (Some("@ai-sdk/google"), Wire::Gemini),
             (Some("@ai-sdk/openai-compatible"), Wire::Chat),
-            (None, Wire::Chat),
         ] {
-            let route = resolve_wire(&go, &WireFacts { catalog_wire: Some(wire_of_package(package)), ..facts() }).unwrap();
+            let route = resolve_wire(&go, &WireFacts { catalog_wire: wire_of_package(package), ..facts() }).unwrap();
             assert_eq!((route.wire, route.source), (wire, RouteSource::Catalog), "{package:?}");
         }
+        // A package that names no wire says nothing (Node: null), so the family table decides.
+        assert_eq!(wire_of_package(Some("@other/sdk")), None);
+        assert_eq!(wire_of_package(None), None);
         // A wire the gateway does not offer is never chosen.
         let ds = CompatProfile::deepseek();
         let route = resolve_wire(&ds, &WireFacts { catalog_wire: Some(Wire::Responses), ..facts() }).unwrap();
@@ -153,8 +258,10 @@ mod tests {
     #[test]
     fn deepseek_tool_sessions_use_messages_and_one_shots_chat() {
         let ds = CompatProfile::deepseek();
-        assert_eq!(resolve_wire(&ds, &WireFacts { agent: true, ..facts() }).unwrap().wire, Wire::Messages);
-        assert_eq!(resolve_wire(&ds, &WireFacts { agent: false, ..facts() }).unwrap().wire, Wire::Chat);
+        let model = "deepseek-v4-pro";
+        let route = resolve_wire(&ds, &WireFacts { model, agent: true, ..facts() }).unwrap();
+        assert_eq!((route.wire, route.source), (Wire::Messages, RouteSource::Family));
+        assert_eq!(resolve_wire(&ds, &WireFacts { model, agent: false, ..facts() }).unwrap().wire, Wire::Chat);
     }
 
     #[test]

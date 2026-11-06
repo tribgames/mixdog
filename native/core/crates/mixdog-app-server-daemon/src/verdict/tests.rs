@@ -20,6 +20,10 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use mixdog_rt::CancellationToken;
+use mixdog_rt::DurabilityIo;
+use mixdog_rt::LaneToken;
+
 use super::*;
 use crate::barrier::BarrierRecord;
 use crate::barrier::LockOwner;
@@ -42,8 +46,62 @@ pub(crate) fn exit_watch_denied() -> bool {
     DENY_EXIT_WATCH.with(std::cell::Cell::get)
 }
 
+/// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
+pub(crate) fn on_lane<R: Send + 'static>(
+    job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static,
+) -> R {
+    let lanes = mixdog_rt::testing::tokens();
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(async {
+            lanes
+                .durability_io
+                .submit(&CancellationToken::new(), job)
+                .expect("lane")
+                .await
+                .expect("job")
+        })
+}
+
+/// A [`Gate`] stepped the way the boot path steps it: each step a durability-lane
+/// job, inline on this thread, so this thread's step hooks still apply.
+pub(crate) struct LaneGate(Option<Gate>);
+
+impl LaneGate {
+    pub(crate) fn step(&mut self) -> Result<GateStep, GateError> {
+        let mut gate = self.0.take().expect("a gate");
+        let (gate, result) = on_lane(move |lane| {
+            let result = gate.step(lane);
+            (gate, result)
+        });
+        self.0 = Some(gate);
+        result
+    }
+}
+
+impl From<Gate> for LaneGate {
+    fn from(gate: Gate) -> Self {
+        Self(Some(gate))
+    }
+}
+
+impl std::ops::Deref for LaneGate {
+    type Target = Gate;
+
+    fn deref(&self) -> &Gate {
+        self.0.as_ref().expect("a gate")
+    }
+}
+
+impl std::ops::DerefMut for LaneGate {
+    fn deref_mut(&mut self) -> &mut Gate {
+        self.0.as_mut().expect("a gate")
+    }
+}
+
 /// One gate step with the exit watch denied.
-fn step_with_exit_watch_denied(gate: &mut Gate) -> Result<GateStep, GateError> {
+fn step_with_exit_watch_denied(gate: &mut LaneGate) -> Result<GateStep, GateError> {
     DENY_EXIT_WATCH.with(|deny| deny.set(true));
     let result = gate.step();
     DENY_EXIT_WATCH.with(|deny| deny.set(false));
@@ -112,7 +170,7 @@ impl TempData {
         self.root.path().join("runtime")
     }
 
-    pub(crate) fn gate(&self, procs: Box<dyn ProcessTable>) -> (Arc<CoreOwnership>, Gate) {
+    pub(crate) fn gate(&self, procs: Box<dyn ProcessTable>) -> (Arc<CoreOwnership>, LaneGate) {
         let own = Arc::new(ownership::acquire(&self.data()).expect("acquire"));
         let gate = Gate::with_table(
             own.clone(),
@@ -121,7 +179,7 @@ impl TempData {
             procs,
         )
         .expect("gate");
-        (own, gate)
+        (own, gate.into())
     }
 
     pub(crate) fn file(&self, name: &str) -> Option<Vec<u8>> {

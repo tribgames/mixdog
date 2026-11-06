@@ -1,10 +1,11 @@
 //! `ProviderAdapter` of `anthropic` and `anthropic-oauth`: exactly one request
-//! attempt. The only replays inside an attempt are the two credential/encoding
-//! recoveries of the initial response, both decided on the status alone before
-//! a stream exists: one credential refresh after a 401/403, and one uncompressed
-//! resend after a 400/415 on a gzip body. A body is compressed exactly when
-//! Node compresses it (official messages URL, at least 8 KiB),
-//! waiting for lane room rather than ever skipping it.
+//! attempt. The only replay inside an attempt is the credential recovery of
+//! the initial response, decided on the status alone before a stream exists:
+//! one credential refresh after a 401/403. A body is compressed exactly when
+//! Node compresses it (official messages URL, at least 8 KiB), waiting for
+//! lane room rather than ever skipping it; a rejected gzip body is the
+//! provider's error. The adapter also lists the route's models
+//! ([`ModelListing`]): one GET, no retry, no cache, no fallback list.
 //!
 //! The HTTP exchange is the shared [`HttpSend`] seam of `transport::http`.
 
@@ -16,8 +17,11 @@ use async_trait::async_trait;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::ModelListing;
+use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
@@ -37,9 +41,16 @@ use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
 
+use super::betas::BetaFeatures;
+use super::betas::beta_header;
+use super::codec::ANTHROPIC_VERSION;
 use super::codec::AnthropicCodec;
 use super::codec::AnthropicConfig;
 use super::codec::Flavor;
+use super::codec::layer_extra_headers;
+use super::models::AnthropicModel;
+use super::models::listing_url;
+use super::models::parse_listing;
 use super::oauth::OAuthSession;
 use super::policy::retry_policy;
 
@@ -162,7 +173,11 @@ impl AnthropicAdapter {
 
     fn request_with(&self, wire: &WireRequest, secret: &Secret) -> WireRequest {
         let mut request = wire.clone();
-        request.headers.push(self.credentials.header(secret));
+        // A configured extra header of the credential's name already replaced it.
+        let (name, value) = self.credentials.header(secret);
+        if !request.headers.iter().any(|h| h.0.eq_ignore_ascii_case(&name)) {
+            request.headers.push((name, value));
+        }
         request
     }
 
@@ -205,6 +220,62 @@ impl AnthropicAdapter {
             Err(err) => err,
         }
     }
+
+    /// One `GET /v1/models`: no retry, no credential replay, no cache.
+    async fn fetch_listing(&self) -> Result<Vec<u8>, ProviderError> {
+        let flavor = self.codec.flavor();
+        let secret = self.credentials.current().await?;
+        let mut headers = vec![("anthropic-version".to_owned(), ANTHROPIC_VERSION.to_owned())];
+        if flavor == Flavor::OAuth {
+            headers.push((
+                "anthropic-beta".to_owned(),
+                beta_header(flavor, BetaFeatures::default()),
+            ));
+            headers.push(("anthropic-dangerous-direct-browser-access".to_owned(), "true".to_owned()));
+            headers.push((
+                "user-agent".to_owned(),
+                format!("claude-cli/{} (external, sdk-cli)", self.codec.config().cli_version),
+            ));
+            headers.push(("x-app".to_owned(), "cli".to_owned()));
+        } else {
+            layer_extra_headers(&mut headers, &self.codec.config().extra_headers);
+        }
+        let wire = WireRequest {
+            transport: TransportKind::Http1,
+            method: "GET".to_owned(),
+            url: listing_url(flavor, self.codec.config()),
+            headers,
+            body: Vec::new(),
+        };
+        let response = self.http.send(self.request_with(&wire, &secret)).await?;
+        if !(200..300).contains(&response.status) {
+            return Err(self.failure(response).await);
+        }
+        response.read_all().await.map(|read| read.body)
+    }
+
+    /// The listed models with everything the route's normalizer derives
+    /// (family, tier, `latest`, release date, thinking types).
+    pub async fn list_rows(&self) -> Result<Vec<AnthropicModel>, ProviderError> {
+        let body = self.fetch_listing().await?;
+        parse_listing(&body, self.codec.flavor(), &self.codec.config().caps).map_err(|e| {
+            let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+            err.message = format!("model listing is not JSON: {e}");
+            err
+        })
+    }
+}
+
+#[async_trait]
+impl ModelListing for AnthropicAdapter {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        let rows = self.list_rows().await?.iter().map(AnthropicModel::to_record).collect();
+        let listing = &self.codec.config().listing;
+        // Node's order (`anthropic.mjs:478`, `anthropic-model-resolve.mjs:231`); both routes
+        // sanitize as `anthropic`, the subscription route's rows keep their own provider name.
+        let enriched = listing.enrich_listed(self.codec.flavor().provider_name(), rows);
+        Ok(listing.sanitize_listed("anthropic", enriched))
+    }
 }
 
 #[async_trait]
@@ -223,6 +294,10 @@ impl ProviderAdapter for AnthropicAdapter {
 
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
+    }
+
+    fn models(&self) -> Option<&dyn ModelListing> {
+        Some(self)
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {

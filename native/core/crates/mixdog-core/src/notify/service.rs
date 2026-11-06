@@ -29,7 +29,8 @@ const NO_RELAY: &str = "This PC is not connected to the relay, so paired devices
 /// Who is listening right now: the attached hosts, the paired devices and their preferences.
 #[async_trait]
 pub trait AudienceSource: Send + Sync {
-    async fn audience(&self) -> Audience;
+    /// The audience of a notification about `thread_id` (a device that shows it is foreground).
+    async fn audience(&self, thread_id: &str) -> Audience;
 }
 
 /// The relay push of one planned request. `Err` is the sentence shown to the user.
@@ -89,7 +90,7 @@ impl NotifyService {
         if matches!(target, TestTarget::Device(_)) && !self.push.connected() {
             return json!({ "ok": false, "message": NO_RELAY });
         }
-        let plan = self.engine.test(&target, &self.audience.audience().await);
+        let plan = self.engine.test(&target, &self.audience.audience("").await);
         if plan.toasts.is_empty() && plan.pushes.is_empty() {
             let message = match target {
                 TestTarget::Desktop => "No desktop is attached to show a notification.",

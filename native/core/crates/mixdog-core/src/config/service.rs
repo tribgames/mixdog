@@ -34,6 +34,7 @@ use crate::tool_modules::ToolModules;
 use crate::tool_modules::ToolModulesError;
 
 /// What [`ConfigService`] serves: `dispatch` handles the first twelve, `settings_call` the rest.
+/// The compaction and network-proxy methods are their services' own.
 const METHODS: &[&str] = &[
     "config/read",
     "config/value/write",
@@ -66,6 +67,8 @@ const METHODS: &[&str] = &[
     "config/setSystemShell",
     "config/setDeveloperOption",
     "config/saveStarterGuideState",
+    "config/getBotOrder",
+    "config/setBotOrder",
 ];
 
 pub struct ConfigService {
@@ -222,6 +225,8 @@ async fn settings_call(settings: &Settings, method: &str, params: &Value) -> Res
         "config/setSystemShell" => settings.set_system_shell(&arg("command")).await,
         "config/setDeveloperOption" => settings.set_developer_option(&arg("id"), &arg("enabled")).await,
         "config/saveStarterGuideState" => settings.save_starter_guide_state(&arg("state")).await,
+        "config/getBotOrder" => return Ok(settings.bot_order()),
+        "config/setBotOrder" => settings.set_bot_order(&arg("order")).await,
         other => return Err(wrong_method("config", other)),
     };
     tool(result)

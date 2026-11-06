@@ -111,7 +111,18 @@ impl CompatChatCodec {
         &self.profile
     }
 
-    fn base_url(&self) -> &str {
+    /// The rows the last listing returned (and the profile's seed facts).
+    pub fn models(&self) -> &ModelTable {
+        &self.config.models
+    }
+
+    /// The headers the configuration adds to every request (a login's
+    /// organization, a gateway's own).
+    pub fn extra_headers(&self) -> &[(String, String)] {
+        &self.config.extra_headers
+    }
+
+    pub fn base_url(&self) -> &str {
         self.config
             .base_url
             .as_deref()

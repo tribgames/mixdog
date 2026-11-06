@@ -38,6 +38,7 @@ pub mod user_text;
 pub mod user_cwd;
 pub mod user_facts;
 pub mod agent_route;
+pub mod route_cell;
 pub mod session_options;
 mod view;
 pub mod worktree;

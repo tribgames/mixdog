@@ -13,12 +13,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
+use mixdog_rt::MaintenanceIo;
 use serde_json::{Value, json};
 use tokio::sync::Semaphore;
 
+use crate::lane::on_lane;
 use mixdog_js::device_paths::{is_unc_path, is_windows_device_path};
 
-use super::candidate::{Candidate, Env, enumerate_candidates, import_origin_key, mtime_ms, source_root};
+use super::candidate::{Candidate, Enumeration, Env, enumerate_candidates, import_origin_key, mtime_ms, source_root};
 use super::codex::{codex_meta_from_truncated_line, rollout_id_of};
 use super::convert::{Conversion, Converter, Limits, MAX_FILE_BYTES, MAX_LINE_BYTES, Source};
 use super::fsutil::{ImportError, Opened, StreamOpts, case_fold, is_compressed, open_verified, real_path, stream_jsonl_lines};
@@ -110,6 +112,7 @@ pub struct CwdInfo {
 /// The canonical directory when it exists, else the raw value. A relative or network/device cwd
 /// is display text only: it is never handed to the filesystem (probing a UNC share can
 /// negotiate credentials).
+#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job")]
 pub fn resolve_source_cwd(raw: Option<&str>, cache: &mut HashMap<String, CwdInfo>) -> CwdInfo {
     let Some(raw) = raw.filter(|r| !r.is_empty()) else {
         return CwdInfo { exists: false, path: None };
@@ -167,6 +170,8 @@ pub struct Discovery {
     state: Mutex<State>,
     metas: SingleFlight<Meta>,
     permits: Semaphore,
+    /// The lane enumeration, prefix reads and conversions run on.
+    lane: MaintenanceIo,
 }
 
 fn fold_text(value: &str) -> String {
@@ -443,7 +448,16 @@ fn read_prefix_meta(candidate: &Candidate, scan_max_bytes: u64, codex_home: &Pat
     Ok(meta)
 }
 
+/// The canonical path and stat of a file chosen in a native picker.
+#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job")]
+fn stat_picked_file(requested: &str) -> Result<(PathBuf, std::fs::Metadata), ImportError> {
+    let real = real_path(Path::new(requested)).map_err(|_| ImportError::new("unreadable"))?;
+    let meta = std::fs::metadata(&real).map_err(|_| ImportError::new("unreadable"))?;
+    Ok((real, meta))
+}
+
 /// Complete lines of the last prefix-chunk of a file (the cut-off first line dropped).
+#[allow(clippy::disallowed_types, reason = "runs as a maintenance-lane job")]
 fn read_tail_lines(file: &mut std::fs::File, size: u64) -> Vec<String> {
     use std::io::{Read, Seek, SeekFrom};
     let length = size.min(PREFIX_CHUNK_BYTES as u64);
@@ -458,23 +472,29 @@ fn read_tail_lines(file: &mut std::fs::File, size: u64) -> Vec<String> {
 }
 
 impl Discovery {
-    pub fn new(env: Env) -> Arc<Self> {
-        Self::with_scan_budget(env, MAX_FILE_BYTES)
+    pub fn new(env: Env, lane: MaintenanceIo) -> Arc<Self> {
+        Self::with_scan_budget(env, MAX_FILE_BYTES, lane)
     }
 
     /// `scan_max_bytes` overrides the per-file budget of a sidechain-only scan.
-    pub fn with_scan_budget(env: Env, scan_max_bytes: u64) -> Arc<Self> {
+    pub fn with_scan_budget(env: Env, scan_max_bytes: u64, lane: MaintenanceIo) -> Arc<Self> {
         Arc::new(Self {
             env,
             scan_max_bytes,
             state: Mutex::default(),
             metas: SingleFlight::default(),
             permits: Semaphore::new(META_CONCURRENCY),
+            lane,
         })
     }
 
     pub fn env(&self) -> &Env {
         &self.env
+    }
+
+    /// The lane every file read of the import runs on.
+    pub fn lane(&self) -> MaintenanceIo {
+        self.lane
     }
 
     pub fn get_candidate(&self, id: &str) -> Option<Candidate> {
@@ -501,8 +521,19 @@ impl Discovery {
             .insert(candidate.path.clone(), (candidate.stamp_key(), meta_from_conversion(conversion, true)));
     }
 
-    /// Refreshes a candidate's stamp from the file as it is now.
-    pub fn restamp(&self, candidate: &mut Candidate) -> Result<(), ImportError> {
+    /// Refreshes a candidate's stamp from the file as it is now, on the lane.
+    pub async fn restamp(self: &Arc<Self>, candidate: Candidate) -> Result<Candidate, ImportError> {
+        let this = self.clone();
+        on_lane(self.lane, move || {
+            let mut candidate = candidate;
+            this.restamp_blocking(&mut candidate).map(|()| candidate)
+        })
+        .await
+        .unwrap_or_else(|_| Err(ImportError::new("unreadable")))
+    }
+
+    #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job")]
+    fn restamp_blocking(&self, candidate: &mut Candidate) -> Result<(), ImportError> {
         let meta = std::fs::metadata(&candidate.path).map_err(|_| ImportError::new("unreadable"))?;
         if !meta.is_file() {
             return Err(ImportError::new("unreadable"));
@@ -524,7 +555,7 @@ impl Discovery {
             return None;
         }
         let home = source_root(source, &self.env)?.parent()?.to_path_buf();
-        tokio::task::spawn_blocking(move || Arc::new(load_codex_thread_titles(&home))).await.ok()
+        on_lane(self.lane, move || Arc::new(load_codex_thread_titles(&home))).await.ok()
     }
 
     /// Metadata of a candidate, read through the bounded queue when not cached.
@@ -540,7 +571,7 @@ impl Discovery {
                 let _permit = this.permits.acquire().await.expect("semaphore is never closed");
                 let home = this.codex_home(&cand);
                 let (c, scan) = (cand.clone(), this.scan_max_bytes);
-                let meta = tokio::task::spawn_blocking(move || read_prefix_meta(&c, scan, &home))
+                let meta = on_lane(this.lane, move || read_prefix_meta(&c, scan, &home))
                     .await
                     .unwrap_or_else(|_| Err(ImportError::new("unreadable")))
                     .unwrap_or_else(|e| Meta { error_code: Some(e.0), ..Meta::default() });
@@ -563,7 +594,8 @@ impl Discovery {
 
     async fn enumerate(&self, source: Source) -> (String, Vec<Candidate>) {
         let env = self.env.clone();
-        let found = tokio::task::spawn_blocking(move || enumerate_candidates(source, &env)).await.expect("enumeration does not panic");
+        // A lane that cannot run the scan lists nothing, like an unreadable root.
+        let found = on_lane(self.lane, move || enumerate_candidates(source, &env)).await.unwrap_or_else(|_| Enumeration { root: String::new(), candidates: Vec::new() });
         for candidate in &found.candidates {
             self.register(candidate.clone());
         }
@@ -605,7 +637,7 @@ impl Discovery {
         let ids: Vec<String> = view.member_ids.iter().skip(offset).take(limit).cloned().collect();
         let entries = self.snapshot(&ids);
         let (titles, imported) = (view.titles.clone(), imported.clone());
-        let rows = tokio::task::spawn_blocking(move || {
+        let rows = on_lane(self.lane, move || {
             let mut cwd_cache = HashMap::new();
             entries
                 .iter()
@@ -616,7 +648,7 @@ impl Discovery {
                 .collect::<Vec<_>>()
         })
         .await
-        .expect("row building does not panic");
+        .unwrap_or_default();
         let next_offset = offset + ids.len();
         json!({
             "searchedRoot": view.root,
@@ -686,9 +718,9 @@ impl Discovery {
     async fn filter(&self, ids: &[String], filters: &Filters, imported: &Imported, titles: Option<Arc<HashMap<String, String>>>) -> Filtered {
         let entries = self.snapshot(ids);
         let (filters, imported) = (filters.clone(), imported.clone());
-        tokio::task::spawn_blocking(move || filter_candidates(&entries, &filters, &imported, titles.as_deref()))
+        on_lane(self.lane, move || filter_candidates(&entries, &filters, &imported, titles.as_deref()))
             .await
-            .expect("filtering does not panic")
+            .unwrap_or(Filtered { member_ids: Vec::new(), selectable_ids: Vec::new(), projects: Vec::new(), complete: false })
     }
 
     /// Complete selectable membership of a view for select-all: waits until the metadata of
@@ -730,13 +762,7 @@ impl Discovery {
         if !pickable(Path::new(&requested)) {
             return Err(ImportError::new("unsupported"));
         }
-        let (real, meta) = tokio::task::spawn_blocking(move || {
-            let real = real_path(Path::new(&requested)).map_err(|_| ImportError::new("unreadable"))?;
-            let meta = std::fs::metadata(&real).map_err(|_| ImportError::new("unreadable"))?;
-            Ok::<_, ImportError>((real, meta))
-        })
-        .await
-        .expect("stat does not panic")?;
+        let (real, meta) = on_lane(self.lane, move || stat_picked_file(&requested)).await.unwrap_or_else(|_| Err(ImportError::new("unreadable")))?;
         if is_unc_path(&real.to_string_lossy()) || is_windows_device_path(&real.to_string_lossy()) || !meta.is_file() || !pickable(&real) {
             return Err(ImportError::new("unsupported"));
         }
@@ -750,12 +776,12 @@ impl Discovery {
         self.record_conversion(&candidate, &converted);
         let titles = self.load_stored_titles(source).await;
         let meta = self.cached_meta(&candidate);
-        let cwd = tokio::task::spawn_blocking({
+        let cwd = on_lane(self.lane, {
             let raw = meta.as_ref().and_then(|m| m.cwd.clone());
             move || raw.as_deref().map(|r| resolve_source_cwd(Some(r), &mut HashMap::new()))
         })
         .await
-        .expect("cwd probe does not panic");
+        .unwrap_or(None);
         Ok(json!({ "row": row_for(&candidate, meta.as_ref(), cwd.as_ref(), imported, titles.as_deref()) }))
     }
 
@@ -763,7 +789,7 @@ impl Discovery {
     pub async fn convert(&self, candidate: &Candidate, limits: Limits) -> Result<Conversion, ImportError> {
         let home = self.codex_home(candidate);
         let candidate = candidate.clone();
-        tokio::task::spawn_blocking(move || {
+        on_lane(self.lane, move || {
             convert_candidate_file(&candidate, &home, limits, super::history::IMPORT_CHUNK_BYTES).map(|f| f.conversion)
         })
         .await

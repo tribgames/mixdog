@@ -1,6 +1,8 @@
 //! The engine shared by every front end (tools, panes, turn review, worktrees): one git
 //! runner, one inspector, one set of per-repository write locks.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

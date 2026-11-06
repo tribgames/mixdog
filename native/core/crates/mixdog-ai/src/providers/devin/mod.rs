@@ -10,10 +10,14 @@
 pub mod auth;
 pub mod decoder;
 pub mod error;
+pub mod families;
+pub mod listing;
 pub mod models;
 pub mod request;
 pub mod schema;
 pub mod session;
+#[cfg(test)]
+mod listing_tests;
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -28,6 +32,8 @@ use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
+use mixdog_core_api::domain::provider::ModelListing;
+use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
@@ -36,6 +42,7 @@ use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_core_api::domain::retry::RetryPolicy;
+use mixdog_js::locale_compare;
 use mixdog_protocol::ProviderId;
 use sha2::Digest;
 use sha2::Sha256;
@@ -47,6 +54,7 @@ use self::request::build_chat_request;
 use self::session::Client;
 use self::session::UserSession;
 use crate::providers::connect::frame;
+use crate::providers::listing_row;
 use crate::transport::http::HttpSend;
 use crate::providers::connect::stream::DecodedStream;
 
@@ -199,17 +207,30 @@ impl DevinAdapter {
         }
     }
 
-    /// The account's model rows, fetched once per account. An empty answer
-    /// is not kept: the next lookup asks again.
-    pub async fn models(&self, session_token: &str) -> Result<Vec<ModelRow>, ProviderError> {
+    /// The account's model rows, fetched once per account for the turns that
+    /// send to one of them. An empty answer is not kept: the next lookup asks
+    /// again.
+    pub async fn cached_rows(&self, session_token: &str) -> Result<Vec<ModelRow>, ProviderError> {
         let account = account_key(session_token);
         if let Some(catalog) = self.catalog.load_full()
             && catalog.account == account
         {
             let mut rows: Vec<_> = catalog.rows.values().cloned().collect();
-            rows.sort_by(|a, b| a.id.cmp(&b.id));
+            rows.sort_by(|a, b| locale_compare(&a.id, &b.id));
             return Ok(rows);
         }
+        let rows = self.fetch_rows(session_token).await?;
+        if !rows.is_empty() {
+            self.catalog.store(Some(Arc::new(Catalog {
+                account,
+                rows: rows.iter().map(|r| (r.id.clone(), r.clone())).collect(),
+            })));
+        }
+        Ok(rows)
+    }
+
+    /// One `GetCliModelConfigs` request: no cache.
+    pub async fn fetch_rows(&self, session_token: &str) -> Result<Vec<ModelRow>, ProviderError> {
         let api_key = session::normalize_session_token(session_token);
         let body = schema::encode_metadata_request(&session::request_metadata(&api_key, "", Client::Discovery));
         let bytes = session::unary(
@@ -222,14 +243,7 @@ impl DevinAdapter {
         .await?;
         let configs = schema::decode_cli_model_configs(&bytes)
             .map_err(|e| error::protocol_error(&format!("malformed GetCliModelConfigsResponse: {e}")))?;
-        let rows = models::normalize_models(&configs);
-        if !rows.is_empty() {
-            self.catalog.store(Some(Arc::new(Catalog {
-                account,
-                rows: rows.iter().map(|r| (r.id.clone(), r.clone())).collect(),
-            })));
-        }
-        Ok(rows)
+        Ok(models::normalize_models(&configs))
     }
 
     /// A router row is not a chat model: `AssignModel` resolves it, per turn,
@@ -273,9 +287,22 @@ fn random_uuid() -> String {
 }
 
 #[async_trait]
+impl ModelListing for DevinAdapter {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        let token = self.token.session_token().await?;
+        let rows = self.fetch_rows(&token).await?;
+        Ok(rows.iter().map(|row| listing_row::record(listing::row(row))).collect())
+    }
+}
+
+#[async_trait]
 impl ProviderAdapter for DevinAdapter {
     fn id(&self) -> &ProviderId {
         &self.id
+    }
+
+    fn models(&self) -> Option<&dyn ModelListing> {
+        Some(self)
     }
 
     fn codec(&self) -> &dyn WireCodec {
@@ -298,7 +325,7 @@ impl ProviderAdapter for DevinAdapter {
             return Err(error);
         }
         let token = self.token.session_token().await?;
-        let rows = self.models(&token).await?;
+        let rows = self.cached_rows(&token).await?;
         let row = rows.into_iter().find(|r| r.id == model);
         let session = session::exchange_user_jwt(self.http.as_ref(), &self.base_url, &token).await?;
         // The server threads turns that share one cascade id.
@@ -309,7 +336,7 @@ impl ProviderAdapter for DevinAdapter {
             .or_else(|| request.options.session_id.clone())
             .unwrap_or_else(random_uuid);
         let base = session.api_host.clone().unwrap_or_else(|| self.base_url.clone());
-        let wire_uid = row.as_ref().map_or_else(|| model.to_owned(), |r| r.id.clone());
+        let wire_uid = ModelRow::wire_uid(row.as_ref(), model, request.options.effort.as_deref());
         let assignment = match row.as_ref().filter(|r| r.router) {
             Some(router) => Some(
                 self.assign_model(&session, &base, &wire_uid, &cascade_id, &request, router.supports_vision)

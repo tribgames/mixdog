@@ -763,6 +763,86 @@ async fn a_managed_worktree_is_created_refused_while_unmerged_then_merged_and_re
     assert!(!std::path::Path::new(&made.path).exists());
     assert!(worktrees.list(None, &NoRetention, &cancel).await.unwrap().is_empty());
 }
+async fn two_worktrees() -> (tempfile::TempDir, tempfile::TempDir, crate::worktree::manager::Worktrees, Vec<crate::worktree::registry::WorktreeRecord>, CancellationToken) {
+    use crate::worktree::manager::CreateRequest;
+    use crate::worktree::manager::Worktrees;
+    let (guard, repo, _head) = fixture_repo();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "clean"]);
+    let data = tempfile::tempdir().unwrap();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    let cancel = CancellationToken::new();
+    let mut made = Vec::new();
+    for (session, name) in [("s1", "first"), ("s2", "second")] {
+        let request = CreateRequest { project_path: repo.clone(), session_id: session.into(), tx_id: format!("t-{name}"), name_hint: name.into(), ..CreateRequest::default() };
+        made.push(worktrees.create(request, &cancel).await.unwrap());
+    }
+    (guard, data, worktrees, made, cancel)
+}
+
+#[tokio::test]
+async fn a_removal_is_decided_then_finished_and_keeps_work_reachable() {
+    use crate::worktree::removal::RemoveRequest;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let first = &made[0];
+    let path = std::path::Path::new(&first.path);
+    std::fs::write(path.join("w.txt"), "w\n").unwrap();
+    git(path, &["add", "-A"]);
+    git(path, &["commit", "-q", "-m", "work"]);
+    let commit = git(path, &["rev-parse", "HEAD"]);
+    // Forced removal drops unmerged work: the branch stays reachable by a recovery ref.
+    let request = RemoveRequest { entry_id: first.id.clone(), force: true, session_id: Some("s1".into()), ..RemoveRequest::default() };
+    let out = worktrees.remove_managed(request, &cancel).await.unwrap();
+    assert_eq!(out["removed"], true);
+    assert!(!path.exists());
+    assert!(worktrees.record(&cancel, &first.id).await.unwrap().is_none());
+    let reachable = git(std::path::Path::new(&made[1].project_path), &["for-each-ref", "--contains", &commit, "--format=%(refname)"]);
+    assert!(!reachable.is_empty(), "the removed work stays reachable");
+}
+
+#[tokio::test]
+async fn a_reconcile_removes_clean_unretained_work_keeps_the_rest_and_resumes_a_decided_deletion() {
+    use crate::worktree::reconcile::ReconcileOptions;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let (first, second) = (&made[0], &made[1]);
+    // `second` has an uncommitted file; `first` is clean and merged.
+    std::fs::write(std::path::Path::new(&second.path).join("dirty.txt"), "d\n").unwrap();
+    let options = ReconcileOptions { remove_orphans: true, ..ReconcileOptions::default() };
+    let (ids, _) = worktrees.preview_cleanup(&options, &cancel).await.unwrap();
+    assert_eq!(ids.len(), 2, "the preview does not verify: both are candidates");
+    let report = worktrees.reconcile(&options, &cancel).await.unwrap();
+    assert_eq!(report.removed, [first.id.clone()], "{report:?}");
+    assert!(report.kept.iter().any(|k| k["id"] == second.id.as_str() && k["reason"] == "dirty"), "{:?}", report.kept);
+    assert!(std::path::Path::new(&second.path).exists());
+    // A retained session keeps its clean worktree.
+    std::fs::remove_file(std::path::Path::new(&second.path).join("dirty.txt")).unwrap();
+    let mut retained = options.clone();
+    retained.retained = ["s2".to_owned()].into();
+    assert!(worktrees.reconcile(&retained, &cancel).await.unwrap().removed.is_empty());
+    // A decided deletion that was interrupted is resumed by any pass.
+    let mut record = worktrees.record(&cancel, &second.id).await.unwrap().unwrap();
+    record.state = "deleting".into();
+    record.extra.insert("deleting".into(), serde_json::json!({ "force": false, "remaining": [] }));
+    worktrees.put_record(&cancel, record).await.unwrap();
+    let resumed = worktrees.reconcile(&ReconcileOptions::default(), &cancel).await.unwrap();
+    assert_eq!(resumed.removed, [second.id.clone()]);
+    assert!(!std::path::Path::new(&second.path).exists());
+}
+
+#[tokio::test]
+async fn an_automatic_removal_that_finds_the_checkout_changed_keeps_it() {
+    use crate::worktree::removal::Auto;
+    use crate::worktree::removal::AutoOptions;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let mut record = worktrees.record(&cancel, &made[0].id).await.unwrap().unwrap();
+    std::fs::write(std::path::Path::new(&record.path).join("late.txt"), "x\n").unwrap();
+    match worktrees.remove_automatically(&mut record, &AutoOptions::default(), &cancel).await.unwrap() {
+        Auto::Kept(verdict) => assert_eq!(verdict["reason"], "dirty"),
+        Auto::Removed(_) => panic!("dirty work was removed"),
+    }
+    assert!(std::path::Path::new(&record.path).exists());
+}
+
 #[tokio::test]
 async fn the_boot_sweep_empties_what_a_crashed_commit_left() {
     let scm = Scm::new(

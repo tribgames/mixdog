@@ -7,6 +7,7 @@ pub mod adapter;
 pub mod chat;
 pub mod creds;
 pub mod login;
+mod listing;
 pub mod error;
 pub mod models;
 pub mod pairing;

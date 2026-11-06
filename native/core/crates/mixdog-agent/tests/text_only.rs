@@ -34,7 +34,7 @@ impl MediaText for Media {
 
     fn text_form(&self, part: &ContentPart) -> Result<Option<String>, Box<ProviderError>> {
         use base64::Engine as _;
-        let ContentPart::File { source, mime_type, filename } = part else {
+        let ContentPart::File { source, mime_type, filename, .. } = part else {
             return Ok(None);
         };
         let BinarySource::Base64(data) = source else {
@@ -66,6 +66,7 @@ fn part_from_json(part: &JsonValue) -> ContentPart {
             },
             mime_type: str_of("mimeType").unwrap(),
             filename: str_of("filename"),
+            text: None,
         },
         "document" => ContentPart::Document {
             source: DocumentSource::Text { media_type: None, data: part["source"]["data"].as_str().unwrap().to_owned() },

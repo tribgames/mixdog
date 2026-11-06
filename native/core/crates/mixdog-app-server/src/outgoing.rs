@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_app_protocol::RequestId;
 use mixdog_app_protocol::v1::HostCapabilities;
+use mixdog_core_api::ConnectionNotifier;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
@@ -37,6 +38,7 @@ use mixdog_core_api::server_request::PendingServerRequest;
 use serde_json::Value;
 
 use crate::connection::Connection;
+use crate::connection::Streamed;
 use crate::error::error_data;
 use crate::frame::error_notification_frame;
 use crate::frame::notification_frame;
@@ -60,6 +62,9 @@ pub struct Outgoing {
     next_order: AtomicU64,
     /// Host claims, oldest first: the latest claim that declared a capability serves it.
     hosts: Mutex<Vec<Claim>>,
+    /// Connections that declared `capabilities.modelProxy`, oldest first. They serve from
+    /// `initialize` on, without `host/claim`; the latest serves.
+    model_proxies: Mutex<Vec<Arc<Connection>>>,
     next_host_request: AtomicU64,
 }
 
@@ -93,6 +98,7 @@ impl Outgoing {
             pending_count: AtomicUsize::new(0),
             next_order: AtomicU64::new(0),
             hosts: Mutex::new(Vec::new()),
+            model_proxies: Mutex::new(Vec::new()),
             next_host_request: AtomicU64::new(1),
         })
     }
@@ -106,6 +112,15 @@ impl Outgoing {
     pub(crate) fn unregister(&self, conn: &Connection) {
         self.connections.shard(&conn.id).remove(&conn.id);
         lock(&self.hosts).retain(|claim| claim.conn.id != conn.id);
+        lock(&self.model_proxies).retain(|proxy| proxy.id != conn.id);
+    }
+
+    /// Records `conn`, which declared `capabilities.modelProxy` at `initialize`, as the newest
+    /// connection to run proxied model calls.
+    pub(crate) fn serve_model_proxy(&self, conn: &Arc<Connection>) {
+        let mut proxies = lock(&self.model_proxies);
+        proxies.retain(|proxy| proxy.id != conn.id);
+        proxies.push(Arc::clone(conn));
     }
 
     pub(crate) fn connection(&self, id: ConnectionId) -> Option<Arc<Connection>> {
@@ -190,7 +205,20 @@ impl Outgoing {
         });
     }
 
+    fn next_host_id(&self) -> RequestId {
+        RequestId::String(format!(
+            "host-{}",
+            self.next_host_request.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
     fn claimant(&self, capability: HostCapability) -> Result<Arc<Connection>, CoreError> {
+        if capability == HostCapability::ModelProxy {
+            return lock(&self.model_proxies)
+                .last()
+                .cloned()
+                .ok_or_else(|| desktop_host_unavailable("noClaimant"));
+        }
         lock(&self.hosts)
             .iter()
             .rev()
@@ -259,6 +287,23 @@ impl Drop for ForgetOnDrop {
     }
 }
 
+/// Tells the connection running a model/proxy/execute request that its caller gave up: the
+/// request ended without an answer (dropped, cancelled), so the run must stop spending.
+struct CancelOnDrop {
+    conn: Arc<Connection>,
+    id: RequestId,
+    answered: bool,
+}
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if !self.answered {
+            let params = serde_json::json!({ "requestId": self.id });
+            let _ = self.conn.sink.send_control(notification_frame("model/proxy/cancel", params));
+        }
+    }
+}
+
 #[async_trait]
 impl HostChannel for Outgoing {
     async fn request(
@@ -268,10 +313,7 @@ impl HostChannel for Outgoing {
         params: Value,
     ) -> Result<Value, HostError> {
         let claimant = self.claimant(capability)?;
-        let id = RequestId::String(format!(
-            "host-{}",
-            self.next_host_request.fetch_add(1, Ordering::Relaxed)
-        ));
+        let id = self.next_host_id();
         let reply = claimant
             .register_host_request(id.clone())
             .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
@@ -299,5 +341,65 @@ impl HostChannel for Outgoing {
             .sink
             .send_control(notification_frame(method.as_str(), params))
             .map_err(|_| desktop_host_unavailable("claimantClosed"))
+    }
+
+    async fn request_streamed(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        on_event: &mut (dyn FnMut(Value) + Send),
+    ) -> Result<Value, HostError> {
+        let claimant = self.claimant(capability)?;
+        let id = self.next_host_id();
+        let mut stream = claimant
+            .register_host_stream(id.clone())
+            .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
+        let _forget = ForgetOnDrop {
+            conn: Arc::clone(&claimant),
+            id: id.clone(),
+        };
+        let request_id = id.clone();
+        claimant
+            .sink
+            .send_control(request_frame(id, method.as_str(), params))
+            .map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
+        // Only a call the connection runs for us can be told to stop; a closed connection needs no word.
+        let mut cancel = (capability == HostCapability::ModelProxy).then(|| CancelOnDrop { conn: Arc::clone(&claimant), id: request_id, answered: false });
+        loop {
+            match stream.recv().await {
+                Some(Streamed::Event(event)) => on_event(event),
+                Some(Streamed::Done(reply)) => {
+                    if let Some(cancel) = cancel.as_mut() {
+                        cancel.answered = true;
+                    }
+                    return reply;
+                }
+                None => {
+                    if let Some(cancel) = cancel.as_mut() {
+                        cancel.answered = true;
+                    }
+                    return Err(desktop_host_unavailable("claimantClosed").into());
+                }
+            }
+        }
+    }
+
+    fn stream_event(&self, from: ConnectionId, request: &Value, event: Value) -> bool {
+        let Ok(id) = serde_json::from_value::<RequestId>(request.clone()) else {
+            return false;
+        };
+        self.connection(from)
+            .is_some_and(|conn| conn.host_stream_event(&id, event))
+    }
+}
+
+impl ConnectionNotifier for Outgoing {
+    fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), CoreError> {
+        self.connection(to)
+            .ok_or(CoreError::ConnectionClosed)?
+            .sink
+            .send_control(notification_frame(method.as_str(), params))
+            .map_err(|_| CoreError::ConnectionClosed)
     }
 }

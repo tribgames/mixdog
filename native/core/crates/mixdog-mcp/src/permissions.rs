@@ -20,7 +20,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use mixdog_js::is_js_space;
 use mixdog_js::js_trim;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::DurabilityIo;
@@ -230,17 +229,7 @@ struct Snapshot {
     projects: Projects,
 }
 
-/// The JSON of a policy file's text: Node's `holdsNoData` check (only NULs and white space is
-/// "no data", a crash leftover), then `parseJsonText` (a leading byte order mark is dropped).
-fn parse_policy_text(text: &str) -> Result<Value, String> {
-    if text.chars().all(|c| c == '\0' || is_js_space(c)) {
-        return Err("the file holds no data".to_owned());
-    }
-    serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text)).map_err(|e| e.to_string())
-}
-
-fn lone_policy(text: &str) -> Result<Loaded, String> {
-    let manifest = parse_policy_text(text)?;
+fn lone_policy(manifest: &Value) -> Result<Loaded, String> {
     Ok(match parse_connector_policy(manifest.get("connectors"))? {
         Some(policy) => Loaded::Policy(policy),
         None => Loaded::Absent,
@@ -251,50 +240,37 @@ fn lone_policy(text: &str) -> Result<Loaded, String> {
 /// that cannot be read is `deny`; a damaged one (empty, NUL-filled, torn, or a shape `parse`
 /// refuses) falls back to its last good copy `<file>.bak` and, without one, is `deny` — it never
 /// fails open.
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn read_policy_file<T>(path: &Path, parse: impl Fn(&str) -> Result<T, String>, absent: T, deny: T) -> T {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
-            return absent;
-        }
-        Err(error) if error.raw_os_error().is_some_and(|c| c == 20 || c == 267) => return absent,
-        Err(_) => return deny,
-    };
-    parse(&text).unwrap_or_else(|error| {
-        let mut backup_path = path.as_os_str().to_owned();
-        backup_path.push(".bak");
-        let backup_path = PathBuf::from(backup_path);
-        let good = std::fs::read(&backup_path).ok().and_then(|bytes| {
-            let value = parse(&String::from_utf8_lossy(&bytes)).ok()?;
-            Some((value, bytes))
-        });
-        // With a good copy the damaged file is kept aside (`<file>.corrupt-<ms>`) and the copy
-        // restored in its place, so the user's deny list survives. Without one the file stays
-        // where it is: moving it would read as "no policy" (all on).
-        let restored = good.and_then(|(value, bytes)| match crate::connector_accounts::restore_from_backup(path, &bytes) {
-            Ok(aside) => {
-                tracing::warn!(path = %path.display(), %error, "connector policy was damaged; kept as {}; restored the last good copy", aside.display());
-                Some(value)
-            }
-            Err(failure) => {
-                tracing::warn!(path = %path.display(), %failure, "connector policy could not be restored");
-                None
-            }
-        });
-        restored.unwrap_or_else(|| {
-            tracing::warn!(path = %path.display(), %error, "connector policy is unreadable; denying all connectors");
+fn read_policy_file<T>(
+    lane: &InLane<MaintenanceIo>,
+    path: &Path,
+    parse: impl Fn(&Value) -> Result<T, String>,
+    absent: T,
+    deny: T,
+) -> T {
+    // With a good copy the damaged file is kept aside (`<file>.corrupt-<ms>`) and the copy
+    // restored in its place, so the user's deny list survives. Without one the file stays
+    // where it is (`keep_without_backup`): moving it would read as "no policy" (all on).
+    let valid = |value: &Value| parse(value).map(drop).map_err(mixdog_statefile::Invalid::Damaged);
+    let opts = mixdog_statefile::Opts { keep_without_backup: true, ..mixdog_statefile::Opts::default() };
+    match mixdog_statefile::read_json(lane, path, Some(&valid), &opts) {
+        Ok(Some(value)) => parse(&value).unwrap_or(deny),
+        // Nothing there is `absent`; a damaged file left in place with no good copy denies.
+        Ok(None) if path.exists() => {
+            tracing::warn!(path = %path.display(), "connector policy is unreadable; denying all connectors");
             deny
-        })
-    })
+        }
+        Ok(None) => absent,
+        Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => absent,
+        Err(error) if error.raw_os_error().is_some_and(|c| c == 20 || c == 267) => absent,
+        Err(_) => deny,
+    }
 }
 
-fn read_agent_policy(path: &Path) -> Loaded {
-    read_policy_file(path, lone_policy, Loaded::Absent, Loaded::DenyAll)
+fn read_agent_policy(lane: &InLane<MaintenanceIo>, path: &Path) -> Loaded {
+    read_policy_file(lane, path, lone_policy, Loaded::Absent, Loaded::DenyAll)
 }
 
-fn projects_of(text: &str) -> Result<Projects, String> {
-    let raw = parse_policy_text(text)?;
+fn projects_of(raw: &Value) -> Result<Projects, String> {
     let object = raw.as_object().ok_or("projects must be an object")?;
     let projects = match object.get("projects") {
         None | Some(Value::Null) => return Ok(Projects::Roots(Vec::new())),
@@ -315,8 +291,8 @@ fn projects_of(text: &str) -> Result<Projects, String> {
     Ok(Projects::Roots(out))
 }
 
-fn read_projects(path: &Path) -> Projects {
-    read_policy_file(path, projects_of, Projects::Absent, Projects::DenyAll)
+fn read_projects(lane: &InLane<MaintenanceIo>, path: &Path) -> Projects {
+    read_policy_file(lane, path, projects_of, Projects::Absent, Projects::DenyAll)
 }
 
 /// The folder of agent `id`'s definition. Mixy (`lead`) lives in her identity folder.
@@ -356,7 +332,7 @@ fn valid_agent_id(id: &str) -> bool {
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn load_snapshot(_lane: &InLane<MaintenanceIo>, data_dir: &Path) -> Snapshot {
+fn load_snapshot(lane: &InLane<MaintenanceIo>, data_dir: &Path) -> Snapshot {
     let store = bot_store(data_dir);
     let mut ids: BTreeSet<String> = BTreeSet::from([MIXY_AGENT_ID.to_owned()]);
     for folder in ["agents", "bots"] {
@@ -370,11 +346,11 @@ fn load_snapshot(_lane: &InLane<MaintenanceIo>, data_dir: &Path) -> Snapshot {
     let agents = ids
         .into_iter()
         .map(|id| {
-            let loaded = read_agent_policy(&agent_dir(data_dir, &id, &store).join("agent.json"));
+            let loaded = read_agent_policy(lane, &agent_dir(data_dir, &id, &store).join("agent.json"));
             (id, loaded)
         })
         .collect();
-    Snapshot { agents, projects: read_projects(&data_dir.join(PROJECT_CONNECTORS_FILE)) }
+    Snapshot { agents, projects: read_projects(lane, &data_dir.join(PROJECT_CONNECTORS_FILE)) }
 }
 
 /// Where connector policies are read from and saved to.
@@ -527,7 +503,7 @@ impl ConnectorPolicy {
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job (InLane proof)")]
 fn write_agent_permission(
-    _lane: &InLane<DurabilityIo>,
+    lane: &InLane<DurabilityIo>,
     data_dir: &Path,
     agent: &str,
     group: &str,
@@ -537,7 +513,7 @@ fn write_agent_permission(
     let store = bot_store(data_dir);
     let path = agent_dir(data_dir, agent, &store).join("agent.json");
     let mut manifest: Map<String, Value> = match std::fs::read_to_string(&path) {
-        Ok(text) => match serde_json::from_str::<Value>(&text) {
+        Ok(text) => match mixdog_statefile::parse_json_text(text.as_bytes()) {
             Ok(Value::Object(map)) => map,
             _ => return false,
         },
@@ -551,24 +527,9 @@ fn write_agent_permission(
     let own = tools.entry(group).or_insert_with(|| Value::Object(Map::new()));
     let Some(own) = own.as_object_mut() else { return false };
     own.insert(tool.to_owned(), Value::String(permission.name().to_owned()));
-    let Ok(body) = serde_json::to_vec_pretty(&Value::Object(manifest)) else { return false };
-    let Some(dir) = path.parent() else { return false };
-    if std::fs::create_dir_all(dir).is_err() {
-        return false;
-    }
-    if path.exists() {
-        let mut backup = path.as_os_str().to_owned();
-        backup.push(".bak");
-        let _ = std::fs::copy(&path, PathBuf::from(backup));
-    }
-    let mut temp = path.as_os_str().to_owned();
-    temp.push(format!(".mixdog-tmp-{:08x}", rand::random::<u32>()));
-    let temp = PathBuf::from(temp);
-    let written = std::fs::write(&temp, body).and_then(|()| std::fs::rename(&temp, &path));
-    if written.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    written.is_ok()
+    // `writeJsonAtomicSync(file, manifest, { backup: true })`.
+    let opts = mixdog_statefile::Opts { backup: true, ..mixdog_statefile::Opts::default() };
+    mixdog_statefile::write_json(lane, &path, &Value::Object(manifest), &opts).is_ok()
 }
 
 #[cfg(test)]

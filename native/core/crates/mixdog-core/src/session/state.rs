@@ -415,6 +415,8 @@ pub(crate) fn approval_result(aid: &str, resolution: &ApprovalResolution) -> Too
             result.at = *at;
             result.withdrawn = Some(true);
         }
+        // Never persisted: the actor answers it without a request.
+        ApprovalResolution::Unavailable { at } => result.at = *at,
     }
     result
 }

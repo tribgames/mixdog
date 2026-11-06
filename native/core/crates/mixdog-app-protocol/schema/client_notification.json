@@ -363,6 +363,46 @@
             "type"
           ],
           "type": "object"
+        },
+        {
+          "description": "The attempt failed and a retry begins: everything its events showed is dropped.",
+          "properties": {
+            "type": {
+              "enum": [
+                "attemptDiscarded"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A retried attempt reported usage before it died; it is billed once, here.",
+          "properties": {
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "attemptAbandoned"
+              ],
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/ProxyUsage"
+            }
+          },
+          "required": [
+            "type",
+            "usage"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -658,6 +698,27 @@
       ],
       "type": "object"
     },
+    "UiScreenSessionsChangedParams": {
+      "description": "Client notification `ui/screenSessions/changed` (UI → core): the sessions the user is looking at right now. Node asks `isSessionOnScreen(sessionId)` (`screen-sessions.ts`) at each delivery: true only while the window is visible, not minimized and focused, and its page reports painting that session. The host applies those window conditions itself, so this is the effective set: empty while the window is hidden, minimized or unfocused, or its page is gone (reload, navigation, renderer crash). It is a full replacement, sent on every change of the set (a report from the page, focus, blur, minimize, hide, show) and once when the UI attaches. The core treats a session as on screen only while it is in the latest set, and treats a detached UI as an empty set. No response.\n\nA paired phone sends the same notification over its relay connection, with its page visibility and app foreground applied. `browserId` is the id its direct Web Push subscription is keyed by (Node's `setForeground(visible, browserId)`): at most 64 UTF-16 units, kept until the phone states another, and ignored on every connection that is not a relay connection.",
+      "properties": {
+        "browserId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessionIds"
+      ],
+      "type": "object"
+    },
     "UiTerminalRunClaimedParams": {
       "description": "Client notification `ui/terminalRun/claimed` (UI → core): a pane now shows the terminal of a `ui/openRequested` terminal open that carried `requestId`.\n\nNo response. The core waits for the claim 2000 ms (the renderer's 1500 ms shown-wait plus 500 ms for the claim's trip back) and then settles the run as `shown: false`, reported to the agent as running in the background; with no UI attached it settles `shown: false` at once. A claim settles its run once: a claim for an unknown or already-settled id has no effect.",
       "properties": {
@@ -882,6 +943,25 @@
         },
         "params": {
           "$ref": "#/definitions/UiTerminalRunClaimedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The sessions the user is looking at (the desktop notifier's `isSessionOnScreen`).",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/screenSessions/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiScreenSessionsChangedParams"
         }
       },
       "required": [

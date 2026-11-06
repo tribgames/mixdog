@@ -195,6 +195,26 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "description": "The session has no approval surface (`approvalMode: \"implicit\"`, headless exec): nobody was asked and nothing was persisted.",
+          "properties": {
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "kind": {
+              "enum": [
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -1586,6 +1606,46 @@
           },
           "required": [
             "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The attempt failed and a retry begins: everything its events showed is dropped.",
+          "properties": {
+            "type": {
+              "enum": [
+                "attemptDiscarded"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A retried attempt reported usage before it died; it is billed once, here.",
+          "properties": {
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "attemptAbandoned"
+              ],
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/ProxyUsage"
+            }
+          },
+          "required": [
+            "type",
+            "usage"
           ],
           "type": "object"
         }

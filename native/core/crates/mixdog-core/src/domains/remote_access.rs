@@ -72,7 +72,7 @@ impl RemoteAccessService {
     fn credential_id(&self, req: &CoreRequest) -> String {
         let Caller::Connection(id) = &req.ctx.caller else { return String::new() };
         match self.registry.describe(id.0) {
-            Some(found) if matches!(found.kind, LinkKind::Phone | LinkKind::RemoteDesktop) => found.device,
+            Some(found) if matches!(found.kind, LinkKind::Phone | LinkKind::RemoteDesktop) => found.credential,
             _ => String::new(),
         }
     }

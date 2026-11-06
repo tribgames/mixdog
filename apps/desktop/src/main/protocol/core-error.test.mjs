@@ -19,11 +19,25 @@ test('a plain-Error text from the core reaches the window as that message', () =
   const failure = rpcFailure({
     reason: 'domainError',
     domain: 'config',
-    detail: { type: 'externalFailure', message: 'compaction threshold must be between 10 and 95' },
+    message: 'compaction threshold must be between 10 and 95',
   });
   const shown = coreErrorForWindow(failure);
   assert.equal(shown instanceof Error, true);
   assert.equal(shown.message, 'compaction threshold must be between 10 and 95');
+});
+
+test('a coded refusal keeps the wire message, and a typed detail does not replace it', () => {
+  const shown = coreErrorForWindow(
+    rpcFailure({
+      reason: 'domainError',
+      domain: 'config',
+      code: 'ROOM_MEMBER_SWITCHED_OFF',
+      message: 'Member is switched off.',
+      detail: { type: 'worktreeDirtyChoice', count: 1, paths: ['a.ts'] },
+    })
+  );
+  assert.equal(shown.message, 'Member is switched off.');
+  assert.deepEqual(shown.details, { count: 1, paths: ['a.ts'] });
 });
 
 test('an uncoded domain error without a text and other failures are left as they are', () => {
@@ -65,7 +79,7 @@ test('a coded refusal of another family goes through the IPC envelope with its c
       reason: 'domainError',
       domain: 'project',
       code: 'PROJECT_UNAVAILABLE',
-      detail: { type: 'externalFailure', message: 'Project is not registered.' },
+      message: 'Project is not registered.',
     })
   );
   const rebuilt = ipcErrorFromEnvelope(ipcErrorEnvelope(shown));
@@ -78,7 +92,7 @@ test('a window call that the core refuses with a plain-Error text rejects with t
   const failure = rpcFailure({
     reason: 'domainError',
     domain: 'update',
-    detail: { type: 'externalFailure', message: 'update check failed: offline' },
+    message: 'update check failed: offline',
   });
   const dispose = registerProtocolWindowIpc({
     connection: {

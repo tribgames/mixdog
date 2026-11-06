@@ -4,6 +4,7 @@
 
 pub mod device_paths;
 mod json;
+mod json_parse;
 mod locale_compare;
 pub mod math;
 mod number;
@@ -18,6 +19,10 @@ pub use json::quote as json_quote;
 pub use json::quoted_cut_utf16_len as json_cut_utf16_len;
 pub use json::stringify as json_stringify;
 pub use json::stringify_indent as json_stringify_indent;
+pub use json::stringify_indent_parsed as json_stringify_indent_parsed;
+pub use json_parse::JsonSyntaxError;
+pub use json_parse::parse as json_parse;
+pub use json_parse::parsed_text as json_parsed_text;
 pub use locale_compare::locale_compare;
 pub use number::number_to_string;
 pub use number::string_to_number;

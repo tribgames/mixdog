@@ -29,6 +29,7 @@ use std::time::Instant;
 
 use mixdog_core_api::domain::ownership::Ownership;
 
+use super::tests::LaneGate;
 use super::tests::SelfChild;
 use super::tests::TempData;
 use super::tests::marker;
@@ -107,14 +108,16 @@ fn wait_bounded(child: &mut Child, bound: Duration) -> Option<std::process::Exit
 }
 
 /// The core: OS lock, then the gate until clear (holding the data dir).
-fn serving_core(temp: &TempData) -> (Arc<CoreOwnership>, Gate) {
+fn serving_core(temp: &TempData) -> (Arc<CoreOwnership>, LaneGate) {
     let own = Arc::new(ownership::acquire(&temp.data()).expect("acquire"));
-    let mut gate = Gate::new(
-        own.clone(),
-        crate::discovery::path(&temp.runtime()),
-        record(),
-    )
-    .expect("gate");
+    let mut gate = LaneGate::from(
+        Gate::new(
+            own.clone(),
+            crate::discovery::path(&temp.runtime()),
+            record(),
+        )
+        .expect("gate"),
+    );
     assert!(matches!(gate.step().expect("step"), GateStep::Clear));
     (own, gate)
 }
@@ -272,8 +275,9 @@ fn core_child() {
         Err(AcquireError::AlreadyOwned) => return marker("LOCKED_OUT"),
         Err(error) => panic!("{error:?}"),
     };
-    let mut gate =
-        Gate::new(own.clone(), crate::discovery::path(&runtime), record()).expect("gate");
+    let mut gate = LaneGate::from(
+        Gate::new(own.clone(), crate::discovery::path(&runtime), record()).expect("gate"),
+    );
     let interrupt = Interrupt::new().expect("interrupt");
     loop {
         match gate.step().expect("step") {
@@ -687,7 +691,9 @@ fn gate_5_live_1_4_5_heartbeat_is_never_starved_by_booting_cores() {
         .expect("daemon");
     let pid = await_published(&temp, &mut tag_daemon);
     let own = Arc::new(ownership::acquire(&temp.data()).expect("acquire"));
-    let mut gate = Gate::new(own, crate::discovery::path(&temp.runtime()), record()).expect("gate");
+    let mut gate = LaneGate::from(
+        Gate::new(own, crate::discovery::path(&temp.runtime()), record()).expect("gate"),
+    );
     // Core boots back to back for longer than the fence period: each takes B,
     // judges the owner and gives B back.
     let until = Instant::now() + Duration::from_secs(45);
@@ -730,12 +736,14 @@ fn gate_5_live_1_4_5_daemon_blocks_until_its_os_exit() {
     let pid = await_published(&temp, &mut tag_daemon);
 
     let own = Arc::new(ownership::acquire(&temp.data()).expect("acquire"));
-    let mut gate = Gate::new(
-        own.clone(),
-        crate::discovery::path(&temp.runtime()),
-        record(),
-    )
-    .expect("gate");
+    let mut gate = LaneGate::from(
+        Gate::new(
+            own.clone(),
+            crate::discovery::path(&temp.runtime()),
+            record(),
+        )
+        .expect("gate"),
+    );
     let GateStep::Blocked(blocked) = gate.step().unwrap() else {
         panic!("a live 1.4.5 owner must block")
     };

@@ -1,0 +1,132 @@
+{
+ "base": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-skillport-golden",
+ "fixtures": {
+  "alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\n---\n\n# Alpha\n\nRun ${MIXDOG_SKILL_DIR}/run.sh\n",
+  "beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\n---\n\nBeta body\n",
+  "gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+  "delta-folder/SKILL.md": "---\nname: delta\ndescription: Folder does not match.\n---\n\nNever listed\n",
+  "epsilon/SKILL.md": "---\nname: epsilon\n---\nno description\n",
+  "zeta/SKILL.md": "﻿---\r\nname: zeta\r\ndescription: Use when zeta.\r\n---\r\n\r\nZeta line one\r\nline two\r\n",
+  "Eta/SKILL.md": "---\nname: Eta\ndescription: Uppercase names are not valid.\n---\n\nx\n"
+ },
+ "config": {
+  "skills": {
+   "disabled": [
+    " Beta "
+   ]
+  },
+  "extensionScopes": {
+   "skills": {
+    "gamma": [
+     "<BASE>\\proj1"
+    ]
+   }
+  }
+ },
+ "cases": [
+  {
+   "name": "alpha",
+   "cwd": "<BASE>\\proj2",
+   "refusal": null,
+   "resource": {
+    "content": "# Alpha\n\nRun ${MIXDOG_SKILL_DIR}/run.sh",
+    "dir": "<BASE>\\data\\skills\\alpha",
+    "source": "global"
+   }
+  },
+  {
+   "name": "ALPHA",
+   "cwd": "<BASE>\\proj2",
+   "refusal": null,
+   "resource": null
+  },
+  {
+   "name": "  alpha  ",
+   "cwd": "<BASE>\\proj2",
+   "refusal": null,
+   "resource": {
+    "content": "# Alpha\n\nRun ${MIXDOG_SKILL_DIR}/run.sh",
+    "dir": "<BASE>\\data\\skills\\alpha",
+    "source": "global"
+   }
+  },
+  {
+   "name": "beta",
+   "cwd": "<BASE>\\proj2",
+   "refusal": "Error: skill \"beta\" is disabled",
+   "resource": null
+  },
+  {
+   "name": "BETA",
+   "cwd": "<BASE>\\proj2",
+   "refusal": "Error: skill \"BETA\" is disabled",
+   "resource": null
+  },
+  {
+   "name": "gamma",
+   "cwd": "<BASE>\\proj1\\sub",
+   "refusal": null,
+   "resource": {
+    "content": "Gamma body",
+    "dir": "<BASE>\\data\\skills\\gamma",
+    "source": "global"
+   }
+  },
+  {
+   "name": "gamma",
+   "cwd": "<BASE>\\proj1",
+   "refusal": null,
+   "resource": {
+    "content": "Gamma body",
+    "dir": "<BASE>\\data\\skills\\gamma",
+    "source": "global"
+   }
+  },
+  {
+   "name": "gamma",
+   "cwd": "<BASE>\\proj2",
+   "refusal": "Error: skill \"gamma\" is not available in this project (its project scope excludes the current folder)",
+   "resource": null
+  },
+  {
+   "name": "delta",
+   "cwd": "<BASE>\\proj2",
+   "refusal": null,
+   "resource": null
+  },
+  {
+   "name": "epsilon",
+   "cwd": "<BASE>\\proj2",
+   "refusal": null,
+   "resource": null
+  },
+  {
+   "name": "zeta",
+   "cwd": "<BASE>\\proj2",
+   "refusal": null,
+   "resource": {
+    "content": "Zeta line one\r\nline two",
+    "dir": "<BASE>\\data\\skills\\zeta",
+    "source": "global"
+   }
+  },
+  {
+   "name": "Eta",
+   "cwd": "<BASE>\\proj2",
+   "refusal": null,
+   "resource": null
+  },
+  {
+   "name": "ghost",
+   "cwd": "<BASE>\\proj2",
+   "refusal": null,
+   "resource": null
+  },
+  {
+   "name": "",
+   "cwd": "<BASE>\\proj2",
+   "refusal": null,
+   "resource": null
+  }
+ ]
+}

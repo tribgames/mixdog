@@ -18,8 +18,9 @@ use tokio::sync::Semaphore;
 
 use super::candidate::import_origin_key;
 use super::convert::{Conversion, Limits, Source};
-use super::discovery::{Discovery, Imported, display_title, resolve_source_cwd};
+use super::discovery::{CwdInfo, Discovery, Imported, display_title, resolve_source_cwd};
 use super::fsutil::ImportError;
+use crate::lane::on_lane;
 use super::turns::WARNING_CWD_MISSING;
 
 const MAX_FINISHED_JOBS: usize = 20;
@@ -172,7 +173,7 @@ pub struct ImportJobs {
     limits: Limits,
     registry: Mutex<Registry>,
     /// The one serialized admission lane shared by all jobs.
-    admission: tokio::sync::Mutex<()>,
+    admission: tokio::sync::Semaphore,
 }
 
 struct BatchContext {
@@ -191,7 +192,7 @@ impl ImportJobs {
             sessions,
             limits,
             registry: Mutex::default(),
-            admission: tokio::sync::Mutex::new(()),
+            admission: tokio::sync::Semaphore::new(1),
         })
     }
 
@@ -408,7 +409,8 @@ impl ImportJobs {
                 break;
             }
             let admitted = {
-                let _lane = self.admission.lock().await;
+                // The semaphore is never closed, so the permit is always granted.
+                let _lane = self.admission.acquire().await;
                 // A cancel that arrived while queued behind other jobs wins here.
                 if job.lock().unwrap().cancel_requested {
                     None
@@ -433,18 +435,14 @@ impl ImportJobs {
     }
 
     async fn import_one(&self, candidate_id: &str, ctx: &mut BatchContext) -> Result<Outcome, Fatal> {
-        let Some(mut candidate) = self.discovery.get_candidate(candidate_id) else {
+        let Some(candidate) = self.discovery.get_candidate(candidate_id) else {
             return Ok(Outcome::failed(candidate_id, "unknownCandidate", None, Vec::new()));
         };
         // The chat keeps the title the user picked it by: a long file's listing title comes from
         // its prefix and can differ from the converted branch. Codex's own stored title, when it
         // has one, names the chat first.
         let listed_title = self.discovery.cached_meta(&candidate).and_then(|m| m.title);
-        let restamped = {
-            let discovery = self.discovery.clone();
-            tokio::task::spawn_blocking(move || discovery.restamp(&mut candidate).map(|()| candidate)).await
-        };
-        let Ok(Ok(candidate)) = restamped else {
+        let Ok(candidate) = self.discovery.restamp(candidate).await else {
             return Ok(Outcome::failed(candidate_id, "unreadable", None, Vec::new()));
         };
         let mut conversion = match self.discovery.convert(&candidate, self.limits).await {
@@ -462,9 +460,10 @@ impl ImportJobs {
         }
         self.discovery.record_conversion(&candidate, &conversion);
         let raw_cwd = conversion.cwd.clone();
-        let cwd_info = tokio::task::spawn_blocking(move || resolve_source_cwd(raw_cwd.as_deref(), &mut HashMap::new()))
+        // A lane that cannot run the probe reports the directory as missing.
+        let cwd_info = on_lane(self.discovery.lane(), move || resolve_source_cwd(raw_cwd.as_deref(), &mut HashMap::new()))
             .await
-            .expect("cwd probe does not panic");
+            .unwrap_or(CwdInfo { exists: false, path: None });
         let project_path = if cwd_info.exists { cwd_info.path.clone() } else { None };
         if let Some(code) = &conversion.error_code {
             return Ok(Outcome::failed(candidate_id, code, project_path, conversion.warnings.clone()));

@@ -95,6 +95,7 @@ pub fn parse_ustar(buffer: &[u8]) -> Vec<TarEntry> {
     entries
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn write_entry(dest: &Path, name: &str, data: &[u8], mode: u32) -> Result<String, ExtractError> {
     let target = dest.join(name);
     if let Some(parent) = target.parent() {
@@ -110,6 +111,7 @@ fn write_entry(dest: &Path, name: &str, data: &[u8], mode: u32) -> Result<String
     Ok(name.to_owned())
 }
 
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 pub fn extract_tar_gz(src: &Path, dest: &Path) -> Result<Vec<String>, ExtractError> {
     let mut raw = Vec::new();
     flate2::read::GzDecoder::new(fs::File::open(src)?).read_to_end(&mut raw)?;
@@ -144,6 +146,7 @@ pub fn is_nupkg_metadata(name: &str) -> bool {
         || base.to_lowercase().ends_with(".nuspec")
 }
 
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 pub fn extract_zip(src: &Path, dest: &Path, skip: impl Fn(&str) -> bool) -> Result<Vec<String>, ExtractError> {
     let mut archive = zip::ZipArchive::new(fs::File::open(src)?).map_err(|e| ExtractError::Other(e.to_string()))?;
     let mut written = Vec::new();
@@ -169,6 +172,8 @@ pub fn extract_zip(src: &Path, dest: &Path, skip: impl Fn(&str) -> bool) -> Resu
 }
 
 /// Extracts by manifest archive kind; `none` copies the single downloaded file to `bin_path`.
+/// Blocking: the body of a durability-lane job.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn extract_archive(archive: &str, src: &Path, dest: &Path, bin_path: &str) -> Result<Vec<String>, ExtractError> {
     fs::create_dir_all(dest)?;
     match archive {

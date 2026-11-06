@@ -388,6 +388,9 @@ impl State {
 pub(crate) struct Shared {
     id: ConnectionId,
     origin: ConnectionOrigin,
+    /// A lower-rights origin the peer asked for during its upgrade (a bridged phone on the SSH
+    /// listener). Set at most once, before the connection starts, so it only ever narrows.
+    narrowed: OnceLock<ConnectionOrigin>,
     pub(crate) limits: WriterLimits,
     budget: Arc<EventBudget>,
     state: Mutex<State>,
@@ -416,6 +419,7 @@ impl Shared {
         Self {
             id,
             origin,
+            narrowed: OnceLock::new(),
             limits,
             budget: Arc::new(EventBudget {
                 total: limits.event_budget,
@@ -527,7 +531,12 @@ impl Shared {
     }
 
     pub(crate) fn origin(&self) -> &ConnectionOrigin {
-        &self.origin
+        self.narrowed.get().unwrap_or(&self.origin)
+    }
+
+    /// Takes `origin` instead of the listener's. False when one was taken already.
+    pub(crate) fn narrow(&self, origin: ConnectionOrigin) -> bool {
+        self.narrowed.set(origin).is_ok()
     }
 
     /// Any received frame: the peer is alive.

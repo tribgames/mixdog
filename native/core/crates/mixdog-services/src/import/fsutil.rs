@@ -1,6 +1,7 @@
 //! Path rules and bounded line reading shared by discovery and conversion.
 
 use std::fmt;
+#[allow(clippy::disallowed_types, reason = "opened and read only inside maintenance-lane jobs")]
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -53,6 +54,7 @@ pub fn simplify(path: PathBuf) -> PathBuf {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job")]
 pub fn real_path(path: &Path) -> io::Result<PathBuf> {
     std::fs::canonicalize(path).map(simplify)
 }
@@ -67,6 +69,7 @@ pub fn is_compressed(path: &Path) -> bool {
 }
 
 /// A candidate's file: plain, or the decompressed bytes of a compressed rollout.
+#[allow(clippy::disallowed_types, reason = "opened and read only inside maintenance-lane jobs")]
 pub enum Opened {
     Plain(File),
     Zstd(Box<zstd::Decoder<'static, io::BufReader<File>>>),
@@ -85,6 +88,7 @@ impl Read for Opened {
 /// `path` (inside `root` for an enumerated candidate, never a network or device path) and names
 /// the same file as the open handle. A link or junction swapped in after enumeration fails
 /// `unreadable`.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a maintenance-lane job")]
 pub fn open_verified(path: &Path, root: Option<&Path>) -> Result<Opened, ImportError> {
     let unreadable = |_| ImportError::new("unreadable");
     let file = File::open(path).map_err(unreadable)?;

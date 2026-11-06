@@ -1,5 +1,7 @@
 //! Voice: managed whisper.cpp + ffmpeg runtime, transcription pipeline, `voice/` service.
 
+#![cfg_attr(test, allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup"))]
+
 pub mod language;
 pub mod pipeline;
 pub mod runtime;
@@ -8,6 +10,7 @@ pub mod setup;
 pub mod setup_action;
 pub mod single_flight;
 pub mod wav;
+pub mod whisper_owner;
 pub mod whisper_server;
 
 pub use pipeline::{AudioTools, ServerContract, VoiceError, VoicePipeline, VoiceSettings, VoiceSettingsSource, WhisperEngine};

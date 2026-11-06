@@ -210,3 +210,100 @@ async fn a_host_notification_goes_to_the_claimant() {
     assert_eq!(frames[0].body["method"], json!("host/notification/show"));
     assert!(frames[0].body.get("id").is_none());
 }
+
+const EXECUTE: Method = Method("model/proxy/execute");
+
+#[tokio::test]
+async fn a_model_proxy_serves_from_initialize_and_streams_its_events_ahead_of_the_answer() {
+    use mixdog_core_api::ids::ConnectionId;
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        let mut seen = Vec::new();
+        let result = outgoing
+            .request_streamed(HostCapability::ModelProxy, EXECUTE, json!({ "call": 1 }), &mut |e| seen.push(e))
+            .await;
+        (result, seen)
+    });
+    let request = pc.frames(1).await.remove(0).body;
+    assert_eq!(request["method"], json!("model/proxy/execute"));
+    for n in 0..3 {
+        assert!(rig.outgoing.stream_event(ConnectionId(1), &request["id"], json!({ "n": n })));
+    }
+    pc.send(json!({ "id": request["id"], "result": "done" }));
+    let (result, seen) = call.await.unwrap();
+    assert_eq!(result, Ok(json!("done")));
+    assert_eq!(seen, vec![json!({ "n": 0 }), json!({ "n": 1 }), json!({ "n": 2 })]);
+    // The request is over: a late event is refused, and so is one from another connection.
+    assert!(!rig.outgoing.stream_event(ConnectionId(1), &request["id"], json!({})));
+    assert!(!rig.outgoing.stream_event(ConnectionId(2), &request["id"], json!({})));
+}
+
+#[tokio::test]
+async fn a_model_proxy_that_closes_mid_call_is_a_closed_claimant() {
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        outgoing
+            .request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {})
+            .await
+    });
+    pc.frames(1).await;
+    drop(pc);
+    assert_eq!(call.await.unwrap(), Err(unavailable("claimantClosed")));
+    assert_eq!(
+        rig.outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await,
+        Err(unavailable("noClaimant"))
+    );
+}
+
+#[tokio::test]
+async fn only_a_connection_that_declared_model_proxy_serves_it() {
+    let rig = Rig::new();
+    let _host = claimed(&rig, 1).await;
+    assert_eq!(
+        rig.outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await,
+        Err(unavailable("noClaimant"))
+    );
+}
+
+#[tokio::test]
+async fn a_notification_reaches_its_connection_by_id() {
+    use mixdog_core_api::ConnectionNotifier;
+    use mixdog_core_api::ids::ConnectionId;
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({}));
+    ConnectionNotifier::notify(rig.outgoing.as_ref(), ConnectionId(1), Method("modelProxy/run/event"), json!({ "runId": "r" })).unwrap();
+    assert_eq!(pc.drain()[0].body["method"], json!("modelProxy/run/event"));
+    assert_eq!(
+        ConnectionNotifier::notify(rig.outgoing.as_ref(), ConnectionId(9), Method("x"), json!({})),
+        Err(CoreError::ConnectionClosed)
+    );
+}
+
+#[tokio::test]
+async fn a_model_proxy_call_given_up_is_cancelled_on_the_connection_and_an_answered_one_is_not() {
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await
+    });
+    let request = pc.frames(1).await.remove(0).body;
+    call.abort();
+    let _ = call.await;
+    let cancel = pc.frames(1).await.remove(0).body;
+    assert_eq!(cancel["method"], json!("model/proxy/cancel"));
+    assert_eq!(cancel["params"], json!({ "requestId": request["id"] }));
+
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await
+    });
+    let request = pc.frames(1).await.remove(0).body;
+    pc.send(json!({ "id": request["id"], "result": 1 }));
+    assert_eq!(call.await.unwrap(), Ok(json!(1)));
+    assert!(pc.drain().is_empty());
+}

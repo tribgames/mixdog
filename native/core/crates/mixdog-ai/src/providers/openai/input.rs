@@ -137,6 +137,7 @@ fn normalize_part(part: &ContentPart, assistant: bool) -> Option<Value> {
             source,
             mime_type,
             filename,
+            ..
         } => Some(match source {
             BinarySource::Base64(data) if is_pdf(mime_type) => {
                 pdf_file_part(filename.as_deref(), data)

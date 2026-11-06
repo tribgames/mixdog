@@ -2,14 +2,16 @@
 //! selection of a request's variant from the model's declared parameters.
 //!
 //! Variant naming comes from the server's parameter definitions and variant
-//! rows; a model id is never parsed for effort or speed suffixes. An id the
-//! catalog does not describe is sent as it is.
+//! rows; only a model the server describes by neither is read for effort and
+//! speed suffixes (`variants`). An id the catalog does not describe is sent
+//! as it is.
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_js::js_trim;
 use serde_json::Map;
 use serde_json::Value;
 
@@ -17,28 +19,29 @@ use super::request::ModelSelection;
 use crate::providers::connect::pb::PbError;
 use crate::providers::connect::pb::Reader;
 use crate::providers::connect::pb::Writer;
+use super::variants;
 
 pub const DEFAULT_CONTEXT_WINDOW: u64 = 200_000;
 
 pub fn is_auto_model_id(id: &str) -> bool {
-    matches!(id.trim().to_ascii_lowercase().as_str(), "auto" | "default")
+    matches!(js_trim(id).to_lowercase().as_str(), "auto" | "default")
 }
 
 /// `auto` and `default` are one model.
 pub fn canonical_model_id(id: &str) -> String {
-    let id = id.trim();
+    let id = js_trim(id);
     if is_auto_model_id(id) { "auto".to_owned() } else { id.to_owned() }
 }
 
 pub fn is_effort_parameter_id(id: &str) -> bool {
-    let key = id.trim().to_ascii_lowercase();
+    let key = js_trim(id).to_lowercase();
     key == "effort" || key == "reasoning" || key.ends_with("_effort") || key.ends_with("-effort")
 }
 
 /// A parameter value as compared and sent: lowercase and trimmed; the effort
 /// parameter's `extra-high` is `xhigh`.
 pub fn normalize_parameter_value(id: &str, value: &str) -> String {
-    let text = value.trim().to_ascii_lowercase();
+    let text = js_trim(value).to_lowercase();
     if is_effort_parameter_id(id) && text == "extra-high" {
         "xhigh".to_owned()
     } else {
@@ -106,6 +109,15 @@ impl CursorModel {
     pub fn fast_capable(&self) -> bool {
         self.definitions.iter().any(|d| d.id == "fast")
     }
+
+    /// Whether the server describes the model by parameters or modes; a model
+    /// it describes by neither is listed as the plain row it is.
+    pub fn is_parameterized(&self) -> bool {
+        !self.definitions.is_empty()
+            || self.supports_max_mode
+            || self.supports_non_max_mode
+            || self.max_context_window > 0
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -130,11 +142,14 @@ fn decode_definition(bytes: &[u8]) -> Result<ParameterDefinition, PbError> {
         boolean: false,
         values: Vec::new(),
     };
+    // Boolean values come before enum values, whatever order the lists arrive in.
+    let (mut booleans, mut enums) = (Vec::new(), Vec::new());
+    let mut boolean_listed = false;
     let mut r = Reader::new(bytes);
     while let Some((n, v)) = r.next_field()? {
         match n {
-            1 => out.id = v.text().trim().to_owned(),
-            2 => out.name = v.text().trim().to_owned(),
+            1 => out.id = js_trim(&v.text()).to_owned(),
+            2 => out.name = js_trim(&v.text()).to_owned(),
             4 => {
                 let mut t = Reader::new(v.bytes());
                 while let Some((kind, list)) = t.next_field()? {
@@ -144,12 +159,13 @@ fn decode_definition(bytes: &[u8]) -> Result<ParameterDefinition, PbError> {
                         2 => (4, false),
                         _ => continue,
                     };
-                    out.boolean |= is_bool;
                     let mut values = Reader::new(list.bytes());
                     while let Some((m, value)) = values.next_field()? {
                         if m != 1 {
                             continue;
                         }
+                        // A blocked boolean value still makes the parameter a boolean.
+                        boolean_listed |= is_bool;
                         let (mut raw, mut label, mut blocked) = (String::new(), String::new(), false);
                         let mut f = Reader::new(value.bytes());
                         while let Some((k, x)) = f.next_field()? {
@@ -160,17 +176,8 @@ fn decode_definition(bytes: &[u8]) -> Result<ParameterDefinition, PbError> {
                                 _ => {}
                             }
                         }
-                        if !blocked && !raw.trim().is_empty() {
-                            let label = if label.is_empty() {
-                                match (is_bool, raw.as_str()) {
-                                    (true, "true") => "On".to_owned(),
-                                    (true, "false") => "Off".to_owned(),
-                                    _ => raw.clone(),
-                                }
-                            } else {
-                                label
-                            };
-                            out.values.push(ParameterValue { value: raw, label });
+                        if !blocked && !js_trim(&raw).is_empty() {
+                            (if is_bool { &mut booleans } else { &mut enums }).push((raw, label));
                         }
                     }
                 }
@@ -178,6 +185,20 @@ fn decode_definition(bytes: &[u8]) -> Result<ParameterDefinition, PbError> {
             _ => {}
         }
     }
+    out.boolean = boolean_listed;
+    out.values = booleans
+        .into_iter()
+        .chain(enums)
+        .map(|(value, label)| {
+            let label = match (label.is_empty(), boolean_listed, value.as_str()) {
+                (false, ..) => label,
+                (true, true, "true") => "On".to_owned(),
+                (true, true, "false") => "Off".to_owned(),
+                _ => value.clone(),
+            };
+            ParameterValue { value, label }
+        })
+        .collect();
     Ok(out)
 }
 
@@ -197,7 +218,7 @@ fn decode_variant(bytes: &[u8]) -> Result<Variant, PbError> {
                 let mut f = Reader::new(v.bytes());
                 while let Some((k, x)) = f.next_field()? {
                     match k {
-                        1 => id = x.text().trim().to_owned(),
+                        1 => id = js_trim(&x.text()).to_owned(),
                         2 => value = x.text(),
                         _ => {}
                     }
@@ -209,7 +230,7 @@ fn decode_variant(bytes: &[u8]) -> Result<Variant, PbError> {
             3 => out.max_mode = v.as_bool(),
             4 => out.default_max = v.as_bool(),
             5 => out.default_non_max = v.as_bool(),
-            11 => out.legacy_slug = v.text().trim().to_owned(),
+            11 => out.legacy_slug = js_trim(&v.text()).to_owned(),
             _ => {}
         }
     }
@@ -232,7 +253,10 @@ pub fn decode_available_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError
     if !uses_parameters {
         return Ok(Vec::new());
     }
-    let mut by_id: BTreeMap<String, CursorModel> = BTreeMap::new();
+    // Rows keep the order of their first appearance; a richer duplicate
+    // replaces the row in place.
+    let mut models: Vec<CursorModel> = Vec::new();
+    let mut position: HashMap<String, usize> = HashMap::new();
     for model_bytes in raw {
         let mut name = String::new();
         let mut server_name = String::new();
@@ -272,12 +296,12 @@ pub fn decode_available_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError
                 29 => definitions.push(decode_definition(v.bytes())?),
                 30 => variants.push(decode_variant(v.bytes())?),
                 35 => hidden = v.as_bool(),
-                36 | 37 => aliases.push(v.text().trim().to_owned()),
+                36 | 37 => aliases.push(js_trim(&v.text()).to_owned()),
                 39 => tagline = v.text(),
                 _ => {}
             }
         }
-        let raw_id = if name.trim().is_empty() { server_name.trim() } else { name.trim() }.to_owned();
+        let raw_id = js_trim(if name.is_empty() { &server_name } else { &name }).to_owned();
         if raw_id.is_empty() || hidden {
             continue;
         }
@@ -318,11 +342,34 @@ pub fn decode_available_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError
             usize::from(!m.definitions.is_empty()) * 2
                 + usize::from(m.supports_max_mode || m.supports_non_max_mode || m.max_context_window > 0)
         };
-        if by_id.get(&id).is_none_or(|current| rank(&next) >= rank(current)) {
-            by_id.insert(id, next);
+        match position.get(&id) {
+            Some(&at) if rank(&next) >= rank(&models[at]) => models[at] = next,
+            Some(_) => {}
+            None => {
+                position.insert(id, models.len());
+                models.push(next);
+            }
         }
     }
-    Ok(by_id.into_values().collect())
+    // Auto is always listed, first: a fixed entry when the server lists none
+    // (`withCanonicalAutoModels`), so a saved `auto` route keeps resolving.
+    if !models.iter().any(|m| m.id == "auto") {
+        models.insert(0, CursorModel {
+            id: "auto".to_owned(),
+            name: "Auto".to_owned(),
+            description: String::new(),
+            context_window: DEFAULT_CONTEXT_WINDOW,
+            max_context_window: 0,
+            supports_max_mode: false,
+            supports_non_max_mode: false,
+            supports_vision: false,
+            supports_reasoning: false,
+            definitions: Vec::new(),
+            variants: Vec::new(),
+            aliases: Vec::new(),
+        });
+    }
+    Ok(models)
 }
 
 // ---------------------------------------------------------------------------
@@ -339,7 +386,7 @@ pub struct ParameterAsk<'a> {
     pub selected_context_window: Option<u64>,
 }
 
-fn invalid(message: String) -> ProviderError {
+pub(super) fn invalid(message: String) -> ProviderError {
     let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
     error.message = message;
     error
@@ -424,25 +471,61 @@ pub fn select_variant(model: &CursorModel, ask: &ParameterAsk<'_>) -> Result<Mod
         model_id: model.id.clone(),
         parameters,
         max_mode,
+        pricing_model: None,
     })
 }
 
-/// The selection for `requested`: the model's variant when the catalog
-/// describes it, else the id as it is.
+/// The selection for `requested` (`_resolveCursorModel`): the variant of a
+/// parameterized model; an alias or an id the catalog lists as it is, unless
+/// the request asks for an effort or speed; else one of the id-named variants
+/// sharing its base. An id the catalog does not describe is sent as it is.
 pub fn resolve_selection(
     catalog: &[CursorModel],
     requested: &str,
     ask: &ParameterAsk<'_>,
 ) -> Result<ModelSelection, ProviderError> {
+    let mut selection = resolve_variant(catalog, requested, ask)?;
+    selection.pricing_model = pricing_model(catalog, requested);
+    Ok(selection)
+}
+
+/// A pinned raw variant (`<base>-<effort>`, `-fast`) bills as its catalog
+/// model; the Fast part is carried by the request's tier, not the id.
+fn pricing_model(catalog: &[CursorModel], model: &str) -> Option<String> {
+    let pinned = variants::parse_variant_id(&canonical_model_id(js_trim(model)));
+    (pinned.base_id != pinned.id && variants::slug_groups(catalog).iter().any(|g| g.base_id == pinned.base_id))
+        .then_some(pinned.base_id)
+}
+
+fn resolve_variant(
+    catalog: &[CursorModel],
+    requested: &str,
+    ask: &ParameterAsk<'_>,
+) -> Result<ModelSelection, ProviderError> {
     let requested = canonical_model_id(if requested.trim().is_empty() { "auto" } else { requested });
-    match catalog.iter().find(|m| m.id == requested) {
-        Some(model) => select_variant(model, ask),
-        None => Ok(ModelSelection {
-            model_id: requested,
-            parameters: Vec::new(),
-            max_mode: false,
-        }),
+    if let Some(model) = catalog.iter().find(|m| m.id == requested && m.is_parameterized()) {
+        return select_variant(model, ask);
     }
+    let as_it_is = |model_id: String| ModelSelection { model_id, parameters: Vec::new(), max_mode: false, pricing_model: None };
+    // A legacy or alternate id stays an exact route: folding it into the
+    // parameterized model would change a persisted route's context default.
+    if catalog.iter().any(|m| m.is_parameterized() && m.aliases.contains(&requested)) {
+        return Ok(as_it_is(requested));
+    }
+    let parsed = variants::parse_variant_id(&requested);
+    let groups = variants::slug_groups(catalog);
+    let Some(group) = groups.iter().find(|g| g.base_id == parsed.base_id) else {
+        return Ok(as_it_is(requested));
+    };
+    let canonical = requested == parsed.base_id || requested == "auto";
+    let effort = ask.effort.filter(|e| !e.is_empty());
+    let listed = catalog.iter().any(|m| m.id == requested);
+    if listed && !canonical && effort.is_none() && !ask.fast {
+        return Ok(as_it_is(requested));
+    }
+    let wanted = effort.or(if canonical { None } else { parsed.effort.as_deref() });
+    let selected = variants::select_variant(group, wanted, ask.fast)?;
+    Ok(as_it_is(selected.map_or(requested, |v| v.parsed.id.clone())))
 }
 
 #[cfg(test)]

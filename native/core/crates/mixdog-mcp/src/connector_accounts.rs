@@ -307,16 +307,16 @@ fn conversation_account(all: &Map<String, Value>, conversation: &str, connector:
 }
 
 /// Node `readJsonStateSync` with an object `validate` and an empty `fallback`: the object, `{}`
-/// when the file is missing; a damaged file is handled as in [`crate::state_file`].
+/// when the file is missing; a damaged file is handled as in [`mixdog_statefile::read_json`].
 fn read_state(lane: &InLane<MaintenanceIo>, path: &Path) -> std::io::Result<Map<String, Value>> {
-    let object = |value: &Value| if value.is_object() { Ok(()) } else { Err("the accounts in use must be an object".to_owned()) };
-    Ok(match crate::state_file::read_json_state(lane, path, &object)? {
+    let object = |value: &Value| {
+        if value.is_object() { Ok(()) } else { Err(mixdog_statefile::Invalid::Damaged("the accounts in use must be an object".to_owned())) }
+    };
+    Ok(match mixdog_statefile::read_json(lane, path, Some(&object), &mixdog_statefile::Opts::default())? {
         Some(Value::Object(map)) => map,
         _ => Map::new(),
     })
 }
-
-pub(crate) use crate::state_file::restore_from_backup;
 
 /// `{ server, tool }` of an MCP tool name, as Node's `/^mcp__(.+?)__(.+)$/` reads it.
 pub fn split_mcp_tool_name(name: &str) -> Option<(String, String)> {

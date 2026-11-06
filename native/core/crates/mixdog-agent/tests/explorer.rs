@@ -67,6 +67,8 @@ struct Provider {
     codec: MockCodec,
     /// One entry per attempt: its events and whether the stream then hangs.
     script: Mutex<VecDeque<(Vec<StreamEvent>, bool)>>,
+    /// The cache scope of every request sent.
+    scopes: Mutex<Vec<Option<String>>>,
 }
 
 impl Provider {
@@ -81,6 +83,7 @@ impl Provider {
             keepalive: KeepaliveSchedule::SPEC,
             codec: MockCodec,
             script: Mutex::new(script.into()),
+            scopes: Mutex::new(Vec::new()),
         })
     }
 }
@@ -99,7 +102,8 @@ impl ProviderAdapter for Provider {
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
     }
-    async fn attempt(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        self.scopes.lock().unwrap().push(request.options.prompt_cache_scope.clone());
         let (events, hang) = self.script.lock().unwrap().pop_front().expect("provider script exhausted");
         Ok(Box::new(Stream { events: events.into(), hang }))
     }
@@ -302,6 +306,9 @@ async fn a_finished_answer_is_trimmed_and_not_late() {
         vec![StreamEvent::TextDelta("  done \n".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn) }],
         false,
     );
-    let answer = explore(provider, Duration::from_secs(60)).await.unwrap();
+    let answer = explore(provider.clone(), Duration::from_secs(60)).await.unwrap();
     assert_eq!((answer.text.as_str(), answer.late), ("done", false));
+    // The explorer's prefix is the same bytes on every call: keyed on it, never per call
+    // (`sharedPrefixProviderCacheOpts`, cache-strategy.mjs:548).
+    assert_eq!(*provider.scopes.lock().unwrap(), [Some("shared".to_owned())]);
 }

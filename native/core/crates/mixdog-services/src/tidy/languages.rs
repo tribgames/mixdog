@@ -10,7 +10,9 @@ use std::path::Path;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use super::process::{Processes, RunOptions, which};
+#[cfg(test)]
+use super::process::which;
+use super::process::{Processes, RunOptions};
 
 pub const CODE_LANGUAGE_EXTENSIONS: &[(&str, &[&str])] = &[
     ("javascript", &["js", "mjs", "cjs", "jsx"]),
@@ -141,7 +143,7 @@ pub fn parse_graph_langs(stdout: &str) -> Option<GraphLangs> {
 
 /// git-tracked (and untracked, non-ignored) files under `cwd`, filtered to the scope paths.
 pub async fn list_scoped_files(processes: &Processes, cwd: &Path, paths: &[String], cancel: Option<&CancellationToken>) -> (Vec<String>, String) {
-    let Some(git) = which("git", None, None) else { return (Vec::new(), "git is not installed".into()) };
+    let Some(git) = processes.which("git", None).await else { return (Vec::new(), "git is not installed".into()) };
     let mut args: Vec<String> = ["-c", "core.quotepath=false", "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--"].iter().map(|s| (*s).to_owned()).collect();
     args.extend(paths.iter().cloned());
     let mut options = RunOptions::new(cwd);

@@ -3,13 +3,16 @@
 //! where engines run one at a time so two formatters can never write the same file at once.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use mixdog_rt::DurabilityIo;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
+
+use crate::lane::on_lane;
 
 use super::apply::{FileChange, WriteHost, full_path_for, guard_tidy_write_path};
 use super::languages::files_for_languages;
@@ -20,8 +23,21 @@ use super::runners::runner_for;
 
 const CHECK_CONCURRENCY: usize = 3;
 
-fn file_digest(path: &Path) -> String {
-    std::fs::read(path).map(|b| Sha256::digest(&b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default()
+/// What `files` hold now, by path; an unreadable file is absent. One lane job.
+async fn read_files(lane: DurabilityIo, paths: Vec<PathBuf>) -> HashMap<PathBuf, Vec<u8>> {
+    on_lane(lane, move || read_files_blocking(paths)).await.unwrap_or_default()
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn read_files_blocking(paths: Vec<PathBuf>) -> HashMap<PathBuf, Vec<u8>> {
+    paths.into_iter().filter_map(|p| std::fs::read(&p).ok().map(|b| (p, b))).collect()
+}
+
+/// SHA-256 of each file in `files` by name; an unreadable file digests as empty.
+async fn digests(lane: DurabilityIo, cwd: &Path, files: &[String]) -> HashMap<String, String> {
+    let paths: Vec<PathBuf> = files.iter().map(|f| full_path_for(cwd, f)).collect();
+    let mut read = read_files(lane, paths.clone()).await;
+    files.iter().zip(paths).map(|(f, p)| (f.clone(), read.remove(&p).map(|b| Sha256::digest(&b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default())).collect()
 }
 
 /// Files an engine's check pass says it would rewrite, plus fixable findings.
@@ -49,16 +65,18 @@ pub struct SuiteOptions {
     pub extensions: Option<HashMap<String, String>>,
     pub host: Option<Arc<dyn WriteHost>>,
     pub spawn: Arc<dyn Spawn>,
+    /// The lane the files an engine rewrites are read on.
+    pub lane: DurabilityIo,
 }
 
 impl SuiteOptions {
     pub fn new(cwd: &Path, files: Vec<String>, processes: &Processes) -> Self {
-        Self { files, cwd: cwd.to_owned(), mode: "check".into(), apply: false, timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, session_id: None, extensions: None, host: None, spawn: Arc::new(SystemSpawn(processes.clone())) }
+        Self { files, cwd: cwd.to_owned(), mode: "check".into(), apply: false, timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, session_id: None, extensions: None, host: None, spawn: Arc::new(SystemSpawn(processes.clone())), lane: processes.durability() }
     }
 }
 
 fn request(engine: &Resolved, files: Vec<String>, o: &SuiteOptions) -> RunRequest {
-    let mut req = RunRequest::new(&o.cwd, &engine.command, files, o.spawn.clone());
+    let mut req = RunRequest::new(&o.cwd, &engine.command, files, o.spawn.clone(), o.lane);
     req.args = engine.args.clone();
     req.timeout = o.timeout;
     req.cancel = o.cancel.clone();
@@ -116,17 +134,22 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Value {
         put(&mut result, "filesChanged", json!([]));
         return result;
     }
-    let before: HashMap<String, String> = candidates.iter().map(|f| (f.clone(), file_digest(&full_path_for(&o.cwd, f)))).collect();
+    let before = digests(o.lane, &o.cwd, &candidates).await;
     // The turn review needs each file's bytes before the engine rewrites it in place.
-    let baselines: Option<HashMap<std::path::PathBuf, Vec<u8>>> = o.session_id.as_ref().map(|_| candidates.iter().filter_map(|f| { let p = full_path_for(&o.cwd, f); std::fs::read(&p).ok().map(|b| (p, b)) }).collect());
+    let baselines: Option<HashMap<PathBuf, Vec<u8>>> = match &o.session_id {
+        Some(_) => Some(read_files(o.lane, candidates.iter().map(|f| full_path_for(&o.cwd, f)).collect()).await),
+        None => None,
+    };
     let fixed = runner.fix(&request(engine, candidates.clone(), o)).await;
-    let changed: Vec<String> = candidates.iter().filter(|f| file_digest(&full_path_for(&o.cwd, f)) != before[*f]).cloned().collect();
+    let after = digests(o.lane, &o.cwd, &candidates).await;
+    let changed: Vec<String> = candidates.iter().filter(|f| after[*f] != before[*f]).cloned().collect();
     // The engine wrote in place: run the invalidation a pipeline write would have run.
     let changed_paths: Vec<_> = changed.iter().map(|f| full_path_for(&o.cwd, f)).collect();
     if let Some(host) = &o.host {
         host.note_written(&changed_paths, o.session_id.as_deref());
         if let (Some(session), Some(baselines)) = (o.session_id.as_deref(), baselines) {
-            let changes: Vec<FileChange> = changed_paths.iter().filter_map(|p| Some(FileChange { full_path: p.clone(), before: baselines.get(p)?.clone(), after: std::fs::read(p).ok()? })).collect();
+            let mut written = read_files(o.lane, changed_paths.clone()).await;
+            let changes: Vec<FileChange> = changed_paths.iter().filter_map(|p| Some(FileChange { full_path: p.clone(), before: baselines.get(p)?.clone(), after: written.remove(p)? })).collect();
             if !changes.is_empty() {
                 host.record_changes(&o.cwd, session, changes).await;
             }

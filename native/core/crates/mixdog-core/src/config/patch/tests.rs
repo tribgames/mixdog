@@ -33,6 +33,28 @@ fn json_of(change: &ConfigChange) -> Value {
     out
 }
 
+/// The stored `presets` and `webSearchRoute` equal what Node's save writes
+/// (`record-config-presets.mjs`): `modelParameters`, `fast: false` and the like never reach the file.
+#[test]
+fn stored_presets_and_web_search_route_match_the_recorded_node_save() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/config-presets-twin.json");
+    let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let entries = twin["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 120);
+    for (i, entry) in entries.iter().enumerate() {
+        let stored = stored_form(&doc(&entry["config"]));
+        let presets = stored.get("presets").filter(|p| p.as_array().is_some_and(|l| !l.is_empty())).cloned().unwrap_or(Value::Null);
+        assert!(same(&presets, &entry["presets"]), "presets of {i}: {presets} vs {}", entry["presets"]);
+        let route = stored.get("webSearchRoute").cloned();
+        let expected = &entry["webSearchRoute"];
+        if expected == "__absent__" {
+            assert!(route.is_none(), "route of {i}");
+        } else {
+            assert!(same(&route.unwrap_or(Value::Null), expected), "route of {i}: expected {expected}");
+        }
+    }
+}
+
 /// Equal as JSON values; numbers by value, so `1` and `1.0` agree as they do in JS.
 fn same(a: &Value, b: &Value) -> bool {
     js_deep_equal(a, b)

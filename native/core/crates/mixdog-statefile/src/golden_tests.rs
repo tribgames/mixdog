@@ -1,7 +1,8 @@
 //! Replays `tests/golden/state.json`, recorded from `atomic-file.mjs` by `tests/golden/state.mjs`:
 //! each scenario's answer, the files it leaves behind and the order of its file-system calls.
-//! Lock files are left out on both sides (Node unlinks its lock file, this port keeps the one it
-//! locks), and so is the directory flush, which Node's Windows build never reaches.
+//! Lock files are left out of the listing and the trace on both sides (a held lock scenario
+//! leaves the holder's file), and so is the directory flush, which Node's Windows build never
+//! reaches.
 
 use std::fs;
 use std::time::Duration;
@@ -87,11 +88,10 @@ fn run(scenario: &Value) -> Value {
         };
         fs::write(dir.path().join(name), bytes).unwrap();
     }
-    let holder = scenario.get("lockHeld").and_then(Value::as_bool).unwrap_or(false).then(|| {
-        let lock = fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.path().join("f.json.lock")).unwrap();
-        lock.lock().unwrap();
-        lock
-    });
+    if scenario.get("lockHeld").and_then(Value::as_bool).unwrap_or(false) {
+        // The record the recorder wrote: a live process other than the taker holds the lock.
+        fs::write(dir.path().join("f.json.lock"), format!("{} 1 other-token\n", std::process::id())).unwrap();
+    }
     let file = dir.path().join("f.json");
     let call = &scenario["call"];
     let opts = opts_of(&call["opts"]);
@@ -139,8 +139,6 @@ fn run(scenario: &Value) -> Value {
         .filter(|entry| entry != "fsync-dir" && !entry.contains(".lock"))
         .map(|entry| mask(&entry))
         .collect();
-    drop(holder);
-
     let mut files = Map::new();
     for entry in fs::read_dir(dir.path()).unwrap() {
         let entry = entry.unwrap();

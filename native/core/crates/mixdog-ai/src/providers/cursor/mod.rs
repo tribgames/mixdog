@@ -12,10 +12,14 @@
 
 pub mod auth;
 pub mod decoder;
+pub mod listing;
 pub mod login;
 pub mod models;
 pub mod request;
 pub mod schema;
+pub mod variants;
+#[cfg(test)]
+mod listing_tests;
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -26,7 +30,10 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
+use mixdog_core_api::domain::provider::ModelListing;
+use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
@@ -59,6 +66,7 @@ use crate::transport::http::BodyStream;
 use crate::transport::http::FrameSink;
 use crate::transport::http::HttpSend;
 use crate::providers::connect::provider_error;
+use crate::providers::listing_row;
 use crate::retry::advice;
 
 pub const API_URL: &str = "https://api2.cursor.sh";
@@ -130,6 +138,7 @@ impl CursorCodec {
 
     pub fn cursor_decoder(&self) -> CursorDecoder {
         CursorDecoder::new(self.run.blobs.clone(), self.run.tools.clone(), self.run.cloud_rule.clone())
+            .with_pricing_model(self.target.selection.pricing_model.clone())
     }
 }
 
@@ -367,12 +376,21 @@ impl CursorAdapter {
         }
     }
 
-    /// The parameterized models of the account, fetched once; an empty
-    /// answer is not kept.
-    pub async fn models(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
+    /// The parameterized models of the account, fetched once for the turns
+    /// that resolve their variant from it; an empty answer is not kept.
+    pub async fn cached_models(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
         if let Some(models) = self.catalog.load_full() {
             return Ok((*models).clone());
         }
+        let models = self.fetch_models(access_token).await?;
+        if !models.is_empty() {
+            self.catalog.store(Some(Arc::new(models.clone())));
+        }
+        Ok(models)
+    }
+
+    /// One `AvailableModels` request: no cache.
+    pub async fn fetch_models(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
         let head = self
             .http
             .send(WireRequest {
@@ -396,9 +414,6 @@ impl CursorAdapter {
             error.message = format!("Cursor protobuf: {e}");
             error
         })?;
-        if !models.is_empty() {
-            self.catalog.store(Some(Arc::new(models.clone())));
-        }
         Ok(models)
     }
 
@@ -418,7 +433,7 @@ impl CursorAdapter {
 
     async fn open(&self, request: &Arc<ModelRequest>, token: &str) -> Result<Box<CursorStream>, ProviderError> {
         // A catalog failure never blocks a turn: the id is then sent as it is.
-        let catalog = self.models(token).await.unwrap_or_default();
+        let catalog = self.cached_models(token).await.unwrap_or_default();
         let selection = self.selection(&catalog, request)?;
         let scope = request
             .options
@@ -454,9 +469,27 @@ fn is_auth_failure(error: &ProviderError) -> bool {
 }
 
 #[async_trait]
+impl ModelListing for CursorAdapter {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        let token = self.tokens.access_token(false).await?;
+        let models = self.fetch_models(&token).await?;
+        if models.is_empty() {
+            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+            error.message = "Cursor listed no parameterized models".to_owned();
+            return Err(error);
+        }
+        Ok(listing::rows(&models, self.id.as_str()).into_iter().map(listing_row::record).collect())
+    }
+}
+
+#[async_trait]
 impl ProviderAdapter for CursorAdapter {
     fn id(&self) -> &ProviderId {
         &self.id
+    }
+
+    fn models(&self) -> Option<&dyn ModelListing> {
+        Some(self)
     }
 
     fn codec(&self) -> &dyn WireCodec {

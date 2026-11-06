@@ -2,6 +2,7 @@
 //! registry (SPEC §3.2). Module owners add their own `pub mod` line below.
 
 pub mod approvals;
+mod attachments;
 pub mod config;
 pub mod domains;
 pub mod workflow;

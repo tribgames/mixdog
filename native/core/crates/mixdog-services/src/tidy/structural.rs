@@ -15,6 +15,8 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
+use crate::lane::on_lane;
+
 use super::history_comment::refine_history_comment_matches;
 use super::languages::{files_for_languages, parse_graph_langs};
 use super::process::{Processes, RunOptions};
@@ -233,7 +235,8 @@ pub fn reset_structural_probe_cache() {
 /// mode exits 0 with no output. Only the language registry payload proves this binary owns the
 /// scan protocol. Returns the table when it does.
 pub async fn probe_graph_langs(processes: &Processes, bin: &Path, cwd: &Path, cancel: Option<&CancellationToken>) -> Option<super::languages::GraphLangs> {
-    if !bin.exists() {
+    let bin_path = bin.to_owned();
+    if !on_lane(processes.durability(), move || binary_exists(&bin_path)).await.unwrap_or(false) {
         return None;
     }
     let mut options = RunOptions::new(cwd);
@@ -269,6 +272,13 @@ pub fn structural_unavailable_message(bin: &str) -> String {
     )
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn binary_exists(bin: &Path) -> bool {
+    bin.exists()
+}
+
+/// Reads a file the scan reported. Blocking: used only inside a durability-lane job.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn scan_source_reader(cwd: PathBuf) -> impl Fn(&str) -> Option<Vec<u8>> {
     // The scan may report a file absolute, cwd-relative, or with either slash style.
     move |file: &str| {
@@ -318,7 +328,8 @@ impl GraphStructuralAdapter {
         }
         if parsed.get("error").is_none() {
             let matches = parsed["matches"].as_array().cloned().unwrap_or_default();
-            let refined = refine_history_comment_matches(matches, &scan_source_reader(cwd.to_owned()));
+            let (owned_cwd, owned_matches) = (cwd.to_owned(), matches.clone());
+            let refined = on_lane(self.processes.durability(), move || refine_history_comment_matches(owned_matches, &scan_source_reader(owned_cwd))).await.unwrap_or(matches);
             let files = refined.iter().filter_map(|m| m["file"].as_str()).collect::<std::collections::HashSet<_>>().len();
             parsed["summary"]["matches"] = json!(refined.len());
             parsed["summary"]["files"] = json!(files);

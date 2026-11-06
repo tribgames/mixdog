@@ -1043,6 +1043,104 @@ mod responses_heads {
         assert!(String::from_utf8(wire.body).unwrap().starts_with("{\"type\":\"response.create\""));
     }
 
+    /// Node's `resolveWireRoute` over every combination of the recorded
+    /// dimensions: the family and legacy tiers included, none skipped.
+    #[test]
+    fn wire_routes_match_nodes_resolution_for_every_context() {
+        use crate::providers::compat::profile::{CredentialKind, Wire};
+        use crate::providers::compat::wire_route::{RouteSource, WireFacts, resolve_wire};
+        let wire = |name: &str| match name {
+            "chat" => Wire::Chat,
+            "messages" => Wire::Messages,
+            "responses" => Wire::Responses,
+            "gemini" => Wire::Gemini,
+            other => panic!("wire {other}"),
+        };
+        let wires = |value: &JsonValue| -> Vec<Wire> { value.as_array().unwrap().iter().map(|w| wire(w.as_str().unwrap())).collect() };
+        let profile = |provider: &str| -> CompatProfile {
+            let custom = |protocol: Wire, offered: &'static [Wire]| {
+                let mut p = CompatProfile::plain("custom", "http://127.0.0.1/v1", CredentialKind::Keyless);
+                p.default_wire = protocol;
+                p.wires.offered = offered;
+                p.wires.legacy = crate::providers::compat::profile::LegacyWire::Fixed(protocol);
+                p
+            };
+            match provider {
+                "openrouter" => CompatProfile::openrouter(),
+                "opencode-go" => CompatProfile::opencode_go(),
+                "command-code-oauth" => CompatProfile::command_code_oauth(),
+                "deepseek" => CompatProfile::deepseek(),
+                "custom-chat" => custom(Wire::Chat, &[Wire::Chat, Wire::Responses]),
+                "custom-responses" => custom(Wire::Responses, &[Wire::Responses]),
+                other => panic!("provider {other}"),
+            }
+        };
+        let letter = |wire: Wire| match wire {
+            Wire::Chat => 'c',
+            Wire::Messages => 'm',
+            Wire::Responses => 'r',
+            Wire::Gemini => 'g',
+        };
+        let source = |source: RouteSource| match source {
+            RouteSource::Pinned => 'p',
+            RouteSource::Override => 'o',
+            RouteSource::Catalog => 'c',
+            RouteSource::Endpoints => 'e',
+            RouteSource::Family => 'f',
+            RouteSource::Default => 'd',
+            RouteSource::Legacy => 'l',
+            RouteSource::Unknown => 'u',
+        };
+        let golden = read_json("providers/oracles/wire-route.json");
+        let mut checked = 0;
+        for grid in golden["grids"].as_array().unwrap() {
+            let dimensions = grid["dimensions"].as_object().unwrap();
+            // Nested in key order, the last dimension varying fastest.
+            let mut combos: Vec<Vec<(&str, &JsonValue)>> = vec![Vec::new()];
+            for name in grid["order"].as_array().unwrap() {
+                let (name, values) = (name.as_str().unwrap(), &dimensions[name.as_str().unwrap()]);
+                combos = combos
+                    .into_iter()
+                    .flat_map(|prefix| {
+                        values.as_array().unwrap().iter().map(move |v| {
+                            let mut next = prefix.clone();
+                            next.push((name, v));
+                            next
+                        })
+                    })
+                    .collect();
+            }
+            for row in grid["rows"].as_array().unwrap() {
+                let (provider, model) = (row["provider"].as_str().unwrap(), row["model"].as_str().unwrap());
+                let profile = profile(provider);
+                let results: Vec<&str> = row["results"].as_str().unwrap().split(',').collect();
+                assert_eq!(results.len(), combos.len(), "{provider} {model}");
+                for (combo, expected) in combos.iter().zip(results) {
+                    let get = |name: &str| combo.iter().find(|(n, _)| *n == name).map(|(_, v)| *v);
+                    let endpoints = get("endpoints").filter(|v| !v.is_null()).map(&wires);
+                    let exclude = get("exclude").map(&wires).unwrap_or_default();
+                    let flag = |name: &str| get(name).and_then(JsonValue::as_bool).unwrap_or(false);
+                    let facts = WireFacts {
+                        model,
+                        keep: get("keep").and_then(JsonValue::as_str).map(wire),
+                        legacy: flag("legacy"),
+                        override_wire: get("override").and_then(JsonValue::as_str).map(wire),
+                        catalog_wire: get("catalogWire").and_then(JsonValue::as_str).map(wire),
+                        endpoints: endpoints.as_deref(),
+                        known: get("known").and_then(JsonValue::as_bool).unwrap_or(true),
+                        agent: flag("agent"),
+                        exclude: &exclude,
+                    };
+                    let got = resolve_wire(&profile, &facts)
+                        .map_or("-".to_owned(), |r| format!("{}{}", letter(r.wire), source(r.source)));
+                    assert_eq!(got, expected, "{provider} {model} {combo:?}");
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 17_000, "{checked} contexts replayed");
+    }
+
     struct MapEnv(std::collections::HashMap<String, String>);
 
     impl crate::registry::keys::Environment for MapEnv {
@@ -1365,6 +1463,89 @@ mod liveness {
         let profile = CompatProfile::deepseek();
         let codec = CompatChatCodec::new(profile, CompatConfig::default());
         (CompatAdapter::new(codec, http.clone(), Some(Arc::new(Key("sk-test-key")))), http)
+    }
+
+    struct Catalog(std::collections::HashMap<String, Option<String>>);
+
+    impl crate::catalog::ModelTraits for Catalog {
+        fn family(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn thinking(&self, _: &str) -> crate::catalog::Thinking {
+            crate::catalog::Thinking::Unspecified
+        }
+        fn catalog_wire(&self, model: &str) -> Option<crate::providers::compat::profile::Wire> {
+            crate::providers::compat::wire_route::wire_of_package(self.0.get(model)?.as_deref())
+        }
+    }
+
+    use mixdog_core_api::domain::provider::WireRouteContext;
+
+    async fn routed(adapter: &CompatAdapter, model: &str, ctx: &WireRouteContext) -> String {
+        let routing = adapter.wire_routing().expect("a routed gateway");
+        let route = routing.resolve_wire_route(model, ctx).await.unwrap();
+        route.map_or("-".into(), |r| format!("{}{}", &r.wire[..1], &r.source[..1]))
+    }
+
+    /// OpenCode Go (catalog package narrows the offered wires) and Command
+    /// Code (the roster's declared endpoints) answer as Node's glue does.
+    #[tokio::test]
+    async fn catalog_and_roster_inputs_route_as_nodes_adapters_do() {
+        use crate::providers::compat::adapter::RouteInputs;
+        use crate::providers::compat::profile::Wire;
+        let golden = read_json("providers/oracles/wire-route.json");
+        let http = Arc::new(Scripted { status: 200, chunks: Vec::new(), sent: Mutex::new(Vec::new()) });
+
+        let go = &golden["openCodeGo"];
+        let packages: std::collections::HashMap<String, Option<String>> = go["packages"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(id, npm)| (id.clone(), npm.as_str().map(str::to_owned)))
+            .collect();
+        let codec = CompatChatCodec::new(CompatProfile::opencode_go(), CompatConfig::default());
+        let routing = |wires: std::collections::HashMap<String, Wire>| RouteInputs {
+            model_wires: wires,
+            catalog: Some(Arc::new(Catalog(packages.clone()))),
+        };
+        let mut checked = 0;
+        for row in go["rows"].as_array().unwrap() {
+            let model = row["model"].as_str().unwrap();
+            let mut expected = row["results"].as_str().unwrap().split(',');
+            let mut combos = Vec::new();
+            for over in go["dimensions"]["override"].as_array().unwrap() {
+                for agent in [false, true] {
+                    for legacy in [false, true] {
+                        combos.push((over.as_str(), agent, legacy));
+                    }
+                }
+            }
+            for (over, agent, legacy) in combos {
+                let wires = over.map(|w| [(model.to_owned(), Wire::parse(w).unwrap())].into()).unwrap_or_default();
+                let adapter = CompatAdapter::new(codec.clone(), http.clone(), Some(Arc::new(Key("k")))).with_routing(routing(wires));
+                let ctx = WireRouteContext { agent, legacy, ..WireRouteContext::default() };
+                let expected = expected.next().unwrap();
+                // Node's two letters are wire and source initials; `family` and `default` share `f`/`d`.
+                assert_eq!(routed(&adapter, model, &ctx).await, expected, "{model} {over:?} agent={agent} legacy={legacy}");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 10 * 5 * 2 * 2);
+
+        let cc = CompatChatCodec::new(CompatProfile::command_code_oauth(), CompatConfig::for_profile(&CompatProfile::command_code_oauth()));
+        let adapter = CompatAdapter::new(cc.clone(), http, Some(Arc::new(Key("k"))));
+        for case in golden["commandCode"].as_array().unwrap() {
+            let model = case["model"].as_str().unwrap();
+            cc.models().replace(parse_models(&json!({"data": [case["item"].clone()]})));
+            let got = adapter
+                .wire_routing()
+                .unwrap()
+                .resolve_wire_route(model, &WireRouteContext::default())
+                .await
+                .unwrap();
+            let got = got.map(|r| r.wire);
+            assert_eq!(got.as_deref(), case["wire"].as_str(), "{model} {}", case["declared"]);
+        }
     }
 
     #[tokio::test]

@@ -222,6 +222,7 @@ impl ExploreRunner for AgentExplorer {
             fast: route.fast,
             model_parameters: route.model_parameters.clone(),
             parent_session_id: route.owner_session_id.clone(),
+            prompt_cache_scope: Some(crate::cache_scope::SHARED.to_owned()),
             ..Default::default()
         };
         let mut tool_env = self.tool_env.clone();

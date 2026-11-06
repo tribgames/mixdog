@@ -123,7 +123,7 @@ export async function recordAnthropicModels(tree, outFile) {
 
     // The request each route's real listModels sent.
     sent.length = 0;
-    await new AnthropicProvider({
+    const apiListed = await new AnthropicProvider({
       apiKey: 'fixture-key-not-a-credential',
       baseURL: 'https://gateway.example.invalid/',
     }).listModels();
@@ -199,6 +199,9 @@ export async function recordAnthropicModels(tree, outFile) {
       },
       // Row i of `expected.<route>` is what the route's normalizer returns for roster row i (null: dropped).
       expected: { anthropic: api, 'anthropic-oauth': oauth },
+      // What each route's real listModels returns: the normalized rows after enrichModels and
+      // sanitizeModelList, against empty catalogs (every catalog fetch is a 404 here).
+      listed: { anthropic: apiListed, 'anthropic-oauth': listed },
     });
     return ROSTER.length * 2 + 3;
   } finally {

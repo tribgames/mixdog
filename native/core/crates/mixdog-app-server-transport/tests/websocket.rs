@@ -38,13 +38,17 @@ const REQUEST: &str = r#"{"id":1,"method":"initialize","params":{}}"#;
 type Client = WebSocketStream<TcpStream>;
 
 async fn listen(limits: Limits) -> (ConnectionHub, WebSocketListener) {
+    listen_as(limits, ListenerOrigin::Loopback).await
+}
+
+async fn listen_as(limits: Limits, origin: ListenerOrigin) -> (ConnectionHub, WebSocketListener) {
     install_rt();
     let hub = ConnectionHub::new(limits).unwrap();
     let listener = WebSocketListener::bind(
         "127.0.0.1:0".parse().unwrap(),
         hub.clone(),
         BearerAuth::new(TOKEN),
-        ListenerOrigin::Loopback,
+        origin,
     )
     .await
     .unwrap();
@@ -55,6 +59,8 @@ struct Dial<'a> {
     path: &'a str,
     token: Option<&'a str>,
     origin: Option<&'a str>,
+    /// The `Mixdog-Relay-Peer` header values.
+    peers: &'a [&'a str],
 }
 
 impl Default for Dial<'_> {
@@ -63,6 +69,7 @@ impl Default for Dial<'_> {
             path: "/rpc",
             token: Some(TOKEN),
             origin: None,
+            peers: &[],
         }
     }
 }
@@ -79,6 +86,9 @@ async fn dial(addr: SocketAddr, dial: Dial<'_>) -> Result<Client, WsError> {
     }
     if let Some(origin) = dial.origin {
         request.headers_mut().insert("origin", origin.parse().unwrap());
+    }
+    for peer in dial.peers {
+        request.headers_mut().append("mixdog-relay-peer", peer.parse().unwrap());
     }
     tokio_tungstenite::client_async(request, tcp)
         .await
@@ -153,6 +163,44 @@ async fn upgrades_without_the_token_or_with_an_origin_are_refused() {
         ..Dial::default()
     };
     assert_eq!(refused_with(dial(addr, elsewhere).await), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_bridged_phone_on_the_ssh_listener_is_a_relay_connection() {
+    let (hub, mut listener) = listen_as(small_limits(), ListenerOrigin::SshTunnel).await;
+    let peer = Dial { peers: &["0a1b2c3d-4e5f"], ..Dial::default() };
+    let (_client, server) = connected(&mut listener, peer).await;
+    assert_eq!(server.origin, ConnectionOrigin::Relay { peer_id: "0a1b2c3d-4e5f".into() });
+    // The hub and the method table see the same narrowed origin the accept reported.
+    assert_eq!(hub.connection_origin(server.id), Some(server.origin.clone()));
+    assert_eq!(hub.origin_of(server.id), Some(mixdog_app_protocol::Origin::Relay));
+
+    // Without the header the tunnel keeps its own origin.
+    let (_plain, server) = connected(&mut listener, Dial::default()).await;
+    assert_eq!(server.origin, ConnectionOrigin::SshTunnel);
+}
+
+#[tokio::test]
+async fn the_relay_peer_header_never_raises_rights_or_works_off_the_ssh_listener() {
+    // The loopback listener ignores the header.
+    let (_hub, mut loopback) = listen(small_limits()).await;
+    let claimed = Dial { peers: &["0a1b2c3d-4e5f"], ..Dial::default() };
+    let (_client, server) = connected(&mut loopback, claimed).await;
+    assert_eq!(server.origin, ConnectionOrigin::Loopback);
+
+    // On the SSH listener a header that is not exactly one routing id is refused, so a bad
+    // value never leaves the phone with the tunnel's wider rights.
+    let (_hub, ssh) = listen_as(small_limits(), ListenerOrigin::SshTunnel).await;
+    for peers in [&["short"][..], &["UPPERCASE-ID"], &["0a1b2c3d-4e5f", "1a2b3c4d-5e6f"], &[""]] {
+        let result = dial(ssh.local_addr(), Dial { peers, ..Dial::default() }).await;
+        assert_eq!(refused_with(result), StatusCode::BAD_REQUEST, "{peers:?}");
+    }
+
+    // Everything a relay connection may call, a local or SSH one may call as well.
+    use mixdog_app_protocol::{CLIENT_METHODS, Origin};
+    for spec in CLIENT_METHODS.iter().filter(|spec| spec.allows(Origin::Relay)) {
+        assert!(spec.allows(Origin::Local) && spec.allows(Origin::Ssh), "{} is relay-only", spec.method);
+    }
 }
 
 #[tokio::test]

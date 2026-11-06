@@ -1,6 +1,8 @@
-//! A phone's account of its own screen (`setForeground`, `setScreenSessions`), carried over a real
-//! E2EE channel through a scripted relay, decides `is_client_foreground`; the reports are not
-//! forwarded to the core. `paired_devices` lists the credentials the relay reported.
+//! A phone's account of its own screen (`ui/screenSessions/changed`, recorded by the core in the
+//! registry against the phone's relay connection) decides `is_credential_foreground` and
+//! `is_browser_foreground`. The phone is paired over a real E2EE channel through a scripted
+//! relay; the notification itself is forwarded to the core untouched. `paired_devices` lists the
+//! credentials the relay reported.
 
 use std::sync::{Arc, Mutex};
 
@@ -42,7 +44,7 @@ impl Upstream for CoreSocket {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_phone_reporting_its_screen_decides_foreground_and_is_not_forwarded() {
+async fn a_phone_reporting_its_screen_decides_foreground() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_path_buf();
     let identity = {
@@ -66,28 +68,37 @@ async fn a_phone_reporting_its_screen_decides_foreground_and_is_not_forwarded() 
     let mut call = |value: Value| phone.send(&value.to_string());
 
     // Nothing is shown until the phone says so.
-    assert!(!runtime.is_client_foreground(CRED_A, "t1"));
-    call(json!({ "method": "setScreenSessions", "params": [["t1", "t9", "not an id"]] }));
-    eventually("screen not recorded", || runtime.is_client_foreground(CRED_A, "t1")).await;
-    assert!(runtime.is_client_foreground(CRED_A, "t9"));
-    assert!(!runtime.is_client_foreground(CRED_A, "t2"));
-    assert!(!runtime.is_client_foreground(CRED_B, "t1"), "another paired phone shows nothing");
+    // The core accepted the phone's bridged connection (as the server's accept path does) and
+    // the phone's `ui/screenSessions/changed` reaches the registry through it.
+    let registry = runtime.registry();
+    registry.connect_relay(7, PHONE);
+    eventually("the phone was not attached", || registry.describe(7).is_some()).await;
+    assert!(!runtime.is_credential_foreground(CRED_A, "t1"), "nothing is shown until the phone says so");
+    assert!(registry.report_screen(7, ["t1", "t9"].map(String::from).into(), Some("browserX")));
+    assert!(runtime.is_credential_foreground(CRED_A, "t1") && runtime.is_credential_foreground(CRED_A, "t9"));
+    assert!(!runtime.is_credential_foreground(CRED_A, "t2"));
+    assert!(!runtime.is_credential_foreground(CRED_B, "t1"), "another paired phone shows nothing");
+    assert!(runtime.is_browser_foreground("browserX", "t1"));
 
-    // Hiding the app removes the claim at once; the browser id it reports names the same leg.
-    call(json!({ "method": "setForeground", "params": [false, "browserX"] }));
-    eventually("hidden not recorded", || !runtime.is_client_foreground(CRED_A, "t1")).await;
-    assert!(!runtime.is_client_foreground("browserX", "t1"));
-    call(json!({ "method": "setForeground", "params": [true] }));
-    eventually("visible not recorded", || runtime.is_client_foreground("browserX", "t1")).await;
-    assert!(runtime.is_client_foreground(CRED_A, "t1"));
+    // The two identities are separate questions: a phone paired as A that reports B's
+    // credential id as its browser id does not make B foreground, and a credential id is no
+    // browser id.
+    assert!(registry.report_screen(7, ["t1"].map(String::from).into(), Some(CRED_B)));
+    assert!(runtime.is_browser_foreground(CRED_B, "t1"));
+    assert!(!runtime.is_credential_foreground(CRED_B, "t1"));
+    assert!(!runtime.is_browser_foreground(CRED_A, "t1"));
+    // A backgrounded phone sends an empty set.
+    assert!(registry.report_screen(7, Default::default(), None));
+    assert!(!runtime.is_credential_foreground(CRED_A, "t1") && !runtime.is_browser_foreground(CRED_B, "t1"));
+    assert!(registry.report_screen(7, ["t1"].map(String::from).into(), None));
 
-    // Everything else is the core's, byte for byte, and the reports before it were not.
-    let ordinary = json!({ "id": 2, "method": "listThreads", "params": [] });
-    call(ordinary.clone());
-    eventually("ordinary call not forwarded", || !forwarded.lock().unwrap().is_empty()).await;
-    assert_eq!(*forwarded.lock().unwrap(), [Frame::Text(ordinary.to_string())]);
+    // Every frame is the core's, byte for byte: the runtime no longer reads the phone's text.
+    let screen = json!({ "method": "ui/screenSessions/changed", "params": { "sessionIds": ["t1"] } });
+    call(screen.clone());
+    eventually("the notification was not forwarded", || !forwarded.lock().unwrap().is_empty()).await;
+    assert_eq!(*forwarded.lock().unwrap(), [Frame::Text(screen.to_string())]);
 
     // The phone leaves.
     phone.leave();
-    eventually("close not applied", || !runtime.is_client_foreground(CRED_A, "t1")).await;
+    eventually("close not applied", || !runtime.is_credential_foreground(CRED_A, "t1")).await;
 }

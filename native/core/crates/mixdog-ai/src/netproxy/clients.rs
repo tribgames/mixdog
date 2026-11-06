@@ -37,6 +37,16 @@ impl std::fmt::Display for ClientError {
 
 impl std::error::Error for ClientError {}
 
+/// The proxy as `reqwest` must be given it. `socks5://` makes reqwest resolve
+/// the destination itself and hand the proxy an address; Node's SOCKS client
+/// sends the hostname, which is `socks5h://`.
+fn reqwest_proxy_uri(uri: &str) -> String {
+    match uri.strip_prefix("socks5:") {
+        Some(rest) => format!("socks5h:{rest}"),
+        None => uri.to_owned(),
+    }
+}
+
 pub struct RoutedClients {
     policy: Arc<NetworkProxy>,
     build: Build,
@@ -46,7 +56,8 @@ pub struct RoutedClients {
 
 impl RoutedClients {
     /// `build(None)` makes the direct client (it must ignore the environment's
-    /// proxy variables); `build(Some(uri))` the client of one proxy.
+    /// proxy variables); `build(Some(uri))` the client of one proxy, `uri` in
+    /// the form `reqwest` takes (a SOCKS5 proxy is `socks5h:`).
     pub fn new(
         policy: Arc<NetworkProxy>,
         build: impl Fn(Option<&str>) -> Result<reqwest::Client, reqwest::Error> + Send + Sync + 'static,
@@ -58,6 +69,7 @@ impl RoutedClients {
                 legs.lock().unwrap_or_else(PoisonError::into_inner).clear();
             }
         }));
+        let build = move |proxy: Option<&str>| build(proxy.map(reqwest_proxy_uri).as_deref());
         Self { policy, build: Box::new(build), legs, _retire: retire }
     }
 

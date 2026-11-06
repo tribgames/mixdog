@@ -3,6 +3,8 @@
 //! tracked entries of the index followed by the untracked files no ignore rule hides; a nested
 //! repository is listed as `name/`.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::collections::HashSet;
 use std::path::Path;
 

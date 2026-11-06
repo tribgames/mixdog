@@ -2,6 +2,8 @@
 //! revision, stash list. Text formats are git's own (relative dates included), parsed into the
 //! shapes the panes already receive.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::collections::HashSet;
 use std::path::Path;
 

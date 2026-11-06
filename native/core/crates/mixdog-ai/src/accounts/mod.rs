@@ -272,7 +272,7 @@ impl AccountStore {
     pub async fn pool(&self, provider: &str) -> Result<Pool, AccountError> {
         require_provider(provider)?;
         let path = self.roster_path();
-        let roster = self.io.read_job(move || file::read_roster(&path)).await?;
+        let roster = file::read_roster(&self.io, path).await?;
         Ok(normalize(provider, pool_of(&roster, provider)))
     }
 
@@ -303,8 +303,8 @@ impl AccountStore {
         let seen = selection.clone();
         let outcome = self
             .io
-            .write_job(move || {
-                file::update_roster(&path, |roster| {
+            .write_job(move |lane| {
+                file::update_roster(lane, &path, |roster| {
                     let mut pool = pool_of(roster, &name);
                     let before = pool.selected_id.clone();
                     mutate(&mut pool)?;
@@ -611,8 +611,8 @@ impl AccountStore {
         let (path, name) = (self.roster_path(), provider.to_owned());
         let keep = ids.clone();
         self.io
-            .write_job(move || {
-                file::update_roster(&path, |roster| {
+            .write_job(move |lane| {
+                file::update_roster(lane, &path, |roster| {
                     if keep.is_empty() {
                         if let Some(providers) = roster["providers"].as_object_mut() {
                             providers.remove(&name);

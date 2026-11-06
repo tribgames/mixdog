@@ -4,17 +4,23 @@
     "gemini-explicit-cache/cases.json (WP-AI-GOOGLE)",
     "oracles/openai-codex-metadata-golden.json (WP-AI-OPENAI)",
     "oracles/openai-login-golden.json (WP-AI-OPENAI)",
+    "oracles/openai-models-golden.json (WP-AI-OPENAI)",
     "oracles/openai-reasoning-replay-golden.json (WP-AI-OPENAI)",
     "oracles/openai-retry-policy-golden.json (WP-AI-OPENAI)",
     "oracles/openai-transport-switch-golden.json (WP-AI-OPENAI)",
     "oracles/openai-ws-delta-golden.json (WP-AI-OPENAI)"
   ],
-  "fileCount": 65,
+  "fileCount": 75,
   "files": [
     {
       "bytes": 309490,
       "path": "anthropic-effort/cases.json",
       "sha256": "d1d052f5bbb7cd697e731e9c8306cb9e1751342f3a6de6160600e766403f6b7a"
+    },
+    {
+      "bytes": 35409,
+      "path": "anthropic-models/cases.json",
+      "sha256": "6d2870fd106e5dc8aa0c92922309e921087bf0212eeab3af760f35597b6df3a3"
     },
     {
       "bytes": 55483,
@@ -112,9 +118,34 @@
       "sha256": "182ca0d9cd4db663d4164edc3b6ced2a3f30187451e40ed93482b1be840583b8"
     },
     {
+      "bytes": 302826,
+      "path": "cursor-models/cases.json",
+      "sha256": "75e996193948ca5fde18e4d03d304d7aa03f5bb7639774176223d986d64d19a2"
+    },
+    {
+      "bytes": 306859,
+      "path": "devin-models/cases.json",
+      "sha256": "b01a74e6bc3388454ad92fbcd4b258b2790813867189b0112a11a8f18dd915d5"
+    },
+    {
       "bytes": 83030,
       "path": "gemini-explicit-cache/cases.json",
       "sha256": "270e08303f3d0cb1d176bf44bd1946be02bd373a7c6e571cac680fb71455eb32"
+    },
+    {
+      "bytes": 47436,
+      "path": "google-models/cases.json",
+      "sha256": "1cf9788e28215c5d11690052e46a8bccb060015ac0b7afc83025a265e99cb224"
+    },
+    {
+      "bytes": 15014,
+      "path": "grok-models/cases.json",
+      "sha256": "66e0b150fe3b444be38ab5a58f02b11ab18bce6b9d2b07fcf7ea7115dafca8aa"
+    },
+    {
+      "bytes": 3378,
+      "path": "local-models/cases.json",
+      "sha256": "fcc055301ae6d3f2d6f524c472f0513d091effa905d5fabfa1a5bf05cd594da6"
     },
     {
       "bytes": 3162,
@@ -267,6 +298,11 @@
       "sha256": "c77daff59ba782ee1e7c51f2b0e39a58542612cd4809eacfaaa57314b1f60066"
     },
     {
+      "bytes": 64476,
+      "path": "oracles/compat-listing.json",
+      "sha256": "121f6f7f866e15f2a783701f105a68dc8a97ea5507d53064352e1a3378e32fd9"
+    },
+    {
       "bytes": 264455,
       "path": "oracles/native-request-bytes.head.json",
       "sha256": "72398a2d04bb93ea1a4c848cf3dde476ebaa874dfe28f70f3badc371807110e2"
@@ -282,9 +318,14 @@
       "sha256": "d05d0561408cd2300bbadb5638ef5dc1dcb402747eac8dea6fa7eaa9d319f485"
     },
     {
-      "bytes": 6374,
+      "bytes": 7080,
       "path": "oracles/openai-login-golden.json",
-      "sha256": "abb05d65d470f58117adc030aafb7e8c6e1ad4609b472bf23147191fbd9f6be9"
+      "sha256": "a3eac4717bc2ea4fa5a24f4e14f7c9f76cf6e99dd427f8a322f4911a4cd70fd6"
+    },
+    {
+      "bytes": 8295,
+      "path": "oracles/openai-models-golden.json",
+      "sha256": "69a53fcf0a2b38b0b8d43c8a476b79e3f0141aae921eb01571a048959372b233"
     },
     {
       "bytes": 14030,
@@ -312,9 +353,19 @@
       "sha256": "57d0ecad4d4632578ceac2ed63f8a919ca92eea0394fbf70b71a225b191df01b"
     },
     {
-      "bytes": 8990,
+      "bytes": 77577,
+      "path": "oracles/wire-route.json",
+      "sha256": "46f5dabc1c3f353932efb941c701d1e660aa0e649f16e039f81e23d08067a857"
+    },
+    {
+      "bytes": 39390,
+      "path": "oracles/xai-cache-routing.json",
+      "sha256": "8826adb52082aab0ccb0f552dfb128fa2b814c38ea24ce59e3ef505a7bab3ced"
+    },
+    {
+      "bytes": 10079,
       "path": "oracles/xai-responses-continuation.json",
-      "sha256": "fbe1042ca88838bc036235bbf5bf052d2f966ded4a19bedcb8590a22a1c0479c"
+      "sha256": "41551970b0d5e77b39208e2525781feed102618126f3501657980ded407d7a6c"
     },
     {
       "bytes": 24344,
@@ -338,17 +389,17 @@
     }
   ],
   "product": {
-    "appsSha256": "b66a4bd6f8a15d621316e91b15fa61c129a258907e14a9d12e0fed0754f1e809",
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
     "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9233,
+    "files": 43480,
     "refComparison": {
-      "closestCommit": "eb47a6b01ea242286619aab7475bd4ba94ec7880",
-      "commitFilesMissingFromTree": 0,
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
       "exact": false,
-      "filesDifferingFromCommit": 29
+      "filesDifferingFromCommit": 34400
     },
-    "srcSha256": "73e1d84c6e83f9c8abe4f6ba5001a745afc73c311ea9d6b029415c9e831b25fb",
+    "srcSha256": "496e9670c833592f5676f057609525e1e4246394106c341c6f11d0d47441da01",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
@@ -373,5 +424,5 @@
     "openai-responses-http-sse/truncated-no-completed"
   ],
   "set": "providers",
-  "totalBytes": 915269
+  "totalBytes": 1882021
 }

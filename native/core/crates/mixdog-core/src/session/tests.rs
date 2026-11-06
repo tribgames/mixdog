@@ -254,6 +254,54 @@ async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_implicit_approval_session_asks_nobody() {
+    let rig = Rig::new();
+    let resolved: Arc<Mutex<Option<ApprovalResolution>>> = Arc::default();
+    let seen = resolved.clone();
+    rig.set_script(Arc::new(move |run| {
+        let seen = seen.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let resolution = run
+                .port
+                .request(ApprovalAsk {
+                    kind: ApprovalKind::Tool,
+                    call_id: None,
+                    tool: Some("shell".into()),
+                    action_kind: None,
+                    reason: Some("shell needs a look".into()),
+                    payload: json!({ "name": "shell" }),
+                    remember: Vec::new(),
+                    expires_after: None,
+                })
+                .await;
+            *lock(&seen) = Some(resolution);
+            RunOutcome::Completed
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let reply = directory
+        .request(request(
+            "thread/start",
+            json!({
+                "opId": "op-start", "kind": "task", "projectPath": "/ws",
+                "session": { "toolProfile": "headless", "approvalMode": "implicit" },
+            }),
+            "op-start",
+        ))
+        .await
+        .expect("thread/start");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+    let handle = directory.handle(&id).expect("loaded");
+    turn(&handle, "clean", "op-1").await;
+    let resolution = eventually(|| lock(&resolved).clone()).await;
+    assert!(matches!(resolution, ApprovalResolution::Unavailable { .. }), "{resolution:?}");
+    eventually(|| idle(&handle).then_some(())).await;
+    assert!(rig.sink.events().is_empty(), "no approval request is published");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
     let rig = Rig::new();
     let resolved: Arc<Mutex<Option<ApprovalResolution>>> = Arc::default();
@@ -424,6 +472,94 @@ async fn input_and_task_notifications_release_the_runs_wait() {
     assert_eq!(body["content"], "Async shell task job-7 finished.");
     assert!(note.turn.is_some());
     assert!(!prompt_list(&handle).iter().any(|p| p.contains("job-7")));
+}
+
+fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
+    use mixdog_store::schema::record::Record;
+    use mixdog_store::schema::record::RunPhase;
+    rig.store
+        .records(id)
+        .into_iter()
+        .filter(|(_, record)| matches!(record, Record::Run(run) if run.phase == RunPhase::Started))
+        .count()
+}
+
+async fn start_with_session(directory: &SessionDirectory, session: Value) -> Arc<SessionHandle> {
+    let reply = directory
+        .request(request(
+            "thread/start",
+            json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws", "session": session }),
+            "op-start",
+        ))
+        .await
+        .expect("thread/start");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+    directory.handle(&id).expect("loaded")
+}
+
+/// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
+/// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turns_input() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let seen = inputs.clone();
+    rig.set_script(Arc::new(move |run| {
+        lock(&seen).push(run.input_body.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            RunOutcome::Completed
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    directory.finished(&handle.id, "job-7", "completed", "Async shell task job-7 finished.".into()).await;
+    eventually(|| (lock(&inputs).len() == 1).then_some(())).await;
+    let body = lock(&inputs)[0].clone();
+    assert_eq!(body["role"], "user");
+    assert_eq!(body["content"], "Async shell task job-7 finished.");
+    assert_eq!(body["meta"]["source"], "task-notification");
+    assert_eq!(body["meta"]["execution"]["taskId"], "job-7");
+    eventually(|| idle(&handle).then_some(())).await;
+    assert_eq!(runs_started(&rig, &handle.id), 1);
+    assert!(prompt_list(&handle).is_empty(), "a completion is no prompt");
+}
+
+/// `autoWakeCompletions: false` (`infrastructure.mjs:154`) and an owner that is not the live
+/// session (`notification-bus.test.mjs` "no longer the live session"): the completion is kept
+/// for the next turn and starts none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let quiet = start_with_session(&directory, json!({ "autoWakeCompletions": false })).await;
+    directory.finished(&quiet.id, "job-1", "completed", "job-1 finished.".into()).await;
+
+    let parked = start_thread(&directory).await;
+    subscribe(&parked);
+    parked.cell.unsubscribed();
+    eventually(|| directory.handle(&parked.id).is_none().then_some(())).await;
+    directory.finished(&parked.id, "job-2", "completed", "job-2 finished.".into()).await;
+
+    for (handle, task) in [(&quiet, "job-1"), (&parked, "job-2")] {
+        let note = eventually(|| {
+            rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
+                mixdog_store::schema::record::Record::Item(item) if item.prompt.is_none() => Some(item),
+                _ => None,
+            })
+        })
+        .await;
+        let mixdog_store::schema::blob::Slot::Inline(body) = &note.body else { panic!("inline body") };
+        assert_eq!(body["meta"]["execution"]["taskId"], task);
+        assert!(note.turn.is_none(), "kept for the next turn");
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(runs_started(&rig, &quiet.id), 0);
+    assert_eq!(runs_started(&rig, &parked.id), 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

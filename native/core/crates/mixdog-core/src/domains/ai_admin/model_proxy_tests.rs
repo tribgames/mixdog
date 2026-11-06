@@ -23,7 +23,7 @@ fn request() -> p::ModelRequest {
         p::Content::Parts(vec![
             p::ContentPart::Text("hi".into()),
             p::ContentPart::Image(p::ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into() }),
-            p::ContentPart::File { source: p::BinarySource::Base64("QUJD".into()), mime_type: "text/plain".into(), filename: Some("a.txt".into()) },
+            p::ContentPart::File { source: p::BinarySource::Base64("QUJD".into()), mime_type: "text/plain".into(), filename: Some("a.txt".into()), text: None },
             p::ContentPart::Document { source: p::DocumentSource::Text { media_type: None, data: "d".into() }, title: Some("T".into()) },
         ]),
     );
@@ -72,7 +72,7 @@ fn the_senders_scope_and_unresolved_references_stay_home() {
     let mut sent = request();
     sent.messages[0] = p::Message::new(
         p::Role::User,
-        p::Content::Parts(vec![p::ContentPart::File { source: p::BinarySource::AttachmentRef("blob-1".into()), mime_type: "application/pdf".into(), filename: Some("C:\\x\\y.pdf".into()) }]),
+        p::Content::Parts(vec![p::ContentPart::File { source: p::BinarySource::AttachmentRef("blob-1".into()), mime_type: "application/pdf".into(), filename: Some("C:\\x\\y.pdf".into()), text: None }]),
     );
     sent.options.transport_scope = Some("sender-scope".into());
     sent.options.model_max_output_tokens = Some(9);
@@ -142,8 +142,8 @@ impl QuotaProbe for Quota {
 struct Wires;
 #[async_trait]
 impl WireRouter for Wires {
-    async fn route(&self, _: &str, _: &str, agent: bool) -> Option<w::ProxyWireRoute> {
-        agent.then_some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Agent })
+    async fn route(&self, _: &str, _: &str, context: w::ProxyRouteContext) -> Option<w::ProxyWireRoute> {
+        context.agent.then_some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Family, profile_id: "mock:messages".into() })
     }
 }
 
@@ -156,7 +156,7 @@ impl ProviderConfigSource for Config {
 }
 
 /// The PC end behind the transport the server end calls.
-struct Loopback(ProxyRunner);
+pub(in crate::domains::ai_admin) struct Loopback(pub(in crate::domains::ai_admin) ProxyRunner);
 
 struct Collect<'a>(&'a Mutex<Vec<w::ProxyEvent>>);
 impl ProxyEvents for Collect<'_> {
@@ -209,24 +209,47 @@ impl AttemptSink for Sink {
     }
 }
 
-fn loopback(attempts: impl IntoIterator<Item = MockAttempt>) -> Loopback {
-    mixdog_rt::testing::tokens();
-    let broker = Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(mixdog_ai::retry::StandardRetryDecider)));
-    let _ = StandardRetryDecider;
-    Loopback(ProxyRunner { providers: Arc::new(Mock(Arc::new(MockProvider::new(attempts)))), broker, quota: Arc::new(Quota), wire: Arc::new(Wires), config: Arc::new(Config) })
+/// A PC with no network: its catalog lists what models says and fetches nothing.
+struct Offline;
+
+#[async_trait]
+impl mixdog_ai::transport::HttpSend for Offline {
+    async fn send(&self, _: p::WireRequest) -> Result<mixdog_ai::transport::HttpResponse, p::ProviderError> {
+        Err(p::ProviderError::new(p::ErrorKind::Transient, p::DeliveryState::NotSent))
+    }
 }
 
-fn hi() -> p::ModelRequest {
+async fn catalog(models: &[(&str, &str)]) -> Arc<mixdog_ai::catalog::CatalogService> {
+    use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelRecord, ModelsDevSource};
+    let tokens = mixdog_rt::testing::tokens();
+    let mut snapshot = CatalogSnapshot::default();
+    for (provider, id) in models {
+        snapshot.models.entry((*provider).into()).or_default().push(ModelRecord::new((*provider).into(), *id));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
+    Arc::new(CatalogService::cold_start(snapshot, Vec::new(), metadata).await)
+}
+
+pub(in crate::domains::ai_admin) async fn loopback(attempts: impl IntoIterator<Item = MockAttempt>) -> Loopback {
+    let catalog = catalog(&[("mock", "listed")]).await;
+    let broker = Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(mixdog_ai::retry::StandardRetryDecider)));
+    let _ = StandardRetryDecider;
+    Loopback(ProxyRunner { providers: Arc::new(Mock(Arc::new(MockProvider::new(attempts)))), broker, quota: Arc::new(Quota), wire: Arc::new(Wires), config: Arc::new(Config), catalog })
+}
+
+pub(in crate::domains::ai_admin) fn hi() -> p::ModelRequest {
     p::ModelRequest { model: "m".into(), messages: vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))], tools: Vec::new(), options: p::RequestOptions::default() }
 }
 
-fn rejected(status: u16) -> MockAttempt {
+pub(in crate::domains::ai_admin) fn rejected(status: u16) -> MockAttempt {
     MockAttempt::Rejected(p::ErrorResponse { status: Some(status), headers: Vec::new(), body: Vec::new() })
 }
 
 #[tokio::test(start_paused = true)]
 async fn the_pc_retries_and_the_server_sees_each_discard() {
-    let pc = loopback([rejected(503), MockAttempt::Body(b"u:10,5\n".to_vec()), MockAttempt::Body(b"t:hi\ndone\n".to_vec())]);
+    let pc = loopback([rejected(503), MockAttempt::Body(b"u:10,5\n".to_vec()), MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
     let mut sink = Sink::default();
     let attempts = remote_send(&pc, &NoStore, "mock", &hi(), &mut sink, &CancellationToken::new()).await.unwrap();
     assert_eq!(attempts, 3);
@@ -237,14 +260,14 @@ async fn the_pc_retries_and_the_server_sees_each_discard() {
 
 #[tokio::test(start_paused = true)]
 async fn a_refusal_keeps_its_classification() {
-    let pc = loopback([rejected(401)]);
+    let pc = loopback([rejected(401)]).await;
     let error = remote_send(&pc, &NoStore, "mock", &hi(), &mut Sink::default(), &CancellationToken::new()).await.unwrap_err();
     assert!(matches!(error, SendError::Provider(e) if e.status == Some(401)));
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_provider_the_pc_lacks_is_refused_by_name() {
-    let pc = loopback([]);
+    let pc = loopback([]).await;
     let error = remote_send(&pc, &NoStore, "absent", &hi(), &mut Sink::default(), &CancellationToken::new()).await.unwrap_err();
     let SendError::Provider(e) = error else { panic!("{error:?}") };
     assert_eq!((e.kind, e.code.as_deref()), (p::ErrorKind::InvalidRequest, Some("MODEL_PROXY_PROVIDER_UNAVAILABLE")));
@@ -252,16 +275,19 @@ async fn a_provider_the_pc_lacks_is_refused_by_name() {
 
 #[tokio::test(start_paused = true)]
 async fn the_other_calls_are_answered_on_the_pc() {
-    let pc = loopback([]);
+    let pc = loopback([]).await;
     let ask = |call| async {
         pc.0.run(call, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await
     };
     let w::ProxyAnswer::Usable { usable } = ask(w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "ok".into() }).await.unwrap() else { panic!() };
     assert!(usable);
-    let route = ask(w::ProxyCall::ResolveWireRoute { provider: "mock".into(), model: "m".into(), context: w::ProxyRouteContext { agent: true } }).await.unwrap();
-    assert_eq!(route, w::ProxyAnswer::Route { route: Some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Agent }) });
+    let route = ask(w::ProxyCall::ResolveWireRoute { provider: "mock".into(), model: "m".into(), context: w::ProxyRouteContext { agent: true, legacy: false } }).await.unwrap();
+    assert_eq!(route, w::ProxyAnswer::Route { route: Some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Family, profile_id: "mock:messages".into() }) });
     assert!(matches!(ask(w::ProxyCall::ProviderConfig).await.unwrap(), w::ProxyAnswer::ProviderConfig { ready: true, .. }));
     assert!(ask(w::ProxyCall::QuotaUsable { provider: "absent".into(), model: "x".into() }).await.is_err());
+    // A cached listing answers from the PC's catalog.
+    let w::ProxyAnswer::Models { models } = ask(w::ProxyCall::ListModels { provider: "mock".into(), refresh: false }).await.unwrap() else { panic!() };
+    assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["listed"]);
 }
 
 #[tokio::test(flavor = "current_thread")]

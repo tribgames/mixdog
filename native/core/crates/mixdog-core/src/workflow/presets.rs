@@ -64,7 +64,7 @@ fn first_text(preset: &Value, keys: &[&str]) -> String {
 }
 
 /// `normalizePreset`.
-fn normalize_preset(preset: &Value) -> Option<Value> {
+pub(crate) fn normalize_preset(preset: &Value) -> Option<Value> {
     let map = preset.as_object()?;
     let id = js_trim(&first_text(preset, &["id", "name"])).to_owned();
     let name = js_trim(&first_text(preset, &["name", "id"])).to_owned();
@@ -97,6 +97,58 @@ fn normalize_preset(preset: &Value) -> Option<Value> {
     Some(Value::Object(out))
 }
 
+/// The config with the sections the Node save builder normalizes in their stored form:
+/// `presets` (`normalizePreset` of each, the unusable ones dropped) and `webSearchRoute`
+/// (`normalizeWebSearchRouteConfig`). `Config`'s stored form passes both through as given, so a
+/// route's `modelParameters` or a `fast: false` would reach the file.
+pub(crate) fn with_stored_routes(agent: &Doc) -> Doc {
+    let mut next = agent.clone();
+    if let Some(list) = agent.get("presets").and_then(Value::as_array) {
+        next.insert("presets".into(), Value::Array(list.iter().filter_map(normalize_preset).collect()));
+    }
+    if agent.contains_key("webSearchRoute") {
+        next.insert("webSearchRoute".into(), stored_web_search_route(&agent["webSearchRoute"]));
+    }
+    next
+}
+
+/// `normalizeWebSearchRoute` of `config-storage.mjs`: the stored shape of the route, which keeps
+/// neither fallbacks nor a false `fast`.
+pub(crate) fn stored_web_search_route(route: &Value) -> Value {
+    let Some(map) = route.as_object() else { return Value::Null };
+    let text = |key: &str| js_trim(&first_text(route, &[key])).to_owned();
+    let provider = text("provider");
+    let provider = AGENT_PROVIDER_ALIASES.iter().find(|(alias, _)| *alias == provider).map_or(provider.clone(), |(_, id)| (*id).to_owned());
+    let model = text("model");
+    let tool_type = text("toolType");
+    if provider.is_empty() && !model.is_empty() {
+        let mut out = Map::new();
+        out.insert("provider".into(), json!("default"));
+        out.insert("model".into(), json!("default"));
+        if !tool_type.is_empty() {
+            out.insert("toolType".into(), Value::String(tool_type));
+        }
+        return Value::Object(out);
+    }
+    if provider.is_empty() || model.is_empty() {
+        return Value::Null;
+    }
+    let mut out = Map::new();
+    out.insert("provider".into(), Value::String(provider));
+    out.insert("model".into(), Value::String(model));
+    let effort = text("effort");
+    if !effort.is_empty() {
+        out.insert("effort".into(), Value::String(effort));
+    }
+    if map.get("fast") == Some(&Value::Bool(true)) {
+        out.insert("fast".into(), Value::Bool(true));
+    }
+    if !tool_type.is_empty() {
+        out.insert("toolType".into(), Value::String(tool_type));
+    }
+    Value::Object(out)
+}
+
 /// `isRedundantGeneratedRoutePreset(preset, default)`.
 fn redundant_generated(preset: &Value, default: &str) -> bool {
     let id = clean(preset.get("id"));
@@ -113,12 +165,23 @@ pub(crate) struct Effective {
 }
 
 pub(crate) fn effective(agent: &Doc) -> Effective {
+    effective_keeping(agent, &[])
+}
+
+/// `effective`, except that the presets with an id in `written` stay as a save wrote them. The
+/// runtime adopts the config it just saved without a reload, so those still hold what the
+/// loader's `normalizePreset` drops (`modelParameters`).
+pub(crate) fn effective_keeping(agent: &Doc, written: &[String]) -> Effective {
     let stored = crate::config::patch::stored_form(agent);
     let default = stored.get("default").cloned().unwrap_or(Value::Null);
+    let normalized = |preset: &Value| {
+        let id = first_text(preset, &["id", "name"]);
+        if written.contains(&id) { Some(preset.clone()) } else { normalize_preset(preset) }
+    };
     let mut presets: Vec<Value> = agent
         .get("presets")
         .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(normalize_preset).filter(|preset| preset.get("id").and_then(Value::as_str) != Some("workflow-search")).collect())
+        .map(|list| list.iter().filter_map(normalized).filter(|preset| preset.get("id").and_then(Value::as_str) != Some("workflow-search")).collect())
         .unwrap_or_default();
     let key = |preset: &Value| first_text(preset, &["id", "name"]);
     let present: Vec<String> = presets.iter().map(key).collect();

@@ -11,6 +11,7 @@ workspace = true
 mixdog-rt = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-statefile = { workspace = true }
 mixdog-core-api = { workspace = true }
 aes-gcm = { workspace = true }
 arc-swap = { workspace = true }
@@ -30,6 +31,10 @@ reqwest = { workspace = true, features = ["stream", "socks"] }
 # A proxy reached over https: the TLS client of the CONNECT tunnel and of the connection check.
 rustls = { workspace = true, features = ["ring", "std"] }
 rustls-native-certs = { workspace = true }
+# The connection check's one HEAD, over the connection its own typed tunnel opened.
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 tokio-rustls = { workspace = true, features = ["ring"] }
 serde = { workspace = true }
 # preserve_order: wire bodies keep insertion order (prompt-cache prefixes are byte prefixes).

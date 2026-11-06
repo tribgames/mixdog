@@ -5,6 +5,8 @@
 //! The session layer supplies admission (which sessions and workers use an affected folder)
 //! through [`FolderAdmission`]; this module owns the git and ref validation.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::path::Path;
 use std::path::PathBuf;
 

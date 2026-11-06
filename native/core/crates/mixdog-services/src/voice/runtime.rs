@@ -70,10 +70,31 @@ pub struct VoiceRuntime {
     pub ffmpeg_path: Option<PathBuf>,
 }
 
+impl VoiceRuntime {
+    /// Nothing installed: what a runtime that could not be read resolves to.
+    pub fn absent(manifest: &RuntimeManifest) -> Self {
+        Self {
+            installed: false,
+            stale: false,
+            binary: false,
+            model: false,
+            ffmpeg: false,
+            whisper_cmd: None,
+            server_cmd: None,
+            model_path: None,
+            model_id: manifest.model_id.clone(),
+            model_name: String::new(),
+            ffmpeg_path: None,
+        }
+    }
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn has_data(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() > 0)
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn active_name(root: &Path) -> Option<String> {
     let name = std::fs::read_to_string(root.join("active-version")).ok()?;
     let name = mixdog_js::js_trim(&name);
@@ -134,6 +155,7 @@ pub struct VoiceRuntimeInfo {
 
 /// Describes the resolved files, not the latest manifest: an older installed runtime may still
 /// be in use after an app update.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn voice_runtime_info(runtime: &VoiceRuntime, manifest: &RuntimeManifest) -> VoiceRuntimeInfo {
     static WHISPER: OnceLock<JsRegex> = OnceLock::new();
     static FFMPEG: OnceLock<JsRegex> = OnceLock::new();

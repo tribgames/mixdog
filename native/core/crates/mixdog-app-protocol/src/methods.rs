@@ -133,14 +133,16 @@ crate::client_request_definitions! {
         mutation: op(Core),
         origins: [Local, Ssh, Relay],
     },
-    /// The only call that creates a thread subscription (P §6.3).
+    /// The only call that creates a thread subscription (P §6.3). A relay phone subscribes
+    /// through Node's relay-handled `setVisibleSessions` (`remote-relay-client-calls.ts`),
+    /// which the inventory maps to this call and `thread/unsubscribe`.
     ThreadResume => "thread/resume" {
         params: v2::thread::ThreadResumeParams,
         result: v2::thread::ThreadResumeResponse,
         scope: none,
         class: C0,
         mutation: none,
-        origins: [Local, Ssh],
+        origins: [Local, Ssh, Relay],
     },
     /// Ends the subscription; never stops work (X10).
     ThreadUnsubscribe => "thread/unsubscribe" {
@@ -149,7 +151,7 @@ crate::client_request_definitions! {
         scope: none,
         class: C0,
         mutation: none,
-        origins: [Local, Ssh],
+        origins: [Local, Ssh, Relay],
     },
     /// Paged list rows.
     ThreadList => "thread/list" {

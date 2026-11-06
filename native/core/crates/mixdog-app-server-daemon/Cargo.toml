@@ -27,6 +27,7 @@ bytes = { workspace = true }
 mixdog-mcp = { workspace = true }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 mixdog-store = { workspace = true }
+mixdog-statefile = { workspace = true }
 async-trait = { workspace = true }
 mixdog-protocol = { workspace = true }
 # The mock seams stay linked until the real core, transport and server replace them.

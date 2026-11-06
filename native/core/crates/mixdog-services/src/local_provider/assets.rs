@@ -116,6 +116,7 @@ fn check_asset(asset: &Value) -> Result<(i64, String, String), AssetError> {
 
 /// Hashes `path` as one job on the durability lane (the lane its partial files are written on);
 /// a cancel ends the wait at once and stops the read at its next 1 MiB block.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the file is read inside a durability-lane job")]
 pub async fn sha256_file(lane: DurabilityIo, path: &Path, cancel: &CancellationToken) -> Result<String, AssetError> {
     let path = path.to_owned();
     let job_cancel = cancel.clone();
@@ -209,27 +210,32 @@ async fn settled<T: Send + 'static>(lane: DurabilityIo, work: impl FnOnce() -> s
     on_durability_lane(lane, &CancellationToken::new(), work).await
 }
 
+#[allow(clippy::disallowed_methods, reason = "the call is a durability-lane job")]
 async fn create_dir_all(lane: DurabilityIo, path: &Path) -> Result<(), AssetError> {
     let path = path.to_owned();
     settled(lane, move || fs::create_dir_all(path)).await
 }
 
 /// Length of `path`, 0 when it does not exist.
+#[allow(clippy::disallowed_methods, reason = "the call is a durability-lane job")]
 async fn file_len(lane: DurabilityIo, path: &Path) -> Result<i64, AssetError> {
     let path = path.to_owned();
     settled(lane, move || Ok(fs::metadata(path).map_or(0, |m| m.len() as i64))).await
 }
 
+#[allow(clippy::disallowed_methods, reason = "the call is a durability-lane job")]
 async fn remove_file(lane: DurabilityIo, path: &Path) {
     let path = path.to_owned();
     let _ = settled(lane, move || Ok(drop(fs::remove_file(path)))).await;
 }
 
+#[allow(clippy::disallowed_methods, reason = "the call is a durability-lane job")]
 async fn remove_dir_all(lane: DurabilityIo, path: &Path) {
     let path = path.to_owned();
     let _ = settled(lane, move || Ok(drop(fs::remove_dir_all(path)))).await;
 }
 
+#[allow(clippy::disallowed_methods, reason = "the call is a durability-lane job")]
 async fn rename(lane: DurabilityIo, from: &Path, to: &Path) -> Result<(), AssetError> {
     let (from, to) = (from.to_owned(), to.to_owned());
     settled(lane, move || fs::rename(from, to)).await
@@ -253,7 +259,7 @@ async fn check_disk(lane: DurabilityIo, enabled: bool, dir: &Path, need: i64) ->
 /// operation until its last write has settled, so a resume waits for the download it follows.
 /// An entry lives while it has a holder or a waiter, so the map holds only active destinations.
 struct Owner {
-    lock: Arc<tokio::sync::Mutex<()>>,
+    lock: Arc<tokio::sync::Semaphore>,
     users: usize,
 }
 
@@ -280,7 +286,7 @@ impl Drop for Registration {
 /// Ownership of a destination. The guard is released before the registration, so a waiter that
 /// takes over finds the entry still there.
 struct Ownership {
-    _guard: tokio::sync::OwnedMutexGuard<()>,
+    _guard: tokio::sync::OwnedSemaphorePermit,
     _registration: Registration,
 }
 
@@ -288,13 +294,14 @@ struct Ownership {
 async fn own(partial: &Path, cancel: &CancellationToken) -> Option<Ownership> {
     let lock = {
         let mut map = owners().lock().unwrap();
-        let owner = map.entry(partial.to_owned()).or_insert_with(|| Owner { lock: Arc::default(), users: 0 });
+        let owner = map.entry(partial.to_owned()).or_insert_with(|| Owner { lock: Arc::new(tokio::sync::Semaphore::new(1)), users: 0 });
         owner.users += 1;
         owner.lock.clone()
     };
     let registration = Registration(partial.to_owned());
     tokio::select! {
-        guard = lock.lock_owned() => Some(Ownership { _guard: guard, _registration: registration }),
+        // The semaphore is never closed, so the permit is always granted.
+        guard = lock.acquire_owned() => guard.ok().map(|guard| Ownership { _guard: guard, _registration: registration }),
         () = cancel.cancelled() => None,
     }
 }
@@ -306,6 +313,7 @@ fn users_of(partial: &Path) -> usize {
 }
 
 /// Downloads `asset` (`url`, `size`, `sha256`, optional `name`) to `destination`.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the file calls are durability-lane jobs")]
 pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, destination: &Path, options: DownloadOptions) -> Result<PathBuf, AssetError> {
     let (size, url, sha256) = check_asset(asset)?;
     let name = asset["name"].as_str().map_or_else(|| destination.display().to_string(), str::to_owned);
@@ -480,6 +488,11 @@ async fn extract_archive(processes: &Processes, archive: &Path, destination: &Pa
     Err(AssetError::Other(format!("[local-provider] runtime extraction failed: {}", if tail.is_empty() { format!("status {}", output.code) } else { tail.to_owned() })))
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn exists_blocking(path: &Path) -> bool {
+    path.exists()
+}
+
 /// Installs the runtime build for this host; no-op when its executable is already there.
 pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, processes: &Processes, platform_key: &str, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
     let durability = processes.durability();
@@ -531,7 +544,7 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, proc
             completed = after;
         }
         let extracted = staging.join(executable);
-        if !probe(durability, move || extracted.exists()).await? {
+        if !probe(durability, move || exists_blocking(&extracted)).await? {
             return Err(AssetError::Other(format!("[local-provider] runtime archive did not contain {executable}")));
         }
         if cancel.is_cancelled() {
@@ -629,6 +642,7 @@ pub async fn discard_downloads(catalog: &Arc<Catalog>, phase: &str, model_id: Op
     probe(catalog.lane(), move || discard_blocking(&job_catalog, &phase, model_id.as_deref())).await.map_err(|e| DiscardError::Lane(e.to_string()))?
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn discard_blocking(catalog: &Catalog, phase: &str, model_id: Option<&str>) -> Result<(), DiscardError> {
     match phase {
         "runtime" => {

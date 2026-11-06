@@ -6,7 +6,7 @@
 //!
 //! The HTTP exchange is the shared `transport::HttpSend` seam.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -21,8 +21,11 @@ use mixdog_protocol::ProviderId;
 use crate::transport::{BodyStream, HttpResponse, HttpSend};
 
 use super::chat::CompatChatCodec;
-use super::models::{CompatModelInfo, parse_models};
-use super::profile::{CompatProfile, CredentialKind};
+use super::profile::{CompatProfile, CredentialKind, Wire, WireInputs};
+use super::wire_route::{WireFacts, route_for};
+use crate::catalog::{ListingLookup, ModelTraits};
+use arc_swap::ArcSwap;
+use mixdog_core_api::domain::provider::{ModelListing, WireRoute, WireRouteContext, WireRouting};
 
 pub use crate::providers::key_source::ApiKeySource;
 
@@ -57,15 +60,34 @@ pub fn redact_key(value: &str, key: &str) -> String {
 
 pub struct CompatAdapter {
     id: ProviderId,
-    codec: CompatChatCodec,
+    pub(super) codec: CompatChatCodec,
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
-    http: Arc<dyn HttpSend>,
+    pub(super) http: Arc<dyn HttpSend>,
     /// `None` for a keyless endpoint: no credential header at all.
-    key: Option<Arc<dyn ApiKeySource>>,
+    pub(super) key: Option<Arc<dyn ApiKeySource>>,
+    routing: RouteInputs,
+    /// The tables the listing's enrichment and sanitizer read.
+    pub(super) lookup: ListingLookup,
+    /// The wire a roster states per model (the console config's `wire`),
+    /// published by the last listing; the user's `modelWires` win over it.
+    pub(super) roster_wires: ArcSwap<HashMap<String, Wire>>,
+}
+
+/// What the router is told about a model that the profile cannot know: the
+/// user's per-model wires (`modelWires`) and the catalog's wire for a model.
+#[derive(Clone, Default)]
+pub struct RouteInputs {
+    pub model_wires: HashMap<String, Wire>,
+    pub catalog: Option<Arc<dyn ModelTraits>>,
 }
 
 impl CompatAdapter {
+    pub fn with_routing(mut self, routing: RouteInputs) -> Self {
+        self.routing = routing;
+        self
+    }
+
     pub fn new(
         codec: CompatChatCodec,
         http: Arc<dyn HttpSend>,
@@ -84,7 +106,16 @@ impl CompatAdapter {
             codec,
             http,
             key,
+            routing: RouteInputs::default(),
+            lookup: ListingLookup::new(),
+            roster_wires: ArcSwap::from_pointee(HashMap::new()),
         }
+    }
+
+    /// The handle the catalog service publishes its tables into.
+    pub fn with_listing_lookup(mut self, lookup: ListingLookup) -> Self {
+        self.lookup = lookup;
+        self
     }
 
     fn with_key(wire: &WireRequest, key: Option<&str>) -> WireRequest {
@@ -134,6 +165,17 @@ impl ProviderAdapter for CompatAdapter {
         &self.keepalive
     }
 
+    fn models(&self) -> Option<&dyn ModelListing> {
+        Some(self)
+    }
+
+    fn wire_routing(&self) -> Option<&dyn WireRouting> {
+        // Only a gateway with a model-family table or its own inputs routes
+        // models (Node's `PROFILES`); xAI's two wires are the codec's choice.
+        let wires = &self.codec.profile().wires;
+        (!wires.families.is_empty() || wires.inputs != WireInputs::OverrideOnly).then_some(self)
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let wire = self.codec.encode(&request)?;
         let mut key = match &self.key {
@@ -164,16 +206,59 @@ impl ProviderAdapter for CompatAdapter {
     }
 }
 
-/// `GET {base}/models`. A refused request keeps the provider's own reason
-/// with the request key redacted from it.
-pub async fn fetch_models(
+#[async_trait]
+impl WireRouting for CompatAdapter {
+    async fn resolve_wire_route(
+        &self,
+        model: &str,
+        context: &WireRouteContext,
+    ) -> Result<Option<WireRoute>, ProviderError> {
+        let profile = self.codec.profile();
+        let mut facts = WireFacts {
+            override_wire: self
+                .routing
+                .model_wires
+                .get(model)
+                .copied()
+                .or_else(|| self.roster_wires.load().get(model).copied()),
+            known: true,
+            ..WireFacts::default()
+        };
+        let mut endpoints: Option<Vec<Wire>> = None;
+        match profile.wires.inputs {
+            WireInputs::OverrideOnly => {}
+            WireInputs::Catalog => {
+                facts.catalog_wire = self.routing.catalog.as_ref().and_then(|c| c.catalog_wire(model));
+                // Each model answers on the one wire the catalog names.
+                endpoints = facts.catalog_wire.filter(|w| profile.wires.offered.contains(w)).map(|w| vec![w]);
+            }
+            WireInputs::Roster => match self.codec.models().get(model) {
+                // A row declaring none is served on Chat by convention.
+                Some(row) => endpoints = Some(row.endpoints.clone().unwrap_or_else(|| vec![Wire::Chat])),
+                None => facts.known = false,
+            },
+        }
+        facts.endpoints = endpoints.as_deref();
+        Ok(route_for(profile, profile.id, model, facts, context))
+    }
+}
+
+/// `GET {url}` as JSON. A refused request keeps the provider's own reason
+/// with the request key redacted from it; a reachable endpoint that answers
+/// something else is `null`.
+pub(super) async fn fetch_json(
     http: &dyn HttpSend,
     profile: &CompatProfile,
-    base_url: &str,
+    url: String,
+    extra_headers: &[(String, String)],
     key: Option<&str>,
-) -> Result<Vec<CompatModelInfo>, ProviderError> {
-    let mut headers: Vec<(String, String)> = vec![("accept".into(), "application/json".into())];
+) -> Result<serde_json::Value, ProviderError> {
+    let mut headers: Vec<(String, String)> = Vec::new();
     headers.extend(profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
+    if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("accept")) {
+        headers.push(("accept".into(), "application/json".into()));
+    }
+    headers.extend(extra_headers.iter().cloned());
     if let Some(key) = key {
         headers.push(("authorization".into(), format!("Bearer {key}")));
     }
@@ -181,7 +266,7 @@ pub async fn fetch_models(
         .send(WireRequest {
             transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
             method: "GET".into(),
-            url: format!("{}/models", base_url.trim_end_matches('/')),
+            url,
             headers,
             body: Vec::new(),
         })
@@ -195,9 +280,7 @@ pub async fn fetch_models(
         }
         return Err(err);
     }
-    // A reachable endpoint that returns something else lists nothing.
-    let json = serde_json::from_slice(&body.body).unwrap_or(serde_json::Value::Null);
-    Ok(parse_models(&json))
+    Ok(serde_json::from_slice(&body.body).unwrap_or(serde_json::Value::Null))
 }
 
 struct CompatStream {

@@ -244,6 +244,10 @@ impl Tool for AskUserTool {
         if matches!(resolution, ApprovalResolution::Cancelled { .. }) {
             return Err(cancelled());
         }
+        // No approval surface: Node's `ask_user` without a hook (`ask-user-tool.mjs:243`).
+        if matches!(resolution, ApprovalResolution::Unavailable { .. }) {
+            return text(NO_USER);
+        }
         // A question left unanswered: the turn may end waiting on the user.
         let answered = matches!(&resolution, ApprovalResolution::Decided { decision, .. } if decision.approved);
         if !answered {

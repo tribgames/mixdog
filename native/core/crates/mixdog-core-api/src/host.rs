@@ -29,6 +29,10 @@ pub enum HostCapability {
     Updater,
     /// File snapshots and the local page server.
     Files,
+    /// `model/proxy/execute`: runs a model call with the connection's own accounts. Declared
+    /// by `capabilities.modelProxy` (not under `capabilities.host`), so a connection serves it
+    /// from `initialize` on, without `host/claim`.
+    ModelProxy,
 }
 
 /// Why a `host/*` request produced no result.
@@ -74,6 +78,39 @@ pub trait HostChannel: Send + Sync {
         method: Method,
         params: Value,
     ) -> Result<(), CoreError>;
+
+    /// [`HostChannel::request`] whose claimant streams events while it works (`model/proxy/execute`
+    /// answers with `model/proxy/event{requestId, event}` notifications ahead of its response).
+    /// Each event reaches `on_event` in the order sent, all of them before the result. A channel
+    /// that carries no streamed request has no claimant for it.
+    async fn request_streamed(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        on_event: &mut (dyn FnMut(Value) + Send),
+    ) -> Result<Value, HostError> {
+        let _ = (capability, method, params, on_event);
+        Err(CoreError::CapabilityUnavailable {
+            capability: "desktopHost".into(),
+            detail: "noClaimant".into(),
+        }
+        .into())
+    }
+
+    /// One streamed event of request `request` arrived from `from`. `false` when that connection
+    /// has no such request pending, so a stray or late event is dropped by the caller.
+    fn stream_event(&self, from: ConnectionId, request: &Value, event: Value) -> bool {
+        let _ = (from, request, event);
+        false
+    }
+}
+
+/// A notification to one connection by id (the `@connection` delivery of the method table, for
+/// example `modelProxy/run/event` to the connection that asked). Never waits.
+pub trait ConnectionNotifier: Send + Sync {
+    /// `Err` when the connection is gone or closing.
+    fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), CoreError>;
 }
 
 /// Binary media frames from a host-role connection (X17: 16-byte header + payload), routed

@@ -19,6 +19,7 @@ pub const WORKTREE_TARGET_MISMATCH: &str = "WORKTREE_TARGET_MISMATCH";
 pub const WORKTREE_PROJECT_UNKNOWN: &str = "WORKTREE_PROJECT_UNKNOWN";
 pub const WORKTREE_REMOVAL_INCOMPLETE: &str = "WORKTREE_REMOVAL_INCOMPLETE";
 pub const WORKTREE_PATH_UNSAFE: &str = "WORKTREE_PATH_UNSAFE";
+pub const WORKTREE_FILE_RECOVERY: &str = "WORKTREE_FILE_RECOVERY";
 pub const WORKTREE_LARGE_REPO_CONFIRM: &str = "WORKTREE_LARGE_REPO_CONFIRM";
 pub const WORKTREE_DISK_INSUFFICIENT: &str = "WORKTREE_DISK_INSUFFICIENT";
 pub const MERGE_TARGET_DIRTY: &str = "MERGE_TARGET_DIRTY";
@@ -199,6 +200,30 @@ pub fn path_unsafe(entry_id: String, path: String, reason: Option<&str>) -> ScmF
             count: None,
         },
     )
+}
+
+/// `WORKTREE_PATH_UNSAFE` with its own text (and the links an unrecorded-link refusal names).
+pub fn path_unsafe_with(entry_id: String, path: String, reason: &str, message: String, links: Option<(Vec<String>, u64)>) -> ScmFailure {
+    let (links, count) = links.map_or((None, None), |(links, count)| (Some(links), Some(count)));
+    ScmFailure::coded_with_message(
+        WORKTREE_PATH_UNSAFE,
+        DomainErrorDetail::WorktreePathUnsafe { entry_id, path, reason: Some(reason.to_owned()), links, count },
+        message,
+    )
+}
+
+/// Retained file recovery records block a removal, force included.
+pub fn file_recovery(entry_id: String, path: String, recovery_root: String) -> ScmFailure {
+    ScmFailure::coded(WORKTREE_FILE_RECOVERY, DomainErrorDetail::WorktreeFileRecovery { entry_id, path, recovery_root })
+}
+
+/// `WORKTREE_BUSY_JOBS` (`folder-in-use`) with its own text.
+pub fn busy_text(message: String) -> ScmFailure {
+    let mut failure = busy(RefusalReason::FolderInUse);
+    if let ScmFailure::Coded { message: slot, .. } = &mut failure {
+        *slot = Some(message.into_boxed_str());
+    }
+    failure
 }
 
 /// The worktree (or project folder) has uncommitted work or an operation in progress.

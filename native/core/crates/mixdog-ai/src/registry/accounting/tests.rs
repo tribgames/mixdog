@@ -128,6 +128,7 @@ async fn rows_of(case: &Value) -> Vec<Value> {
         _ => {
             let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Ambiguous);
             error.partial_usage = usage.map(Box::new);
+            error.partial_model = end.get("model").and_then(Value::as_str).map(Box::from);
             accounting.finish(Outcome::Failed(&error)).await
         }
     };
@@ -142,7 +143,7 @@ async fn every_outcome_writes_the_rows_node_writes() {
     let _ = mixdog_js::time::set_process_zone(Tz::UTC);
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let cases = golden["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 16);
+    assert_eq!(cases.len(), 17);
     for case in cases {
         let want = case["rows"].as_array().unwrap();
         let rows = rows_of(case).await;

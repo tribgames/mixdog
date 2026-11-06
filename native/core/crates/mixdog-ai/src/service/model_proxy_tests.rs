@@ -90,7 +90,7 @@ async fn attachment_inlining_matches_node() {
                 .map(|(k, p)| {
                     let reference = format!("{m}.{k}");
                     blobs.push((reference.clone(), p["size"].as_u64().unwrap() as usize, p["missing"].as_bool().unwrap()));
-                    ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type: "application/pdf".into(), filename: Some("a.pdf".into()) }
+                    ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type: "application/pdf".into(), filename: Some("a.pdf".into()), text: None }
                 })
                 .collect();
             messages.push(Message::new(Role::User, Content::Parts(parts)));

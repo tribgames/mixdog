@@ -232,6 +232,8 @@ fn typescript() -> String {
     collector.visit::<mixdog_protocol::NotificationPreferences>();
     collector.visit::<mixdog_protocol::RemotePairCode>();
     collector.visit::<mixdog_protocol::ToolModuleSettings>();
+    // The error data of a failed `model/proxy/*` call; no method result reaches it.
+    collector.visit::<crate::v2::model_proxy::ProxyFailure>();
 
     let mut client = TsMethodMap {
         collector: &mut collector,

@@ -15,7 +15,7 @@ mod ids;
 mod onboarding;
 mod pack;
 mod prefs;
-mod presets;
+pub(crate) mod presets;
 mod search;
 #[cfg(test)]
 mod tests;
@@ -53,6 +53,7 @@ use crate::domains::support::invalid;
 use crate::domains::support::on_lane;
 use crate::domains::support::wrong_method;
 use crate::tool_modules::with_grandfathered_builtins;
+use presets::with_stored_routes;
 
 const DOMAIN: &str = "config";
 
@@ -206,8 +207,8 @@ impl WorkflowConfig {
     async fn save(&self, before: &Doc, after: &Doc) -> Result<(), CoreError> {
         // `after` descends from the adopted config, so it keeps the section `before` was stamped
         // with: a Lead route it adds must not turn a fresh profile into a grandfathered one.
-        let before = with_grandfathered_builtins(before);
-        let mut after = after.clone();
+        let before = with_stored_routes(&with_grandfathered_builtins(before));
+        let mut after = with_stored_routes(after);
         if !after.contains_key("builtins") {
             after.insert("builtins".into(), before.get("builtins").cloned().unwrap_or(Value::Null));
         }
@@ -325,9 +326,11 @@ impl WorkflowConfig {
                     let route = search::plan(&before, &next, &*self.host).await.map_err(thrown)?;
                     let before = self.config.agent();
                     let mut after = before.clone();
+                    // Node answers its adopted route, which still carries a false `fast` that
+                    // the stored form drops.
+                    let saved = search::normalized(Some(&route)).map_err(thrown)?;
                     after.insert("webSearchRoute".into(), route);
                     self.save(&before, &after).await?;
-                    let saved = search::normalized(self.config.agent().get("webSearchRoute")).map_err(thrown)?;
                     self.host.web_search_route_saved(&saved);
                     Ok(saved)
                 },
@@ -365,6 +368,12 @@ impl WorkflowConfig {
         onboarding::status(&self.config.agent()).map_err(thrown)
     }
 
+    /// The status of the config a save just adopted: Node reads its in-memory config, which
+    /// still holds what the stored form drops (an empty `modelParameters`).
+    fn adopted_status(&self, before: &Doc, adopted: &Doc) -> Result<Value, CoreError> {
+        onboarding::adopted_status(before, adopted).map_err(thrown)
+    }
+
     async fn skip_onboarding(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         self.ops
             .run(
@@ -374,7 +383,7 @@ impl WorkflowConfig {
                     let before = self.config.agent();
                     let after = onboarding::skipped(&before, &(self.now)());
                     self.save(&before, &after).await?;
-                    self.onboarding_status()
+                    self.adopted_status(&before, &after)
                 },
                 || async { self.onboarding_status() },
             )
@@ -402,7 +411,7 @@ impl WorkflowConfig {
                     if let Some(lead) = completion.lead {
                         self.host.adopt_lead_route(onboarding::lead_selection(&lead)).await;
                     }
-                    self.onboarding_status()
+                    self.adopted_status(&before, &completion.after)
                 },
                 || async { self.onboarding_status() },
             )

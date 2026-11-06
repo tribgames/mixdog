@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use serde_json::{Map, Value, json};
 
 use crate::e2ee::{Challenge, Channel, E2eeError, PairingMaterial, Sealed, ServerIdentity, Wire, accept_client_hello, is_hello};
-use super::foreground::{Foreground, Report};
 use crate::leg::frame::Payload;
 
 pub const MAX_CLIENTS: usize = 64;
@@ -16,7 +15,6 @@ struct Client {
     credential_id: String,
     challenge: Challenge,
     channel: Option<Channel>,
-    foreground: Foreground,
 }
 
 /// What one frame from a phone amounts to.
@@ -71,30 +69,9 @@ impl ClientTable {
         let text = challenge.to_json_string();
         self.clients.insert(
             client_id.to_owned(),
-            Client { credential_id: credential_id.to_owned(), challenge, channel: None, foreground: Foreground::default() },
+            Client { credential_id: credential_id.to_owned(), challenge, channel: None },
         );
         Some(text)
-    }
-
-    /// Records what an attached phone reported about its screen.
-    pub fn report(&mut self, client_id: &str, report: Report) {
-        if let Some(client) = self.clients.get_mut(client_id).filter(|c| c.channel.is_some()) {
-            client.foreground.apply(report);
-        }
-    }
-
-    /// Whether any attached leg of the paired credential shows `thread_id`.
-    pub fn credential_shows(&self, credential_id: &str, thread_id: &str) -> bool {
-        self.shown_by(|c| c.credential_id == credential_id, thread_id)
-    }
-
-    /// Whether any attached leg that reported `browser_id` shows `thread_id`.
-    pub fn browser_shows(&self, browser_id: &str, thread_id: &str) -> bool {
-        self.shown_by(|c| c.foreground.browser_id() == browser_id, thread_id)
-    }
-
-    fn shown_by(&self, which: impl Fn(&Client) -> bool, thread_id: &str) -> bool {
-        self.clients.values().any(|c| c.channel.is_some() && which(c) && c.foreground.shows(thread_id))
     }
 
     pub fn close(&mut self, client_id: &str) -> bool {

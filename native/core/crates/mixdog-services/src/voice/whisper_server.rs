@@ -7,8 +7,7 @@
 //! binary or model. An idle child is released after [`IDLE_TIMEOUT`] so one transcription does
 //! not pin the model for the life of the daemon.
 
-use std::net::{SocketAddr, TcpListener};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -18,7 +17,13 @@ use futures::FutureExt;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
+use mixdog_rt::DurabilityIo;
+use mixdog_js::JsRegex;
+use tokio_util::sync::CancellationToken;
+
 use super::pipeline::{AudioTools, ServerContract, VoiceError, WhisperEngine};
+use super::whisper_owner::{PidMeta, clear_pid_file, listener_owned, pid_file, port_from_env, read_pid_file, reclaim_stale, select_port, write_pid_file};
+use crate::lane::io_on_lane;
 use crate::local_provider::server_process::{Launcher, LogSink, RunningProcess, SystemLauncher};
 use crate::tidy::process::{Processes, RunOptions};
 
@@ -35,6 +40,9 @@ struct Running {
     contract: ServerContract,
     port: u16,
     log: Arc<StdMutex<String>>,
+    lane: DurabilityIo,
+    /// Where the pid file of this child lives.
+    pid_file: PathBuf,
 }
 
 impl Running {
@@ -59,12 +67,20 @@ pub struct WhisperServer {
     idle_timeout: Option<Duration>,
     http: reqwest::Client,
     launcher: Arc<SystemLauncher>,
+    processes: Processes,
 }
 
 impl WhisperServer {
-    /// The default port and idle release; the child runs under the shared process manager.
+    /// The default port and idle release, `MIXDOG_WHISPER_SERVER_PORT` and
+    /// `MIXDOG_WHISPER_IDLE_TIMEOUT_MS` (0 disables the release) overriding them; the child runs
+    /// under the shared process manager.
     pub fn with_defaults(processes: &Processes) -> Self {
-        Self::new(PREFERRED_PORT, Some(IDLE_TIMEOUT), processes)
+        let port = std::env::var("MIXDOG_WHISPER_SERVER_PORT").ok().and_then(|raw| port_from_env(&raw)).unwrap_or(PREFERRED_PORT);
+        let idle = match std::env::var("MIXDOG_WHISPER_IDLE_TIMEOUT_MS").map(|raw| mixdog_js::string_to_number(&raw)) {
+            Ok(ms) if ms.is_finite() && ms >= 0.0 => Some(Duration::from_millis(ms as u64)).filter(|d| !d.is_zero()),
+            _ => Some(IDLE_TIMEOUT),
+        };
+        Self::new(port, idle, processes)
     }
 
     /// `idle_timeout: None` never releases an idle child.
@@ -75,6 +91,7 @@ impl WhisperServer {
             idle_timeout,
             http: reqwest::Client::new(),
             launcher: Arc::new(SystemLauncher::new(processes)),
+            processes: processes.clone(),
         }
     }
 
@@ -98,7 +115,15 @@ impl WhisperServer {
     }
 
     async fn start(&self, contract: &ServerContract) -> Result<Running, VoiceError> {
-        let port = select_port(&contract.host, self.preferred_port)?;
+        let lane = self.processes.durability();
+        let pid_path = pid_file(&contract.server_cmd);
+        let cwd = contract.server_cmd.parent().unwrap_or(Path::new(".")).to_owned();
+        // Reclaim only a child the pid file proves is ours; a foreign listener is never touched.
+        if let Some(meta) = read_pid_file(lane, pid_path.clone()).await {
+            reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, &cwd).await;
+            clear_pid_file(lane, pid_path.clone()).await;
+        }
+        let port = select_port(&contract.host, self.preferred_port).map_err(VoiceError)?;
         let args = [
             "--model".to_owned(),
             contract.model_path.to_string_lossy().into_owned(),
@@ -109,7 +134,6 @@ impl WhisperServer {
             "-t".to_owned(),
             contract.thread_count.to_string(),
         ];
-        let cwd = contract.server_cmd.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned();
         let log = Arc::new(StdMutex::new(String::new()));
         let sink: LogSink = {
             let log = log.clone();
@@ -117,18 +141,43 @@ impl WhisperServer {
         };
         let process = self
             .launcher
-            .launch(&contract.server_cmd.to_string_lossy(), &args, &cwd, &[], sink)
+            .launch(&contract.server_cmd.to_string_lossy(), &args, &cwd.to_string_lossy(), &[], sink)
             .await
             .map_err(|e| VoiceError(format!("whisper-server failed to start: {e}")))?;
-        let running = Running { process, contract: contract.clone(), port, log };
+        let pid = process.pid();
+        let running = Running { process, contract: contract.clone(), port, log, lane, pid_file: pid_path.clone() };
+        if let Some(pid) = pid {
+            let meta = PidMeta { pid, server_cmd: &contract.server_cmd, model_path: &contract.model_path, thread_count: contract.thread_count, host: &contract.host, port, started_at_ms: crate::media::store::now_ms() };
+            write_pid_file(lane, pid_path, &meta).await;
+        }
+        // The ownership queries end with the readiness budget.
+        let readiness = CancellationToken::new();
+        let _end = readiness.clone().drop_guard();
+        tokio::spawn({
+            let readiness = readiness.clone();
+            async move {
+                tokio::select! {
+                    () = tokio::time::sleep(READY_TIMEOUT) => readiness.cancel(),
+                    () = readiness.cancelled() => {}
+                }
+            }
+        });
         let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
         let addr = format!("{}:{port}", contract.host);
         while tokio::time::Instant::now() < deadline {
             if running.exited() {
-                let tail = running.log.lock().unwrap().clone();
+                let tail = utf16_tail(&running.log.lock().unwrap(), 1000);
+                teardown_running(running).await;
                 return Err(VoiceError(format!("whisper-server died during startup:\n{tail}")));
             }
-            if let Ok(Ok(_)) = tokio::time::timeout(PROBE_CONNECT, TcpStream::connect(&addr)).await {
+            // The printed bound port must be the one selected.
+            let printed = printed_port(&running.log.lock().unwrap());
+            if let Some(printed) = printed.filter(|p| *p != u64::from(port)) {
+                teardown_running(running).await;
+                return Err(VoiceError(format!("whisper-server bound port {printed} but contract requires {port}")));
+            }
+            let bound = matches!(tokio::time::timeout(PROBE_CONNECT, TcpStream::connect(&addr)).await, Ok(Ok(_)));
+            if bound && pid.is_some_and(|pid| pid > 0) && listener_owned(&self.processes, &contract.host, port, pid.unwrap_or(0), &cwd, &readiness).await && !running.exited() {
                 return Ok(running);
             }
             tokio::time::sleep(READY_POLL).await;
@@ -182,7 +231,8 @@ impl WhisperEngine for WhisperServer {
 
 impl WhisperServer {
     async fn post_inference(&self, host: &str, port: u16, wav: &Path, language: Option<&str>) -> Result<String, VoiceError> {
-        let data = tokio::fs::read(wav).await.map_err(|e| VoiceError(e.to_string()))?;
+        let path = wav.to_owned();
+        let data = io_on_lane(self.processes.durability(), move || read_wav(&path)).await.map_err(|e| VoiceError(e.to_string()))?;
         let name = wav.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let boundary = format!("----mixdog{}", uuid::Uuid::new_v4().simple());
         let body = multipart_body(&boundary, &name, &data, language);
@@ -198,6 +248,11 @@ impl WhisperServer {
         let text = response.text().await.map_err(|e| VoiceError(e.to_string()))?;
         parse_inference(status.as_u16(), &text)
     }
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn read_wav(path: &Path) -> std::io::Result<Vec<u8>> {
+    std::fs::read(path)
 }
 
 /// `file`, `response_format=json` and the optional `language` form fields.
@@ -237,15 +292,17 @@ pub(crate) fn parse_inference(status: u16, body: &str) -> Result<String, VoiceEr
     }
 }
 
-/// The preferred port when free, else an OS-assigned one. A foreign listener is never reused.
-fn select_port(host: &str, preferred: u16) -> Result<u16, VoiceError> {
-    let reserve = |port: u16| -> std::io::Result<u16> {
-        let listener = TcpListener::bind(SocketAddr::new(host.parse().map_err(std::io::Error::other)?, port))?;
-        Ok(listener.local_addr()?.port())
-    };
-    reserve(preferred)
-        .or_else(|_| reserve(0))
-        .map_err(|e| VoiceError(format!("no loopback port for whisper-server: {e}")))
+/// The port of the first `listening at http://host:port` line the server printed.
+fn printed_port(log: &str) -> Option<u64> {
+    static LINE: std::sync::OnceLock<JsRegex> = std::sync::OnceLock::new();
+    let line = LINE.get_or_init(|| JsRegex::new_static("listening at https?:\\/\\/[^\\s:/]+:(\\d+)", "i"));
+    line.captures(log).and_then(|c| c.get(1)).and_then(|digits| digits.parse().ok())
+}
+
+/// `text.slice(-limit)` by UTF-16 units.
+fn utf16_tail(text: &str, limit: usize) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    String::from_utf16_lossy(&units[units.len().saturating_sub(limit)..])
 }
 
 fn append_tail(log: &mut String, text: &str) {
@@ -266,6 +323,7 @@ async fn teardown(slot: &mut Option<Running>) {
 }
 
 async fn teardown_running(running: Running) {
+    clear_pid_file(running.lane, running.pid_file.clone()).await;
     running.process.kill();
     let _ = tokio::time::timeout(STOP_GRACE, running.process.wait()).await;
 }
@@ -344,10 +402,10 @@ mod tests {
     }
 
     #[test]
-    fn port_selection_skips_a_busy_preferred_port() {
-        let held = TcpListener::bind("127.0.0.1:0").unwrap();
-        let busy = held.local_addr().unwrap().port();
-        let chosen = select_port("127.0.0.1", busy).unwrap();
-        assert_ne!(chosen, busy);
+    fn the_printed_port_and_log_tail_read_like_node() {
+        assert_eq!(printed_port("x\nwhisper server Listening AT http://127.0.0.1:8771\n"), Some(8771));
+        assert_eq!(printed_port("no line"), None);
+        assert_eq!(utf16_tail("abcdef", 3), "def");
+        assert_eq!(utf16_tail("ab", 9), "ab");
     }
 }

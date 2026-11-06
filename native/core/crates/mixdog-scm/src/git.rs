@@ -2,6 +2,8 @@
 //! scrubbing of its diagnostics, and the four ways the engine reads an answer (stdout, exit
 //! code kept, stdin supplied, NUL records).
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

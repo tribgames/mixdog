@@ -148,6 +148,9 @@ pub(crate) enum Inbox {
         task_id: String,
         status: String,
         text: String,
+        /// The thread was loaded when the job finished (Node's owner is the runtime's live
+        /// session, `notification-bus.mjs:41`); one opened for the completion is never woken.
+        live: bool,
     },
     Request {
         req: CoreRequest,
@@ -1215,6 +1218,14 @@ impl SessionActor {
                     });
                     return;
                 }
+                // A session with no approval surface asks nobody (Node's headless runtime has
+                // no `toolApprovalHook`).
+                if super::session_options::approval_implicit(&self.acked.header) {
+                    let _ = reply.send(ApprovalResolution::Unavailable {
+                        at: self.deps.clock.now_ms(),
+                    });
+                    return;
+                }
                 self.request_approval(turn, ask, reply);
             }
             ProducerMsg::TakeSteers {
@@ -1369,7 +1380,8 @@ impl SessionActor {
                 task_id,
                 status,
                 text,
-            } => self.task_notification(task_id, status, text),
+                live,
+            } => self.task_notification(task_id, status, text, live),
             Inbox::ForkPlan { tx } => {
                 let plan = text(&self.log_id, "logId").map(|log_id| {
                     (
@@ -1697,7 +1709,10 @@ impl SessionActor {
     /// The completion text as today's `task-notification` user row (`meta.source`, with the
     /// execution provenance the transcript turns into a card), in the running turn if any; it
     /// releases the turn's passive wait.
-    fn task_notification(&mut self, task_id: String, status: String, text: String) {
+    ///
+    /// An idle thread is woken instead: the completion becomes a turn's input
+    /// (`createCompletionWakeScheduler`, `notification-bus.mjs:80-96`).
+    fn task_notification(&mut self, task_id: String, status: String, text: String, live: bool) {
         let mut body = json!({
             "role": "user",
             "content": text,
@@ -1706,6 +1721,16 @@ impl SessionActor {
                 "execution": { "taskId": task_id, "status": status },
             },
         });
+        if live && self.run.is_none() && self.completion_wake() {
+            // The queued completion is the woken turn's input, never an empty user turn
+            // (`ask-queue.mjs:87-101`).
+            let input = TurnInput {
+                prompt: PromptContent::Text(text),
+                options: None,
+            };
+            self.start_run_with(input, body, None, None, None);
+            return;
+        }
         let facts = self.user_facts(&mut body);
         let item = Record::Item(ItemRecord {
             iid: id(&new_id()),
@@ -1737,8 +1762,28 @@ impl SessionActor {
         reply: Option<Effect>,
         prompt: Option<String>,
     ) {
+        let body = self.deps.transcript.user_message(&input);
+        self.start_run_with(input, body, op_ref, reply, prompt);
+    }
+
+    /// Whether a completion may wake this idle thread: the session did not turn
+    /// `autoWakeCompletions` off (`infrastructure.mjs:154`, default on at
+    /// `runtime-core.mjs:31`) and its owner is not closing (`notification-bus.mjs:27-31`).
+    fn completion_wake(&self) -> bool {
+        !self.cell.closed.load(SeqCst)
+            && self.acked.header.get(super::session_options::AUTO_WAKE_COMPLETIONS) != Some(&Value::Bool(false))
+    }
+
+    /// [`Self::start_run`] over an input row already built.
+    fn start_run_with(
+        &mut self,
+        input: TurnInput,
+        mut body: Value,
+        op_ref: Option<OpRef>,
+        reply: Option<Effect>,
+        prompt: Option<String>,
+    ) {
         let turn = TurnId::from(new_id());
-        let mut body = self.deps.transcript.user_message(&input);
         let facts = self.user_facts(&mut body);
         let mut op_ref = op_ref;
         let value = json!({ "kind": "started", "turnId": turn });

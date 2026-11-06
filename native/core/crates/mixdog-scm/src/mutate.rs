@@ -3,6 +3,8 @@
 //! destructive step (clean work tree, no operation in progress, a commit that is really one)
 //! live here once, not per front end.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::path::Path;
 
 use mixdog_core_api::domain::repo::RepoOperation;

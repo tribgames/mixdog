@@ -73,6 +73,14 @@ pub enum DocumentSource {
     Content(JsonValue),
 }
 
+/// A stored `{type: "text", attachmentRef}` part: a text body kept in the blob store. Node's
+/// `textKind` rides here, because `"file"` wraps the body as `<file name="…">` when it is lowered
+/// to request text (`attachmentTextForPart`).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct TextAttachment {
+    pub kind: Option<String>,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ContentPart {
     Text(String),
@@ -81,6 +89,9 @@ pub enum ContentPart {
         source: BinarySource,
         mime_type: String,
         filename: Option<String>,
+        /// `Some` when the part is a stored text attachment (Node `type: "text"`), whose
+        /// `source` is then always an `AttachmentRef`; `None` for any other file.
+        text: Option<TextAttachment>,
     },
     Document {
         source: DocumentSource,
@@ -646,6 +657,10 @@ pub struct ProviderError {
     /// stream dropped) records the last `StreamEvent::Usage` its consumer saw.
     /// Boxed to keep `Result<_, ProviderError>` small.
     pub partial_usage: Option<Box<Usage>>,
+    /// The model that reported `partial_usage` (Node `partialModel`), when
+    /// the stream named one; `None` means the send's own model. Set by the
+    /// adapter where Node stamps `partialModel`.
+    pub partial_model: Option<Box<str>>,
     /// A page the user must open to unblock the account (Antigravity
     /// `VALIDATION_REQUIRED`: the `google.rpc.Help` link, else
     /// `metadata.validation_url`, else `metadata.validation_link`). Read from
@@ -688,6 +703,7 @@ impl ProviderError {
             transport: None,
             message: String::new(),
             partial_usage: None,
+            partial_model: None,
             verification_url: None,
             rejected_tool: None,
             account_blocked: false,
@@ -764,6 +780,48 @@ pub trait ProviderAdapter: Send + Sync {
     fn models(&self) -> Option<&dyn ModelListing> {
         None
     }
+    /// The wire each model is reached on, for a gateway that serves several
+    /// (`resolveWireRoute`); `None` for a single-wire provider.
+    fn wire_routing(&self) -> Option<&dyn WireRouting> {
+        None
+    }
+}
+
+/// What the caller knows of one send when it asks for a model's wire. What
+/// the provider knows (its per-model overrides, the catalog's wire, the
+/// roster's endpoints) is added by the adapter.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct WireRouteContext {
+    /// An agent/tool session, or a send carrying tools.
+    pub agent: bool,
+    /// A session that predates the wire table: the wire it started on.
+    pub legacy: bool,
+    /// The wire the session already pinned (`chat`, `responses`, `messages`, `gemini`).
+    pub keep: Option<String>,
+    /// Wires that must not be chosen (the one a send was just refused on).
+    pub exclude: Vec<String>,
+}
+
+/// One model's wire and why it was chosen. `wire` is `chat`, `responses`,
+/// `messages` or `gemini`; `source` is `pinned`, `override`, `catalog`,
+/// `endpoints`, `family`, `default`, `legacy` or `unknown` (an unknown route
+/// is never pinned by a session).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct WireRoute {
+    pub wire: String,
+    pub source: String,
+    /// `<provider>:<wire>`.
+    pub profile_id: String,
+}
+
+#[async_trait]
+pub trait WireRouting: Send + Sync {
+    /// `Ok(None)`: the gateway offers the model on no wire (not routable).
+    async fn resolve_wire_route(
+        &self,
+        model: &str,
+        context: &WireRouteContext,
+    ) -> Result<Option<WireRoute>, ProviderError>;
 }
 
 /// One value of a picker parameter; a context option carries the window it selects.
@@ -814,6 +872,15 @@ pub struct CustomReasoning {
     pub replay: bool,
 }
 
+/// The ids a picker model is sent under on the wire: one id, or one per
+/// effort level (`(level, wire id)`, in the provider's order).
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WireIds {
+    One(String),
+    Tiers(Vec<(String, String)>),
+}
+
 /// What the model picker shows beyond limits and capabilities. The adapter
 /// fills it from its own listing, as the Node adapters do; the metadata
 /// catalog never does. A custom provider's display name override is
@@ -845,6 +912,12 @@ pub struct ModelRecord {
     pub picker: PickerFields,
     pub id: String,
     pub display_name: Option<String>,
+    /// The row's `name` where the adapter sets one (Node sets `name: id` for
+    /// the compat family, Grok, custom providers and OpenAI WS). It is the
+    /// fallback label (`display || name`) and the metadata lookup's
+    /// display-name fallback, so `enrich_listed` reads it; the catalog shows
+    /// it when no display name is known.
+    pub name: Option<String>,
     pub context_window: Option<u64>,
     pub max_output_tokens: Option<u64>,
     pub supports_reasoning: Option<bool>,
@@ -864,6 +937,9 @@ pub struct ModelRecord {
     /// The model a routing alias resolves to (OpenRouter `~vendor/model`),
     /// used to look up capabilities.
     pub alias_target: Option<String>,
+    /// The wire id(s) the picker id is sent under; kept in the catalog cache
+    /// so a send resolves the picker id after a restart, before any listing.
+    pub wire: Option<WireIds>,
     /// The provider's record verbatim (service tiers, upgrade notes, …).
     pub raw: Option<JsonValue>,
 }
@@ -874,6 +950,7 @@ impl ModelRecord {
             picker: PickerFields::default(),
             id: id.into(),
             display_name: None,
+            name: None,
             context_window: None,
             max_output_tokens: None,
             supports_reasoning: None,
@@ -884,6 +961,7 @@ impl ModelRecord {
             mode: None,
             created: None,
             alias_target: None,
+            wire: None,
             raw: None,
         }
     }

@@ -25,6 +25,7 @@ use mixdog_core_api::ids::SubscriptionId;
 use mixdog_protocol::Origin;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
+use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 use crate::sharded::lock;
@@ -35,6 +36,8 @@ pub(crate) struct Session {
     pub(crate) opt_out_notification_methods: HashSet<String>,
     pub(crate) approvals_inbox: bool,
     pub(crate) host: Option<HostCapabilities>,
+    /// `capabilities.modelProxy`: serves `model/proxy/execute` with its own accounts.
+    pub(crate) model_proxy: bool,
 }
 
 /// One subscription of this connection.
@@ -48,10 +51,24 @@ pub(crate) struct Sub {
 
 pub(crate) type HostReply = Result<Value, HostError>;
 
+/// What a streamed host request receives, in the order the connection sent it: any number of
+/// events, then the answer.
+pub(crate) enum Streamed {
+    Event(Value),
+    Done(HostReply),
+}
+
+/// Who waits for the answer of a pending host request.
+enum Waiter {
+    Reply(oneshot::Sender<HostReply>),
+    /// Events and the answer share one queue, so the answer never overtakes an event.
+    Stream(mpsc::UnboundedSender<Streamed>),
+}
+
 #[derive(Default)]
 struct HostState {
     /// Requests sent to this connection as the host claimant; `None` once closed.
-    pending: Option<HashMap<RequestId, oneshot::Sender<HostReply>>>,
+    pending: Option<HashMap<RequestId, Waiter>>,
 }
 
 pub(crate) struct Connection {
@@ -201,7 +218,18 @@ impl Connection {
         id: RequestId,
     ) -> Option<oneshot::Receiver<HostReply>> {
         let (tx, rx) = oneshot::channel();
-        lock(&self.host).pending.as_mut()?.insert(id, tx);
+        lock(&self.host).pending.as_mut()?.insert(id, Waiter::Reply(tx));
+        Some(rx)
+    }
+
+    /// [`Self::register_host_request`] for a request whose claimant streams events ahead of its
+    /// answer; `None` once the connection closed.
+    pub(crate) fn register_host_stream(
+        &self,
+        id: RequestId,
+    ) -> Option<mpsc::UnboundedReceiver<Streamed>> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        lock(&self.host).pending.as_mut()?.insert(id, Waiter::Stream(tx));
         Some(rx)
     }
 
@@ -211,17 +239,30 @@ impl Connection {
         id: &RequestId,
         reply: HostReply,
     ) -> Result<(), HostReply> {
-        let sender = lock(&self.host)
+        let waiter = lock(&self.host)
             .pending
             .as_mut()
             .and_then(|pending| pending.remove(id));
-        match sender {
-            Some(sender) => {
-                // The requester may have abandoned the request; the answer is then unwanted.
+        match waiter {
+            // The requester may have abandoned the request; the answer is then unwanted.
+            Some(Waiter::Reply(sender)) => {
                 let _ = sender.send(reply);
                 Ok(())
             }
+            Some(Waiter::Stream(sender)) => {
+                let _ = sender.send(Streamed::Done(reply));
+                Ok(())
+            }
             None => Err(reply),
+        }
+    }
+
+    /// Hands a streamed event to its pending request; `false` when none such is pending here
+    /// (a late event after the answer, or a request that is not streamed).
+    pub(crate) fn host_stream_event(&self, id: &RequestId, event: Value) -> bool {
+        match lock(&self.host).pending.as_ref().and_then(|pending| pending.get(id)) {
+            Some(Waiter::Stream(sender)) => sender.send(Streamed::Event(event)).is_ok(),
+            _ => false,
         }
     }
 

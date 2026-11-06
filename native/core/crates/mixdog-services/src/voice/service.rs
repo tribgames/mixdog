@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use super::pipeline::VoicePipeline;
 use super::setup::VoiceSetup;
+use crate::lane::{io_on_lane, on_lane};
 
 const MAX_PAYLOAD_CHARS: usize = 40_000_000;
 
@@ -43,14 +44,27 @@ impl VoiceService {
             uuid::Uuid::new_v4().simple(),
             audio_extension(mime)
         ));
-        tokio::fs::write(&path, bytes).await.map_err(|e| voice_error(e.to_string()))?;
+        let lane = self.pipeline.lane();
+        let target = path.clone();
+        io_on_lane(lane, move || write_recording(&target, &bytes)).await.map_err(|e| voice_error(e.to_string()))?;
         let attachment = format!("dictation-{}", uuid::Uuid::new_v4());
         let result = self.pipeline.transcribe(&path, Some(&attachment)).await;
-        let _ = tokio::fs::remove_file(&path).await;
-        let _ = tokio::fs::remove_file(path.with_extension("wav")).await;
+        let _ = on_lane(lane, move || remove_recording(&path)).await;
         let text = result.map_err(|e| voice_error(e.0))?;
         Ok(Value::String(text.unwrap_or_default()))
     }
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn write_recording(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, bytes)
+}
+
+/// Removes the recording and the wav converted from it.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn remove_recording(path: &std::path::Path) {
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(path.with_extension("wav"));
 }
 
 pub(crate) fn audio_extension(mime: &str) -> &'static str {
@@ -84,11 +98,11 @@ fn invalid(path: &str, expected: &str) -> CoreError {
 impl DomainService for VoiceService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let value = match req.method.as_str() {
-            "voice/getVoiceStatus" => self.setup.status(),
+            "voice/getVoiceStatus" => self.setup.status().await,
             "voice/toggleVoice" => {
                 let enabled = req.params.get("enabled").and_then(Value::as_bool);
                 let result = self.setup.toggle(enabled).await;
-                let mut status = self.setup.status();
+                let mut status = self.setup.status().await;
                 status["result"] = result.to_json();
                 status
             }

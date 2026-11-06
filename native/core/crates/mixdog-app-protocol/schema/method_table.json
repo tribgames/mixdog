@@ -309,7 +309,8 @@
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "v2::thread::ThreadResumeParams",
       "result": "v2::thread::ThreadResumeResponse",
@@ -328,7 +329,8 @@
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "v2::thread::ThreadIdParams",
       "result": "v2::feed::EmptyResult",
@@ -10330,6 +10332,11 @@
       "delivery": null,
       "method": "ui/terminalRun/claimed",
       "params": "UiTerminalRunClaimedParams"
+    },
+    {
+      "delivery": null,
+      "method": "ui/screenSessions/changed",
+      "params": "UiScreenSessionsChangedParams"
     }
   ],
   "serverNotifications": [

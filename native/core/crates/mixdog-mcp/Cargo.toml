@@ -22,6 +22,7 @@ mixdog-rt = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-statefile = { workspace = true }
 mixdog-workspace = { workspace = true }
 mixdog-tools = { workspace = true }
 mixdog-secrets = { workspace = true }

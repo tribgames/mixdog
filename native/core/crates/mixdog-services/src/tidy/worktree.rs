@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::languages::normalize_rel;
-use super::process::{Processes, RunOptions, which};
+#[cfg(test)]
+use super::process::which;
+use super::process::{Processes, RunOptions};
 
 pub const NO_GIT_REASON: &str = "git is not installed";
 
@@ -63,7 +65,7 @@ pub fn parse_status(porcelain_z: &str, show_prefix: &str) -> HashSet<String> {
 /// Files git reports as changed (staged, unstaged or untracked) relative to `cwd`. No git on
 /// PATH is expected and comes back `skipped`; git that cannot answer comes back with an `error`.
 pub async fn list_working_tree_changes(processes: &Processes, cwd: &Path, cancel: Option<&CancellationToken>) -> Changes {
-    let Some(git) = which("git", None, None) else { return Changes { skipped: Some(NO_GIT_REASON), ..Default::default() } };
+    let Some(git) = processes.which("git", None).await else { return Changes { skipped: Some(NO_GIT_REASON), ..Default::default() } };
     let git = git.to_string_lossy().into_owned();
     let run = |args: &[&str]| {
         let args: Vec<String> = args.iter().map(|s| (*s).to_owned()).collect();

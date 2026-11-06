@@ -1320,15 +1320,19 @@ async fn a_stored_text_reference_reaches_the_request_as_its_text_and_stays_a_ref
     use mixdog_core_api::domain::provider::BinarySource;
     use mixdog_core_api::domain::provider::ContentPart;
     let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
-    let reference = |r: &str| ContentPart::File {
+    use mixdog_core_api::domain::provider::TextAttachment;
+    let reference = |r: &str, text: Option<TextAttachment>| ContentPart::File {
         source: BinarySource::AttachmentRef(r.into()),
         mime_type: "text/markdown".into(),
         filename: Some("notes.md".into()),
+        text,
     };
+    let text_ref = reference("text-ref", Some(TextAttachment { kind: Some("file".into()) }));
+    let image_ref = reference("image-ref", None);
     let prompt = AgentMessage::user_content(Content::Parts(vec![
         ContentPart::Text("see".into()),
-        reference("text-ref"),
-        reference("image-ref"),
+        text_ref,
+        image_ref.clone(),
     ]));
     let mut cfg = config();
     cfg.attachments = Some(Arc::new(Refs));
@@ -1339,7 +1343,7 @@ async fn a_stored_text_reference_reaches_the_request_as_its_text_and_stays_a_ref
         &Content::Parts(vec![
             ContentPart::Text("see".into()),
             ContentPart::Text("<file name=\"notes.md\">\nbody\n</file>".into()),
-            reference("image-ref"),
+            image_ref,
         ])
     );
     assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if matches!(p[1], ContentPart::File { .. })));

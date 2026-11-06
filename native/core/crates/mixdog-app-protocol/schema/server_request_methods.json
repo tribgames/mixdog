@@ -541,6 +541,25 @@
             "result"
           ],
           "type": "object"
+        },
+        {
+          "description": "`modelProxy/run` reports a failed call as its result: the error vocabulary of the server has no place for a [`ProxyFailure`]. The connection relays it to the server as the JSON-RPC error of `model/proxy/execute` whose data is the failure.",
+          "properties": {
+            "failure": {
+              "$ref": "#/definitions/ProxyFailure"
+            },
+            "result": {
+              "enum": [
+                "failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "failure",
+            "result"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -732,6 +751,14 @@
         }
       ]
     },
+    "ProxyDelivery": {
+      "enum": [
+        "notSent",
+        "ambiguous",
+        "accepted"
+      ],
+      "type": "string"
+    },
     "ProxyDocument": {
       "oneOf": [
         {
@@ -828,6 +855,362 @@
         "updates"
       ],
       "type": "object"
+    },
+    "ProxyErrorKind": {
+      "enum": [
+        "overloaded",
+        "rateLimited",
+        "quotaExhausted",
+        "entitlement",
+        "billing",
+        "auth",
+        "permission",
+        "contextOverflow",
+        "requestTooLarge",
+        "policy",
+        "serviceTierUnavailable",
+        "invalidRequest",
+        "imageRejected",
+        "replayRejected",
+        "toolSchemaRejected",
+        "transient",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "ProxyFailure": {
+      "description": "A failed call as the sender's retry and recovery read it (the classified `ProviderError`); credential-shaped text in the message is redacted and nothing else of the PC leaves it.",
+      "properties": {
+        "accountBlocked": {
+          "type": "boolean"
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "delivery": {
+          "$ref": "#/definitions/ProxyDelivery"
+        },
+        "kind": {
+          "$ref": "#/definitions/ProxyErrorKind"
+        },
+        "message": {
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/definitions/ProxyOutcome"
+        },
+        "partialModel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "partialUsage": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "quotaLimit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quotaScope": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyQuotaScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reauthRequired": {
+          "type": "boolean"
+        },
+        "rejectedTool": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resetAtMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "retryAfterMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shouldRetry": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "status": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "textEmitted": {
+          "type": "boolean"
+        },
+        "toolDispatched": {
+          "type": "boolean"
+        },
+        "toolInputCut": {
+          "type": "boolean"
+        },
+        "transport": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyFault"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unsafeToRetry": {
+          "type": "boolean"
+        },
+        "verificationUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accountBlocked",
+        "delivery",
+        "kind",
+        "message",
+        "outcome",
+        "reauthRequired",
+        "textEmitted",
+        "toolDispatched",
+        "toolInputCut",
+        "unsafeToRetry"
+      ],
+      "type": "object"
+    },
+    "ProxyFault": {
+      "oneOf": [
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "connect"
+              ],
+              "type": "string"
+            },
+            "os_code": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "dns"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "reset"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "closed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "tls"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "fault": {
+              "enum": [
+                "h2GoAway"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "fault": {
+              "enum": [
+                "h2RstStream"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "format": "uint16",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "fault": {
+              "enum": [
+                "wsClose"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "keepaliveExpired"
+              ],
+              "type": "string"
+            },
+            "transport": {
+              "$ref": "#/definitions/ProxyTransportKind"
+            }
+          },
+          "required": [
+            "fault",
+            "transport"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "truncatedStream"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "io"
+              ],
+              "type": "string"
+            },
+            "os_code": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ProxyHostedTool": {
       "oneOf": [
@@ -1110,6 +1493,9 @@
             "null"
           ]
         },
+        "picker": {
+          "description": "The picker fields of the PC's catalog row (`PickerFields`), as JSON."
+        },
         "raw": true,
         "reasoningLevels": {
           "items": {
@@ -1197,6 +1583,12 @@
             "null"
           ]
         },
+        "promptCacheScope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "providerState": true,
         "requestKind": {
           "type": [
@@ -1246,6 +1638,12 @@
             "string",
             "null"
           ]
+        },
+        "xaiResponsesCacheScope": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1254,6 +1652,75 @@
         "iteration"
       ],
       "type": "object"
+    },
+    "ProxyOutcome": {
+      "description": "How the PC's broker ended a failed send.",
+      "oneOf": [
+        {
+          "description": "The retry verdict surfaced the error.",
+          "properties": {
+            "outcome": {
+              "enum": [
+                "provider"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Retries are spent.",
+          "properties": {
+            "outcome": {
+              "enum": [
+                "exhausted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Repeated overload: send again with `model`.",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "outcome": {
+              "enum": [
+                "fallback"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
+            "outcome"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The PC's admission refused the call; the message says why.",
+          "properties": {
+            "outcome": {
+              "enum": [
+                "admission"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ProxyPart": {
       "oneOf": [
@@ -1397,6 +1864,14 @@
       ],
       "type": "object"
     },
+    "ProxyQuotaScope": {
+      "enum": [
+        "minute",
+        "day",
+        "plan"
+      ],
+      "type": "string"
+    },
     "ProxyReplay": {
       "properties": {
         "items": true,
@@ -1466,8 +1941,9 @@
         "override",
         "catalog",
         "endpoints",
-        "agent",
+        "family",
         "default",
+        "legacy",
         "unknown"
       ],
       "type": "string"
@@ -1579,6 +2055,66 @@
       },
       "type": "object"
     },
+    "ProxyTransportKind": {
+      "enum": [
+        "http1",
+        "http2",
+        "webSocket"
+      ],
+      "type": "string"
+    },
+    "ProxyUsage": {
+      "properties": {
+        "cacheReadTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "cacheWrite1hTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "cacheWriteTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "costTicks": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "inputTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "outputTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "raw": true,
+        "reasoningTokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cacheReadTokens",
+        "cacheWrite1hTokens",
+        "cacheWriteTokens",
+        "inputTokens",
+        "outputTokens",
+        "reasoningTokens"
+      ],
+      "type": "object"
+    },
     "ProxyWire": {
       "enum": [
         "chat",
@@ -1590,6 +2126,10 @@
     },
     "ProxyWireRoute": {
       "properties": {
+        "profileId": {
+          "description": "`<provider>:<wire>`.",
+          "type": "string"
+        },
         "source": {
           "$ref": "#/definitions/ProxyRouteSource"
         },
@@ -1598,6 +2138,7 @@
         }
       },
       "required": [
+        "profileId",
         "source",
         "wire"
       ],

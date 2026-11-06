@@ -19,6 +19,22 @@ pub enum Wire {
     Gemini,
 }
 
+impl Wire {
+    /// The name the wire goes by in configs and routes (`WIRES`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Chat => "chat",
+            Self::Responses => "responses",
+            Self::Messages => "messages",
+            Self::Gemini => "gemini",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        [Self::Chat, Self::Responses, Self::Messages, Self::Gemini].into_iter().find(|w| w.as_str() == name)
+    }
+}
+
 /// Endpoint families with their own reasoning field on Chat Completions
 /// (`openai-compat-reasoning-field.mjs SHAPES`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -86,6 +102,59 @@ pub enum OutputLimit {
     MaxCompletionTokens { default: u32, cap: u32 },
 }
 
+/// One row of a gateway's model-family table (`PROFILES[..].families`): the
+/// models whose id matches `pattern` (a case-insensitive JS regular
+/// expression) are carried on `wire`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WireFamily {
+    pub pattern: &'static str,
+    pub wire: Wire,
+    /// Certain without any roster: the row applies even when nothing
+    /// describes the model (Claude on Command Code answers on Messages only).
+    pub cold: bool,
+    /// The row applies to agent/tool sessions only (DeepSeek's Anthropic
+    /// endpoint carries thinking and tool blocks; one-shots stay on Chat).
+    pub agent_only: bool,
+}
+
+impl WireFamily {
+    pub const fn new(pattern: &'static str, wire: Wire) -> Self {
+        Self { pattern, wire, cold: false, agent_only: false }
+    }
+}
+
+/// The wire a session that predates the family table started on
+/// (`PROFILES[..].legacy`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LegacyWire {
+    Fixed(Wire),
+    /// The catalog's wire unless it is `except`; else the first of `patterns`
+    /// the model id matches; else `otherwise` (OpenCode Go).
+    Catalog {
+        except: Wire,
+        patterns: &'static [(&'static str, Wire)],
+        otherwise: Wire,
+    },
+    /// `prefer` when advertised or when `fallback` is not advertised, else
+    /// `fallback` (Command Code: Chat unless Messages is the only wire).
+    Advertised { prefer: Wire, fallback: Wire },
+}
+
+/// What the adapter tells the router about a model besides the caller's
+/// context.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WireInputs {
+    /// Only the user's per-model wire override.
+    OverrideOnly,
+    /// The catalog's wire for the model also narrows the offered wires: each
+    /// model answers on the one wire the catalog names (OpenCode Go).
+    Catalog,
+    /// The wires the roster declares for the model (`supported_endpoints`;
+    /// undeclared means Chat); a model the roster lacks is unknown
+    /// (Command Code).
+    Roster,
+}
+
 /// The wires a gateway serves (`wire-route.mjs PROFILES`), as data for
 /// [`super::wire_route::resolve_wire`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -93,18 +162,47 @@ pub struct WireOffer {
     pub offered: &'static [Wire],
     /// Chosen among the advertised wires when the default is not one of them.
     pub preference: &'static [Wire],
-    /// The wire an agent/tool session uses where the gateway carries thinking
-    /// and tool blocks natively (DeepSeek's Anthropic endpoint).
-    pub agent_wire: Option<Wire>,
+    /// The model-family table, first match wins.
+    pub families: &'static [WireFamily],
+    pub legacy: LegacyWire,
+    pub inputs: WireInputs,
 }
 
 impl WireOffer {
     pub const CHAT_ONLY: Self = Self {
         offered: &[Wire::Chat],
         preference: &[],
-        agent_wire: None,
+        families: &[],
+        legacy: LegacyWire::Fixed(Wire::Chat),
+        inputs: WireInputs::OverrideOnly,
     };
 }
+
+const DEEPSEEK_FAMILIES: &[WireFamily] = &[WireFamily { agent_only: true, ..WireFamily::new("^deepseek-", Wire::Messages) }];
+
+const OPENROUTER_FAMILIES: &[WireFamily] = &[
+    WireFamily::new("^~?anthropic/", Wire::Messages),
+    WireFamily::new("^(?:openai/(?:gpt-|o\\d)|~openai/)", Wire::Responses),
+];
+
+const COMMAND_CODE_FAMILIES: &[WireFamily] = &[
+    WireFamily::new("(?:^|/)(?:gpt-|muse-|grok-)", Wire::Responses),
+    // Claude answers on /messages only: it keeps that wire even when the
+    // roster cannot be read (the other families wait for the roster).
+    WireFamily { cold: true, ..WireFamily::new("(?:^|/)claude-", Wire::Messages) },
+];
+
+const GO_FAMILIES: &[WireFamily] = &[
+    WireFamily::new(GO_RESPONSES, Wire::Responses),
+    WireFamily::new(GO_MESSAGES, Wire::Messages),
+    WireFamily::new(GO_GEMINI, Wire::Gemini),
+];
+
+const GO_RESPONSES: &str = "^(?:muse-spark-|gpt-|grok-)";
+const GO_MESSAGES: &str = "^(?:minimax-|qwen|claude-)";
+const GO_GEMINI: &str = "^gemini-";
+/// Before Claude joined the cold-catalog Messages prefixes.
+const GO_MESSAGES_BEFORE_CLAUDE: &str = "^(?:minimax-|qwen)";
 
 /// The Responses request shape of a gateway family.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -228,7 +326,52 @@ pub struct CompatProfile {
     pub credential: CredentialKind,
     /// Model facts the provider's listing does not carry (exact ids).
     pub seed_models: &'static [SeedModel],
+    /// How the provider's model listing is read.
+    pub listing: ListingRules,
     retry: fn() -> RetryPolicy,
+}
+
+/// How a provider's `/models` becomes its model list: which fetched rows are
+/// kept and the steps after the shared enrichment. Data, not provider checks.
+#[derive(Clone, Copy, Debug)]
+pub struct ListingRules {
+    /// A row whose lower-cased id contains one of these never lists.
+    pub drop_id_containing: &'static [&'static str],
+    /// A row whose id matches this case-insensitive pattern never lists.
+    pub drop_id_pattern: Option<&'static str>,
+    /// A row lists only when it declares an endpoint the gateway serves.
+    pub servable_only: bool,
+    /// The fetched roster is published before the rows are enriched, so a row
+    /// name it states is the display name the shared enrichment sees.
+    pub publishes_roster: bool,
+    pub shape: ListingShape,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ListingShape {
+    /// The shared compat listing: rows, enrichment, native limits restored, sanitizer.
+    Compat,
+    /// The compat listing plus the names the roster states and a default
+    /// effort ladder for a row that declares none; an empty or unreadable
+    /// roster shows the catalog's seed roster.
+    Decorated { default_levels: &'static [&'static str], seed_when_empty: bool },
+    /// Rows built from the roster alone, enriched and given a default ladder
+    /// unless the model is declared non-reasoning; the roster is authoritative.
+    Roster { default_levels: &'static [&'static str] },
+    /// The organization's console config is the roster: `providers.<key>` of
+    /// the document at `url` (a config that lists no models falls back to the
+    /// models.dev rows of the same provider key).
+    ConsoleConfig { url: &'static str, provider_key: &'static str },
+}
+
+impl ListingRules {
+    pub const COMPAT: Self = Self {
+        drop_id_containing: &[],
+        drop_id_pattern: None,
+        servable_only: false,
+        publishes_roster: false,
+        shape: ListingShape::Compat,
+    };
 }
 
 /// The first Grok generations reject `reasoning_effort` outright (HTTP 400);
@@ -339,6 +482,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: XAI_NO_EFFORT,
+            listing: ListingRules::COMPAT,
             retry: retry::xai,
         }
     }
@@ -352,8 +496,8 @@ impl CompatProfile {
             responses: ResponsesShape::Gateway,
             wires: WireOffer {
                 offered: &[Wire::Chat, Wire::Messages],
-                preference: &[],
-                agent_wire: Some(Wire::Messages),
+                families: DEEPSEEK_FAMILIES,
+                ..WireOffer::CHAT_ONLY
             },
             headers: &[],
             chat: ChatDialect {
@@ -367,6 +511,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: &[],
+            listing: ListingRules::COMPAT,
             retry: retry::deepseek,
         }
     }
@@ -380,8 +525,8 @@ impl CompatProfile {
             responses: ResponsesShape::Gateway,
             wires: WireOffer {
                 offered: &[Wire::Chat, Wire::Messages, Wire::Responses],
-                preference: &[],
-                agent_wire: None,
+                families: OPENROUTER_FAMILIES,
+                ..WireOffer::CHAT_ONLY
             },
             headers: &[
                 ("HTTP-Referer", "https://github.com/tribgames/mixdog"),
@@ -399,6 +544,7 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: &[],
+            listing: ListingRules::COMPAT,
             retry: retry::unprofiled,
         }
     }
@@ -436,6 +582,13 @@ impl CompatProfile {
                 reauth_on_401: true,
             },
             seed_models: MIMO_AUDIO,
+            listing: ListingRules {
+                // Speech and transcription ids cannot serve a text chat turn.
+                drop_id_containing: &["-tts", "-asr"],
+                publishes_roster: true,
+                shape: ListingShape::Decorated { default_levels: &["minimal", "low", "medium", "high"], seed_when_empty: true },
+                ..ListingRules::COMPAT
+            },
             retry: retry::mimo,
         }
     }
@@ -450,7 +603,9 @@ impl CompatProfile {
             wires: WireOffer {
                 offered: &[Wire::Chat, Wire::Messages, Wire::Responses],
                 preference: &[Wire::Chat, Wire::Messages, Wire::Responses],
-                agent_wire: None,
+                families: COMMAND_CODE_FAMILIES,
+                legacy: LegacyWire::Advertised { prefer: Wire::Chat, fallback: Wire::Messages },
+                inputs: WireInputs::Roster,
             },
             headers: &[("Accept", "application/json")],
             chat: ChatDialect {
@@ -464,6 +619,7 @@ impl CompatProfile {
                 reauth_on_401: true,
             },
             seed_models: &[],
+            listing: ListingRules { servable_only: true, publishes_roster: true, ..ListingRules::COMPAT },
             retry: retry::command_code,
         }
     }
@@ -489,6 +645,12 @@ impl CompatProfile {
                 reauth_on_401: true,
             },
             seed_models: MUSE_SEEDS,
+            listing: ListingRules {
+                // Image and voice generation share the catalog but are not chat models.
+                drop_id_pattern: Some("^muse-(image|voice)-"),
+                shape: ListingShape::Roster { default_levels: MUSE_FIVE_LEVELS },
+                ..ListingRules::COMPAT
+            },
             retry: retry::muse_code,
         }
     }
@@ -503,7 +665,14 @@ impl CompatProfile {
             wires: WireOffer {
                 offered: &[Wire::Chat, Wire::Responses, Wire::Messages, Wire::Gemini],
                 preference: &[],
-                agent_wire: None,
+                families: GO_FAMILIES,
+                // Sessions created before the Gemini wire existed sent Gemini models to Chat.
+                legacy: LegacyWire::Catalog {
+                    except: Wire::Gemini,
+                    patterns: &[(GO_RESPONSES, Wire::Responses), (GO_MESSAGES_BEFORE_CLAUDE, Wire::Messages)],
+                    otherwise: Wire::Chat,
+                },
+                inputs: WireInputs::Catalog,
             },
             headers: &[("User-Agent", "mixdog")],
             chat: ChatDialect {
@@ -515,6 +684,15 @@ impl CompatProfile {
                 reauth_on_401: false,
             },
             seed_models: &[],
+            // The gateway's own `/models` is not served on this base: the
+            // organization's console config is the catalog.
+            listing: ListingRules {
+                shape: ListingShape::ConsoleConfig {
+                    url: "https://opencode.ai/console/api/v2/config",
+                    provider_key: "opencode-go",
+                },
+                ..ListingRules::COMPAT
+            },
             retry: retry::unprofiled,
         }
     }
@@ -533,6 +711,7 @@ impl CompatProfile {
             chat: ChatDialect::PLAIN,
             credential,
             seed_models: &[],
+            listing: ListingRules::COMPAT,
             retry: retry::unprofiled,
         }
     }

@@ -7,6 +7,7 @@
 //! needs its key to list models can never be built without it.
 
 mod facts;
+mod listing;
 mod lookup;
 mod modelsdev;
 mod modelsdev_source;
@@ -20,6 +21,11 @@ mod sources;
 mod store;
 mod traits;
 
+pub use listing::ListingLookup;
+pub use listing::enrich_listed;
+pub use listing::keep_native;
+pub use lookup::seed_display_name;
+pub use lookup::seed_roster;
 pub use modelsdev::ModelsDev;
 pub use modelsdev_source::LITELLM_CACHE_FILE;
 pub use modelsdev_source::MODELS_DEV_CACHE_FILE;

@@ -19,7 +19,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::lookup::models_dev_provider_id;
-use super::record::ModelRecord;
+use mixdog_core_api::domain::provider::ModelRecord;
 
 /// JS `\s`.
 const WS: &str = r"\t\n\x0B\x0C\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}";
@@ -135,7 +135,7 @@ fn mmdd_base(id: &str) -> Option<String> {
 }
 
 fn same_limits(a: &ModelRecord, b: &ModelRecord) -> bool {
-    a.context_window.unwrap_or(0) == b.context_window.unwrap_or(0) && a.output_tokens.unwrap_or(0) == b.output_tokens.unwrap_or(0)
+    a.context_window.unwrap_or(0) == b.context_window.unwrap_or(0) && a.max_output_tokens.unwrap_or(0) == b.max_output_tokens.unwrap_or(0)
 }
 
 /// `Date.UTC(y, m - 1, d)` in epoch ms, with JS's overflow and two-digit-year rules.
@@ -426,10 +426,10 @@ mod tests {
 
     /// A listed row as the golden's JSON states it.
     fn row(value: &Value) -> ModelRecord {
-        let mut record = ModelRecord::new("p".into(), value["id"].as_str().unwrap());
+        let mut record = ModelRecord::new(value["id"].as_str().unwrap());
         record.mode = value.get("mode").map(|m| m.as_str().unwrap().to_owned());
         record.context_window = value.get("contextWindow").and_then(Value::as_u64).filter(|n| *n > 0);
-        record.output_tokens = value.get("outputTokens").and_then(Value::as_u64).filter(|n| *n > 0);
+        record.max_output_tokens =value.get("outputTokens").and_then(Value::as_u64).filter(|n| *n > 0);
         record.created = value.get("created").and_then(Value::as_i64);
         record
     }

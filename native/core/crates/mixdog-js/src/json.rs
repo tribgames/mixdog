@@ -15,7 +15,7 @@ use crate::number::number_to_string;
 /// `JSON.stringify(value)`.
 pub fn stringify(value: &Value) -> String {
     let mut out = String::new();
-    write(value, None, 0, &mut out);
+    write(value, None, 0, false, &mut out);
     out
 }
 
@@ -23,15 +23,46 @@ pub fn stringify(value: &Value) -> String {
 pub fn stringify_indent(value: &Value, indent: usize) -> String {
     let mut out = String::new();
     let indent = indent.min(10);
-    write(value, (indent > 0).then_some(indent), 0, &mut out);
+    write(value, (indent > 0).then_some(indent), 0, false, &mut out);
+    out
+}
+
+/// [`stringify_indent`] for a value [`crate::json_parse`] produced: a character the parser used
+/// for a lone surrogate (see [`crate::json_parse`]) is written as the `\udxxx` escape
+/// `JSON.stringify` writes, so a parsed document is written back byte for byte.
+pub fn stringify_indent_parsed(value: &Value, indent: usize) -> String {
+    let mut out = String::new();
+    let indent = indent.min(10);
+    write(value, (indent > 0).then_some(indent), 0, true, &mut out);
     out
 }
 
 /// A JSON string literal as `JSON.stringify` writes it.
 pub fn quote(text: &str, out: &mut String) {
+    quote_with(text, false, out);
+}
+
+fn quote_with(text: &str, parsed: bool, out: &mut String) {
     out.push('"');
-    for c in text.chars() {
+    let mut chars = text.char_indices();
+    while let Some((at, c)) = chars.next() {
         match c {
+            c if parsed && crate::json_parse::is_esc(c) => {
+                // Parsed text: ESC ESC is a genuine ESC, ESC and four hex digits a lone surrogate;
+                // an ESC followed by neither was never parsed and is written as it is.
+                let after = at + c.len_utf8();
+                match crate::json_parse::escape_at(&text[after..]) {
+                    Some((crate::json_parse::Escape::Escaped, len)) => {
+                        out.push(c);
+                        chars.nth(len_in_chars(&text[after..after + len]) - 1);
+                    }
+                    Some((crate::json_parse::Escape::Surrogate(unit), len)) => {
+                        out.push_str(&format!("\\u{unit:04x}"));
+                        chars.nth(len_in_chars(&text[after..after + len]) - 1);
+                    }
+                    None => out.push(c),
+                }
+            }
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
             '\u{8}' => out.push_str("\\b"),
@@ -44,6 +75,10 @@ pub fn quote(text: &str, out: &mut String) {
         }
     }
     out.push('"');
+}
+
+fn len_in_chars(text: &str) -> usize {
+    text.chars().count()
 }
 
 /// The length in UTF-16 units of `JSON.stringify(value.slice(0, limit))`, quotes included. A
@@ -89,7 +124,7 @@ fn newline(indent: Option<usize>, depth: usize, out: &mut String) {
     }
 }
 
-fn write(value: &Value, indent: Option<usize>, depth: usize, out: &mut String) {
+fn write(value: &Value, indent: Option<usize>, depth: usize, parsed: bool, out: &mut String) {
     match value {
         Value::Null => out.push_str("null"),
         Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
@@ -98,7 +133,7 @@ fn write(value: &Value, indent: Option<usize>, depth: usize, out: &mut String) {
             // JSON.stringify writes a non-finite number as null.
             out.push_str(&if double.is_finite() { number_to_string(double) } else { "null".into() });
         }
-        Value::String(text) => quote(text, out),
+        Value::String(text) => quote_with(text, parsed, out),
         Value::Array(items) => {
             if items.is_empty() {
                 out.push_str("[]");
@@ -110,7 +145,7 @@ fn write(value: &Value, indent: Option<usize>, depth: usize, out: &mut String) {
                     out.push(',');
                 }
                 newline(indent, depth + 1, out);
-                write(item, indent, depth + 1, out);
+                write(item, indent, depth + 1, parsed, out);
             }
             newline(indent, depth, out);
             out.push(']');
@@ -126,12 +161,12 @@ fn write(value: &Value, indent: Option<usize>, depth: usize, out: &mut String) {
                     out.push(',');
                 }
                 newline(indent, depth + 1, out);
-                quote(key, out);
+                quote_with(key, parsed, out);
                 out.push(':');
                 if indent.is_some() {
                     out.push(' ');
                 }
-                write(&map[key], indent, depth + 1, out);
+                write(&map[key], indent, depth + 1, parsed, out);
             }
             newline(indent, depth, out);
             out.push('}');

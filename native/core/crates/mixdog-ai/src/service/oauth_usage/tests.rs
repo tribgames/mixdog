@@ -186,6 +186,20 @@ async fn the_reset_credit_redeem_checks_its_arguments_then_replays_once() {
         "Unknown Codex reset outcome: missing"
     );
 }
+/// [`update_disk_cache`] as a durability-lane job.
+fn cache_update(path: &std::path::Path, edit: impl FnOnce(&mut Obj) + Send + 'static) -> std::io::Result<()> {
+    use mixdog_rt::LaneToken;
+    let path = path.to_owned();
+    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+        mixdog_rt::testing::tokens()
+            .durability_io
+            .submit(&tokio_util::sync::CancellationToken::new(), move |lane| update_disk_cache(lane, &path, edit))
+            .unwrap()
+            .await
+            .unwrap()
+    })
+}
+
 fn scratch_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("mixdog-usage-{tag}-{}-{}", std::process::id(), now_ms()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -204,7 +218,7 @@ fn concurrent_cache_updates_all_land() {
             std::thread::spawn(move || {
                 start.wait();
                 for i in 0..15 {
-                    update_disk_cache(&path, |routes| {
+                    cache_update(&path, move |routes| {
                         // Holds the read-modify-write open so unlocked writers overlap.
                         std::thread::sleep(Duration::from_millis(2));
                         routes.insert(format!("w{w}-{i}"), Value::from(i));
@@ -233,7 +247,7 @@ fn a_damaged_cache_is_kept_aside_and_an_unreadable_one_is_an_error() {
     let dir = scratch_dir("damaged");
     let path = dir.join("oauth-usage-cache.json");
     std::fs::write(&path, "{ not json").unwrap();
-    update_disk_cache(&path, |routes| {
+    cache_update(&path, |routes| {
         routes.insert("a".into(), Value::from(1));
     })
     .unwrap();
@@ -248,7 +262,7 @@ fn a_damaged_cache_is_kept_aside_and_an_unreadable_one_is_an_error() {
     // A directory where the file belongs cannot be read: an error, not an empty cache.
     let blocked = dir.join("blocked.json");
     std::fs::create_dir(&blocked).unwrap();
-    assert!(update_disk_cache(&blocked, |_| {}).is_err());
+    assert!(cache_update(&blocked, |_| {}).is_err());
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -258,7 +272,7 @@ fn a_damaged_cache_is_replaced_by_its_valid_backup() {
     let path = dir.join("oauth-usage-cache.json");
     std::fs::write(&path, "{ not json").unwrap();
     std::fs::write(dir.join("oauth-usage-cache.json.bak"), r#"{"version":1,"routes":{"old":{"x":1}}}"#).unwrap();
-    update_disk_cache(&path, |routes| {
+    cache_update(&path, |routes| {
         routes.insert("new".into(), Value::from(2));
     })
     .unwrap();
@@ -267,7 +281,7 @@ fn a_damaged_cache_is_replaced_by_its_valid_backup() {
     // An unparsable backup restores nothing.
     std::fs::write(&path, "{ not json").unwrap();
     std::fs::write(dir.join("oauth-usage-cache.json.bak"), "also bad").unwrap();
-    update_disk_cache(&path, |_| {}).unwrap();
+    cache_update(&path, |_| {}).unwrap();
     assert!(read_json_file(&path).unwrap()["routes"].as_object().unwrap().is_empty());
     std::fs::remove_dir_all(&dir).unwrap();
 }

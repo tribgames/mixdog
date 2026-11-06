@@ -6,6 +6,8 @@
 //! No timer decides the outcome: a device code the user never enters ends when gh exits (its
 //! own expiry), and the user cancels when they give up.
 
+#![allow(clippy::disallowed_types, reason = "the receiver's tokio Mutex is held across the awaited wait for the next login state")]
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;

@@ -15,6 +15,7 @@
 mod agent_routes;
 mod agent_store;
 mod browser_permissions;
+mod network_proxy_store;
 pub mod patch;
 mod settings;
 mod desktop;

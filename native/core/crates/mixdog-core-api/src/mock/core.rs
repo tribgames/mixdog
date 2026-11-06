@@ -464,11 +464,17 @@ pub struct MockHostChannel {
     claimed: Mutex<Vec<HostCapability>>,
     replies: Mutex<HashMap<&'static str, Result<Value, HostError>>>,
     sent: Mutex<Vec<(HostCapability, Method, Value)>>,
+    streamed: Mutex<HashMap<&'static str, Vec<Value>>>,
 }
 
 impl MockHostChannel {
     pub fn claim(&self, capability: HostCapability) {
         lock(&self.claimed).push(capability);
+    }
+
+    /// The claimant streams these events ahead of its answer to a streamed `method` request.
+    pub fn stream(&self, method: Method, events: Vec<Value>) {
+        lock(&self.streamed).insert(method.as_str(), events);
     }
 
     pub fn reply(&self, method: Method, result: Value) {
@@ -528,6 +534,24 @@ impl HostChannel for MockHostChannel {
         params: Value,
     ) -> Result<(), CoreError> {
         self.route(capability, method, params)
+    }
+
+    async fn request_streamed(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        on_event: &mut (dyn FnMut(Value) + Send),
+    ) -> Result<Value, HostError> {
+        self.route(capability, method, params)?;
+        let events = lock(&self.streamed).get(method.as_str()).cloned().unwrap_or_default();
+        for event in events {
+            on_event(event);
+        }
+        lock(&self.replies)
+            .get(method.as_str())
+            .cloned()
+            .unwrap_or(Ok(Value::Null))
     }
 }
 

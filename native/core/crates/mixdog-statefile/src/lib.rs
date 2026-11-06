@@ -28,8 +28,10 @@ mod tests;
 
 pub use access::Access;
 pub use access::create_new;
+pub use access::create_private_dir_all;
 pub use access::is_owner_only;
 pub use access::sync_dir;
+pub use access::unlaned;
 #[cfg(windows)]
 pub use access::verbatim_wide;
 pub use json::Invalid;
@@ -37,6 +39,7 @@ pub use json::Peek;
 pub use json::StateError;
 pub use json::Validate;
 pub use json::is_json_content;
+pub use json::json_bytes;
 pub use json::parse_json_text;
 pub use json::peek;
 pub use json::read_json;
@@ -46,6 +49,7 @@ pub use json::with_lock;
 pub use json::write_file;
 pub use json::write_json;
 pub use lock::LockError;
+pub use lock::LockOpts;
 pub use lock::default_timeout;
 pub use lock::lock_path;
 pub use publish::Opts;

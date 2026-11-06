@@ -57,6 +57,7 @@ impl PathIndex {
         Self { dirs: path_dirs(env), listings: Mutex::default() }
     }
 
+    #[allow(clippy::disallowed_methods, reason = "runs as a lane job: every caller reaches `which` from a lane body")]
     fn has(&self, dir: &Path, candidate: &str) -> bool {
         let mut listings = self.listings.lock().unwrap();
         let names = listings.entry(dir.to_owned()).or_insert_with(|| {
@@ -68,7 +69,8 @@ impl PathIndex {
 }
 
 /// First match for `name` on PATH (`env`'s, else the process's), or `None`. A pure
-/// filesystem lookup, no spawn.
+/// filesystem lookup, no spawn. Blocking: call it from a lane job.
+#[allow(clippy::disallowed_methods, reason = "runs as a lane job: every caller reaches `which` from a lane body")]
 pub fn which(name: &str, env: Option<&HashMap<String, String>>, index: Option<&PathIndex>) -> Option<PathBuf> {
     let bin = mixdog_js::js_trim(name);
     if bin.is_empty() {

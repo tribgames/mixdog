@@ -58,6 +58,25 @@ impl Worktrees {
     }
 }
 
+/// A ready record at `path` for tests of the modules that read records.
+#[cfg(test)]
+pub(crate) fn test_record(path: &std::path::Path) -> WorktreeRecord {
+    WorktreeRecord {
+        id: "w".into(),
+        repo_common_dir: "/r/.git".into(),
+        project_path: "/r".into(),
+        path: path.to_string_lossy().into_owned(),
+        branch: Some("w".into()),
+        base_commit: None,
+        created_at: 0,
+        owner_session_id: None,
+        state: "ready".into(),
+        merge_target: None,
+        shared_session_ids: Vec::new(),
+        extra: Default::default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

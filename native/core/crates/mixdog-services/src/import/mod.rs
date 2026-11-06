@@ -1,6 +1,8 @@
 //! Conversation import: discovery of Codex / Claude Code / Claude Desktop (Cowork)
 //! conversations on disk, conversion to plain-text turns, and background import jobs.
 
+#![cfg_attr(test, allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup"))]
+
 pub mod candidate;
 pub mod claude;
 pub mod codex;

@@ -7,7 +7,12 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::Content;
+use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelListing;
+use mixdog_core_api::domain::provider::ModelRequest;
+use mixdog_core_api::domain::provider::RequestOptions;
+use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
@@ -228,6 +233,79 @@ async fn a_catalog_without_chat_models_or_a_models_object_is_an_error_not_an_emp
     }
     let node = golden()["antigravity"]["notAnObject"].as_str().unwrap().to_owned();
     assert!(node.contains("returned no models"));
+}
+
+fn catalog_body() -> String {
+    json!({ "models": golden()["antigravity"]["raw"] }).to_string()
+}
+
+#[test]
+fn every_listed_id_resolves_to_the_wire_id_and_effort_node_sends() {
+    let routes = antigravity_records(catalog_body().as_bytes(), &Levels(ThinkingControl::Unspecified)).expect("listed");
+    let sends = golden()["antigravity"]["sends"].as_array().unwrap().clone();
+    assert!(sends.len() > 60, "every listed id against every effort");
+    for case in sends {
+        let (model, effort) = (case["model"].as_str().unwrap(), case["effort"].as_str());
+        let (wire, kept) = resolve_wire(&routes, model, effort);
+        let node = &case["resolved"];
+        assert_eq!(wire, node["model"].as_str().unwrap(), "{model} @ {effort:?}");
+        assert_eq!(kept.as_deref(), node["effort"].as_str(), "{model} @ {effort:?}: effort kept");
+    }
+}
+
+fn request(model: &str, effort: &str, thinking_level: Option<&str>) -> ModelRequest {
+    let options = RequestOptions {
+        effort: Some(effort.into()),
+        model_parameters: thinking_level.map(|level| json!({"thinkingLevel": level, "keep": 1})),
+        ..RequestOptions::default()
+    };
+    ModelRequest { model: model.into(), messages: vec![Message::new(Role::User, Content::Text("hi".into()))], tools: vec![], options }
+}
+
+/// A listing, then a send: the request body carries the tier's wire id, and
+/// an effort the tier consumed is not sent again as a thinkingLevel.
+#[tokio::test]
+async fn a_send_after_a_listing_carries_the_tiers_wire_id() {
+    let refused = || (400, json!({"error": {"code": 400, "status": "INVALID_ARGUMENT"}}).to_string());
+    let http = Scripted::new(vec![(200, catalog_body()), refused(), refused(), refused()]);
+    let adapter = antigravity_adapter(http.clone(), "proj-1", traits());
+    adapter.models().expect("lists").list_models().await.expect("listed");
+    for (model, effort, level) in [("gemini-3.1-pro", "low", Some("high")), ("gemini-3-flash", "high", Some("high")), ("gemini-3-flash", "LOW", None)] {
+        let _ = adapter.attempt(Arc::new(request(model, effort, level))).await;
+    }
+    let bodies: Vec<Value> = http.sent().iter().skip(1).map(|r| serde_json::from_slice(&r.body).unwrap()).collect();
+    // A tiered family: the effort chooses the wire id and leaves the request.
+    assert_eq!(bodies[0]["model"], "gemini-3.1-pro-low");
+    let config = &bodies[0]["request"]["generationConfig"];
+    assert!(config.get("thinkingConfig").is_none_or(|c| c.get("thinkingLevel").is_none()), "{config}");
+    // A bare leveled record keeps its effort as thinkingLevel.
+    assert_eq!(bodies[1]["model"], "gemini-3-flash");
+    assert_eq!(bodies[1]["request"]["generationConfig"]["thinkingConfig"]["thinkingLevel"], "high");
+    assert_eq!(bodies[2]["request"]["generationConfig"]["thinkingConfig"]["thinkingLevel"], "low");
+}
+
+/// A restart: the catalog's restored rows seed the table, and the first send
+/// resolves with no listing fetched.
+#[tokio::test]
+async fn a_seeded_roster_routes_a_send_before_any_listing() {
+    let restored = antigravity_records(catalog_body().as_bytes(), &Levels(ThinkingControl::Unspecified)).expect("listed");
+    let http = Scripted::new(vec![(400, json!({"error": {"code": 400}}).to_string())]);
+    let adapter = antigravity_adapter(http.clone(), "proj-1", traits()).with_roster(&restored);
+    let _ = adapter.attempt(Arc::new(request("gemini-3.1-pro", "low", None))).await;
+    let sent = http.sent();
+    assert_eq!(sent.len(), 1, "no listing fetch");
+    let body: Value = serde_json::from_slice(&sent[0].body).unwrap();
+    assert_eq!(body["model"], "gemini-3.1-pro-low");
+}
+
+#[tokio::test]
+async fn an_unlisted_id_is_sent_as_it_is() {
+    let http = Scripted::new(vec![(400, json!({"error": {"code": 400}}).to_string())]);
+    let adapter = antigravity_adapter(http.clone(), "p", traits());
+    let _ = adapter.attempt(Arc::new(request("gemini-9-unlisted", "low", None))).await;
+    let body: Value = serde_json::from_slice(&http.sent()[0].body).unwrap();
+    assert_eq!(body["model"], "gemini-9-unlisted");
+    assert_eq!(body["request"]["generationConfig"]["thinkingConfig"]["thinkingLevel"], "low");
 }
 
 #[tokio::test]

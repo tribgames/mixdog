@@ -11,6 +11,8 @@
 //! run, management refuses. A `bounded` request still unanswered after the bound reports an
 //! unknown outcome, and a grant it completes later is withdrawn at once.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;

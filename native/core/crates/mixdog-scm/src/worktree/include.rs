@@ -18,6 +18,8 @@
 //!
 //! The blocking file work here runs on the maintenance lane; git is asked through the engine.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -464,13 +466,13 @@ pub fn remove_include_links(items: &[IncludeItem]) -> Vec<String> {
 }
 
 #[cfg(windows)]
-fn is_junction(meta: &std::fs::Metadata) -> bool {
+pub(crate) fn is_junction(meta: &std::fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     meta.file_attributes() & 0x400 != 0
 }
 
 #[cfg(not(windows))]
-fn is_junction(_: &std::fs::Metadata) -> bool {
+pub(crate) fn is_junction(_: &std::fs::Metadata) -> bool {
     false
 }
 

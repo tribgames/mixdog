@@ -24,6 +24,8 @@
 //! process outside Mixdog can still write between the final comparison and the clear; such a
 //! write is not captured.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;

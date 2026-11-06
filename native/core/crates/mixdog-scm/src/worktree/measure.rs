@@ -2,6 +2,8 @@
 //! is measured against the merge target's tip, else the base commit; commits are measured from
 //! the checkout's HEAD (detached or not), so no branch name decides it.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -108,7 +110,7 @@ impl Worktrees {
             && merged.stdout_text().lines().next().unwrap_or("").trim() == target.stdout_text().lines().next().unwrap_or("").trim())
     }
 
-    fn identity_path(record: &WorktreeRecord) -> String {
+    pub(crate) fn identity_path(record: &WorktreeRecord) -> String {
         match record.extra.get("projectSubdir").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
             Some(sub) => format!("{sub}/{IDENTITY_FILE}"),
             None => IDENTITY_FILE.to_owned(),

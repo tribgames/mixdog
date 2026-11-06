@@ -6,10 +6,10 @@
 //! `state/core.sqlite` (`SqliteStore::projects`: alias, hidden, last used). The file stays a file
 //! (`projectsRegistry`, preserve contract), so Node and the Rust core read the same bytes.
 //!
-//! Damage handling follows `atomic-file.mjs`: an unparsable file is moved aside to
-//! `<file>.corrupt-<ms>` and the last good `<file>.bak` is restored; every write keeps the
-//! replaced, still-parsable version as `<file>.bak`. One core owns the data dir, so writers
-//! serialise on an in-process lock instead of Node's cross-process lock file.
+//! Reads, damage handling and writes are `mixdog-statefile`'s port of `atomic-file.mjs`: an
+//! unparsable file is moved aside to `<file>.corrupt-<ms>` and the last good `<file>.bak` is
+//! restored; every write keeps the replaced, still-parsable version as `<file>.bak`. Writers
+//! of this process queue on an in-process lock first, so they do not wait on the file lock.
 //!
 //! Every method is the body of a lane job: it takes the lane proof of a writing lane.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every std::fs call here is the body of a lane job (lane proof arguments)")]
@@ -21,10 +21,11 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 use mixdog_rt::InLane;
+use mixdog_statefile::{Opts, StateError, holds_no_data, read_json, update_json, write_file};
 use serde::Serialize;
 use serde_json::{Number, Value};
 
-use crate::fsio::{Access, WriteLane, publish_file_with};
+use crate::fsio::WriteLane;
 
 /// One registered project.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -191,44 +192,19 @@ fn is_truthy(value: &Value) -> bool {
     }
 }
 
-enum Parsed {
-    Absent,
-    Ok(Value, Vec<u8>),
-    Damaged,
-}
-
-fn parse(content: Option<Vec<u8>>) -> Parsed {
-    let Some(content) = content else {
-        return Parsed::Absent;
-    };
-    let text = content.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&content);
-    match serde_json::from_slice::<Value>(text) {
-        Ok(value) => Parsed::Ok(value, content),
-        Err(_) => Parsed::Damaged,
+fn state_error(error: StateError<io::Error>) -> io::Error {
+    match error {
+        StateError::Io(error) | StateError::Mutator(error) => error,
+        StateError::Lock(error) => io::Error::other(error),
     }
 }
 
-fn read_content(path: &Path) -> io::Result<Option<Vec<u8>>> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
+fn state_error_plain(error: StateError) -> io::Error {
+    match error {
+        StateError::Io(error) => error,
+        StateError::Lock(error) => io::Error::other(error),
+        StateError::Mutator(never) => match never {},
     }
-}
-
-fn sibling(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(suffix);
-    PathBuf::from(name)
-}
-
-fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    publish_file_with(path, bytes, Access::Inherit).map_err(io::Error::other)
-}
-
-/// `holdsNoData`: nothing but NUL and white space, what a crash leaves of unsynced data.
-fn holds_no_data(content: &[u8]) -> bool {
-    content.iter().all(|b| matches!(b, 0 | b' ' | b'\t' | b'\n' | b'\r'))
 }
 
 impl Registry {
@@ -241,52 +217,15 @@ impl Registry {
         Self::new(home.join("projects.json"))
     }
 
-    fn quarantine(&self) -> PathBuf {
-        let mut stamp = now_ms();
-        while sibling(&self.path, &format!(".corrupt-{stamp}")).exists() {
-            stamp += 1;
-        }
-        sibling(&self.path, &format!(".corrupt-{stamp}"))
-    }
-
-    /// `recoverDamagedSync`: the damaged file is kept aside and the last good copy restored.
-    fn recover(&self) -> io::Result<Parsed> {
-        let current = parse(read_content(&self.path)?);
-        if !matches!(current, Parsed::Damaged) {
-            return Ok(current);
-        }
-        let backup = parse(read_content(&sibling(&self.path, ".bak"))?);
-        fs::rename(&self.path, self.quarantine())?;
-        match backup {
-            Parsed::Ok(value, bytes) => {
-                publish(&self.path, &bytes)?;
-                Ok(Parsed::Ok(value, bytes))
-            }
-            _ => Ok(Parsed::Absent),
-        }
-    }
-
-    /// `readJsonStateSync`: the stored document, or none when missing or damaged without a copy.
-    fn read_state(&self) -> io::Result<Option<Value>> {
-        match parse(read_content(&self.path)?) {
-            Parsed::Ok(value, _) => Ok(Some(value)),
-            Parsed::Absent => Ok(None),
-            Parsed::Damaged => Ok(match self.recover()? {
-                Parsed::Ok(value, _) => Some(value),
-                _ => None,
-            }),
-        }
-    }
-
     fn sorted(mut entries: Vec<ProjectEntry>) -> Vec<ProjectEntry> {
         entries.sort_by(compare);
         entries
     }
 
-    fn list_body(&self, strict: bool) -> io::Result<Vec<ProjectEntry>> {
+    fn list_body<L: WriteLane>(&self, lane: &InLane<L>, strict: bool) -> io::Result<Vec<ProjectEntry>> {
         let _held = self.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // `readStore`: a tolerant read swallows any failure, a strict one rethrows it.
-        let read = self.read_state().and_then(|state| match state {
+        let read = read_json(lane, &self.path, None, &Opts::default()).and_then(|state| match state {
             Some(doc) => normalize(&doc, strict),
             None => Ok(Vec::new()),
         });
@@ -298,57 +237,58 @@ impl Registry {
     }
 
     /// `listProjects`: tolerant. An unreadable registry lists as empty.
-    pub fn list<L: WriteLane>(&self, _lane: &InLane<L>) -> Vec<ProjectEntry> {
-        self.list_body(false).unwrap_or_default()
+    pub fn list<L: WriteLane>(&self, lane: &InLane<L>) -> Vec<ProjectEntry> {
+        self.list_body(lane, false).unwrap_or_default()
     }
 
     /// `listProjectsStrict`: an I/O failure is an error, not an empty registry.
-    pub fn list_strict<L: WriteLane>(&self, _lane: &InLane<L>) -> io::Result<Vec<ProjectEntry>> {
-        self.list_body(true)
+    pub fn list_strict<L: WriteLane>(&self, lane: &InLane<L>) -> io::Result<Vec<ProjectEntry>> {
+        self.list_body(lane, true)
     }
 
     /// `mutateStore`: read (recovering a damaged file), mutate, and write only when changed. The
     /// replaced version is kept as `.bak` when it still parses.
-    fn mutate<T>(&self, mutator: impl FnOnce(&mut Vec<ProjectEntry>) -> (T, bool)) -> io::Result<T> {
+    fn mutate<L: WriteLane, T>(
+        &self,
+        lane: &InLane<L>,
+        mutator: impl FnOnce(&mut Vec<ProjectEntry>) -> (T, bool),
+    ) -> io::Result<T> {
         let _held = self.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let current = match parse(read_content(&self.path)?) {
-            Parsed::Ok(value, _) => Some(value),
-            Parsed::Absent => None,
-            Parsed::Damaged => match self.recover()? {
-                Parsed::Ok(value, _) => Some(value),
-                _ => None,
+        let mut outcome = None;
+        let opts = Opts { backup: true, ..Opts::default() };
+        update_json(
+            lane,
+            &self.path,
+            |current| {
+                let mut entries = match current.as_ref() {
+                    Some(doc) => normalize(doc, true)?,
+                    None => Vec::new(),
+                };
+                let (value, changed) = mutator(&mut entries);
+                outcome = Some(value);
+                if !changed {
+                    return Ok(None);
+                }
+                serde_json::to_value(Document { projects: &entries }).map(Some).map_err(io::Error::other)
             },
-        };
-        let mut entries = match current.as_ref() {
-            Some(doc) => normalize(doc, true)?,
-            None => Vec::new(),
-        };
-        let (value, changed) = mutator(&mut entries);
-        if changed {
-            // The file as it stands now (a recovery may have replaced it) is what gets backed up.
-            let on_disk = read_content(&self.path)?;
-            if let Some(bytes) = on_disk.filter(|b| !holds_no_data(b) && matches!(parse(Some(b.clone())), Parsed::Ok(..))) {
-                publish(&sibling(&self.path, ".bak"), &bytes)?;
-            }
-            let mut text = serde_json::to_vec_pretty(&Document { projects: &entries }).map_err(io::Error::other)?;
-            text.push(b'\n');
-            publish(&self.path, &text)?;
-        }
-        Ok(value)
+            &opts,
+        )
+        .map_err(state_error)?;
+        Ok(outcome.expect("the mutator ran"))
     }
 
     /// `addProject`: registers `raw_path` (resolved against `cwd`), or returns the entry already
     /// there. Writes the project-id marker beside it, best effort.
-    pub fn add<L: WriteLane>(&self, _lane: &InLane<L>, cwd: &Path, raw_path: &str) -> io::Result<Option<ProjectEntry>> {
-        self.add_body(cwd, raw_path)
+    pub fn add<L: WriteLane>(&self, lane: &InLane<L>, cwd: &Path, raw_path: &str) -> io::Result<Option<ProjectEntry>> {
+        self.add_body(lane, cwd, raw_path)
     }
 
-    fn add_body(&self, cwd: &Path, raw_path: &str) -> io::Result<Option<ProjectEntry>> {
+    fn add_body<L: WriteLane>(&self, lane: &InLane<L>, cwd: &Path, raw_path: &str) -> io::Result<Option<ProjectEntry>> {
         let abs = to_absolute(cwd, raw_path);
         if abs.is_empty() {
             return Ok(None);
         }
-        let entry = self.mutate(|entries| {
+        let entry = self.mutate(lane, |entries| {
             let key = normalize_key(&abs);
             if let Some(existing) = entries.iter().find(|e| normalize_key(&e.path) == key) {
                 return (existing.clone(), false);
@@ -361,21 +301,21 @@ impl Registry {
             entries.push(added.clone());
             (added, true)
         })?;
-        ensure_project_id_marker(&abs, &entry.name);
+        ensure_project_id_marker(lane, &abs, &entry.name);
         Ok(Some(entry))
     }
 
     /// `touchProjectSelected`: stamps `lastSelectedAt` on a registered project.
-    pub fn touch_selected<L: WriteLane>(&self, _lane: &InLane<L>, cwd: &Path, raw_path: &str) -> io::Result<Option<ProjectEntry>> {
-        self.touch_body(cwd, raw_path)
+    pub fn touch_selected<L: WriteLane>(&self, lane: &InLane<L>, cwd: &Path, raw_path: &str) -> io::Result<Option<ProjectEntry>> {
+        self.touch_body(lane, cwd, raw_path)
     }
 
-    fn touch_body(&self, cwd: &Path, raw_path: &str) -> io::Result<Option<ProjectEntry>> {
+    fn touch_body<L: WriteLane>(&self, lane: &InLane<L>, cwd: &Path, raw_path: &str) -> io::Result<Option<ProjectEntry>> {
         let abs = to_absolute(cwd, raw_path);
         if abs.is_empty() {
             return Ok(None);
         }
-        let entry = self.mutate(|entries| {
+        let entry = self.mutate(lane, |entries| {
             let key = normalize_key(&abs);
             match entries.iter_mut().find(|e| normalize_key(&e.path) == key) {
                 Some(selected) => {
@@ -386,22 +326,22 @@ impl Registry {
             }
         })?;
         if let Some(entry) = &entry {
-            ensure_project_id_marker(&abs, &entry.name);
+            ensure_project_id_marker(lane, &abs, &entry.name);
         }
         Ok(entry)
     }
 
     /// `removeProject`: unregisters the project; the directory is untouched.
-    pub fn remove<L: WriteLane>(&self, _lane: &InLane<L>, cwd: &Path, raw_path: &str) -> io::Result<bool> {
-        self.remove_body(cwd, raw_path)
+    pub fn remove<L: WriteLane>(&self, lane: &InLane<L>, cwd: &Path, raw_path: &str) -> io::Result<bool> {
+        self.remove_body(lane, cwd, raw_path)
     }
 
-    fn remove_body(&self, cwd: &Path, raw_path: &str) -> io::Result<bool> {
+    fn remove_body<L: WriteLane>(&self, lane: &InLane<L>, cwd: &Path, raw_path: &str) -> io::Result<bool> {
         let abs = to_absolute(cwd, raw_path);
         if abs.is_empty() {
             return Ok(false);
         }
-        self.mutate(|entries| {
+        self.mutate(lane, |entries| {
             let key = normalize_key(&abs);
             let before = entries.len();
             entries.retain(|e| normalize_key(&e.path) != key);
@@ -411,16 +351,16 @@ impl Registry {
     }
 
     /// `renameProject`: the display name only; a blank name resets it to the folder's name.
-    pub fn rename<L: WriteLane>(&self, _lane: &InLane<L>, cwd: &Path, raw_path: &str, next_name: &str) -> io::Result<Option<ProjectEntry>> {
-        self.rename_body(cwd, raw_path, next_name)
+    pub fn rename<L: WriteLane>(&self, lane: &InLane<L>, cwd: &Path, raw_path: &str, next_name: &str) -> io::Result<Option<ProjectEntry>> {
+        self.rename_body(lane, cwd, raw_path, next_name)
     }
 
-    fn rename_body(&self, cwd: &Path, raw_path: &str, next_name: &str) -> io::Result<Option<ProjectEntry>> {
+    fn rename_body<L: WriteLane>(&self, lane: &InLane<L>, cwd: &Path, raw_path: &str, next_name: &str) -> io::Result<Option<ProjectEntry>> {
         let abs = to_absolute(cwd, raw_path);
         if abs.is_empty() {
             return Ok(None);
         }
-        self.mutate(|entries| {
+        self.mutate(lane, |entries| {
             let key = normalize_key(&abs);
             match entries.iter_mut().find(|e| normalize_key(&e.path) == key) {
                 Some(entry) => {
@@ -450,11 +390,11 @@ fn now_ms() -> i64 {
 /// `ensureProjectIdMarker`: `<project>/.mixdog/project.id` holds the project's id so the registry
 /// and memory classification agree. An existing marker with data is kept; nothing is created
 /// for a missing folder, an empty name or `common`. Best effort: a failure is swallowed.
-fn ensure_project_id_marker(abs: &str, name: &str) {
-    let _ = try_marker(abs, name);
+fn ensure_project_id_marker<L: WriteLane>(lane: &InLane<L>, abs: &str, name: &str) {
+    let _ = try_marker(lane, abs, name);
 }
 
-fn try_marker(abs: &str, name: &str) -> io::Result<()> {
+fn try_marker<L: WriteLane>(lane: &InLane<L>, abs: &str, name: &str) -> io::Result<()> {
     if std::env::var("MIXDOG_DISABLE_PROJECT_MARKERS").as_deref() == Ok("1") || abs.is_empty() {
         return Ok(());
     }
@@ -477,7 +417,7 @@ fn try_marker(abs: &str, name: &str) -> io::Result<()> {
     }
     let bytes = format!("{value}\n");
     if present {
-        publish(&marker, bytes.as_bytes())
+        write_file(lane, &marker, bytes.as_bytes(), &Opts::default()).map(drop).map_err(state_error_plain)
     } else {
         // Created only if still missing: a concurrent creator's marker wins.
         fs::create_dir_all(marker.parent().unwrap_or(dir))?;
@@ -493,6 +433,19 @@ fn try_marker(abs: &str, name: &str) -> io::Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Runs `job` as a durability-lane job.
+    fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> R {
+        use mixdog_rt::LaneToken;
+        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+            mixdog_rt::testing::tokens()
+                .durability_io
+                .submit(&mixdog_rt::CancellationToken::new(), job)
+                .expect("lane")
+                .await
+                .expect("job ran")
+        })
+    }
 
     fn fixture() -> Value {
         serde_json::from_str(include_str!("../../../fixtures/store/registry/projects-registry.json")).expect("golden")
@@ -554,30 +507,38 @@ mod tests {
                 fs::write(&file, text.replace("<ABS>", escaped)).unwrap();
             }
             if let Some(text) = case["bak"].as_str() {
-                fs::write(sibling(&file, ".bak"), text.replace("<ABS>", escaped)).unwrap();
+                fs::write(base.join("projects.json.bak"), text.replace("<ABS>", escaped)).unwrap();
             }
-            let registry = Registry::new(file.clone());
             let start = now_ms();
-            let mut results = Vec::new();
-            for op in case["ops"].as_array().unwrap() {
-                let path = op["path"].as_str().unwrap_or("").replace("<ABS>", &base_text);
-                let one = |entry: io::Result<Option<ProjectEntry>>| {
-                    entry.map(|e| e.map(|e| entry_value(&e)).unwrap_or(Value::Null))
-                };
-                let list = |strict| registry.list_body(strict).map(|all| Value::Array(all.iter().map(entry_value).collect()));
-                let value = match op["op"].as_str().unwrap() {
-                    "list" => list(false),
-                    "listStrict" => list(true),
-                    "add" => one(registry.add_body(&base, &path)),
-                    "touch" => one(registry.touch_body(&base, &path)),
-                    "remove" => registry.remove_body(&base, &path).map(|removed| json!(removed)),
-                    _ => one(registry.rename_body(&base, &path, op["name"].as_str().unwrap())),
-                };
-                results.push(match value {
-                    Ok(value) => json!({ "ok": mask(&stamp(value, start), &base_text) }),
-                    Err(_) => json!({ "thrown": true }),
-                });
-            }
+            let results = on_lane({
+                let (ops, base, base_text, file) = (case["ops"].clone(), base.clone(), base_text.clone(), file.clone());
+                move |lane| {
+                    let registry = Registry::new(file);
+                    let mut results = Vec::new();
+                    for op in ops.as_array().unwrap() {
+                        let path = op["path"].as_str().unwrap_or("").replace("<ABS>", &base_text);
+                        let one = |entry: io::Result<Option<ProjectEntry>>| {
+                            entry.map(|e| e.map(|e| entry_value(&e)).unwrap_or(Value::Null))
+                        };
+                        let list = |strict| {
+                            registry.list_body(lane, strict).map(|all| Value::Array(all.iter().map(entry_value).collect()))
+                        };
+                        let value = match op["op"].as_str().unwrap() {
+                            "list" => list(false),
+                            "listStrict" => list(true),
+                            "add" => one(registry.add_body(lane, &base, &path)),
+                            "touch" => one(registry.touch_body(lane, &base, &path)),
+                            "remove" => registry.remove_body(lane, &base, &path).map(|removed| json!(removed)),
+                            _ => one(registry.rename_body(lane, &base, &path, op["name"].as_str().unwrap())),
+                        };
+                        results.push(match value {
+                            Ok(value) => json!({ "ok": mask(&stamp(value, start), &base_text) }),
+                            Err(_) => json!({ "thrown": true }),
+                        });
+                    }
+                    results
+                }
+            });
             let parsed = |p: &Path| -> Value {
                 match fs::read(p) {
                     Ok(bytes) => {
@@ -599,7 +560,7 @@ mod tests {
             let got = json!({
                 "results": results,
                 "after": parsed(&file),
-                "backup": parsed(&sibling(&file, ".bak")),
+                "backup": parsed(&base.join("projects.json.bak")),
                 "aside": aside,
                 "markers": Value::Object(markers),
             });
