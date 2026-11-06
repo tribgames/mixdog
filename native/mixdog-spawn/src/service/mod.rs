@@ -90,8 +90,5 @@ fn process_failure(error: ProcessError) -> CoreError {
         ProcessError::AlreadyExited => domain_error("process", "ALREADY_EXITED"),
         ProcessError::ReplayUnavailable { .. } => domain_error("process", "REPLAY_UNAVAILABLE"),
         ProcessError::Io { .. } => domain_error("process", "IO"),
-        // `ProcessError` is closed in the core API; a new variant is a new code here.
-        #[allow(unreachable_patterns)]
-        _ => domain_error("process", "IO"),
     }
 }
