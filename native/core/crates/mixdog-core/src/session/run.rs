@@ -161,6 +161,9 @@ pub struct ItemCommit {
     pub visible: bool,
     /// The model message (FORMAT.md §5.2 `item.body`).
     pub body: Value,
+    /// The row's prompt-history text (the record's `prompt`), when the run knows it; `None`
+    /// leaves it to the row's own facts (`user_row`).
+    pub prompt: Option<String>,
 }
 
 pub(crate) enum ProducerMsg {
@@ -172,7 +175,14 @@ pub(crate) enum ProducerMsg {
     Delta {
         item: ItemId,
         text: String,
+        /// `item/agentMessage/delta` or `item/reasoning/textDelta`.
+        method: &'static str,
         params: Bytes,
+    },
+    /// A view-only line or notification of the run (not persisted).
+    Shown {
+        turn: TurnId,
+        shown: RunShown,
     },
     Commit {
         turn: TurnId,
@@ -199,6 +209,16 @@ pub(crate) enum ProducerMsg {
         compaction: Compaction,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
+}
+
+/// What the run shows besides its rows and deltas.
+pub(crate) enum RunShown {
+    /// A muted transcript notice (`pushNotice(text, 'info', {transcript: true})`).
+    Notice(String),
+    /// One model call's usage (`onUsageDelta`).
+    Usage { iteration: u32, usage: mixdog_core_api::domain::provider::Usage },
+    /// The compact marker (`applyCompactEvent`).
+    Compact(mixdog_agent::env::CompactEvent),
 }
 
 /// A compaction of the run's model context: the store's `compacted` record.
@@ -293,6 +313,16 @@ impl RunPort {
 
     /// `item/agentMessage/delta` (not persisted; ≤ 16 KiB, encoded here, RL §5.6).
     pub async fn delta(&self, item: ItemId, text: String) -> Result<(), RunError> {
+        self.item_delta(item, text, "item/agentMessage/delta").await
+    }
+
+    /// `item/reasoning/textDelta` on the `Reasoning` item the run started (`item_started`):
+    /// the thinking text Node's live turn shows (`appendReasoningDelta`). Not persisted.
+    pub async fn reasoning_delta(&self, item: ItemId, text: String) -> Result<(), RunError> {
+        self.item_delta(item, text, "item/reasoning/textDelta").await
+    }
+
+    async fn item_delta(&self, item: ItemId, text: String, method: &'static str) -> Result<(), RunError> {
         let params = encode(&ItemDeltaParams {
             thread_id: self.thread.clone(),
             turn_id: self.turn.clone(),
@@ -300,7 +330,30 @@ impl RunPort {
             delta: text.clone(),
             index: None,
         });
-        self.send(ProducerMsg::Delta { item, text, params }).await
+        self.send(ProducerMsg::Delta { item, text, method, params }).await
+    }
+
+    /// A runtime notice of the turn (`onStageChange('notice')`): a muted (`info`) transcript
+    /// line, live only.
+    pub async fn notice(&self, text: String) -> Result<(), RunError> {
+        self.shown(RunShown::Notice(text)).await
+    }
+
+    /// One model call's usage (`onUsageDelta`): `thread/tokenUsage/updated` with Node's delta
+    /// (`usageDeltaEvent`).
+    pub async fn usage(&self, iteration: u32, usage: mixdog_core_api::domain::provider::Usage) -> Result<(), RunError> {
+        self.shown(RunShown::Usage { iteration, usage }).await
+    }
+
+    /// A compaction pass's marker (`onCompactEvent` → `applyCompactEvent`): the
+    /// `Compact complete` / `failed` / `checked` row, live only; a compaction that changed the
+    /// context puts it before the turn's input row, where the restored divider stands.
+    pub async fn compact_event(&self, event: mixdog_agent::env::CompactEvent) -> Result<(), RunError> {
+        self.shown(RunShown::Compact(event)).await
+    }
+
+    async fn shown(&self, shown: RunShown) -> Result<(), RunError> {
+        self.send(ProducerMsg::Shown { turn: self.turn.clone(), shown }).await
     }
 
     /// Appends a history row of this run and resolves once it is durable (or failed).

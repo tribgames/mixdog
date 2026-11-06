@@ -112,6 +112,8 @@ use super::run::InputState;
 use super::run::ItemCommit;
 use super::run::ProducerMsg;
 use super::run::RunError;
+use super::run::RunShown;
+use crate::goal::js::Goal;
 use super::run::ModelContext;
 use super::user_facts::RowFacts;
 use super::user_facts::user_facts;
@@ -161,6 +163,8 @@ fn suppressed_execution(entry: &Value) -> Option<String> {
 
 /// A request routed to the actor.
 pub(crate) enum Inbox {
+    /// `onGoalStatusChange`: the thread's visible Goal changed.
+    GoalChanged(Option<Goal>),
     /// A completion as the session's listeners receive it (`{content, meta}`): shown as a live
     /// card when the card gates admit it.
     CompletionCard { content: String, meta: Value },
@@ -202,6 +206,14 @@ pub(crate) enum JobDone {
     },
     /// The running turn's session gained a sensitive value.
     SensitiveMarked,
+    /// A Goal runtime answer for the lane (`None`: the call failed, nothing is published).
+    GoalSeen(Option<Option<Goal>>),
+    /// `goalTurnSettled`'s Goal.
+    GoalSettled(Option<Option<Goal>>),
+    /// `goalContinuation`'s decision.
+    GoalDecision(Option<crate::goal::Continuation>),
+    /// The user prompt's archive of a finished Goal landed (its id, masked meanwhile).
+    GoalArchived(String),
 }
 
 /// What the actor does first.
@@ -218,6 +230,12 @@ pub(crate) enum Init {
 
 struct RunSlot {
     turn: TurnId,
+    /// The id of the run's input row.
+    input_item: mixdog_core_api::ids::ItemId,
+    /// An automatic Goal turn (`promptSource === 'goal-continuation'`).
+    automatic: bool,
+    /// Tool results the turn committed (its tool cards).
+    tool_calls: u64,
     cancel: mixdog_agent::cancel::Cancel,
     input: watch::Sender<InputState>,
     /// The run's input never became durable: no terminal record follows.
@@ -263,6 +281,20 @@ pub(crate) struct SessionActor {
     suppressed: std::collections::HashSet<String>,
     /// Completions a wake drained that still wait for their own turns, oldest first.
     wake_tail: Vec<String>,
+    /// A delete closed the thread (`Ctl::Delete`): no run starts again.
+    deleting: bool,
+    /// The Goal a user prompt is archiving, masked from the lane until the archive lands.
+    goal_suppressed: String,
+    /// A continuation decision is on its way.
+    goal_scheduled: bool,
+    /// The last Goal runtime call: each waits for the one before.
+    goal_tail: Option<tokio::task::JoinHandle<()>>,
+    /// Answered once the deleted thread's turn ended.
+    delete_closed: Option<oneshot::Sender<Result<(), &'static str>>>,
+    /// The delete's go for the mark, awaited once `delete_closed` answered.
+    delete_mark: Option<oneshot::Receiver<()>>,
+    /// Answered at the mark's ack.
+    delete_marked: Option<oneshot::Sender<Result<(), RunError>>>,
     generation: u64,
     pending: bool,
     indeterminate: bool,
@@ -345,6 +377,13 @@ impl SessionActor {
             listened: Default::default(),
             suppressed: Default::default(),
             wake_tail: Vec::new(),
+            deleting: false,
+            goal_suppressed: String::new(),
+            goal_scheduled: false,
+            goal_tail: None,
+            delete_closed: None,
+            delete_mark: None,
+            delete_marked: None,
             generation: 0,
             pending: false,
             indeterminate: false,
@@ -378,9 +417,11 @@ impl SessionActor {
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
+            let marking = self.delete_closed.is_none() && self.delete_mark.is_some();
             tokio::select! {
                 biased;
                 Some(ctl) = self.ch.ctl_rx.recv() => self.on_ctl(ctl),
+                go = mark_go(&mut self.delete_mark), if marking => self.mark_deleted(go.is_ok()),
                 Some(msg) = self.ch.dur_rx.recv() => self.on_durability(msg),
                 Some(done) = self.jobs_rx.recv() => self.on_job(done),
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
@@ -389,11 +430,82 @@ impl SessionActor {
                 else => break,
             }
             self.pump();
-            // An unloaded thread stops once its accepted records are handed off.
-            if self.cell.closed.load(SeqCst) && self.outbox.is_empty() {
+            // An unloaded thread stops once its accepted records are handed off; a deleted one
+            // also waits for its turn to end and its mark.
+            if self.cell.closed.load(SeqCst)
+                && self.outbox.is_empty()
+                && self.delete_closed.is_none()
+                && self.delete_mark.is_none()
+            {
                 break;
             }
         }
+    }
+
+    /// `Ctl::Delete`: see its doc.
+    fn delete(
+        &mut self,
+        reason: &str,
+        idle: bool,
+        closed: oneshot::Sender<Result<(), &'static str>>,
+        mark: oneshot::Receiver<()>,
+        marked: oneshot::Sender<Result<(), RunError>>,
+    ) {
+        // Another delete holds the thread: it is gone for this one.
+        if self.deleting {
+            let _ = closed.send(Err("missing"));
+            return;
+        }
+        if idle {
+            let refusal = if self.run.is_some() {
+                Some("busy")
+            } else if !self.projected.queue.is_empty() {
+                Some("queued")
+            } else {
+                None
+            };
+            if let Some(refusal) = refusal {
+                let _ = closed.send(Err(refusal));
+                return;
+            }
+        }
+        self.cell.closed.store(true, SeqCst);
+        self.deleting = true;
+        (self.delete_closed, self.delete_mark, self.delete_marked) = (Some(closed), Some(mark), Some(marked));
+        if let Some(run) = &self.run {
+            // The deleted session leaves the approvals list now, not when its turn ends.
+            let turn = run.turn.clone();
+            let at = self.deps.clock.now_ms();
+            for aid in self.book.take_run(&turn) {
+                self.resolve(aid, &turn, ApprovalResolution::Interrupted { at });
+            }
+            if let Some(run) = &self.run {
+                run.cancel.abort(reason);
+            }
+            return;
+        }
+        self.delete_turn_ended();
+    }
+
+    /// The deleted thread's turn ended (or it had none).
+    fn delete_turn_ended(&mut self) {
+        if let Some(closed) = self.delete_closed.take() {
+            let _ = closed.send(Ok(()));
+        }
+    }
+
+    /// The delete mark (FORMAT.md §5.1 `meta`, `deleted: true`), acked to `delete_marked`;
+    /// `false`: the delete gave up, the thread stops unmarked.
+    fn mark_deleted(&mut self, go: bool) {
+        self.delete_mark = None;
+        let Some(marked) = self.delete_marked.take() else { return };
+        if !go {
+            return;
+        }
+        let mut set = serde_json::Map::new();
+        set.insert(mixdog_store::summary::DELETED.into(), json!(true));
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        self.accept_record(meta, Class::Control, Display::None, Vec::new(), vec![Effect::ItemAck(marked)]);
     }
 
     /// Unloads when the last subscriber has left and nothing is live: no run, no queued
@@ -402,6 +514,7 @@ impl SessionActor {
     fn try_unload(&mut self) {
         let cell = &self.cell;
         if !cell.ever_subscribed.load(SeqCst)
+            || self.deleting
             || cell.subscribers.load(SeqCst) != 0
             || self.run.is_some()
             || !self.projected.queue.is_empty()
@@ -561,7 +674,140 @@ impl SessionActor {
                     self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
                 }
             }
+            JobDone::GoalSeen(Some(goal)) => {
+                self.publish_goal(goal);
+            }
+            JobDone::GoalSettled(Some(goal)) => {
+                // `onGoalTurnSettled`: an active Goal continues once the thread is idle.
+                if self.publish_goal(goal).is_some_and(|goal| goal_lane_status(&goal) == "active") {
+                    self.schedule_goal_continuation();
+                }
+            }
+            JobDone::GoalSeen(None) | JobDone::GoalSettled(None) => {}
+            JobDone::GoalDecision(decision) => self.goal_decision(decision),
+            JobDone::GoalArchived(id) => {
+                // `settle`: the mask lifts and the lane shows the record as it now is.
+                if self.goal_suppressed == id {
+                    self.goal_suppressed.clear();
+                }
+                self.refresh_goal();
+            }
         }
+    }
+
+    // ───────────── the Goal lane ─────────────
+
+    /// Runs a Goal runtime call after every earlier one of this thread (Node awaits each in
+    /// turn order); its answer comes back as a job.
+    fn goal_call(&mut self, call: futures::future::BoxFuture<'static, JobDone>) {
+        let jobs = self.jobs_tx.clone();
+        let tail = self.goal_tail.take();
+        self.goal_tail = Some(
+            tokio::spawn(async move {
+                if let Some(tail) = tail {
+                    let _ = tail.await;
+                }
+                let _ = jobs.send(call.await);
+            }),
+        );
+    }
+
+    /// `publishGoal(raw)`: the lane changes only when the visible Goal does.
+    fn publish_goal(&mut self, raw: Option<Goal>) -> Option<Goal> {
+        let goal = super::goal_lane::visible_goal(raw.as_ref(), &self.goal_suppressed);
+        let value = goal.clone().map(Value::Object);
+        if self.projected.sections.goal != value {
+            self.accept_view(Change::Section(Section::Goal(value)), Vec::new());
+        }
+        goal
+    }
+
+    /// `refreshGoalState`: the lane reads the runtime's visible Goal.
+    fn refresh_goal(&mut self) {
+        let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+        self.goal_call(Box::pin(async move { JobDone::GoalSeen(goals.goal_status(&thread).await.ok()) }));
+    }
+
+    /// `cancelQueuedGoalContinuations`: the queued Goal entries leave the queue. How many went.
+    fn cancel_goal_entries(&mut self) -> usize {
+        let queued: Vec<String> = self
+            .projected
+            .queue
+            .iter()
+            .filter(|q| super::goal_lane::is_goal_entry(&q.entry))
+            .map(|q| q.qid.clone())
+            .collect();
+        for qid in &queued {
+            self.accept_record(dequeue(qid), Class::Control, Display::None, Vec::new(), Vec::new());
+        }
+        queued.len()
+    }
+
+    /// `onGoalChanged`: the lane shows the new Goal, queued automatic work for the old one goes,
+    /// and an active Goal continues once the thread is idle.
+    fn goal_changed(&mut self, goal: Option<Goal>) {
+        let visible = super::goal_lane::visible_goal(goal.as_ref(), &self.goal_suppressed);
+        self.cancel_goal_entries();
+        self.publish_goal(goal);
+        if visible.is_some_and(|goal| goal_lane_status(&goal) == "active") {
+            self.schedule_goal_continuation();
+        }
+    }
+
+    /// `scheduleGoalContinuation`: once the thread is idle with nothing queued, the runtime
+    /// decides whether its Goal continues.
+    fn schedule_goal_continuation(&mut self) {
+        if self.goal_scheduled || !self.goal_idle() {
+            return;
+        }
+        self.goal_scheduled = true;
+        let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+        self.goal_call(Box::pin(async move {
+            JobDone::GoalDecision(goals.continuation(&thread, crate::goal::ContinuationInput::default()).await.ok())
+        }));
+    }
+
+    /// Idle with nothing queued: queued user work runs first, and a queued Goal entry already
+    /// carries the next continuation.
+    fn goal_idle(&self) -> bool {
+        self.run.is_none() && self.projected.queue.is_empty() && !self.deleting && !self.cell.closed.load(SeqCst)
+    }
+
+    /// The continuation decision: an active Goal's prompt is queued as the next turn.
+    fn goal_decision(&mut self, decision: Option<crate::goal::Continuation>) {
+        self.goal_scheduled = false;
+        let Some(decision) = decision else { return };
+        self.publish_goal(decision.goal.clone());
+        let prompt = decision.prompt.as_deref().map(mixdog_js::js_trim).unwrap_or_default();
+        if !decision.run || prompt.is_empty() || !self.goal_idle() {
+            return;
+        }
+        let entry = super::goal_lane::continuation_entry(decision.prompt.as_deref().unwrap_or_default(), decision.goal.as_ref(), self.deps.clock.now_ms());
+        let record = Record::Queue(QueueRecord {
+            qid: id(&new_id()),
+            action: QueueAction::Enqueue,
+            reason: None,
+            op: None,
+            entry: Some(Slot::Inline(entry)),
+        });
+        self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+        self.start_next_queued();
+    }
+
+    /// `archiveCompletedGoalOnUserInput`: a genuine user prompt drops queued automatic work and
+    /// retires a finished Goal, masked from the lane until the archive lands.
+    fn archive_goal_on_user_input(&mut self) {
+        self.cancel_goal_entries();
+        let archived = super::goal_lane::archived_goal_id(self.projected.sections.goal.as_ref());
+        if !archived.is_empty() {
+            self.goal_suppressed = archived.clone();
+            self.publish_goal(None);
+        }
+        let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+        self.goal_call(Box::pin(async move {
+            let _ = goals.archive_completed_on_user_input(&thread).await;
+            JobDone::GoalArchived(archived)
+        }));
     }
 
     /// Hands encoded records to the durability task in order, releases what is ready, and
@@ -987,6 +1233,7 @@ impl SessionActor {
             }
             Ctl::RefreshSurface => self.refresh_surface(),
             Ctl::Unsubscribed => self.try_unload(),
+            Ctl::Delete { reason, idle, closed, mark, marked } => self.delete(&reason, idle, closed, mark, marked),
             Ctl::Shutdown(done) => {
                 self.cell.closed.store(true, SeqCst);
                 if let Some(run) = &self.run {
@@ -1076,6 +1323,16 @@ impl SessionActor {
         for aid in self.book.take_run(&turn) {
             self.resolve(aid, &turn, resolution.clone());
         }
+        // `onGoalTurnSettled` (`turnOutcome`): the Goal runtime closes the turn's clock segment
+        // and reads its outcome.
+        let (status, error) = match &outcome {
+            RunOutcome::Completed(_) => ("done", None),
+            RunOutcome::Interrupted => ("cancelled", None),
+            RunOutcome::Failed(error) => ("failed", Some(error)),
+        };
+        let detail = super::goal_lane::settle_detail(status, error, slot.automatic, slot.tool_calls);
+        let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+        self.goal_call(Box::pin(async move { JobDone::GoalSettled(goals.turn_settled(&thread, detail).await.ok()) }));
         if !slot.start_failed {
             let (phase, detail) = match outcome {
                 RunOutcome::Completed(_) => (RunPhase::Completed, None),
@@ -1103,14 +1360,21 @@ impl SessionActor {
             }
             self.accept_record(record, Class::Control, Display::None, Vec::new(), effects);
             if completed {
-                // `ask-turn-settle.mjs:137-139`: from this turn on an owner close of the
-                // session is recorded on it (`resumableAfterReap`).
+                // `ask-turn-settle.mjs:132-139`: the completed turn stamps the record's activity,
+                // and from this turn on an owner close of the session is recorded on it
+                // (`resumableAfterReap`).
                 let mut set = serde_json::Map::new();
+                set.insert("updatedAt".into(), json!(at));
+                set.insert("lastUsedAt".into(), json!(at));
                 set.insert("closeProvenance".into(), json!(1));
                 set.insert("lastTurnCompletedAt".into(), json!(at));
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
                 self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
             }
+        }
+        if self.deleting {
+            self.delete_turn_ended();
+            return;
         }
         self.start_next_queued();
         self.try_unload();
@@ -1148,7 +1412,7 @@ impl SessionActor {
     /// suppressed while one was in flight; `ask-queue.mjs:87-101` runs each notification as its
     /// own turn). Without wakes, completions wait for the next turn to take them.
     fn start_next_queued(&mut self) {
-        if self.run.is_some() {
+        if self.run.is_some() || self.deleting {
             return;
         }
         // The wake's remaining completions run first, each its own turn (`ask-queue.mjs` `tail`).
@@ -1189,6 +1453,12 @@ impl SessionActor {
             Vec::new(),
             Vec::new(),
         );
+        // An automatic Goal turn: its prompt is runtime-synthetic, shown as no user row.
+        if super::goal_lane::is_goal_entry(&next.entry) {
+            let input = TurnInput { prompt: PromptContent::Text(completions::text(&next.entry)), options: None };
+            self.start_run_with(input, super::goal_lane::input_row(&next.entry), None, None, None, false);
+            return;
+        }
         let input = TurnInput {
             prompt: serde_json::from_value(next.entry["message"].clone())
                 .unwrap_or(PromptContent::Text(String::new())),
@@ -1245,12 +1515,14 @@ impl SessionActor {
                 );
                 self.accept_view(Change::ItemStarted { turn, item }, vec![note]);
             }
-            ProducerMsg::Delta { item, text, params } => {
-                let note = Note {
-                    method: "item/agentMessage/delta",
-                    params,
-                };
+            ProducerMsg::Delta { item, text, method, params } => {
+                let note = Note { method, params };
                 self.accept_view(Change::Delta { item, text }, vec![note]);
+            }
+            ProducerMsg::Shown { turn, shown } => {
+                if self.active(&turn) {
+                    self.run_shown(turn, shown);
+                }
             }
             ProducerMsg::Commit { turn, item, ack } => {
                 if !self.active(&turn) {
@@ -1258,6 +1530,11 @@ impl SessionActor {
                     return;
                 }
                 let display = self.row_display(item.role.as_deref(), &item.body);
+                if item.role.as_deref() == Some("tool")
+                    && let Some(run) = self.run.as_mut()
+                {
+                    run.tool_calls += 1;
+                }
                 match self.item_record(&turn, item, None) {
                     Ok(record) => self.accept_record(
                         record,
@@ -1428,6 +1705,43 @@ impl SessionActor {
         }
     }
 
+    /// A run's live-only line or notification (`RunPort::notice`, `usage`, `compact_event`).
+    fn run_shown(&mut self, turn: TurnId, shown: RunShown) {
+        match shown {
+            RunShown::Notice(text) => {
+                let text = super::live_rows::polish_notice_text(&text);
+                if text.is_empty() {
+                    return;
+                }
+                let item = super::transcript::notice_item(&new_id(), turn.as_str(), &text, "info");
+                self.show_live(turn, item, None);
+            }
+            RunShown::Usage { iteration, usage } => {
+                let usage = super::live_rows::usage_delta(self.id.as_str(), iteration, &usage, self.deps.clock.now_ms());
+                let note = Note::new(
+                    "thread/tokenUsage/updated",
+                    &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage },
+                );
+                self.accept_view(Change::Barrier, vec![note]);
+            }
+            RunShown::Compact(event) => {
+                let label = super::live_rows::compact_event_label(&event);
+                let detail = super::live_rows::compact_event_detail(&event);
+                let item = super::transcript::compact_marker_item(&new_id(), turn.as_str(), label, &detail);
+                // A pass that changed the context marks where the turn began: the rows above it
+                // are what the compaction took (`archiveItemsForCompaction`).
+                let before = super::live_rows::compact_changed(&event).then(|| self.run.as_ref().map(|run| run.input_item.clone())).flatten();
+                self.show_live(turn, item, before);
+            }
+        }
+    }
+
+    /// A live-only row of the run, before the row `before` when it is in view, else last.
+    fn show_live(&mut self, turn: TurnId, item: ThreadItem, before: Option<mixdog_core_api::ids::ItemId>) {
+        let note = Note::new("item/completed", &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn, item: item.clone() });
+        self.accept_view(Change::Shown { item, before }, vec![note]);
+    }
+
     /// The live display of a user row: the row of a completion the listener showed is durable
     /// but shows no row of its own.
     fn row_display(&mut self, role: Option<&str>, body: &Value) -> Display {
@@ -1450,7 +1764,7 @@ impl SessionActor {
         op: Option<OpRef>,
     ) -> Result<Record, CoreError> {
         let facts = self.user_facts(&mut item.body);
-        let (visible, prompt) = (item.visible && facts.visible, facts.prompt);
+        let (visible, prompt) = (item.visible && facts.visible, item.prompt.take().or(facts.prompt));
         Ok(Record::Item(ItemRecord {
             iid: text(item.iid.as_str(), "itemId")?,
             turn: Some(text(turn.as_str(), "turnId")?),
@@ -1545,6 +1859,7 @@ impl SessionActor {
 
     fn on_inbox(&mut self, msg: Inbox) {
         match msg {
+            Inbox::GoalChanged(goal) => self.goal_changed(goal),
             Inbox::CompletionCard { content, meta } => self.completion_card(&content, &meta),
             Inbox::TaskNotification {
                 surface,
@@ -1619,6 +1934,7 @@ impl SessionActor {
             "thread/header/patch" => self.header_patch(&req),
             "thread/boundary/record" => self.boundary_record(&req),
             "thread/reactions/apply" => self.reactions_apply(&req),
+            "thread/roomRows/commit" => self.room_rows_commit(&req),
             _ => Err(invalid("method", "a session-actor method")),
         };
         match result {
@@ -1667,6 +1983,9 @@ impl SessionActor {
         let params: TurnStartParams = parse(&req.params, "TurnStartParams")?;
         let user_prompt = matches!(req.ctx.caller, Caller::Connection(_))
             .then(|| prompt_text(&params.input));
+        if user_prompt.is_some() {
+            self.archive_goal_on_user_input();
+        }
         if self.run.is_none() {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
@@ -1845,8 +2164,17 @@ impl SessionActor {
         });
         let note = self.history_reset(HistoryResetReason::Clear, None);
         let mut records = vec![(record, Class::Normal, Display::None, vec![note])];
-        // A cleared session starts without provider state (`session-crud.mjs:137`).
-        if let Some(reset) = self.provider_state_change(None) {
+        // A cleared session starts without provider state (`session-crud.mjs:137`), and with its
+        // environment reset (`resetSessionBp3Environment`), in one header change.
+        let mut change = crate::run_host::route_change::environment_reset(&self.projected.header);
+        if self.projected.header.contains_key(PROVIDER_STATE) {
+            change.set.shift_remove(PROVIDER_STATE);
+            if !change.unset.iter().any(|key| key == PROVIDER_STATE) {
+                change.unset.push(PROVIDER_STATE.into());
+            }
+        }
+        if !change.set.is_empty() || !change.unset.is_empty() {
+            let reset = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             records.push((reset, Class::Normal, Display::None, Vec::new()));
         }
         Ok(Plan {
@@ -2001,6 +2329,43 @@ impl SessionActor {
             after: None,
             prompt: None,
         })
+    }
+
+    /// `thread/roomRows/commit {messages}`: a room post's new rows (the handle's
+    /// `thread/roomRows/append` drops the ones already held), each a model row of no turn shown
+    /// live as it lands, then `updatedAt`; answers `{added}` once durable. Internal callers
+    /// only.
+    fn room_rows_commit(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
+        if matches!(req.ctx.caller, Caller::Connection(_)) {
+            return Err(invalid("method", "an internal method"));
+        }
+        let messages = req.params.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut records = Vec::with_capacity(messages.len() + 1);
+        for mut body in messages {
+            let role = body.get("role").and_then(Value::as_str).map(|role| text(role, "role")).transpose()?;
+            let facts = self.user_facts(&mut body);
+            let row = ItemRecord {
+                iid: text(&new_id(), "itemId")?,
+                turn: None,
+                role,
+                form: Form::Message,
+                model: true,
+                visible: facts.visible,
+                archive: None,
+                op: None,
+                prompt: facts.prompt.map(Slot::Inline),
+                refs: Vec::new().try_into().expect("empty list fits"),
+                body: Slot::Inline(body),
+            };
+            records.push((Record::Item(row), Class::Normal, Display::None, Vec::new()));
+        }
+        let value = json!({ "added": records.len() });
+        let mut set = serde_json::Map::new();
+        set.insert("updatedAt".into(), json!(self.deps.clock.now_ms()));
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        records.push((meta, Class::Normal, Display::None, Vec::new()));
+        // A row's prompt joins the prompt history as it is applied.
+        Ok(Plan { kind: PlanKind::Records(records, Vec::new()), value, after: None, prompt: None })
     }
 
     /// `pushAsyncAgentResponse` behind Node's card gates (`execution-delivery.mjs`): the
@@ -2162,11 +2527,17 @@ impl SessionActor {
         );
         self.run = Some(RunSlot {
             turn: turn.clone(),
+            input_item: input_iid.clone(),
+            automatic: super::goal_lane::automatic(&input_body),
+            tool_calls: 0,
             cancel: cancel.clone(),
             input: input_tx,
             start_failed: false,
             _marks: marks,
         });
+        // `onGoalTurnStarted`: the turn takes the Goal's open clock segment.
+        let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+        self.goal_call(Box::pin(async move { JobDone::GoalSeen(goals.turn_started(&thread).await.ok()) }));
         self.cell.publish_run(Some(Arc::new(ActiveRun {
             turn: turn.clone(),
             cancel: cancel.clone(),
@@ -2372,9 +2743,21 @@ fn turn_of(run: &RunRecord) -> Option<Turn> {
     })
 }
 
+fn goal_lane_status(goal: &Goal) -> &str {
+    goal.get("status").and_then(Value::as_str).unwrap_or_default()
+}
+
 async fn sleep_until(deadline: Option<tokio::time::Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// A delete's go for its mark; an error when the delete dropped it.
+async fn mark_go(mark: &mut Option<oneshot::Receiver<()>>) -> Result<(), oneshot::error::RecvError> {
+    match mark {
+        Some(mark) => mark.await,
         None => std::future::pending().await,
     }
 }

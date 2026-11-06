@@ -7,6 +7,8 @@ pub mod tool_surface;
 pub mod route_surface;
 pub mod rules;
 pub mod factory;
+pub mod assemble;
+pub mod prewarm;
 pub mod message_row;
 pub mod rules_lead;
 pub mod deferred_manifest;

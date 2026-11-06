@@ -17,7 +17,6 @@ mod requests;
 mod tests;
 
 pub use definitions::DefinitionSetup;
-pub use definitions::OtherDefinitions;
 pub use mcp::McpSetup;
 pub use requests::SetupRequests;
 pub use requests::SetupUiSurface;

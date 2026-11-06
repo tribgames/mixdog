@@ -38,7 +38,7 @@ pub struct TrackedChange {
 /// inside it, else the path as given.
 pub fn patch_header_path_for_resolved(base_path: &str, full_path: &str) -> String {
     let rel = nodepath::relative_host(&nodepath::resolve_host(&[base_path]), &nodepath::resolve_host(&[full_path]));
-    if !rel.is_empty() && !nodepath::is_absolute_host(&rel) && !nodepath::split_segments(&rel).iter().any(|part| *part == "..") {
+    if !rel.is_empty() && !nodepath::is_absolute_host(&rel) && !nodepath::split_segments(&rel).contains(&"..") {
         return rel.replace('\\', "/");
     }
     full_path.to_owned()

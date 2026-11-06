@@ -1,0 +1,6 @@
+{
+  "id": "writer",
+  "name": "Writer",
+  "description": "Use for translation, editing, rewriting, tone alignment, and final-copy polishing.",
+  "entry": "AGENT.md"
+}

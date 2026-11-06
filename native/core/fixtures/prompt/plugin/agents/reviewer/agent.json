@@ -1,0 +1,6 @@
+{
+  "id": "reviewer",
+  "name": "Reviewer",
+  "description": "One fresh Reviewer per non-trivial feature after its last worker reports, any author; not for docs/copy/style or one-line changes.",
+  "entry": "AGENT.md"
+}

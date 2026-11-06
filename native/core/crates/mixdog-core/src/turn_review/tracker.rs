@@ -125,7 +125,6 @@ pub struct View {
     pub root: String,
     pub files: Vec<Obj>,
     pub patch: String,
-    pub truncated: bool,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -417,11 +416,10 @@ pub fn with_own_counts(files: Vec<Obj>, find: impl Fn(&str) -> Option<OwnStat>) 
 /// file outside it is left out, as from the record's undoable files. Cached per revision; `budget`
 /// bounds a render.
 pub fn tracker_view(differ: &LineDiffer, state: &mut TrackerState, root: &PatchRoot, budget: &mut LineDiffBudget) -> View {
-    if let Some(view) = &state.view {
-        if view.revision == state.revision && view.root == root.root {
+    if let Some(view) = &state.view
+        && view.revision == state.revision && view.root == root.root {
             return view.clone();
         }
-    }
     struct Row {
         obj: Obj,
         text: String,
@@ -470,14 +468,14 @@ pub fn tracker_view(differ: &LineDiffer, state: &mut TrackerState, root: &PatchR
         locale_compare(l, r)
     });
     let joined: String = rows.iter().map(|r| r.text.as_str()).collect();
-    let (patch, truncated) = bound_review_patch(&joined, MAX_PATCH_BYTES);
+    let (patch, _) = bound_review_patch(&joined, MAX_PATCH_BYTES);
     let files: Vec<Obj> = rows.into_iter().map(|r| r.obj).collect();
     let files = if root.root.is_empty() {
         with_own_counts(files, own_count_index(state, "", true))
     } else {
         with_own_counts(files, own_count_index(state, &root.root, false))
     };
-    let view = View { revision: state.revision, root: root.root.clone(), files, patch, truncated };
+    let view = View { revision: state.revision, root: root.root.clone(), files, patch };
     state.view = Some(view.clone());
     view
 }

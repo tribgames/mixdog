@@ -12,10 +12,8 @@ use super::review_diff::Obj;
 const VIEW_PATCH_MAX_BYTES: usize = 256 * 1024;
 
 pub struct Named {
-    pub status: char,
     pub additions: u64,
     pub deletions: u64,
-    pub binary: bool,
     /// The patch under the viewer's names; empty when it passed the byte cap.
     pub patch: String,
 }
@@ -68,10 +66,8 @@ pub fn named_change_patch(
     let measured = measure_change(differ, before, after, old_name != new_name, budget);
     let patch = name_measured_patch(&measured.text, old_name, new_name);
     Named {
-        status: measured.status,
         additions: measured.additions,
         deletions: measured.deletions,
-        binary: measured.binary,
         patch: if patch.len() > VIEW_PATCH_MAX_BYTES { String::new() } else { patch },
     }
 }

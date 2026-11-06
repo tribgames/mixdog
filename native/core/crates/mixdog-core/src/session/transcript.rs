@@ -36,6 +36,8 @@ mod transcript_boundary;
 mod transcript_convert;
 #[path = "transcript_divider.rs"]
 mod transcript_divider;
+#[path = "transcript_live.rs"]
+mod transcript_live;
 #[cfg(test)]
 #[path = "transcript_golden.rs"]
 mod transcript_golden;
@@ -54,6 +56,9 @@ pub(super) use self::transcript_rows::truthy;
 pub(super) use self::transcript_boundary::divider_model_switches;
 pub(super) use self::transcript_boundary::live_divider_model_switch;
 pub(super) use self::transcript_boundary::live_model_switch;
+pub(super) use self::transcript_divider::divider_item;
+pub(super) use self::transcript_live::compact_marker_item;
+pub(super) use self::transcript_live::notice_item;
 pub(super) use self::transcript_response::has_body;
 
 /// `MessageRows` of one run: every history message the run holds is registered with the

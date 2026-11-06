@@ -27,7 +27,6 @@ use super::patch::file_state;
 use super::patch::find_change_file;
 use super::patch::is_unmeasured_file;
 use super::patch::obj_str;
-use super::patch::patch_of;
 use super::patch::split_patch_sections;
 use super::patch::turn_changes_reply;
 use super::patch::unknown_state_change_file;
@@ -297,11 +296,10 @@ impl Inner {
 
     async fn read_turn_review(&self, owner: &str, summary: bool) -> Obj {
         let tracker = self.tracker_of(owner);
-        if tracker.is_none() {
-            if let Some(recorded) = self.recorded_turn_review(owner, summary).await {
+        if tracker.is_none()
+            && let Some(recorded) = self.recorded_turn_review(owner, summary).await {
                 return recorded;
             }
-        }
         let (turn_generation, turn_checkpoint) = {
             let reg = self.reg();
             match reg.turns.get(owner) {
@@ -354,12 +352,11 @@ impl Inner {
         // the bar is opened.
         let kind = review.get("snapshotKind").and_then(Value::as_str).unwrap_or("").to_owned();
         let has_patch = review.get("patch").and_then(Value::as_str).is_some_and(|p| !p.is_empty());
-        if read.summary && SUMMARY_KINDS.contains(&kind.as_str()) && has_patch {
-            if let Some(map) = review.as_object_mut() {
+        if read.summary && SUMMARY_KINDS.contains(&kind.as_str()) && has_patch
+            && let Some(map) = review.as_object_mut() {
                 map.insert("patch".into(), Value::String(String::new()));
                 map.insert("patchOmitted".into(), Value::Bool(true));
             }
-        }
         // The tag covers everything sent (`historyTurns` included), so a summary and a full review
         // never share one.
         let digest = Sha256::digest(json_stringify(&review).as_bytes());
@@ -487,11 +484,10 @@ impl Inner {
         let mut input = paths.join("\0").into_bytes();
         input.push(0);
         // 0: some are ignored, 1: none; anything else (no repository) flags none.
-        if let Ok(result) = self.git.run(root, &args, input).await {
-            if result.code == 0 {
+        if let Ok(result) = self.git.run(root, &args, input).await
+            && result.code == 0 {
                 ignored = String::from_utf8_lossy(&result.stdout).split('\0').filter(|s| !s.is_empty()).map(str::to_owned).collect();
             }
-        }
         let mut cache = self.ignored.lock().unwrap_or_else(|e| e.into_inner());
         cache.insert(key.to_owned(), ignored.clone());
         while cache.len() > IGNORED_CHANGE_CACHE_LIMIT {

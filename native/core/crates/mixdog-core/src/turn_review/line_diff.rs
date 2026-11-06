@@ -454,7 +454,7 @@ impl LineDiffer {
 /// jsdiff's `quoteFileNameIfNeeded`: C-style quoting (git's, with UTF-8 octal escapes) for a name
 /// holding a control character, a non-ASCII character, a quote or a backslash.
 fn quote_file_name(name: &str) -> String {
-    let needs = name.chars().any(|c| c < '\u{20}' || c > '\u{7e}' || c == '"' || c == '\\');
+    let needs = name.chars().any(|c| !('\u{20}'..='\u{7e}').contains(&c) || c == '"' || c == '\\');
     if !needs {
         return name.to_owned();
     }

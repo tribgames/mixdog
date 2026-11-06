@@ -186,6 +186,7 @@ impl ThreadStore for MemStore {
             approvals: Vec::new(),
             queue: Vec::new(),
             window: Vec::new(),
+            dividers: Vec::new(),
             has_older: false,
             prompts: Vec::new(),
             log_id,
@@ -200,6 +201,10 @@ impl ThreadStore for MemStore {
         _id: &ThreadId,
     ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
         Box::pin(async { Ok(None) })
+    }
+
+    fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 
     fn context_io(
@@ -632,6 +637,72 @@ pub(crate) struct Rig {
     pub ingests: Arc<Ingests>,
     pub closes: Arc<Closes>,
     pub sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+    /// What deletes did outside the session, in order.
+    pub deletes: Arc<Deletes>,
+    /// The real Goal runtime over the temp data dir.
+    pub goals: crate::goal::GoalRuntime,
+}
+
+/// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`;
+/// the second field is the sidebar state the idle delete reads.
+#[derive(Default)]
+pub(crate) struct Deletes(pub Mutex<Vec<String>>, pub Mutex<Option<super::delete::SidebarState>>);
+
+impl Deletes {
+    fn note(&self, step: String) {
+        lock(&self.0).push(step);
+    }
+}
+
+struct Hook(&'static str, Arc<Deletes>);
+
+impl super::delete::PurgeHook for Hook {
+    fn purge(&self, session_id: &str, cwds: &[String]) {
+        self.1.note(format!("{}:{session_id}:{}", self.0, cwds.join(",")));
+    }
+}
+
+#[async_trait::async_trait]
+impl super::delete::DeleteSeams for Deletes {
+    fn forget_lead_session(&self, session_id: &str) {
+        self.note(format!("forgetLeadSession:{session_id}"));
+    }
+    fn release_session_work(&self, session_id: &str, reason: &str) {
+        self.note(format!("releaseSessionWork:{session_id}:{reason}"));
+    }
+    fn forget_session_search(&self, session_id: &str) {
+        self.note(format!("forgetSessionSearch:{session_id}"));
+    }
+    async fn release_deleted_worktree(&self, session_id: &str) {
+        self.note(format!("releaseDeletedWorktree:{session_id}"));
+    }
+    fn thread_deleted(&self, thread: &ThreadId) {
+        self.note(format!("thread/deleted:{thread}"));
+    }
+    async fn sidebar_state(&self) -> Option<super::delete::SidebarState> {
+        lock(&self.1).clone()
+    }
+}
+
+impl Rig {
+    fn purge_hooks(&self) -> super::delete::PurgeHooks {
+        let hook = |name: &'static str| -> Arc<dyn super::delete::PurgeHook> { Arc::new(Hook(name, self.deletes.clone())) };
+        super::delete::PurgeHooks {
+            tool_result_offload: hook("toolResultOffload"),
+            usage_metrics: hook("usageMetrics"),
+            browser_session: hook("browserSession"),
+            transcripts: hook("transcripts"),
+            cache_warm: hook("cacheWarm"),
+            read_cache: hook("readCache"),
+            compaction_capture: hook("compactionCapture"),
+            provider_connections: hook("providerConnections"),
+            connector_accounts: hook("connectorAccounts"),
+            worker_turns: hook("workerTurns"),
+            agent_status: hook("agentStatus"),
+            compaction_archive: hook("compactionArchive"),
+            scratch_dir: hook("scratchDir"),
+        }
+    }
 }
 
 /// The close-time memory ingests, in order; each waits `delay` before it records.
@@ -676,7 +747,12 @@ impl Rig {
         let store = Arc::new(MemStore::default());
         let idle: Script = Arc::new(|_run| Box::pin(async { RunOutcome::Completed(Default::default()) }));
         let data = tempfile::tempdir().expect("temp data dir");
+        let goals = crate::goal::GoalRuntime::new(
+            crate::goal::GoalConfig::new(data.path().join("goals").to_string_lossy().into_owned()),
+            crate::goal::GoalEnv::system(mixdog_rt::testing::tokens().durability_io),
+        );
         Self {
+            goals,
             prompts: Arc::new(FilePromptHistory::new(data.path())),
             _data: data,
             store,
@@ -692,6 +768,7 @@ impl Rig {
             ingests: Arc::default(),
             closes: Arc::default(),
             sensitive: Arc::default(),
+            deletes: Arc::default(),
         }
     }
 
@@ -732,6 +809,9 @@ impl Rig {
             clock: self.clock.clone(),
             turn_starts: self.turn_starts.clone(),
             turn_review: Arc::new(crate::turn_review::test_review(&self._data.path().join("turn-review"))),
+            deletion: self.deletes.clone(),
+            purge: self.purge_hooks(),
+            goals: Arc::new(self.goals.clone()),
             lanes: SessionLanes {
                 cpu: tokens.cpu_interactive,
                 io: tokens.interactive_io,

@@ -48,6 +48,7 @@ impl ReviewPatchBudget {
         Self { remaining: total }
     }
 
+    #[cfg(test)]
     pub fn remaining(&self) -> i64 {
         self.remaining
     }

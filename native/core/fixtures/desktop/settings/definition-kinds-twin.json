@@ -1,0 +1,6536 @@
+{
+  "cases": [
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "beta"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "beta"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "beta",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "changed",
+          "id": "New Pack"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "New Pack"
+          }
+        }
+      ],
+      "error": "workflow \"New Pack\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "description": "changed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "An existing definition identity is required"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "originalName": "builtin",
+          "toolDependencies": [
+            {
+              "type": "mcp",
+              "value": "srv"
+            }
+          ]
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "Built-in and plugin skills accept only toolDependencies edits"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "beta"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "beta"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "beta",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "",
+          "description": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "mine"
+          }
+        }
+      ],
+      "error": "workflow \"mine\" not found"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "beta"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "beta"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "beta",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "bare"
+          }
+        }
+      ],
+      "error": "workflow \"bare\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "originalName": "mine",
+          "toolDependencies": null
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "id": "ghost",
+          "kind": "bot",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "kind is not a workflow definition field"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "toolDependencies": [],
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "body": "Alpha body",
+        "description": "first",
+        "id": "alpha",
+        "name": "Alpha",
+        "source": "user",
+        "userOverride": true
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "description": "",
+          "name": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "New body",
+          "description": "",
+          "name": "fresh-skill",
+          "toolDependencies": [],
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "New body",
+              "description": "",
+              "name": "fresh-skill",
+              "toolDependencies": [],
+              "whenToUse": "when needed"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "fresh-skill"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "originalName": "bare",
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "Bare body",
+              "description": "",
+              "name": "bare",
+              "originalName": "bare",
+              "toolDependencies": [],
+              "whenToUse": "when needed"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "bare"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "name": "builtin",
+          "originalName": "mine",
+          "toolDependencies": [
+            {
+              "type": "mcp",
+              "value": "srv"
+            }
+          ]
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "Body of mine",
+              "description": "Mine",
+              "name": "builtin",
+              "originalName": "mine",
+              "toolDependencies": [
+                {
+                  "type": "mcp",
+                  "value": "srv"
+                }
+              ],
+              "whenToUse": "Probe"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "builtin"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "description": "changed",
+          "name": "mine"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "Line one\nLine two",
+              "description": "changed",
+              "name": "mine"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "mine"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {},
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Bare body",
+        "description": "",
+        "editable": true,
+        "name": "bare",
+        "originalName": "bare",
+        "toolDependencies": [],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "",
+          "kind": "bot",
+          "name": "beta"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "kind is not a workflow definition field"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "mine"
+          }
+        }
+      ],
+      "error": "workflow \"mine\" not found"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "New body",
+          "description": "changed",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "New body",
+              "description": "changed",
+              "name": "Renamed"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "New body",
+          "description": "changed",
+          "name": "Renamed"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "description": "changed",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "description": "changed",
+          "name": "builtin",
+          "originalName": "ghost"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "",
+          "name": "renamed",
+          "originalName": "mine",
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "changed",
+          "name": "Alpha",
+          "whenToUse": "not a workflow field"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "whenToUse is not a workflow definition field"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "originalName": "ghost"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {},
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "renamed",
+          "whenToUse": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Renamed"
+          }
+        }
+      ],
+      "error": "workflow \"Renamed\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "New body",
+          "name": "New Pack"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "New Pack"
+          }
+        }
+      ],
+      "error": "workflow \"New Pack\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "id": "not-a-skill-field",
+          "name": "renamed",
+          "originalName": "bare",
+          "toolDependencies": [
+            {
+              "type": "mcp",
+              "value": "srv"
+            }
+          ],
+          "whenToUse": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "id is not a skill definition field"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of builtin",
+        "description": "Built in",
+        "editable": false,
+        "name": "builtin",
+        "originalName": "builtin",
+        "toolDependencies": [
+          {
+            "type": "tool",
+            "value": "setup"
+          }
+        ],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "description": "changed",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Alpha"
+          }
+        }
+      ],
+      "error": "workflow \"Alpha\" not found"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "id": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "x",
+              "description": "first",
+              "id": "alpha",
+              "name": "Alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "x",
+          "description": "first",
+          "id": "alpha",
+          "name": "Alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "name": "builtin",
+          "originalName": "mine",
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "Body of mine",
+              "description": "Mine",
+              "name": "builtin",
+              "originalName": "mine",
+              "toolDependencies": [],
+              "whenToUse": "when needed"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "builtin"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "New body",
+          "name": "builtin",
+          "toolDependencies": [
+            {
+              "type": "tool",
+              "value": "memory"
+            }
+          ],
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "New body",
+              "name": "builtin",
+              "toolDependencies": [
+                {
+                  "type": "tool",
+                  "value": "memory"
+                }
+              ],
+              "whenToUse": "when needed"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "builtin"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "name": "builtin",
+          "toolDependencies": [
+            {
+              "type": "tool",
+              "value": "memory"
+            }
+          ]
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "description": "",
+          "originalName": "ghost",
+          "toolDependencies": [
+            {
+              "type": "tool",
+              "value": "memory"
+            }
+          ]
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "name": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "Line one\nLine two",
+              "description": "first",
+              "id": "alpha",
+              "name": "alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "Line one\nLine two",
+          "description": "first",
+          "id": "alpha",
+          "name": "alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "description": "",
+          "id": "not-a-skill-field"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "id is not a skill definition field"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of builtin",
+        "description": "Built in",
+        "editable": false,
+        "name": "builtin",
+        "originalName": "builtin",
+        "toolDependencies": [
+          {
+            "type": "tool",
+            "value": "setup"
+          }
+        ],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "description": "changed",
+          "id": "ghost",
+          "whenToUse": "not a workflow field"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "whenToUse is not a workflow definition field"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "name": "builtin",
+          "originalName": "bare"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "Line one\nLine two",
+              "description": "",
+              "name": "builtin",
+              "originalName": "bare",
+              "toolDependencies": [],
+              "whenToUse": ""
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "builtin"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "description": "changed",
+          "name": "mine",
+          "originalName": "builtin"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "Built-in and plugin skills accept only toolDependencies edits"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "name": "mine",
+          "originalName": "mine",
+          "whenToUse": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "Body of mine",
+              "description": "Mine",
+              "name": "mine",
+              "originalName": "mine",
+              "toolDependencies": [],
+              "whenToUse": ""
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "mine"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of builtin",
+        "description": "Built in",
+        "editable": false,
+        "name": "builtin",
+        "originalName": "builtin",
+        "toolDependencies": [
+          {
+            "type": "tool",
+            "value": "setup"
+          }
+        ],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of builtin",
+        "description": "Built in",
+        "editable": false,
+        "name": "builtin",
+        "originalName": "builtin",
+        "toolDependencies": [
+          {
+            "type": "tool",
+            "value": "setup"
+          }
+        ],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "description": "changed",
+          "id": "beta"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        }
+      ],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "x",
+          "name": "builtin"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "x",
+              "name": "builtin"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "builtin"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "New body",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Alpha"
+          }
+        }
+      ],
+      "error": "workflow \"Alpha\" not found"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "description": "changed",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "bare"
+          }
+        }
+      ],
+      "error": "workflow \"bare\" not found"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Bare body",
+        "description": "",
+        "editable": true,
+        "name": "bare",
+        "originalName": "bare",
+        "toolDependencies": [],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "New body",
+          "name": "alpha",
+          "whenToUse": "not a workflow field"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "whenToUse is not a workflow definition field"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "name": "mine",
+          "originalName": "ghost",
+          "toolDependencies": null,
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "mine"
+          }
+        }
+      ],
+      "error": "workflow \"mine\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "An existing definition identity is required"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "beta"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "beta"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "beta",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "beta"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "description": "",
+          "name": "builtin",
+          "originalName": "bare"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "x",
+              "description": "",
+              "name": "builtin",
+              "originalName": "bare",
+              "toolDependencies": [],
+              "whenToUse": ""
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "builtin"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "beta"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "description": "",
+          "name": "New Pack"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {},
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "New body",
+          "description": "changed",
+          "name": "builtin"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "New body",
+              "description": "changed",
+              "name": "builtin"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "builtin"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {},
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "An existing definition identity is required"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "New body",
+          "description": "changed",
+          "name": "builtin",
+          "originalName": "ghost"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "description": "changed",
+          "id": "beta"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "renamed",
+          "originalName": "mine",
+          "whenToUse": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "mine",
+          "toolDependencies": null,
+          "whenToUse": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "name": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "x",
+              "description": "first",
+              "id": "alpha",
+              "name": "alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "x",
+          "description": "first",
+          "id": "alpha",
+          "name": "alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "body": "Alpha body",
+        "description": "first",
+        "id": "alpha",
+        "name": "Alpha",
+        "source": "user",
+        "userOverride": true
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "body": "Alpha body",
+        "description": "first",
+        "id": "alpha",
+        "name": "Alpha",
+        "source": "user",
+        "userOverride": true
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "beta"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "beta"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "beta",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Renamed"
+          }
+        }
+      ],
+      "error": "workflow \"Renamed\" not found"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "mine"
+          }
+        }
+      ],
+      "error": "workflow \"mine\" not found"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "builtin",
+          "originalName": "builtin",
+          "toolDependencies": []
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "originalName": "mine"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "Body of mine",
+              "description": "Mine",
+              "name": "mine",
+              "originalName": "mine",
+              "toolDependencies": [],
+              "whenToUse": "Probe"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "mine"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "description": "",
+          "id": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Bare body",
+        "description": "",
+        "editable": true,
+        "name": "bare",
+        "originalName": "bare",
+        "toolDependencies": [],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "id": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "An existing definition identity is required"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "",
+          "name": "renamed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Renamed"
+          }
+        }
+      ],
+      "error": "workflow \"Renamed\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "",
+          "description": "changed",
+          "name": "fresh-skill",
+          "originalName": "builtin"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "Built-in and plugin skills accept only toolDependencies edits"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Bare body",
+        "description": "",
+        "editable": true,
+        "name": "bare",
+        "originalName": "bare",
+        "toolDependencies": [],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "x",
+          "description": "",
+          "id": "ghost"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "x",
+              "description": "",
+              "id": "ghost"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "x",
+          "description": "",
+          "id": "ghost"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "New body",
+          "description": "changed",
+          "name": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "New body",
+              "description": "changed",
+              "name": "alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "New body",
+          "description": "changed",
+          "name": "alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "An existing definition identity is required"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "x",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "x",
+              "name": "Alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "x",
+          "name": "Alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "beta"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "beta"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "beta",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "name": "ghost"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "New body",
+          "description": "changed",
+          "id": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "An existing definition identity is required"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of builtin",
+        "description": "Built in",
+        "editable": false,
+        "name": "builtin",
+        "originalName": "builtin",
+        "toolDependencies": [
+          {
+            "type": "tool",
+            "value": "setup"
+          }
+        ],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "changed",
+          "id": "beta"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "Beta body",
+              "description": "changed",
+              "id": "beta",
+              "name": "Beta"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "Beta body",
+          "description": "changed",
+          "id": "beta",
+          "name": "Beta"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "name": "mine",
+          "originalName": "bare",
+          "toolDependencies": null
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "x",
+          "description": "changed",
+          "name": "fresh-skill",
+          "toolDependencies": [
+            {
+              "type": "tool",
+              "value": "memory"
+            }
+          ]
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "x",
+              "description": "changed",
+              "name": "fresh-skill",
+              "toolDependencies": [
+                {
+                  "type": "tool",
+                  "value": "memory"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "fresh-skill"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "description": "changed",
+          "name": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "Line one\nLine two",
+              "description": "changed",
+              "name": "alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "Line one\nLine two",
+          "description": "changed",
+          "name": "alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "x",
+          "description": "changed",
+          "name": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "x",
+              "description": "changed",
+              "name": "alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "x",
+          "description": "changed",
+          "name": "alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "New body",
+          "originalName": "mine",
+          "whenToUse": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "New body",
+              "description": "Mine",
+              "name": "mine",
+              "originalName": "mine",
+              "toolDependencies": [],
+              "whenToUse": ""
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "mine"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "description": "changed",
+          "id": "New Pack"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "New Pack"
+          }
+        }
+      ],
+      "error": "workflow \"New Pack\" not found"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "New body",
+          "description": "changed",
+          "toolDependencies": null
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "New body",
+              "description": "changed",
+              "toolDependencies": null
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {},
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Bare body",
+        "description": "",
+        "editable": true,
+        "name": "bare",
+        "originalName": "bare",
+        "toolDependencies": [],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "alpha"
+          }
+        }
+      ],
+      "error": "skill not found: alpha"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "",
+          "name": "mine",
+          "toolDependencies": [
+            {
+              "type": "tool",
+              "value": "memory"
+            }
+          ]
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "originalName": "ghost",
+          "toolDependencies": [
+            {
+              "type": "mcp",
+              "value": "srv"
+            }
+          ],
+          "whenToUse": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "description": "changed",
+          "name": "beta"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "",
+          "kind": "bot",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "kind is not a workflow definition field"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "name": "mine",
+          "toolDependencies": null
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Alpha"
+          }
+        }
+      ],
+      "error": "workflow \"Alpha\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "alpha",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "changed",
+          "name": "fresh-skill",
+          "originalName": "builtin",
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "Built-in and plugin skills accept only toolDependencies edits"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "name": "fresh-skill",
+          "originalName": "ghost"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "originalName": "ghost"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Bare body",
+        "description": "",
+        "editable": true,
+        "name": "bare",
+        "originalName": "bare",
+        "toolDependencies": [],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Bare body",
+        "description": "",
+        "editable": true,
+        "name": "bare",
+        "originalName": "bare",
+        "toolDependencies": [],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "",
+          "name": "builtin",
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "alpha",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Renamed"
+          }
+        }
+      ],
+      "error": "workflow \"Renamed\" not found"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "mine"
+          }
+        }
+      ],
+      "error": "workflow \"mine\" not found"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "name": "renamed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of builtin",
+        "description": "Built in",
+        "editable": false,
+        "name": "builtin",
+        "originalName": "builtin",
+        "toolDependencies": [
+          {
+            "type": "tool",
+            "value": "setup"
+          }
+        ],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "New body",
+          "description": "changed",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Alpha"
+          }
+        }
+      ],
+      "error": "workflow \"Alpha\" not found"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Alpha"
+          }
+        }
+      ],
+      "error": "workflow \"Alpha\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "id": "beta",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "Beta body",
+              "description": "",
+              "id": "beta",
+              "name": "Renamed"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "Beta body",
+          "description": "",
+          "id": "beta",
+          "name": "Renamed"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "name": "mine"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "Line one\nLine two",
+              "name": "mine"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "mine"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "id": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "id": "New Pack",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "New Pack"
+          }
+        }
+      ],
+      "error": "workflow \"New Pack\" not found"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of builtin",
+        "description": "Built in",
+        "editable": false,
+        "name": "builtin",
+        "originalName": "builtin",
+        "toolDependencies": [
+          {
+            "type": "tool",
+            "value": "setup"
+          }
+        ],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "description": "",
+          "originalName": "bare"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "x",
+              "description": "",
+              "name": "bare",
+              "originalName": "bare",
+              "toolDependencies": [],
+              "whenToUse": ""
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "bare"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "changed",
+          "id": "ghost"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "x",
+          "description": "",
+          "name": "beta"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "x",
+              "description": "",
+              "name": "beta"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "x",
+          "description": "",
+          "name": "beta"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "description": "",
+          "name": "ghost"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "id": "alpha",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "Alpha body",
+              "description": "first",
+              "id": "alpha",
+              "name": "Renamed"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "Alpha body",
+          "description": "first",
+          "id": "alpha",
+          "name": "Renamed"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "changed",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Alpha"
+          }
+        }
+      ],
+      "error": "workflow \"Alpha\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "",
+          "description": "",
+          "id": "ghost"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "",
+          "id": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Alpha"
+          }
+        }
+      ],
+      "error": "workflow \"Alpha\" not found"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "",
+          "description": "",
+          "toolDependencies": []
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "alpha",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of builtin",
+        "description": "Built in",
+        "editable": false,
+        "name": "builtin",
+        "originalName": "builtin",
+        "toolDependencies": [
+          {
+            "type": "tool",
+            "value": "setup"
+          }
+        ],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "body": "Alpha body",
+        "description": "first",
+        "id": "alpha",
+        "name": "Alpha",
+        "source": "user",
+        "userOverride": true
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "description": "changed",
+          "name": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "changed",
+          "originalName": "builtin"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "Built-in and plugin skills accept only toolDependencies edits"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "description": "changed",
+          "originalName": "bare"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "originalName": "builtin",
+          "toolDependencies": []
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "Built-in and plugin skills accept only toolDependencies edits"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "alpha"
+          }
+        }
+      ],
+      "error": "skill not found: alpha"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "id": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "Alpha body",
+              "description": "first",
+              "id": "alpha",
+              "name": "Alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "Alpha body",
+          "description": "first",
+          "id": "alpha",
+          "name": "Alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "id": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "An existing definition identity is required"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Renamed"
+          }
+        }
+      ],
+      "error": "workflow \"Renamed\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "name": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "Line one\nLine two",
+              "name": "alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "Line one\nLine two",
+          "name": "alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of mine",
+        "description": "Mine",
+        "editable": true,
+        "name": "mine",
+        "originalName": "mine",
+        "toolDependencies": [],
+        "whenToUse": "Probe"
+      }
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "New body",
+          "originalName": "mine",
+          "toolDependencies": []
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "New body",
+              "description": "Mine",
+              "name": "mine",
+              "originalName": "mine",
+              "toolDependencies": [],
+              "whenToUse": "Probe"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "mine"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "description": "changed",
+          "id": "beta",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "",
+          "id": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "An existing definition identity is required"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "  ",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "Renamed"
+          }
+        }
+      ],
+      "error": "workflow \"Renamed\" not found"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "description": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "beta"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "",
+          "description": "",
+          "originalName": "builtin"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "Built-in and plugin skills accept only toolDependencies edits"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "kind": "bot",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "kind is not a workflow definition field"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Bare body",
+        "description": "",
+        "editable": true,
+        "name": "bare",
+        "originalName": "bare",
+        "toolDependencies": [],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "id": "not-a-skill-field"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "id is not a skill definition field"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "New body"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "New body"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {},
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "New body",
+          "description": "changed",
+          "name": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "New body",
+              "description": "changed",
+              "id": "alpha",
+              "name": "alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "New body",
+          "description": "changed",
+          "id": "alpha",
+          "name": "alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "toolDependencies": [
+            {
+              "type": "tool",
+              "value": "memory"
+            }
+          ]
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "description": ""
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "builtin"
+          }
+        }
+      ],
+      "error": "workflow \"builtin\" not found"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "id": "ghost"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "Line one\nLine two",
+              "id": "ghost"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "Line one\nLine two",
+          "id": "ghost"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "builtin"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "builtin"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of builtin",
+        "description": "Built in",
+        "editable": false,
+        "name": "builtin",
+        "originalName": "builtin",
+        "toolDependencies": [
+          {
+            "type": "tool",
+            "value": "setup"
+          }
+        ],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "alpha",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Body of mine",
+        "description": "Mine",
+        "editable": true,
+        "name": "mine",
+        "originalName": "mine",
+        "toolDependencies": [],
+        "whenToUse": "Probe"
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "  ",
+          "name": "New Pack"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "name": "beta"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "Line one\nLine two",
+              "description": "",
+              "id": "beta",
+              "name": "beta"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "Line one\nLine two",
+          "description": "",
+          "id": "beta",
+          "name": "beta"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "ghost"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "skill",
+        "name": "bare"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "ok": {
+        "body": "Bare body",
+        "description": "",
+        "editable": true,
+        "name": "bare",
+        "originalName": "bare",
+        "toolDependencies": [],
+        "whenToUse": ""
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "id": "beta",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/saveWorkflowPack",
+          "params": {
+            "payload": {
+              "body": "Beta body",
+              "description": "",
+              "id": "beta",
+              "name": "Alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "saved": {
+          "body": "Beta body",
+          "description": "",
+          "id": "beta",
+          "name": "Alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "mine"
+          }
+        }
+      ],
+      "error": "workflow \"mine\" not found"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "beta"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "beta"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "beta",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "beta"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "beta"
+          }
+        },
+        {
+          "method": "config/deleteWorkflow",
+          "params": {
+            "workflowId": "beta"
+          }
+        }
+      ],
+      "ok": {
+        "deleted": true,
+        "id": "beta",
+        "recovery": "User-authored definition files are deleted. A built-in override may revert to its built-in definition.",
+        "revertedToBuiltIn": false
+      }
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "",
+          "originalName": "ghost",
+          "toolDependencies": [
+            {
+              "type": "mcp",
+              "value": "srv"
+            }
+          ],
+          "whenToUse": "when needed"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "ghost"
+          }
+        }
+      ],
+      "error": "skill not found: ghost"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "changed",
+          "id": "not-a-skill-field",
+          "originalName": "bare"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "id is not a skill definition field"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "body": "Alpha body",
+        "description": "first",
+        "id": "alpha",
+        "name": "Alpha",
+        "source": "user",
+        "userOverride": true
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "",
+          "description": "",
+          "originalName": "mine"
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        }
+      ],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "ghost"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "x",
+          "id": "ghost",
+          "name": "Alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/createWorkflow",
+          "params": {
+            "payload": {
+              "body": "x",
+              "id": "ghost",
+              "name": "Alpha"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "created": {
+          "body": "x",
+          "id": "ghost",
+          "name": "Alpha"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "whenToUse": ""
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/addSkill",
+          "params": {
+            "input": {
+              "body": "Line one\nLine two",
+              "whenToUse": ""
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {},
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "originalName": "mine",
+          "toolDependencies": [
+            {
+              "type": "mcp",
+              "value": "srv"
+            }
+          ]
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "mine"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "Body of mine",
+              "description": "Mine",
+              "name": "mine",
+              "originalName": "mine",
+              "toolDependencies": [
+                {
+                  "type": "mcp",
+                  "value": "srv"
+                }
+              ],
+              "whenToUse": "Probe"
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "mine"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "skill",
+        "name": "alpha"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "description": "changed",
+          "name": "New Pack"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "name": "alpha"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "skill",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Skill deletion is not supported; use set_disabled_skills"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [],
+      "error": "Only an archived agent or bot can be restored; a deleted workflow is gone"
+    },
+    {
+      "args": {
+        "action": "read_definition",
+        "definitionKind": "workflow",
+        "name": "alpha"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "alpha"
+          }
+        }
+      ],
+      "ok": {
+        "body": "Alpha body",
+        "description": "first",
+        "id": "alpha",
+        "name": "Alpha",
+        "source": "user",
+        "userOverride": true
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "x",
+          "description": "",
+          "originalName": "bare",
+          "toolDependencies": null
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "x",
+              "description": "",
+              "name": "bare",
+              "originalName": "bare",
+              "toolDependencies": null,
+              "whenToUse": ""
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "bare"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "body": "Line one\nLine two",
+          "id": "ghost",
+          "name": "Renamed"
+        },
+        "definitionKind": "workflow"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "ghost"
+          }
+        }
+      ],
+      "error": "workflow \"ghost\" not found"
+    },
+    {
+      "args": {
+        "action": "save_definition",
+        "definition": {
+          "description": "changed",
+          "originalName": "bare",
+          "toolDependencies": null
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [
+        {
+          "method": "skills/skillContent",
+          "params": {
+            "name": "bare"
+          }
+        },
+        {
+          "method": "skills/skillsStatus",
+          "params": {}
+        },
+        {
+          "method": "skills/saveSkill",
+          "params": {
+            "input": {
+              "body": "Bare body",
+              "description": "changed",
+              "name": "bare",
+              "originalName": "bare",
+              "toolDependencies": null,
+              "whenToUse": ""
+            }
+          }
+        }
+      ],
+      "ok": {
+        "skill": {
+          "name": "bare"
+        },
+        "status": {}
+      }
+    },
+    {
+      "args": {
+        "action": "create_definition",
+        "definition": {
+          "originalName": "ghost",
+          "toolDependencies": []
+        },
+        "definitionKind": "skill"
+      },
+      "calls": [],
+      "error": "definition.body must not be empty"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "workflow",
+        "name": "mine"
+      },
+      "calls": [
+        {
+          "method": "config/getWorkflowPack",
+          "params": {
+            "workflowId": "mine"
+          }
+        }
+      ],
+      "error": "workflow \"mine\" not found"
+    }
+  ],
+  "domain": "definition-kinds-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-definition-kinds.mjs",
+  "world": {
+    "skills": {
+      "bare": {
+        "content": "Bare body",
+        "row": {
+          "editable": true,
+          "name": "bare"
+        }
+      },
+      "builtin": {
+        "content": "Body of builtin",
+        "row": {
+          "description": "Built in",
+          "editable": false,
+          "name": "builtin",
+          "toolDependencies": [
+            {
+              "type": "tool",
+              "value": "setup"
+            }
+          ],
+          "whenToUse": ""
+        }
+      },
+      "mine": {
+        "content": "Body of mine",
+        "row": {
+          "description": "Mine",
+          "editable": true,
+          "name": "mine",
+          "toolDependencies": [],
+          "whenToUse": "Probe"
+        }
+      }
+    },
+    "workflows": {
+      "alpha": {
+        "body": "Alpha body",
+        "description": "first",
+        "id": "alpha",
+        "name": "Alpha",
+        "source": "user",
+        "userOverride": true
+      },
+      "beta": {
+        "body": "Beta body",
+        "description": "",
+        "id": "beta",
+        "name": "Beta",
+        "source": "built-in",
+        "userOverride": false
+      }
+    }
+  }
+}

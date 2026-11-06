@@ -95,6 +95,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[allow(clippy::disallowed_methods, reason = "test setup")]
     async fn office_writes_and_worker_turns_land_in_the_threads_review() {
         let dir = tempfile::tempdir().unwrap();
         let ws = super::super::tests::plain(&dir.path().canonicalize().unwrap());

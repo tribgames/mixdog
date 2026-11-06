@@ -1199,6 +1199,14 @@ fn source_name(source: Source) -> &'static str {
         Source::GoalCloseout => "goal-closeout",
         Source::ScheduleResult => "schedule-result",
         Source::ContextAck => "context-ack",
+        Source::CompactSkillWindow => "compact-skill-window",
+        Source::CompactSkillReload => "compact-skill-reload",
+        Source::CompactSkillRestore => "compact-skill-restore",
+        Source::SkillContext => "skill-context",
+        Source::SkillSelection => "skill-selection",
+        Source::SkillUpdateNotice => "skill-update-notice",
+        Source::HeldRequest => "held-request",
+        Source::AgentRoom => "agent-room",
     }
 }
 

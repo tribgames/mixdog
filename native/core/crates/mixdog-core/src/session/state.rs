@@ -95,6 +95,9 @@ pub(crate) enum Change {
     /// A live completion card (not persisted): a new item at the end of the view, or the item
     /// with its id replaced.
     Card(ThreadItem),
+    /// A run's live-only row (not persisted): before the row `before` when it is in view,
+    /// else at the end.
+    Shown { item: ThreadItem, before: Option<ItemId> },
 }
 
 #[derive(Clone, Debug)]
@@ -152,6 +155,16 @@ impl SessionState {
         }
     }
 
+    /// A shown row of no record of its own (a restored compaction divider and its boundaries),
+    /// at the end of the window; it lives and goes with `ordinal` (the `compacted` frame's).
+    pub fn push_shown(&mut self, ordinal: u64, item: ThreadItem) {
+        self.window.push_back(WindowItem { ordinal: Some(ordinal), item: Arc::new(item), prompt: None });
+        while self.window.len() > self.view_items {
+            self.window.pop_front();
+            self.has_older = true;
+        }
+    }
+
     /// The one fold. `ordinal` is the record's ordinal once acked (`None` in projected state).
     pub fn apply(&mut self, change: &Change, ordinal: Option<u64>) {
         match change {
@@ -164,16 +177,15 @@ impl SessionState {
                     item: item.clone(),
                 });
             }
-            Change::Delta { item, text } => {
-                if let Some(live) = self.live.iter_mut().find(|live| live.item.id() == item)
-                    && let ThreadItem::AgentMessage {
-                        text: MaybeBlob::Inline(body),
-                        ..
-                    } = &mut live.item
-                {
-                    body.push_str(text);
-                }
-            }
+            Change::Delta { item, text } => match self.live.iter_mut().find(|live| live.item.id() == item).map(|live| &mut live.item) {
+                Some(ThreadItem::AgentMessage { text: MaybeBlob::Inline(body), .. }) => body.push_str(text),
+                // The thinking text is one growing part (Node's `thinkingText`).
+                Some(ThreadItem::Reasoning { content, .. }) => match content.last_mut() {
+                    Some(part) => part.push_str(text),
+                    None => content.push(text.clone()),
+                },
+                _ => {}
+            },
             Change::PromptSession { session, publish } => {
                 self.prompt_session = session.clone();
                 if *publish {
@@ -188,6 +200,17 @@ impl SessionState {
                 self.prompt_history = prompt_history::without(&self.prompt_history, text);
             }
             Change::Barrier => {}
+            Change::Shown { item, before } => {
+                let at = before
+                    .as_ref()
+                    .and_then(|before| self.window.iter().position(|row| row.item.id() == before))
+                    .unwrap_or(self.window.len());
+                self.window.insert(at, WindowItem { ordinal: None, item: Arc::new(item.clone()), prompt: None });
+                while self.window.len() > self.view_items {
+                    self.window.pop_front();
+                    self.has_older = true;
+                }
+            }
             Change::Card(card) => {
                 if let Some(row) = self.window.iter_mut().find(|row| row.item.id() == card.id()) {
                     row.item = Arc::new(card.clone());

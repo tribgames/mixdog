@@ -1,0 +1,6 @@
+{
+  "id": "advisor",
+  "name": "Advisor",
+  "description": "Use as a second mind on hard work: consulting before a risky or complex change is built, hunting a bug whose cause is unclear, errors that recur or results that stop converging, or when the user asks. Never for final verification.",
+  "entry": "AGENT.md"
+}

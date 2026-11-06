@@ -248,7 +248,7 @@ function record(scenario) {
     deferredToolCatalog: DEFERRED_CATALOG,
     tools: spec.tools.map((name) => ({ name })),
   };
-  const session = clone({ ...header, messages: seeded });
+  const stepsOf = (session) => {
   const steps = { seeded: sysOf(session.messages) };
   deferred.applyInitialDeferredToolManifestToBp2(session, POOL);
   steps.afterManifest = sysOf(session.messages);
@@ -256,7 +256,7 @@ function record(scenario) {
   steps.afterRefresh = { messages: sysOf(session.messages), header: headerOf(session) };
 
   // The remaining steps repeat the same blocks per scenario: four scenarios carry them.
-  if (!scenario.full) return finish(steps);
+  if (!scenario.full) return steps;
 
   // A route change before any conversation.
   const routed = clone(session);
@@ -295,7 +295,16 @@ function record(scenario) {
     utils.refreshSessionBp3Environment(stagedRoute, stagedRoute.cwd);
     steps.stagedThenRoute = { messages: sysOf(stagedRoute.messages), header: headerOf(stagedRoute) };
   }
+  return steps;
+  };
 
+  const steps = stepsOf(clone({ ...header, messages: seeded }));
+  // A session without `bp3EnvSplit` (written before the split layout): one combined tier3 message
+  // and no env message, kept that way by every refresh. Node never converts it.
+  if (scenario.full && !toolFreeRole) {
+    const { bp3EnvSplit: _split, ...legacy } = header;
+    steps.combined = stepsOf(clone({ ...legacy, messages: seeded.filter((m) => m.cacheTier !== 'env') }));
+  }
   return finish(steps);
 
   function finish(done) {

@@ -84,12 +84,12 @@
     },
     {
       "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop.mjs --tree <tree>",
-      "fileCount": 27,
+      "fileCount": 29,
       "manifest": "desktop/MANIFEST.json",
-      "manifestSha256": "fae067f34146c343ae7a883b0489ce5d8a4a257a05b4702cd2755a4bc01b072f",
+      "manifestSha256": "8c7cb11d39a1e68b5a9921efd095273f4cf612975cd9933119d52654546ba78c",
       "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
       "set": "desktop",
-      "totalBytes": 11865592
+      "totalBytes": 12495353
     },
     {
       "command": "written by the product's own tests: apps/desktop/src/main/host/host-twin.test.mjs and apps/desktop/src/main/browser/golden-twin.integration.ts (no P0-BENCH recorder)",
@@ -207,6 +207,24 @@
       "recorder": "benchmarks/rust-core/recorders/record-network-proxy.mjs",
       "set": "network-proxy",
       "totalBytes": 219449
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-prompt.mjs --tree <tree>",
+      "fileCount": 57,
+      "manifest": "prompt/MANIFEST.json",
+      "manifestSha256": "0cdd831ba47a164fa9523d3369cfbb5aab4cd2ecad6dd0557d105d9ff15f4073",
+      "recorder": "benchmarks/rust-core/recorders/record-prompt.mjs",
+      "set": "prompt",
+      "totalBytes": 1119360
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-prompt-sources.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "prompt-sources/MANIFEST.json",
+      "manifestSha256": "0d06f332dbc6e9c830c0fab189e76049d6b8c1ff45f6e90362cd96a496799092",
+      "recorder": "benchmarks/rust-core/recorders/record-prompt-sources.mjs",
+      "set": "prompt-sources",
+      "totalBytes": 290660
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>",

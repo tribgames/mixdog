@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use super::chain::Chain;
+
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use mixdog_core_api::turn_review::ReviewContent;
@@ -53,7 +55,7 @@ pub(super) struct ShadowSnapshot {
     root: Arc<Root>,
     snap: Mutex<Snap>,
     /// A refresh in flight; a caller waits for it (`refreshing`).
-    gate: tokio::sync::Mutex<()>,
+    gate: Arc<Chain>,
 }
 
 impl ShadowSnapshot {
@@ -83,7 +85,7 @@ impl ShadowSnapshot {
                 pending: IndexMap::new(),
                 baseline_files: IndexMap::new(),
             }),
-            gate: tokio::sync::Mutex::new(()),
+            gate: Arc::new(Chain::default()),
         }))
     }
 
@@ -127,7 +129,7 @@ impl ShadowSnapshot {
                 pending: IndexMap::new(),
                 baseline_files: files.into_iter().map(|e| (shadow_key(e["path"].as_str().unwrap_or("")), e)).collect(),
             }),
-            gate: tokio::sync::Mutex::new(()),
+            gate: Arc::new(Chain::default()),
         };
         let review = snapshot.with_omitted_baselines(review).await;
         snapshot.snap().current_tree = review.current_tree.clone();
@@ -138,6 +140,7 @@ impl ShadowSnapshot {
     /// `resumeTurnWorktreeFilePatch`: one file's patch of a recorded baseline against the worktree
     /// now. `paths` is the recording session's scope, every target checked on its own. `None` when
     /// the baseline is gone.
+    #[allow(clippy::too_many_arguments, reason = "Node's resumeTurnWorktreeFilePatch takes these eight")]
     pub(super) async fn resume_file_patch(
         repos: &ShadowRepos,
         worktree: &str,
@@ -187,14 +190,14 @@ impl ShadowSnapshot {
         let omitted: Vec<(String, u64)> = {
             let snap = self.snap();
             let scope = snap.scope_paths.as_ref().map(|p| p.iter().map(|v| shadow_key(v)).collect::<HashSet<_>>());
-            let omitted = snap
+            
+            snap
                 .baseline_files
                 .values()
                 .filter(|e| e.get("omitted") == Some(&Value::Bool(true)))
                 .filter_map(|e| Some((e.get("path")?.as_str()?.to_owned(), e.get("size").and_then(Value::as_f64).unwrap_or(0.0) as u64)))
                 .filter(|(path, _)| scope.as_ref().is_none_or(|s| s.contains(&shadow_key(path))))
-                .collect();
-            omitted
+                .collect()
         };
         if omitted.is_empty() {
             return review;
@@ -298,7 +301,7 @@ impl ShadowSnapshot {
 
     async fn refresh_now(&self, force: bool) -> R<()> {
         let called_at = self.snap().refresh_seq;
-        let _flight = self.gate.lock().await;
+        let _flight = self.gate.acquire().await;
         if self.snap().refresh_seq > called_at {
             return Ok(());
         }

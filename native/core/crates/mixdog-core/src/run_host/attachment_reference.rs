@@ -27,6 +27,13 @@ pub struct StoredFile {
     pub size_bytes: u64,
 }
 
+/// `record.original`: the file as picked, behind a stored converted copy.
+#[derive(Clone, PartialEq, Debug)]
+pub struct OriginalFile {
+    pub attachment_ref: String,
+    pub mime_type: Option<String>,
+}
+
 /// The attachment store's files: where the bytes live and under what name.
 pub trait AttachmentFiles: Send + Sync {
     /// `storeInlineImagePart` / `storeInlineDocumentPart`: writes an inline payload so it gets a
@@ -34,7 +41,10 @@ pub trait AttachmentFiles: Send + Sync {
     fn store_inline(&self, base64: &str, mime_type: &str, filename: &str) -> Option<StoredFile>;
     /// `namedAttachmentFile`: the copy under the file's own name and extension, for a file
     /// chooser or an office tool.
-    fn named_file(&self, reference: &str, filename: &str, mime_type: &str) -> Result<String, ()>;
+    ///
+    /// `original` is the file as it was picked, when the stored copy is a converted form of it
+    /// (`record.original`).
+    fn named_file(&self, reference: &str, filename: &str, mime_type: &str, original: Option<&OriginalFile>) -> Result<String, ()>;
     /// `attachmentFilePath`: the bare blob path, the fallback when the named copy cannot be made.
     fn blob_path(&self, reference: &str) -> String;
 }
@@ -151,6 +161,12 @@ impl ReferencedMedia {
     /// `mediaPartToReference`: the reference text part standing for one media part, or `None` when
     /// the part cannot travel by reference (a URL image, a non-PDF file, a store failure).
     pub fn reference_part(&self, part: &ContentPart) -> Option<ContentPart> {
+        self.reference_part_with(part, None)
+    }
+
+    /// [`Self::reference_part`] with the message's own attachment record of the part (its name as
+    /// picked and its original), which Node matches by `attachmentRef`.
+    pub fn reference_part_with(&self, part: &ContentPart, record: Option<&AttachedFile>) -> Option<ContentPart> {
         if !is_referencable(part) {
             return None;
         }
@@ -183,6 +199,7 @@ impl ReferencedMedia {
         }
         let facts = self.facts.facts(&reference).unwrap_or_default();
         let mime_type = if mime.is_empty() { if image { "image/png".to_owned() } else { "application/pdf".to_owned() } } else { mime };
+        let filename = if filename.is_empty() { record.map(|r| r.name.clone()).unwrap_or_default() } else { filename };
         let info = Info {
             filename,
             mime_type: mime_type.clone(),
@@ -192,7 +209,7 @@ impl ReferencedMedia {
         };
         // The named copy is the file the model hands to a file chooser or an office tool; the bare
         // blob path is only the fallback when the copy cannot be made.
-        let path = self.files.named_file(&reference, &info.filename, &mime_type).unwrap_or_else(|()| self.files.blob_path(&reference));
+        let path = self.files.named_file(&reference, &info.filename, &mime_type, record.and_then(|r| r.original.as_ref())).unwrap_or_else(|()| self.files.blob_path(&reference));
         let mut meta = serde_json::Map::new();
         meta.insert("attachmentRef".into(), serde_json::Value::String(reference.clone()));
         meta.insert("kind".into(), serde_json::Value::String(if image { "image" } else { "pdf" }.to_owned()));
@@ -213,6 +230,8 @@ impl AttachmentSeam for ReferencedMedia {
     /// `referenceMessageMedia`: a user message with every referencable media part of its own
     /// content replaced by its reference text (other roles and tool results stay as they are).
     fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
+        // The message's own attachment records name each file as picked.
+        let records = attached_records(message);
         if message.role() != Role::User {
             return message.clone();
         }
@@ -220,7 +239,7 @@ impl AttachmentSeam for ReferencedMedia {
         let mut changed = false;
         let next: Vec<ContentPart> = parts
             .iter()
-            .map(|part| match self.reference_part(part) {
+            .map(|part| match self.reference_part_with(part, records.iter().find(|r| matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(a), .. } if *a == r.attachment_ref))) {
                 Some(reference) => {
                     changed = true;
                     reference
@@ -257,6 +276,25 @@ pub struct AttachedFile {
     pub name: String,
     pub mime_type: String,
     pub size_bytes: u64,
+    pub original: Option<OriginalFile>,
+}
+
+/// `message.meta.transcript.attachments`.
+fn attached_records(message: &AgentMessage) -> Vec<AttachedFile> {
+    let list = message.stored.as_ref().and_then(|row| row.get("meta")).and_then(|m| m.pointer("/transcript/attachments")).and_then(|a| a.as_array());
+    list.into_iter()
+        .flatten()
+        .filter_map(|record| {
+            let text = |key: &str| record.get(key).and_then(|v| v.as_str()).map(str::to_owned);
+            Some(AttachedFile {
+                attachment_ref: text("attachmentRef")?,
+                name: text("name").unwrap_or_default(),
+                mime_type: text("mimeType").unwrap_or_default(),
+                size_bytes: record.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
+                original: record.get("original").and_then(|o| Some(OriginalFile { attachment_ref: o.get("attachmentRef")?.as_str()?.to_owned(), mime_type: o.get("mimeType").and_then(|m| m.as_str()).map(str::to_owned) })),
+            })
+        })
+        .collect()
 }
 
 impl ReferencedMedia {
@@ -272,7 +310,7 @@ impl ReferencedMedia {
             if pasted.contains(&record.attachment_ref) {
                 continue;
             }
-            let Ok(path) = self.files.named_file(&record.attachment_ref, &record.name, &record.mime_type) else { continue };
+            let Ok(path) = self.files.named_file(&record.attachment_ref, &record.name, &record.mime_type, record.original.as_ref()) else { continue };
             files.push(json!({ "attachmentRef": record.attachment_ref, "name": record.name, "mimeType": record.mime_type, "sizeBytes": record.size_bytes, "path": path }));
             lines.push(format!("- {path}"));
         }
@@ -300,7 +338,7 @@ mod tests {
         fn store_inline(&self, base64: &str, _: &str, filename: &str) -> Option<StoredFile> {
             Some(StoredFile { reference: filename.to_owned(), size_bytes: STANDARD.decode(base64).unwrap().len() as u64 })
         }
-        fn named_file(&self, reference: &str, _: &str, _: &str) -> Result<String, ()> {
+        fn named_file(&self, reference: &str, _: &str, _: &str, _: Option<&OriginalFile>) -> Result<String, ()> {
             let case = match reference {
                 "C:\\docs\\Q1 \"report\".pdf" => "pdf_pages",
                 "one.pdf" => "pdf_one_page_all_text",
@@ -412,7 +450,7 @@ mod tests {
     fn the_attached_files_note_names_each_path_and_keeps_the_files_object() {
         let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
         let s = seam(&golden);
-        let record = |r: &str| AttachedFile { attachment_ref: r.into(), name: format!("{r}.pdf"), mime_type: "application/pdf".into(), size_bytes: 7 };
+        let record = |r: &str| AttachedFile { attachment_ref: r.into(), name: format!("{r}.pdf"), mime_type: "application/pdf".into(), size_bytes: 7, original: None };
         let pasted = std::collections::HashSet::from(["p".to_owned()]);
         assert_eq!(s.attached_files_note(&[record("p")], &pasted), None);
         let Some(ContentPart::Text(text, Some(meta))) = s.attached_files_note(&[record("one.pdf"), record("p")], &pasted) else { panic!("note") };

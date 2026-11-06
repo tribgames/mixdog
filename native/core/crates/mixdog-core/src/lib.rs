@@ -13,6 +13,7 @@ pub mod notify;
 pub mod ops;
 pub mod ports;
 pub mod pricing;
+pub mod prompt;
 pub mod quota_resume;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup")]

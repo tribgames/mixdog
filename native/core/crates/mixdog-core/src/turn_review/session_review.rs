@@ -286,8 +286,8 @@ impl Inner {
             ]
             .join("|");
             let cached = loaded.cache_get(&unit_key);
-            if let Some(target) = target {
-                if !target(after) && !target(before) {
+            if let Some(target) = target
+                && !target(after) && !target(before) {
                     // Not measured: it names a file unless the cache knows it is unchanged.
                     let unchanged = cached.as_ref().is_some_and(|c| c.sig == sig && c.change.as_ref().is_none_or(|ch| ch.hidden));
                     if !unchanged {
@@ -296,7 +296,6 @@ impl Inner {
                     }
                     continue;
                 }
-            }
             // A file's own patch read measures again what was cached without its text.
             let hit = cached.as_ref().filter(|c| c.sig == sig && !(target.is_some() && c.stripped));
             let change: Option<Change> = match hit {
@@ -365,7 +364,7 @@ impl Inner {
                 }
                 if listed.contains(&key) || old_abs.as_ref().is_some_and(|o| listed.contains(&change_path_key(o))) {
                     let created = mixdog_js::to_number_of(record.get("createdAt"));
-                    if !(created >= since) {
+                    if !matches!(created.partial_cmp(&since), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)) {
                         late.insert(key);
                     }
                     continue;
@@ -504,12 +503,11 @@ impl Inner {
         let missing = self.missing_changes(refs, &mut listed, &covered).await;
         let mut measured = measured;
         for unit in &mut measured {
-            if late.contains(&unit.key) {
-                if let Some(change) = &mut unit.change {
+            if late.contains(&unit.key)
+                && let Some(change) = &mut unit.change {
                     change.partial = true;
                     change.reason = Some(SEVERAL_TURNS_REASON.into());
                 }
-            }
         }
         let missing_count = missing.len();
         let mut changes: Vec<Unit> = measured;
@@ -560,7 +558,7 @@ impl Inner {
             let mut row = Obj::new();
             row.insert("path".into(), path.clone().into());
             row.insert("id".into(), slash_path(&unit.abs).into());
-            row.insert("outside".into(), Value::Bool(!(!unit.root.is_empty() && inside_directory(&unit.root, &unit.abs))));
+            row.insert("outside".into(), Value::Bool(unit.root.is_empty() || !inside_directory(&unit.root, &unit.abs)));
             if old_name != path {
                 row.insert("oldPath".into(), old_name.into());
             }
@@ -590,15 +588,14 @@ impl Inner {
         if !clean(target).is_empty() {
             let key = change_path_key(target);
             let row = rows.iter().find(|(r, _)| change_path_key(obj_str(r, "id")) == key || change_path_key(obj_str(r, "path")) == key);
-            if let Some((row, patch)) = row {
-                if row.get("patchOmitted") == Some(&Value::Bool(true)) && patch.is_empty() {
+            if let Some((row, patch)) = row
+                && row.get("patchOmitted") == Some(&Value::Bool(true)) && patch.is_empty() {
                     let mut reply = file_patch_reply(obj_str(row, "path"), "", REVIEW_FILE_PATCH_SHOW_MAX_BYTES);
                     for (k, v) in patch_omitted_file(Obj::new()) {
                         reply.insert(k, v);
                     }
                     return reply;
                 }
-            }
             return file_patch_reply(
                 &row.map_or_else(|| slash_path(target), |(r, _)| obj_str(r, "path").to_owned()),
                 row.map_or("", |(_, p)| p.as_str()),
@@ -658,7 +655,7 @@ impl Inner {
         if too_large {
             kept.insert("diffTooLarge".into(), Value::Bool(true));
         }
-        if !kept.get("snapshotKind").is_some_and(|v| v.as_str().is_some_and(|s| !s.is_empty())) {
+        if kept.get("snapshotKind").is_none_or(|v| v.as_str().is_none_or(|s| s.is_empty())) {
             kept.insert("snapshotKind".into(), "session".into());
         }
         kept
@@ -755,13 +752,11 @@ impl Inner {
         let scope = self.session_review_scope(worktree, owner).await;
         // A running turn is still mutating the worktree: shell, office and script edits only reach
         // the checkpoint diff once it is refreshed, exactly as the turn review bar does.
-        if let Some(tracker) = &scope.tracker {
-            if let Some(snapshot) = tracker.snapshot() {
-                if !tracker.sealed() {
+        if let Some(tracker) = &scope.tracker
+            && let Some(snapshot) = tracker.snapshot()
+                && !tracker.sealed() {
                     snapshot.refresh(false).await;
                 }
-            }
-        }
         let mut reply = Obj::new();
         let owned: Vec<Value> = scope.owned_paths.iter().cloned().map(Value::from).collect();
         if scope.owned_paths.is_empty() {
@@ -778,8 +773,8 @@ impl Inner {
             reply.insert("source".into(), if known { "empty" } else { "absent" }.into());
             return reply;
         }
-        if !scope.root.is_empty() && !scope.baseline_tree.is_empty() {
-            if let Some(snapshot) = self.worktrees.resume(&scope.root, &scope.baseline_tree, &Self::resume_scope(&scope)).await {
+        if !scope.root.is_empty() && !scope.baseline_tree.is_empty()
+            && let Some(snapshot) = self.worktrees.resume(&scope.root, &scope.baseline_tree, &Self::resume_scope(&scope)).await {
                 let review = snapshot.review();
                 reply.insert("supported".into(), Value::Bool(true));
                 reply.insert("root".into(), scope.root.into());
@@ -791,7 +786,6 @@ impl Inner {
                 reply.insert("source".into(), "git".into());
                 return reply;
             }
-        }
         // A non-Git first turn still has an exact apply_patch tracker. It cannot cross a runtime
         // restart, but remains preferable to widening into unrelated files.
         if scope.tracker.as_ref().is_some_and(|t| t.lock().valid) {

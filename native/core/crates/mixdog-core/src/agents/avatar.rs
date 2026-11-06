@@ -1,5 +1,7 @@
 //! `normalizeAgentAvatar` (`runtime/shared/agent-avatar.mjs`): a stored avatar as the app
-//! understands it. Only the reading half is here: the editor's image uploads are not ported.
+//! understands it, and the checking of a save's `avatar` (uploads as data URLs, content-hash file
+//! names). The functions run inside the editor's lane jobs.
+#![allow(clippy::disallowed_methods, reason = "lane job bodies: the service runs these functions on io lanes")]
 
 use serde_json::Map;
 use serde_json::Value;
@@ -85,6 +87,214 @@ fn custom(states: Option<&Value>) -> Option<Value> {
         kept.insert(state.into(), file.clone());
     }
     kept.contains_key("idle").then(|| json!({ "kind": "custom", "states": kept }))
+}
+
+/// A state image the editor writes: its path under the agent's folder and its bytes.
+pub(super) struct ImageWrite {
+    pub path: String,
+    pub bytes: Vec<u8>,
+}
+
+/// What a save's `avatar` came to: the record to store (`None` clears it) and the images to write.
+pub(super) struct AvatarUpdate {
+    pub avatar: Option<Value>,
+    pub writes: Vec<ImageWrite>,
+}
+
+/// An upload's format and size, read from its header bytes (`avatarImageInfo`).
+struct ImageInfo {
+    format: &'static str,
+    width: u32,
+    height: u32,
+    animated: bool,
+}
+
+fn be32(bytes: &[u8], at: usize) -> u32 {
+    u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+}
+
+fn le16(bytes: &[u8], at: usize) -> u32 {
+    u32::from(bytes[at]) | (u32::from(bytes[at + 1]) << 8)
+}
+
+fn le24(bytes: &[u8], at: usize) -> u32 {
+    le16(bytes, at) | (u32::from(bytes[at + 2]) << 16)
+}
+
+fn image_info(bytes: &[u8]) -> Option<ImageInfo> {
+    if bytes.len() < 30 {
+        return None;
+    }
+    if be32(bytes, 0) == 0x8950_4e47 && be32(bytes, 4) == 0x0d0a_1a0a && &bytes[12..16] == b"IHDR" {
+        let mut animated = false;
+        let mut at = 8usize;
+        while at + 8 <= bytes.len() {
+            let kind = &bytes[at + 4..at + 8];
+            if kind == b"acTL" {
+                animated = true;
+            }
+            if kind == b"IDAT" || kind == b"IEND" {
+                break;
+            }
+            at += 12 + be32(bytes, at) as usize;
+        }
+        return Some(ImageInfo { format: "png", width: be32(bytes, 16), height: be32(bytes, 20), animated });
+    }
+    if &bytes[..6] == b"GIF87a" || &bytes[..6] == b"GIF89a" {
+        return Some(ImageInfo { format: "gif", width: le16(bytes, 6), height: le16(bytes, 8), animated: true });
+    }
+    if &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        match &bytes[12..16] {
+            b"VP8X" => {
+                return Some(ImageInfo { format: "webp", width: le24(bytes, 24) + 1, height: le24(bytes, 27) + 1, animated: bytes[20] & 0x02 != 0 });
+            }
+            b"VP8 " => {
+                return Some(ImageInfo { format: "webp", width: le16(bytes, 26) & 0x3fff, height: le16(bytes, 28) & 0x3fff, animated: false });
+            }
+            b"VP8L" => {
+                let bits = u32::from(bytes[21]) | (u32::from(bytes[22]) << 8) | (u32::from(bytes[23]) << 16) | (u32::from(bytes[24]) << 24);
+                return Some(ImageInfo { format: "webp", width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1, animated: false });
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `agentAvatarImageProblem`: why bytes cannot be a state image, `None` when they can.
+fn image_problem(bytes: &[u8]) -> Option<&'static str> {
+    let Some(info) = image_info(bytes) else { return Some("must be a PNG, GIF or WebP image") };
+    if bytes.len() > 1024 * 1024 {
+        return Some("is larger than 1 MB");
+    }
+    if info.width == 0 || info.width != info.height {
+        return Some("must be square");
+    }
+    if info.width > 512 {
+        return Some("must be 512px or smaller");
+    }
+    None
+}
+
+/// `Buffer.from(text, 'base64')`: both alphabets, anything else skipped, decoding ends at `=`.
+fn lenient_base64(text: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for ch in text.chars() {
+        let value = match ch {
+            'A'..='Z' => ch as u32 - 'A' as u32,
+            'a'..='z' => ch as u32 - 'a' as u32 + 26,
+            '0'..='9' => ch as u32 - '0' as u32 + 52,
+            '+' | '-' => 62,
+            '/' | '_' => 63,
+            '=' => break,
+            _ => continue,
+        };
+        acc = (acc << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    out
+}
+
+/// One uploaded image (a data URL) as checked bytes (`avatarImageUpload`).
+fn image_upload(data_url: Option<&Value>, label: &str) -> Result<(Vec<u8>, ImageInfo), String> {
+    let wrong = || format!("{label} must be a PNG, GIF or WebP image");
+    let text = data_url.and_then(Value::as_str).ok_or_else(wrong)?;
+    let (declared, rest) = ["png", "gif", "webp"]
+        .iter()
+        .find_map(|kind| text.strip_prefix(&format!("data:image/{kind};base64,")).map(|rest| (*kind, rest)))
+        .ok_or_else(wrong)?;
+    let bytes = lenient_base64(rest);
+    if let Some(problem) = image_problem(&bytes) {
+        return Err(format!("{label} {problem}"));
+    }
+    let info = image_info(&bytes).ok_or_else(wrong)?;
+    if info.format != declared {
+        return Err(wrong());
+    }
+    Ok((bytes, info))
+}
+
+fn sha12(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect::<String>()[..12].to_owned()
+}
+
+/// `agentAvatarStatePath`.
+pub(super) fn state_path(file: &str) -> String {
+    if is_image_file(file) { file.to_owned() } else { format!("avatar/{file}") }
+}
+
+/// `avatarPosterFile`.
+pub(super) fn poster_file(file: &str) -> String {
+    for ext in [".png", ".gif", ".webp"] {
+        if let Some(stem) = file.strip_suffix(ext) {
+            return format!("{stem}.poster.png");
+        }
+    }
+    file.to_owned()
+}
+
+/// `avatarUpdate(value, dir)`: the `avatar` of a save as the record to store and the images to
+/// write; `null` clears it.
+pub(super) fn avatar_update(value: &Value, dir: &std::path::Path) -> Result<AvatarUpdate, String> {
+    if value.is_null() {
+        return Ok(AvatarUpdate { avatar: None, writes: Vec::new() });
+    }
+    let as_custom;
+    let custom = if value.get("kind").and_then(Value::as_str) == Some("image") && value.get("data").is_some_and(Value::is_string) {
+        as_custom = json!({ "kind": "custom", "states": { "idle": { "data": value["data"] } } });
+        &as_custom
+    } else {
+        value
+    };
+    let mut writes: Vec<ImageWrite> = Vec::new();
+    let avatar = if custom.get("kind").and_then(Value::as_str) == Some("custom") && custom.get("states").is_some_and(Value::is_object) {
+        let mut states = Map::new();
+        for state in STATES {
+            let entry = custom["states"].get(state);
+            match entry {
+                None | Some(Value::Null) => continue,
+                Some(Value::String(file)) => {
+                    if !file.is_empty() {
+                        states.insert(state.into(), json!(file));
+                    }
+                    continue;
+                }
+                Some(_) => {}
+            }
+            let entry = entry.unwrap_or(&Value::Null);
+            let label = format!("agent avatar {state} image");
+            let (bytes, info) = image_upload(entry.get("data"), &label)?;
+            let file = format!("{state}-{}.{}", sha12(&bytes), info.format);
+            writes.push(ImageWrite { path: state_path(&file), bytes });
+            if info.animated {
+                let (poster, poster_info) = image_upload(entry.get("poster"), &format!("{label}'s first frame"))?;
+                if poster_info.format != "png" || poster_info.animated {
+                    return Err(format!("{label}'s first frame must be a still PNG"));
+                }
+                writes.push(ImageWrite { path: state_path(&poster_file(&file)), bytes: poster });
+            }
+            states.insert(state.into(), json!(file));
+        }
+        normalize_agent_avatar(&json!({ "kind": "custom", "states": states })).ok_or("agent avatar needs an idle image")?
+    } else {
+        normalize_agent_avatar(custom).ok_or("agent avatar must be a known mascot or an uploaded image")?
+    };
+    if avatar["kind"] == "custom" {
+        for file in avatar["states"].as_object().into_iter().flatten().filter_map(|(_, f)| f.as_str()) {
+            let path = state_path(file);
+            if !writes.iter().any(|w| w.path == path) && !dir.join(&path).exists() {
+                return Err("agent avatar image was not found".into());
+            }
+        }
+    }
+    Ok(AvatarUpdate { avatar: Some(avatar), writes })
 }
 
 /// `normalizeAgentAvatar(value)`; `None` when it is not an avatar.

@@ -1,0 +1,6 @@
+{
+  "id": "security",
+  "name": "Security",
+  "description": "Use for security audits, threat and risk reviews, vulnerability analysis, or explicitly requested security hardening.",
+  "entry": "AGENT.md"
+}

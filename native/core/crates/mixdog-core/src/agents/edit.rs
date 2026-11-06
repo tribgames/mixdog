@@ -21,8 +21,16 @@ use serde_json::Value;
 use sha2::Digest as _;
 use sha2::Sha256;
 
+use super::avatar::AvatarUpdate;
+use super::avatar::ImageWrite;
+use super::avatar::avatar_update;
 use super::avatar::is_image_file;
 use super::avatar::normalize_agent_avatar;
+use super::avatar::poster_file;
+use super::avatar::state_path;
+use super::connectors::ApprovedToolChange;
+use super::connectors::assert_not_widened;
+use super::connectors::policy_input;
 use super::files::DELETED_MARKER;
 use super::files::FIXED_SLOTS;
 use super::files::Folders;
@@ -46,8 +54,6 @@ pub(super) const PERSONA_FILE: &str = "PERSONA.md";
 const PURGING_MARKER: &str = ".purging";
 /// The default entry's archive.
 const ARCHIVED_AGENT_FILE: &str = "AGENT.md.archived";
-/// The keys of a payload this port writes.
-const SAVE_KEYS: [&str; 5] = ["id", "name", "description", "body", "kind"];
 
 fn is_fixed(id: &str) -> bool {
     FIXED_SLOTS.iter().any(|slot| slot.0 == id)
@@ -178,9 +184,6 @@ pub(super) struct SavePlan {
 
 /// `resolveSaveTarget` and the facts of the save.
 pub(super) fn plan_save(folders: &Folders, lane: &Lane, payload: &Map<String, Value>) -> Result<SavePlan, String> {
-    if let Some(key) = payload.keys().find(|key| !SAVE_KEYS.contains(&key.as_str())) {
-        return Err(format!("agent definition field \"{key}\" is not supported here"));
-    }
     let given = agent_editor_id(&clean(payload.get("id")));
     if payload.contains_key("id") && given.is_empty() {
         return Err("agent id must contain letters/numbers (dashes and dots allowed)".into());
@@ -238,6 +241,7 @@ pub(super) fn save_files(
     lane: &InLane<DurabilityIo>,
     plan: &SavePlan,
     payload: &Map<String, Value>,
+    no_widen: Option<Option<&ApprovedToolChange>>,
     now: &dyn Fn() -> String,
 ) -> Result<SaveDone, String> {
     let id = &plan.id;
@@ -249,6 +253,13 @@ pub(super) fn save_files(
     if purge_pending(&plan.user_dir) {
         return Err(format!("agent \"{id}\" is being deleted for good; its id cannot be reused until that finishes"));
     }
+    // Opt-in: without `expectedRevision` the last write wins.
+    if let Some(expected) = payload.get("expectedRevision") {
+        let source = if plan.user_has_file { plan.user_dir.clone() } else { folders.shipped_dir(id) };
+        if crate::workflow::ids::js_string(expected) != revision(&source) {
+            return Err(format!("AGENT_DEFINITION_CONFLICT: agent \"{id}\" changed since it was loaded"));
+        }
+    }
     let existed = plan.current.is_some();
     let reclaimed = !existed && is_archived(&plan.user_dir);
     let kind = match payload.get("kind") {
@@ -259,7 +270,7 @@ pub(super) fn save_files(
     };
     let name = if plan.name.is_empty() { id.clone() } else { plan.name.clone() };
     let shipped = folders.shipped_dir(id);
-    let manifest = hidden_manifest(if plan.user_has_file {
+    let mut manifest = hidden_manifest(if plan.user_has_file {
         read_manifest_for_update(lane, &plan.user_dir)?
     } else {
         manifest_of(&shipped)
@@ -278,8 +289,14 @@ pub(super) fn save_files(
     }
     let dir = if store_bot { data.join("bots").join(id) } else { plan.user_dir.clone() };
     let in_store = dir == data.join("bots").join(id);
+    let update = apply_manifest_edits(&mut manifest, payload, &dir, no_widen)?;
+    // PERSONA.md: written when given and non-empty, removed when given empty, untouched when absent.
+    let persona = payload.get("persona").map(|value| {
+        mixdog_js::js_trim(&if value.is_null() { String::new() } else { mixdog_js::value_to_string(value) }).to_owned()
+    });
     let definition = Definition { name: name.clone(), description: plan.description.clone(), body: body.clone(), fields: Vec::new() };
     let absorbed = !in_store
+        && persona.as_deref().is_none_or(str::is_empty)
         && stable_json(&manifest) == stable_json(&hidden_manifest(manifest_of(&shipped)))
         && absorb_kind_equal_to_shipped(
             &folders.shipped,
@@ -296,7 +313,14 @@ pub(super) fn save_files(
             extra.insert("kind".into(), Value::String(kind));
         }
         write_agent_files(lane, &dir, &definition, &extra, &manifest)?;
-        sync_avatar_files(&dir, manifest.get("avatar").and_then(normalize_agent_avatar).as_ref());
+        match persona.as_deref() {
+            Some("") => remove_file(&dir.join(PERSONA_FILE)),
+            Some(text) => write_text(lane, &dir.join(PERSONA_FILE), &format!("{text}\n"), &definition_write())?,
+            None => {}
+        }
+        // Only the images the manifest names stay.
+        let writes = update.map(|update| update.writes).unwrap_or_default();
+        sync_avatar_files(lane, &dir, manifest.get("avatar").and_then(normalize_agent_avatar).as_ref(), &writes)?;
     }
     Ok(SaveDone { existed, reclaimed })
 }
@@ -334,23 +358,51 @@ fn write_agent_files(
     Ok(())
 }
 
-/// `avatarPosterFile`.
-fn poster_file(file: &str) -> String {
-    for ext in [".png", ".gif", ".webp"] {
-        if let Some(stem) = file.strip_suffix(ext) {
-            return format!("{stem}.poster.png");
+/// `applyManifestEdits`: a save's avatar and connectors applied to `manifest`; the avatar update
+/// (its image writes) when the save gives one.
+fn apply_manifest_edits(
+    manifest: &mut Map<String, Value>,
+    payload: &Map<String, Value>,
+    dir: &Path,
+    no_widen: Option<Option<&ApprovedToolChange>>,
+) -> Result<Option<AvatarUpdate>, String> {
+    // New custom images arrive as checked bytes, stored under content hashes.
+    let update = payload.get("avatar").map(|value| avatar_update(value, dir)).transpose()?;
+    match update.as_ref() {
+        Some(AvatarUpdate { avatar: Some(avatar), .. }) => {
+            manifest.insert("avatar".into(), avatar.clone());
+        }
+        Some(_) => {
+            manifest.shift_remove("avatar");
+        }
+        None => {}
+    }
+    // Connectors: a policy replaces the saved one, null removes the field, absent leaves it.
+    if let Some(value) = payload.get("connectors") {
+        let connectors = policy_input(value)?;
+        if let Some(approved) = no_widen {
+            assert_not_widened(manifest.get("connectors"), connectors.as_ref(), approved)?;
+        }
+        match connectors {
+            Some(policy) => {
+                manifest.insert("connectors".into(), policy);
+            }
+            None => {
+                manifest.shift_remove("connectors");
+            }
         }
     }
-    file.to_owned()
+    Ok(update)
 }
 
-/// `agentAvatarStatePath`.
-fn state_path(file: &str) -> String {
-    if is_image_file(file) { file.to_owned() } else { format!("avatar/{file}") }
-}
-
-/// `syncAvatarFiles` without uploads: every avatar image the stored avatar no longer names goes.
-fn sync_avatar_files(dir: &Path, avatar: Option<&Value>) {
+/// `syncAvatarFiles`: writes the images of an update, then drops every avatar image the stored
+/// avatar no longer names.
+fn sync_avatar_files(lane: &InLane<DurabilityIo>, dir: &Path, avatar: Option<&Value>, writes: &[ImageWrite]) -> Result<(), String> {
+    let image_opts = state::Opts { mode: 0o644, ..state::Opts::default() };
+    for write in writes {
+        std::fs::create_dir_all(dir.join("avatar")).map_err(|error| error.to_string())?;
+        state::write_file(lane, &dir.join(&write.path), &write.bytes, &image_opts).map_err(|error| error.to_string())?;
+    }
     let mut keep: HashSet<String> = HashSet::new();
     if let Some(states) = avatar.filter(|a| a["kind"] == "custom").and_then(|a| a["states"].as_object()) {
         for file in states.values().filter_map(Value::as_str) {
@@ -374,6 +426,7 @@ fn sync_avatar_files(dir: &Path, avatar: Option<&Value>) {
             }
         }
     }
+    Ok(())
 }
 
 /// What delete and restore need, read on an interactive job.

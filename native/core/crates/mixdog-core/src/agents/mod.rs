@@ -9,6 +9,7 @@
 //! row (`normalizeAgentAvatar`), and preset-name routes in the config (`routeFromPreset`).
 
 mod avatar;
+mod connectors;
 mod edit;
 mod files;
 #[cfg(test)]
@@ -30,6 +31,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+pub use self::connectors::ApprovedToolChange;
 pub use self::files::AgentDefinition;
 pub use self::files::DELETED_MARKER;
 use self::files::FIXED_SLOTS;
@@ -71,6 +73,18 @@ pub trait AgentEffects: Send + Sync {
     /// `reloadRoutines`: re-arms the one-shots that came due while an agent was archived; the
     /// message of a failure.
     async fn reload_routines(&self) -> Result<(), String>;
+    /// `setAgentRoute(id, route)`: the route a save carries goes through the route setter
+    /// (validation, publishing); the message of a failure.
+    async fn set_agent_route(&self, agent_id: &str, route: &Value) -> Result<(), String>;
+}
+
+/// `saveAgentDefinition`'s `options`.
+#[derive(Clone, Debug, Default)]
+pub struct SaveOptions {
+    /// For a remote client: the connector policy may not give any tool more authority.
+    pub no_widen: bool,
+    /// Inside `withApprovedConnectorToolChange`: with `no_widen`, only this change may widen.
+    pub approved: Option<ApprovedToolChange>,
 }
 
 /// The write side: where it runs and what a change sets going.
@@ -82,15 +96,60 @@ struct Writes {
     now: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
-/// One id's saves, archives and restores run one at a time (`withLifecycle`).
-async fn lifecycle(data: &std::path::Path, id: &str) -> Option<tokio::sync::OwnedMutexGuard<()>> {
-    static LOCKS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = std::sync::OnceLock::new();
+/// The queue of one id's lifecycle changes: the ones waiting for their turn.
+type Waiting = std::collections::VecDeque<tokio::sync::oneshot::Sender<()>>;
+
+fn turns() -> &'static std::sync::Mutex<HashMap<String, Waiting>> {
+    static TURNS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Waiting>>> = std::sync::OnceLock::new();
+    TURNS.get_or_init(Default::default)
+}
+
+/// An id's turn in its lifecycle queue; the next change in line starts when it drops.
+struct Turn {
+    key: String,
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        let mut turns = turns().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(queue) = turns.get_mut(&self.key) else { return };
+        // A change that stopped waiting has dropped its receiver: the turn goes to the next.
+        while let Some(next) = queue.pop_front() {
+            if next.send(()).is_ok() {
+                return;
+            }
+        }
+        turns.remove(&self.key);
+    }
+}
+
+/// One id's saves, archives and restores run one at a time (`withLifecycle`); each rechecks its
+/// eligibility when its turn comes.
+async fn lifecycle(data: &std::path::Path, id: &str) -> Option<Turn> {
     if id.is_empty() {
         return None;
     }
     let key = format!("{}\0{id}", data.display());
-    let lock = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(key).or_default().clone();
-    Some(lock.lock_owned().await)
+    let waiting = {
+        let mut turns = turns().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match turns.get_mut(&key) {
+            None => {
+                turns.insert(key.clone(), Waiting::new());
+                None
+            }
+            Some(queue) => {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                queue.push_back(tx);
+                Some(rx)
+            }
+        }
+    };
+    if let Some(rx) = waiting {
+        // The turn is handed over by the change ahead. A change that stops waiting here never
+        // held it, so it has nothing to hand on.
+        let _ = rx.await;
+    }
+    Some(Turn { key })
 }
 
 /// What only the sessions and the automation store know.
@@ -216,9 +275,15 @@ impl AgentDefinitions {
         Ok(Value::Object(view))
     }
 
-    /// `saveAgentDefinition(payload)`: creates or edits one agent. The payload takes `id`, `name`,
-    /// `description`, `body` and, only when creating, `kind` (`bot` or `agent`).
+    /// `saveAgentDefinition(payload)`.
     pub async fn save(&self, payload: &Map<String, Value>) -> Result<Value, AgentsError> {
+        self.save_with(payload, SaveOptions::default()).await
+    }
+
+    /// `saveAgentDefinition(payload, options)`: creates or edits one agent. The payload takes
+    /// `id`, `name`, `description`, `body`, `kind` (only when creating: `bot` or `agent`),
+    /// `persona`, `avatar`, `connectors`, `expectedRevision` and `route`.
+    pub async fn save_with(&self, payload: &Map<String, Value>, options: SaveOptions) -> Result<Value, AgentsError> {
         let writes = self.writes()?;
         if !crate::workflow::ids::truthy(payload.get("body")) || mixdog_js::js_trim(&crate::workflow::ids::js_string(&payload["body"])).is_empty() {
             return Err(AgentsError::Refused("AGENT.md body must not be empty".into()));
@@ -231,7 +296,7 @@ impl AgentDefinitions {
         let plan = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned)).await?.map_err(AgentsError::Refused)?;
         let (given, id) = (payload.clone(), plan.id.clone());
         let done = self
-            .write_job(&writes, move |folders, lane| edit::save_files(folders, lane, &plan, &given, &*now))
+            .write_job(&writes, move |folders, lane| edit::save_files(folders, lane, &plan, &given, options.no_widen.then_some(options.approved.as_ref()), &*now))
             .await?
             .map_err(AgentsError::Refused)?;
         if done.reclaimed {
@@ -240,6 +305,9 @@ impl AgentDefinitions {
             self.routes.clear_route(&id).await?;
         } else if !done.existed && self.routes.is_disabled(&id) {
             self.routes.set_disabled(&id, false).await?;
+        }
+        if let Some(route) = payload.get("route").filter(|route| crate::workflow::ids::truthy(Some(route))) {
+            writes.effects.set_agent_route(&id, route).await.map_err(AgentsError::Refused)?;
         }
         writes.effects.agents_changed().await;
         self.get(&id).await
@@ -314,7 +382,16 @@ impl AgentDefinitions {
     async fn own_route(&self, id: &str) -> Result<Option<Value>, AgentsError> {
         // The editor's `ownRoute`: a store bot's own route, else the config's. Mixy's id `lead`
         // is no store bot there, so it reads the config.
-        let route = if id == LEAD_ID { self.routes.config_route(id).unwrap_or_else(|| json!({})) } else { self.routes.own_route(id).await? };
+        let route = if id == LEAD_ID {
+            // A store bot of that id keeps its route in its folder, as any other bot.
+            let bot = self.job(|folders, lane| files::store_bot_route(folders, lane, LEAD_ID)).await?;
+            match bot {
+                Some(route) => route.unwrap_or_else(|| json!({})),
+                None => self.routes.config_route(id).unwrap_or_else(|| json!({})),
+            }
+        } else {
+            self.routes.own_route(id).await?
+        };
         if route.as_object().is_none_or(|map| map.is_empty()) {
             return Ok(None);
         }
@@ -428,6 +505,7 @@ impl AgentDefinitions {
     }
 
     /// The task workspace (`SessionHost.taskWorkspace`): created if missing, as its real path.
+    #[allow(clippy::disallowed_methods, reason = "the closure is a lane job body")]
     pub async fn task_workspace(&self) -> Result<String, AgentsError> {
         let path = self.task_workspace.clone();
         let made = on_lane(self.lane, &CancellationToken::new(), move |_| {

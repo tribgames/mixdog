@@ -471,6 +471,7 @@ mod tests {
                     model: true,
                     visible: true,
                     body: json!({ "role": "assistant", "content": "done" }),
+                    prompt: None,
                 };
                 run.port.commit_item(reply).await.expect("commit");
                 crate::session::RunOutcome::Completed(Default::default())

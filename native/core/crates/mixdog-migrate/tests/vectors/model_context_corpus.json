@@ -6,109 +6,109 @@
    "exact": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "sess_daemon_1793103478485_a6d73552104e4655ad3c5045f7e90530": {
-   "count": 137,
-   "entries": "d1fea8883e970e73450c09a5654619475a917a68873bda05eed9c17f97cf0d2f",
-   "exact": "7fd001f9f35a35d6163dc6e29e4998a6e7bd21923f3c883be8ff26c614eb92fd"
+   "count": 133,
+   "entries": "ad4969760a8911d31b271cf24f517996b2a3e9a10f042db70bf153dc6ab60792",
+   "exact": "aa1389ae807327b862975300601b20756c7ae8ffc43f6d53e9f9a752ace1f358"
   },
   "sess_daemon_1793116769865_1e6dcf101cfa47dfb74ae9f884f0ef97": {
-   "count": 70,
-   "entries": "4b268720839e39a1eb2b5c3a84fd3045df42448fe5f4511c75b43759fd3fcce6",
-   "exact": "2adcf0329a7c74aa5e56f92aa2363bfdf9d0594f4db865dbfc94dfb6bab64c1a"
+   "count": 66,
+   "entries": "114fb943ed6a59d11aec09bf6e8c92ceebda6273ff17238f94ed375a54f4fc44",
+   "exact": "1e4bf9d4dd6b5bfddb7fcb081b5cb439a1b2eb443e7d0be6a5291a0511a1a2d7"
   },
   "sess_daemon_1793255474736_41674c40bd8940618227678c746a5b0d": {
-   "count": 99,
-   "entries": "25f8aceb1106740737a6de70e2554ad9742a063827af31fe36f84808ccbd6f00",
-   "exact": "a28a39e35437c6add3f2988bd655066eeb8b743329e7f17ac9f9c02385f4023b"
+   "count": 95,
+   "entries": "9fc97b3775e35a5101dd0b4aebfe6f5bbb56753b5ce428a7ba99e0d545839adb",
+   "exact": "5f9b9b0d7a560ed1d089871b230829e634b4680e97ae1e93b5978eb62e45a388"
   },
   "sess_daemon_1793265746767_1482e78a13ea4815a6818a9aca474c9c": {
-   "count": 23,
-   "entries": "45d045923fba4c4592c620e9678bf0faf960b16118b32d3ef39b1d37033e825b",
-   "exact": "49a55c6e1b0fdce259ffb662c25393c4482a446247ce669f84d6c9467f6e0e5f"
+   "count": 19,
+   "entries": "056b0c2578c2a785599ec8916c79ef8fc0d56fade7644d35e7b1c19cf8b4c819",
+   "exact": "ada13fce57063650e1f2c915c3c92c61daad373a7a4f2e0a9c02cf4edbdeb39c"
   },
   "sess_daemon_1793275171086_b8262bb99e564b60a08c1865745321ca": {
-   "count": 43,
-   "entries": "1fccb18e73af75f54382bd8f2ad74c6d6d548d5093c20a43412ce1594a54ed23",
-   "exact": "ae60be1b995e44af3d7f6d13d72dd93d424198a8eaf948bb090e9e38f3fba52e"
+   "count": 39,
+   "entries": "d4398dbdc5a68408496b0ebac532a443be5c361f59ab474afb0ad6849d58abe4",
+   "exact": "980980d07e57b750feafdc5c0827ce303423ea67732dcbf64a77073bbd6fb239"
   },
   "sess_daemon_1793306569908_63cc007835f24226bfc6146003186dce": {
-   "count": 8,
-   "entries": "4cbcb8035d83838aa6229997004a199cd196f41f376b0a1ba3a51df993b96206",
-   "exact": "84e6a59301929b3b7c893855e8a3a77d915e71f32ad235ead18875989b683ba9"
+   "count": 4,
+   "entries": "109613c626ddfc013af8762c13d1b6877f9a92e042e3f390d89fa9c314ce942a",
+   "exact": "1a2f1c35a017845b35349c7bb2ddf5714d7f059b89d2926d660777353ec1120c"
   },
   "sess_daemon_1793391870191_ce8f1c45180d4f6c92e76daf8f0539da": {
-   "count": 10,
-   "entries": "328f2b8d4e5a8eb8df1685d673d6105840d19f41333b029c219efd748c703134",
-   "exact": "f7e404d9dc47b4c0b1cad9b0b41dab10d331ccaa3b69adc5104e26c45ccc1a31"
+   "count": 6,
+   "entries": "a6b27be1c19c70079a56484eb4d84f3296d244d53392864a905492c953297a9e",
+   "exact": "8aba136fe562e87cdd953172110346323659940344b0206dc680a181b5e2aa9b"
   },
   "sess_daemon_1793440623917_ac3d0532267140019c71878979e486fe": {
-   "count": 8,
-   "entries": "6baff490ccf7ba3d6fd870f430714c380517666fb61b7da1c50a5873943eea54",
-   "exact": "7050e36938a38da065200c23b35e3dbfc1938f59c1481b43d84507494b069266"
+   "count": 4,
+   "entries": "fe0b273a89664fe4f4935bef2b4b6e93326f31b5a16933b34e746c6f683c398f",
+   "exact": "4471b8156d1f136f1d5216c738aacd8610d76cb0d400b6038648876f2b0b8fb9"
   },
   "sess_daemon_1793474078724_f10a352f72514a3f8791919127e7b415": {
-   "count": 53,
-   "entries": "9576013f377d6ff20a37826277663258496fc4c524efef6c28791c97a80de7c8",
-   "exact": "ba7426922bb7857db3c191991dd228a2668375723869766ebf39644c5fb4e2a4"
+   "count": 49,
+   "entries": "8767caa00ccded45fed08de00b680cc75417c6e3b32ae9fe7ce83dada7c9b556",
+   "exact": "52d068393993d77006cb5cef690d46e686b6e45f0f5ceae6d3aafca2b5a5db2f"
   },
   "sess_daemon_1793708642505_06011aadc96c45e9b0cecfc9598175ad": {
-   "count": 318,
-   "entries": "a3999871ae01cb5ad2729afad85caaa680490d06ed39bb5be3eb2b068cac770e",
-   "exact": "d5c777986e64e2a0166a0ae29ef626b4f70812e016d1ab5bf4972a243d2f9b6c"
+   "count": 314,
+   "entries": "b776d80f5d27dc899a51f4713c5a7e939ecf118f53307f2935e32ada4fb0ef8b",
+   "exact": "480337b9d9ed929745acfca9ebeb478a3013f0eb547abeb57743404be6c894f0"
   },
   "sess_daemon_1793780447363_a614b987984f490e9c9c4b9ae7b8c604": {
-   "count": 374,
-   "entries": "81c93d52c98c9a1472395b64e0bc3523dc6e942fbb4db3cc46064dcd218f0cbc",
-   "exact": "4e8e61ab9f645783c7a1d82c1fac8698fd7299eb923dde51d4b6db677eed4460"
+   "count": 370,
+   "entries": "a64547672b30f350801926a25a6d01ed3303a9d42746bb3b8f13eb268c27d6bb",
+   "exact": "162b8580e6d900637291f0446cce7805c84b70316790a1c7b883245a2f24124a"
   },
   "sess_daemon_1793785705398_e68c06a935b44c438e03ae0a81fc35a4": {
-   "count": 14,
-   "entries": "2f962463ab3de58a38f5a2f750c54beb069f24aa9ebf274aeb96ffe47c3362ed",
-   "exact": "2c149ee55e942bc358c5bac1dbd9fa7aea83121fb591d8d150f6d0dfb5364250"
+   "count": 10,
+   "entries": "34694ddd043c8b8bbe2d630b571eeb66d2e4933d915e7baadc1d8901a395cc6c",
+   "exact": "8b003f3a97ece12ce31180ce74cc37bd40f8f072e6324167623fbf28a0deffd5"
   },
   "sess_daemon_1793798495925_90fb022e8c3e4639a9f7e08ccbdda1e6": {
-   "count": 757,
-   "entries": "fcf0fdc28d35b5b8ce7be84c873e71e25bed5671f91f3618dc63a5c193a25003",
-   "exact": "ddb84d187e5c04f5bc4b558f6d52b8bf33071d22d6577f18a716633e7b6d7b84"
+   "count": 753,
+   "entries": "bf1daea4bc0116cffa37b1f2dae287e4de6842223510cef2f33148feb30548b0",
+   "exact": "8a6471f41fe5a5eaa1f3228f86abf7346147fdc21779a50849832cb405c69007"
   },
   "sess_daemon_1793820141688_38d110060e784a52aa9c2668671040df": {
-   "count": 16,
-   "entries": "ad5235db7cbaed4308f084c1f593130d3daf99da9c2038bc63b26bbee2f32203",
-   "exact": "f16880394d17bdc20981555ee3e714ff0270d03496a785479ffa34ea3f83dfd9"
+   "count": 12,
+   "entries": "02cdc84a8b2dfa3bc499a4c26700cc2db80db0180a317a45081a4b10b3cf2fe2",
+   "exact": "1e9ff2efb50a718eb6adf30dd547e226504bb33465b76d85b577806017c5092c"
   },
   "sess_daemon_1793864638560_bcf93f6a8c3b465cb23e03d249949f4d": {
-   "count": 168,
-   "entries": "1f743df5fd1e89a6c0966c7f52c363d49d8132ae352f5f93a5b8f65f243be745",
-   "exact": "f091e2c55a42bf5ae75ba80d19950528e4b59759a2bc4e590f5a7a5eb4663550"
+   "count": 164,
+   "entries": "5ace85e5778672f7477a91b1d3794e51963250a45d77a228529b634e14990753",
+   "exact": "cc59bf6e3cf78afaeec3532b8e403f89455145c4a1cd215836dc2e5e4401377c"
   },
   "sess_desktop_6d04784db9909e6576526fa7afb641df1432e8d36214dd6520e60b4936a11e21": {
-   "count": 387,
-   "entries": "580dc59bae84777605e37058eb8daa11ccbb74f43e8a240cd57cc63fc9610996",
-   "exact": "f60c3c4d4eacf964a05b291989a64d3e66bdb7d475b3355747a3c826afb16c66"
+   "count": 383,
+   "entries": "7a3db2c5b361e0460ec945200e55e7ff733b0b3dac21b9d7d61ede22e617a1f0",
+   "exact": "ac9eda8bb117775f4aa26b8f12ec6b25a72bd2b3facc4f2149c9440d40a4ead9"
   },
   "sess_desktop_dde5c634003aff6cc01e891fabd2864d815768fe5505b5b9f0a414c37c68d781": {
-   "count": 8,
-   "entries": "3b6eeb8fcc5756687b3c29fa3c6d6b7a8ad0e96be38777555263d90cd046829f",
-   "exact": "24d87035aa96c261ac66897094ab88ad04d92156eddfe2fa4fa9bfd6c5e3ac79"
+   "count": 4,
+   "entries": "dbd307e07be727423a16685018e98b8e5532b972ebe675818fb4ee096504f173",
+   "exact": "89e659344a30a9db4cfac33b1dc6e88849dae28cfc2a71ce936d323696138ac2"
   },
   "sess_desktop_f03f5d12554c842d4880aab5af1a05fc52cc0751b898a70ee1288ab2c961489c": {
-   "count": 42,
-   "entries": "004521be90bd94696939b0bc71cd2c7838a8924384b147ac636ca979543ddc34",
-   "exact": "2a4f13f2ce64351d8dcccf128c0155fb8d038b8236eeed4f2e02ad1aae6a7145"
+   "count": 38,
+   "entries": "072fcb217f2116ef51c98c9f9835790c9d77deb427ccd41dc2d9035936851f6c",
+   "exact": "fe26bc0f453d97ca7bce8a62e1fc08f960681d015fd6a57a26d342d77b5effc5"
   },
   "sess_home_agent-a70d746b04": {
-   "count": 47,
-   "entries": "c5f835104d5dcaad35d621fdfe153850ced92639acdd01c79d1ec6c6ceae2780",
-   "exact": "c88439d9a4d23841c8f077d799a4578b36e11d02e8ba4f7fde5086497a280e94"
+   "count": 43,
+   "entries": "5aac3cdc6ece949e97d836aabfb58bd9e9de39c83d2b4fad70531d80662f0c3a",
+   "exact": "3552c5fd744bbad62ede8c1a2c4b7e4dc0f3bf44e76bad5dee42998c1d2eef8f"
   },
   "sess_home_lead": {
-   "count": 75,
-   "entries": "70feef680dfc40f04dd62a322c022c7445ba9887713d21346fea655cce14a0f5",
-   "exact": "67ebc4b013d120fbe14a5feb59d2db2d05d601127ca45e491682bd1f46ed8667"
+   "count": 71,
+   "entries": "dc5c04c13d98aefd557f76ad571435077efd918e811fc654e212c4ef701e3fcb",
+   "exact": "e6409618bb315d9f22d424efeac885146283c7e0218c5ecf86481bcf62b97b00"
   },
   "sess_home_pm": {
-   "count": 52,
-   "entries": "11945feb5868fe38346e3ab6fc314f1984dfb8ed388523c51f67bce4d931ec31",
-   "exact": "9f56b3d6756bf4919eee4a2dbc0a67a1c83aef07a776346d727c0bfbee26db3d"
+   "count": 48,
+   "entries": "164cb680b4ff7b4550f23ad869d3d4bfbb681036624b3cd66a248bc94a70301c",
+   "exact": "973c8861808278f00b045adc7423b9ea68d26175480b369e3616de23f828facb"
   },
   "sess_incarnation_balance": {
    "count": 1,
@@ -116,36 +116,36 @@
    "exact": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "sess_synth_fork_child": {
-   "count": 50,
-   "entries": "e36c53376e9caab69f9c76913949272580cfa28e9992672f30eb6442340847bc",
-   "exact": "6ca0315f7a645239990dfde0312ab176918a8c9063d4215b091aab8789b5a1a9"
+   "count": 46,
+   "entries": "4457f865e306c4a44a3eacf98c9e19d67ca5656408a03cd53e3c04520383cfec",
+   "exact": "6dac67dddc953934a74921aad299850c7728e2bb334e9f966549d504c6b7ee6d"
   },
   "sess_synth_imported": {
-   "count": 8,
-   "entries": "3b6eeb8fcc5756687b3c29fa3c6d6b7a8ad0e96be38777555263d90cd046829f",
-   "exact": "24d87035aa96c261ac66897094ab88ad04d92156eddfe2fa4fa9bfd6c5e3ac79"
+   "count": 4,
+   "entries": "dbd307e07be727423a16685018e98b8e5532b972ebe675818fb4ee096504f173",
+   "exact": "89e659344a30a9db4cfac33b1dc6e88849dae28cfc2a71ce936d323696138ac2"
   },
   "sess_synth_tombstone_desktop_delete": {
-   "count": 8,
-   "entries": "6baff490ccf7ba3d6fd870f430714c380517666fb61b7da1c50a5873943eea54",
-   "exact": "7050e36938a38da065200c23b35e3dbfc1938f59c1481b43d84507494b069266"
+   "count": 4,
+   "entries": "fe0b273a89664fe4f4935bef2b4b6e93326f31b5a16933b34e746c6f683c398f",
+   "exact": "4471b8156d1f136f1d5216c738aacd8610d76cb0d400b6038648876f2b0b8fb9"
   },
   "sess_synth_tombstone_manual": {
-   "count": 10,
-   "entries": "328f2b8d4e5a8eb8df1685d673d6105840d19f41333b029c219efd748c703134",
-   "exact": "f7e404d9dc47b4c0b1cad9b0b41dab10d331ccaa3b69adc5104e26c45ccc1a31"
+   "count": 6,
+   "entries": "a6b27be1c19c70079a56484eb4d84f3296d244d53392864a905492c953297a9e",
+   "exact": "8aba136fe562e87cdd953172110346323659940344b0206dc680a181b5e2aa9b"
   }
  },
  "dev146": {
   "sess_98972_1793880902376_1793881270078_9db21f2e97f91ba0d89fa6e3c6edec79": {
-   "count": 3,
-   "entries": "6f08918ddf168f796243f55a918e7a0917cc372bb4d6747225c60b31b12b47f3",
-   "exact": "f627c473767633e2b7e97dcb303a186bbb258114994ed54ac37249bfe5515ac7"
+   "count": 2,
+   "entries": "f45764f9d135d2e9cb05a46f3fbc23262d4718eb3f136204fcf7ef4ae9e244e3",
+   "exact": "8c8522d717fd59aa465de80507484a1ec64741e8d020900c9d42089ccdd897fb"
   },
   "sess_98972_1793880902377_1793881930084_5c7a33b9c62beae79e046a479d1e7698": {
-   "count": 3,
-   "entries": "59945e649cfbc1edddcafed3a79958d0a12b5dc788b2835edf2f216fc25426d3",
-   "exact": "2d7106753bab768a75f60cfed98ff648d292e00ab0ad387958c7c825d8afae26"
+   "count": 2,
+   "entries": "6de51c196bf457cb582ec23cecfb555283f6621442f6df6d48c519ba13ca2dff",
+   "exact": "6bd36dad39bcae66b118231bd8893e181acc3cd3a7ee7705ebb918091e9d58d4"
   },
   "sess_circular_after_delete": {
    "count": 1,
@@ -153,134 +153,134 @@
    "exact": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "sess_daemon_1793103478485_a6d73552104e4655ad3c5045f7e90530": {
-   "count": 137,
-   "entries": "d1fea8883e970e73450c09a5654619475a917a68873bda05eed9c17f97cf0d2f",
-   "exact": "7fd001f9f35a35d6163dc6e29e4998a6e7bd21923f3c883be8ff26c614eb92fd"
+   "count": 133,
+   "entries": "ad4969760a8911d31b271cf24f517996b2a3e9a10f042db70bf153dc6ab60792",
+   "exact": "aa1389ae807327b862975300601b20756c7ae8ffc43f6d53e9f9a752ace1f358"
   },
   "sess_daemon_1793116769865_1e6dcf101cfa47dfb74ae9f884f0ef97": {
-   "count": 70,
-   "entries": "4b268720839e39a1eb2b5c3a84fd3045df42448fe5f4511c75b43759fd3fcce6",
-   "exact": "2adcf0329a7c74aa5e56f92aa2363bfdf9d0594f4db865dbfc94dfb6bab64c1a"
+   "count": 66,
+   "entries": "114fb943ed6a59d11aec09bf6e8c92ceebda6273ff17238f94ed375a54f4fc44",
+   "exact": "1e4bf9d4dd6b5bfddb7fcb081b5cb439a1b2eb443e7d0be6a5291a0511a1a2d7"
   },
   "sess_daemon_1793255474736_41674c40bd8940618227678c746a5b0d": {
-   "count": 99,
-   "entries": "25f8aceb1106740737a6de70e2554ad9742a063827af31fe36f84808ccbd6f00",
-   "exact": "a28a39e35437c6add3f2988bd655066eeb8b743329e7f17ac9f9c02385f4023b"
+   "count": 95,
+   "entries": "9fc97b3775e35a5101dd0b4aebfe6f5bbb56753b5ce428a7ba99e0d545839adb",
+   "exact": "5f9b9b0d7a560ed1d089871b230829e634b4680e97ae1e93b5978eb62e45a388"
   },
   "sess_daemon_1793265746767_1482e78a13ea4815a6818a9aca474c9c": {
-   "count": 23,
-   "entries": "45d045923fba4c4592c620e9678bf0faf960b16118b32d3ef39b1d37033e825b",
-   "exact": "49a55c6e1b0fdce259ffb662c25393c4482a446247ce669f84d6c9467f6e0e5f"
+   "count": 19,
+   "entries": "056b0c2578c2a785599ec8916c79ef8fc0d56fade7644d35e7b1c19cf8b4c819",
+   "exact": "ada13fce57063650e1f2c915c3c92c61daad373a7a4f2e0a9c02cf4edbdeb39c"
   },
   "sess_daemon_1793275171086_b8262bb99e564b60a08c1865745321ca": {
-   "count": 43,
-   "entries": "1fccb18e73af75f54382bd8f2ad74c6d6d548d5093c20a43412ce1594a54ed23",
-   "exact": "ae60be1b995e44af3d7f6d13d72dd93d424198a8eaf948bb090e9e38f3fba52e"
+   "count": 39,
+   "entries": "d4398dbdc5a68408496b0ebac532a443be5c361f59ab474afb0ad6849d58abe4",
+   "exact": "980980d07e57b750feafdc5c0827ce303423ea67732dcbf64a77073bbd6fb239"
   },
   "sess_daemon_1793306569908_63cc007835f24226bfc6146003186dce": {
-   "count": 8,
-   "entries": "4cbcb8035d83838aa6229997004a199cd196f41f376b0a1ba3a51df993b96206",
-   "exact": "84e6a59301929b3b7c893855e8a3a77d915e71f32ad235ead18875989b683ba9"
+   "count": 4,
+   "entries": "109613c626ddfc013af8762c13d1b6877f9a92e042e3f390d89fa9c314ce942a",
+   "exact": "1a2f1c35a017845b35349c7bb2ddf5714d7f059b89d2926d660777353ec1120c"
   },
   "sess_daemon_1793391870191_ce8f1c45180d4f6c92e76daf8f0539da": {
-   "count": 10,
-   "entries": "328f2b8d4e5a8eb8df1685d673d6105840d19f41333b029c219efd748c703134",
-   "exact": "f7e404d9dc47b4c0b1cad9b0b41dab10d331ccaa3b69adc5104e26c45ccc1a31"
+   "count": 6,
+   "entries": "a6b27be1c19c70079a56484eb4d84f3296d244d53392864a905492c953297a9e",
+   "exact": "8aba136fe562e87cdd953172110346323659940344b0206dc680a181b5e2aa9b"
   },
   "sess_daemon_1793440623917_ac3d0532267140019c71878979e486fe": {
-   "count": 8,
-   "entries": "6baff490ccf7ba3d6fd870f430714c380517666fb61b7da1c50a5873943eea54",
-   "exact": "7050e36938a38da065200c23b35e3dbfc1938f59c1481b43d84507494b069266"
+   "count": 4,
+   "entries": "fe0b273a89664fe4f4935bef2b4b6e93326f31b5a16933b34e746c6f683c398f",
+   "exact": "4471b8156d1f136f1d5216c738aacd8610d76cb0d400b6038648876f2b0b8fb9"
   },
   "sess_daemon_1793474078724_f10a352f72514a3f8791919127e7b415": {
-   "count": 53,
-   "entries": "9576013f377d6ff20a37826277663258496fc4c524efef6c28791c97a80de7c8",
-   "exact": "ba7426922bb7857db3c191991dd228a2668375723869766ebf39644c5fb4e2a4"
+   "count": 49,
+   "entries": "8767caa00ccded45fed08de00b680cc75417c6e3b32ae9fe7ce83dada7c9b556",
+   "exact": "52d068393993d77006cb5cef690d46e686b6e45f0f5ceae6d3aafca2b5a5db2f"
   },
   "sess_daemon_1793708642505_06011aadc96c45e9b0cecfc9598175ad": {
-   "count": 318,
-   "entries": "a3999871ae01cb5ad2729afad85caaa680490d06ed39bb5be3eb2b068cac770e",
-   "exact": "d5c777986e64e2a0166a0ae29ef626b4f70812e016d1ab5bf4972a243d2f9b6c"
+   "count": 314,
+   "entries": "b776d80f5d27dc899a51f4713c5a7e939ecf118f53307f2935e32ada4fb0ef8b",
+   "exact": "480337b9d9ed929745acfca9ebeb478a3013f0eb547abeb57743404be6c894f0"
   },
   "sess_daemon_1793780447363_a614b987984f490e9c9c4b9ae7b8c604": {
-   "count": 374,
-   "entries": "81c93d52c98c9a1472395b64e0bc3523dc6e942fbb4db3cc46064dcd218f0cbc",
-   "exact": "4e8e61ab9f645783c7a1d82c1fac8698fd7299eb923dde51d4b6db677eed4460"
+   "count": 370,
+   "entries": "a64547672b30f350801926a25a6d01ed3303a9d42746bb3b8f13eb268c27d6bb",
+   "exact": "162b8580e6d900637291f0446cce7805c84b70316790a1c7b883245a2f24124a"
   },
   "sess_daemon_1793785705398_e68c06a935b44c438e03ae0a81fc35a4": {
-   "count": 14,
-   "entries": "2f962463ab3de58a38f5a2f750c54beb069f24aa9ebf274aeb96ffe47c3362ed",
-   "exact": "2c149ee55e942bc358c5bac1dbd9fa7aea83121fb591d8d150f6d0dfb5364250"
+   "count": 10,
+   "entries": "34694ddd043c8b8bbe2d630b571eeb66d2e4933d915e7baadc1d8901a395cc6c",
+   "exact": "8b003f3a97ece12ce31180ce74cc37bd40f8f072e6324167623fbf28a0deffd5"
   },
   "sess_daemon_1793798495925_90fb022e8c3e4639a9f7e08ccbdda1e6": {
-   "count": 757,
-   "entries": "fcf0fdc28d35b5b8ce7be84c873e71e25bed5671f91f3618dc63a5c193a25003",
-   "exact": "ddb84d187e5c04f5bc4b558f6d52b8bf33071d22d6577f18a716633e7b6d7b84"
+   "count": 753,
+   "entries": "bf1daea4bc0116cffa37b1f2dae287e4de6842223510cef2f33148feb30548b0",
+   "exact": "8a6471f41fe5a5eaa1f3228f86abf7346147fdc21779a50849832cb405c69007"
   },
   "sess_daemon_1793820141688_38d110060e784a52aa9c2668671040df": {
-   "count": 16,
-   "entries": "ad5235db7cbaed4308f084c1f593130d3daf99da9c2038bc63b26bbee2f32203",
-   "exact": "f16880394d17bdc20981555ee3e714ff0270d03496a785479ffa34ea3f83dfd9"
+   "count": 12,
+   "entries": "02cdc84a8b2dfa3bc499a4c26700cc2db80db0180a317a45081a4b10b3cf2fe2",
+   "exact": "1e9ff2efb50a718eb6adf30dd547e226504bb33465b76d85b577806017c5092c"
   },
   "sess_daemon_1793864638560_bcf93f6a8c3b465cb23e03d249949f4d": {
-   "count": 101,
-   "entries": "81910ded9da2e4cb9351225d8c61313809790c8d72101e7246c627a887af9fa8",
-   "exact": "3bdb50aca2699d3dc0cd7f8832dd2974f77f066846c896f0c86237b154e915ef"
+   "count": 97,
+   "entries": "ed7bb9c4dd786b0708585c69e38195e731e82bfb50c79c6be914632b26d2e565",
+   "exact": "d78466e1d124fcf830dbfd5c2f4f2dff34c71a3ad6ee996baba4ed55cff18084"
   },
   "sess_daemon_1793874898692_1fa7dc23f39045329bb680876d8a42eb": {
-   "count": 178,
-   "entries": "5b5af5ffdf611639c33157825214533de2e30764381719eac6db3d084b8a0e9b",
-   "exact": "7f49f4674241a34afc338e364296b8ea5a0fdb04009ac466b832e3e2a23393ef"
+   "count": 174,
+   "entries": "a15915a1808a01c7b3baf9ef93748b1b8b93e8cc764587a4e6e913fc007f5ea9",
+   "exact": "143b4b73391199774cc38b9b54cdb1e0c6d392162e702929c66d7ee8b15c0212"
   },
   "sess_daemon_1793879302359_cc71a209ddae449184e60c996950fefd": {
-   "count": 37,
-   "entries": "838f00676ecb14aff6998c44d3adbdbcccec60290c701111c0f72bd956152dfe",
-   "exact": "d7546095bc905cbcb41c9c0e791875000f17b3e9e41e0ad730155f6e766c3514"
+   "count": 33,
+   "entries": "91fd5d4e9d41231718890a50db3a2b6347ec17b80c67844984b9719543d69860",
+   "exact": "12bf8ed5eee7e830503acf06bb7c3e96571b934565c691bc6cc2c1e38d454fe7"
   },
   "sess_daemon_1793884352819_25565ef8c2c94ef7b80cf2567846a114": {
-   "count": 5,
-   "entries": "57a08440fb159416e1415076dbdb059b86f8f2b6501ae5fd6003af7d6271499b",
-   "exact": "0ca66756ec42fd28ea4b8059f6d4514a2952f07c184eeeb15ffe9a86660f7437"
+   "count": 1,
+   "entries": "2712a06c9a8553f53cb40cbc43ab338118abc0cff0df8f7a3b79d7c12d840a8d",
+   "exact": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "sess_desktop_6d04784db9909e6576526fa7afb641df1432e8d36214dd6520e60b4936a11e21": {
-   "count": 447,
-   "entries": "b4f9fb69e2c4451267b4bbe5ba1dcfe00a8b63eafe8f7c81bc80183bc034c3fc",
-   "exact": "8869ecb93428658071659b99f97be4df12b0c48f8b88ca6a6f04d0ce23928c6c"
+   "count": 443,
+   "entries": "59861b2f6ab38345783f1f3dc516838b8e69753137c25433b5ba0c021d648ec0",
+   "exact": "f2c60459940b649f8454ae3133faac4652defdaceff2dd7c6eed1ebd72683d77"
   },
   "sess_desktop_dde5c634003aff6cc01e891fabd2864d815768fe5505b5b9f0a414c37c68d781": {
-   "count": 8,
-   "entries": "3b6eeb8fcc5756687b3c29fa3c6d6b7a8ad0e96be38777555263d90cd046829f",
-   "exact": "24d87035aa96c261ac66897094ab88ad04d92156eddfe2fa4fa9bfd6c5e3ac79"
+   "count": 4,
+   "entries": "dbd307e07be727423a16685018e98b8e5532b972ebe675818fb4ee096504f173",
+   "exact": "89e659344a30a9db4cfac33b1dc6e88849dae28cfc2a71ce936d323696138ac2"
   },
   "sess_desktop_f03f5d12554c842d4880aab5af1a05fc52cc0751b898a70ee1288ab2c961489c": {
-   "count": 42,
-   "entries": "004521be90bd94696939b0bc71cd2c7838a8924384b147ac636ca979543ddc34",
-   "exact": "2a4f13f2ce64351d8dcccf128c0155fb8d038b8236eeed4f2e02ad1aae6a7145"
+   "count": 38,
+   "entries": "072fcb217f2116ef51c98c9f9835790c9d77deb427ccd41dc2d9035936851f6c",
+   "exact": "fe26bc0f453d97ca7bce8a62e1fc08f960681d015fd6a57a26d342d77b5effc5"
   },
   "sess_home_agent-101b4a32ba": {
-   "count": 24,
-   "entries": "915c06ea7de1155bb5832e65b488e9b222e6d0584cec8edd49cb59dbf73426b8",
-   "exact": "9ea1f39f3cdbbd787728abb593d09c416fbf074714cf4d4a9d2c1535119a6954"
+   "count": 20,
+   "entries": "b9e60ff5f191a9eeb96f4da0c93d1c1ef3cb153409d8f777852a998c1b9bd24a",
+   "exact": "b6c5329f7dcde3c3a749690c66fb8b899190f11e0accb1aec26797aff691d354"
   },
   "sess_home_agent-915609ddc4": {
-   "count": 160,
-   "entries": "b8ceef874b440968964f0b31fdd45d7edb097a57f842cec9a17436f2de2b4c5b",
-   "exact": "e9ab41823f55ea1db250742f2230afaa7b4df45992bc7dc2d5db20f81f487ad6"
+   "count": 156,
+   "entries": "fc220301cfe4c51573418222627ea69a4072e677ea60cf5584e6b7d5f4cce7a3",
+   "exact": "88f3155f1b7f11d8c875aefcbc60e26effca5d9dcb7e1814a6815213a913dfaf"
   },
   "sess_home_agent-a70d746b04": {
-   "count": 47,
-   "entries": "c5f835104d5dcaad35d621fdfe153850ced92639acdd01c79d1ec6c6ceae2780",
-   "exact": "c88439d9a4d23841c8f077d799a4578b36e11d02e8ba4f7fde5086497a280e94"
+   "count": 43,
+   "entries": "5aac3cdc6ece949e97d836aabfb58bd9e9de39c83d2b4fad70531d80662f0c3a",
+   "exact": "3552c5fd744bbad62ede8c1a2c4b7e4dc0f3bf44e76bad5dee42998c1d2eef8f"
   },
   "sess_home_lead": {
-   "count": 75,
-   "entries": "70feef680dfc40f04dd62a322c022c7445ba9887713d21346fea655cce14a0f5",
-   "exact": "67ebc4b013d120fbe14a5feb59d2db2d05d601127ca45e491682bd1f46ed8667"
+   "count": 71,
+   "entries": "dc5c04c13d98aefd557f76ad571435077efd918e811fc654e212c4ef701e3fcb",
+   "exact": "e6409618bb315d9f22d424efeac885146283c7e0218c5ecf86481bcf62b97b00"
   },
   "sess_home_pm": {
-   "count": 52,
-   "entries": "11945feb5868fe38346e3ab6fc314f1984dfb8ed388523c51f67bce4d931ec31",
-   "exact": "9f56b3d6756bf4919eee4a2dbc0a67a1c83aef07a776346d727c0bfbee26db3d"
+   "count": 48,
+   "entries": "164cb680b4ff7b4550f23ad869d3d4bfbb681036624b3cd66a248bc94a70301c",
+   "exact": "973c8861808278f00b045adc7423b9ea68d26175480b369e3616de23f828facb"
   },
   "sess_incarnation_balance": {
    "count": 1,
@@ -288,19 +288,19 @@
    "exact": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "sess_synth_pair_diverged": {
-   "count": 10,
-   "entries": "d0b1cff37ccbff9f27fe6d8642c8b0b32f6355320d0138ede61a75e69910d45d",
-   "exact": "2fb771f7c5c37f5f06aceaeddaa330282f12f76ce7ff95ec378a6cf973868196"
+   "count": 6,
+   "entries": "befefc923a3f8834e0f86f3b22b9ce2cbc6360030640a8ff835ec40aa94963ce",
+   "exact": "02d4cc475cb46cf473bc74892daf7e9b768440d80b5fc4e9936005ddc026e329"
   },
   "sess_synth_pair_redaction_pending": {
-   "count": 8,
-   "entries": "b813895b17061f7499590759a56c6b97b9bdfcf11ff04724d2c52158263443ca",
-   "exact": "84e6a59301929b3b7c893855e8a3a77d915e71f32ad235ead18875989b683ba9"
+   "count": 4,
+   "entries": "719d064d2c229baf3d9df3b2784023ace7abfc54c8898b53be9418dfced71332",
+   "exact": "1a2f1c35a017845b35349c7bb2ddf5714d7f059b89d2926d660777353ec1120c"
   },
   "sess_synth_torn_tail": {
-   "count": 2,
-   "entries": "2630f3ae5fe062f3d4b827fe8bb7cb66e87a8841506574e75d1a685c86b03b67",
-   "exact": "62228304022b3ca8a3480cdf5ff0c33317c02d628247546bec896b769aad39b5"
+   "count": 1,
+   "entries": "bdb8eb5879fe1541615994b6a25a6c59afd02900b1ae42ec213795d0e4486019",
+   "exact": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   }
  },
  "fixture-busy-seed": {

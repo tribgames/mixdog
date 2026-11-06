@@ -114,6 +114,7 @@ fn echo() -> Script {
                     model: true,
                     visible: true,
                     body: json!({ "text": format!("re: {text}") }),
+                    prompt: None,
                 })
                 .await
                 .expect("commit");
@@ -972,7 +973,230 @@ async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
         ownership: Arc::new(MockOwnership::default()),
         index: Arc::new(index.clone()),
     };
-    Arc::new(super::StoreThreads::new(data, blobs, index, writer))
+    Arc::new(super::StoreThreads::new(data, blobs, index, writer, tokens.maintenance_io))
+}
+
+/// `thread/delete` (`deleteSession`): the pending approval leaves the list and the running
+/// turn is aborted with the close reason and ends first; then the agent tool forgets it, its
+/// work is released, the mark makes it gone (not openable, not deleted twice) and the purge
+/// removes its files, the purge hooks run in the order a 1.4.5 daemon registers them (the turn
+/// review's in its place), the app feed hears `thread/deleted`, and the search copy and the
+/// worktree go after.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let aborted: Arc<Mutex<Option<(ApprovalResolution, String)>>> = Arc::default();
+    let seen = aborted.clone();
+    rig.set_script(Arc::new(move |run| {
+        let seen = seen.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let resolution = run
+                .port
+                .request(ApprovalAsk {
+                    kind: ApprovalKind::Tool,
+                    call_id: None,
+                    tool: Some("shell".into()),
+                    action_kind: None,
+                    reason: None,
+                    payload: json!({ "kind": "shell", "tool": "shell", "request": { "target": "make" } }),
+                    remember: Vec::new(),
+                    expires_after: None,
+                })
+                .await;
+            run.cancel.cancelled().await;
+            *seen.lock().unwrap() = Some((resolution, run.signal.reason()));
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    turn(&handle, "long job", "op-1").await;
+    let published = eventually(|| {
+        rig.sink.events().into_iter().find_map(|event| match event {
+            ServerRequestEvent::Published(request) => Some(request.id),
+            _ => None,
+        })
+    })
+    .await;
+    let reply = handle
+        .request(request("thread/delete", json!({ "threadId": id, "opId": "op-del" }), "op-del"))
+        .await
+        .expect("thread/delete");
+    assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
+    let reason = mixdog_agent::cancel::close_session_reason(id.as_str(), super::delete::DELETE_REASON);
+    let (resolution, signal) = aborted.lock().unwrap().clone().expect("the turn ended before the delete went on");
+    assert!(matches!(resolution, ApprovalResolution::Interrupted { .. }), "{resolution:?}");
+    assert_eq!(signal, reason);
+    assert!(
+        rig.sink.events().iter().any(|event| matches!(event, ServerRequestEvent::Resolved(rid, _) if *rid == published)),
+        "the approval left the list"
+    );
+    assert!(directory.handle(&id).is_none(), "the thread left the directory");
+    assert!(matches!(
+        directory.open(&id, &CallContext::internal("test")).await,
+        Err(CoreError::ThreadNotFound { .. })
+    ));
+    assert!(!data.path().join("sessions").join(id.as_str()).exists(), "no fork reads it: its files are gone");
+
+    // The hook order is the golden's (the turn review's hook is not recorded here).
+    let golden: Vec<String> = serde_json::from_str(include_str!("delete_goldens/purge_order.json")).unwrap();
+    let name = |path: &str| match path.rsplit('/').next().unwrap() {
+        "tool-result-offload.mjs:506" => "toolResultOffload",
+        "usage-metrics.mjs:21" => "usageMetrics",
+        "runtime-liveness.mjs:65" => "browserSession",
+        "session-transcript-purge.mjs:20" => "transcripts",
+        "cache-warm.mjs:424" => "cacheWarm",
+        "read-cache.mjs:317" => "readCache",
+        "compaction-archive-capture.mjs:738" => "compactionCapture",
+        "session-close.mjs:282" => "providerConnections",
+        "providers.mjs:54" => "connectorAccounts",
+        "runtime-review-api.mjs:26" => "turnReview",
+        "worker-turns.mjs:208" => "workerTurns",
+        "agent-tool.mjs:347" => "agentStatus",
+        other => panic!("{other}"),
+    };
+    let s = id.as_str();
+    let mut expected = vec![format!("forgetLeadSession:{s}"), format!("releaseSessionWork:{s}:desktop-session-delete")];
+    for hook in golden.iter().map(|path| name(path)).filter(|hook| *hook != "turnReview").chain(["compactionArchive", "scratchDir"]) {
+        expected.push(format!("{hook}:{s}:/ws"));
+    }
+    expected.extend([format!("thread/deleted:{s}"), format!("forgetSessionSearch:{s}"), format!("releaseDeletedWorktree:{s}")]);
+    eventually(|| (lock(&rig.deletes.0).len() == expected.len()).then_some(())).await;
+    assert_eq!(*lock(&rig.deletes.0), expected);
+
+    // Deleted already, or not a session id: nothing is deleted, nothing runs.
+    let other = start_thread(&directory).await;
+    for target in [id.as_str(), "../x"] {
+        let reply = other.request(request("thread/delete", json!({ "threadId": target, "opId": "op-bad" }), "op-bad")).await.expect("delete");
+        assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{target}");
+    }
+    assert_eq!(lock(&rig.deletes.0).len(), expected.len());
+}
+
+/// A deleted base keeps its files while a fork reads them: the fork still opens with the
+/// base's history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_base_stays_readable_by_its_fork() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let base = start_thread(&directory).await;
+    turn(&base, "first", "op-1").await;
+    eventually(|| (idle(&base) && rows(&base).len() == 2).then_some(())).await;
+    let reply = base
+        .request(request("thread/fork", json!({ "threadId": base.id, "opId": "op-fork" }), "op-fork"))
+        .await
+        .expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let fork = ThreadId::from(value["thread"]["id"].as_str().expect("fork id"));
+    let reply = base
+        .request(request("thread/delete", json!({ "threadId": base.id, "opId": "op-del" }), "op-del"))
+        .await
+        .expect("thread/delete");
+    assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
+    assert!(data.path().join("sessions").join(base.id.as_str()).exists(), "the fork reads it");
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&fork, &CallContext::internal("test")).await.expect("the fork opens");
+    assert_eq!(rows(&reopened).len(), 2, "the base's history shows in the fork");
+}
+
+/// `thread/delete` with `ifIdle` (`deleteSessionIfIdle`): each refusal in Node's order deletes
+/// nothing; an archived, unfavored, idle and unchanged session is deleted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_session() {
+    use super::delete::SidebarState;
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let release: Arc<tokio::sync::Notify> = Arc::default();
+    let gate = release.clone();
+    rig.set_script(Arc::new(move |run| {
+        let gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            gate.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    let ask = |expected: Value| {
+        let handle = handle.clone();
+        let id = id.clone();
+        async move {
+            match handle
+                .request(request("thread/delete", json!({ "threadId": id, "opId": "op-d", "ifIdle": expected }), "op-d"))
+                .await
+                .expect("delete")
+            {
+                Reply::Value(value) => value,
+                other => panic!("{other:?}"),
+            }
+        }
+    };
+    let state = |archived: bool, favorite: bool| {
+        let mut sidebar = SidebarState::default();
+        if archived {
+            sidebar.archived.insert(id.as_str().to_owned());
+        }
+        if favorite {
+            sidebar.favorites.insert(id.as_str().to_owned());
+        }
+        *lock(&rig.deletes.1) = Some(sidebar);
+    };
+    let refused = |reason: &str| json!({ "deleted": false, "reason": reason });
+    assert_eq!(ask(json!({})).await, refused("not-archived"), "no sidebar state");
+    state(false, false);
+    assert_eq!(ask(json!({})).await, refused("not-archived"));
+    state(true, true);
+    assert_eq!(ask(json!({})).await, refused("favorite"));
+    state(true, false);
+    turn(&handle, "work", "op-1").await;
+    assert_eq!(ask(json!({})).await, refused("busy"));
+    release.notify_one();
+    eventually(|| idle(&handle).then_some(())).await;
+    // The turn moved `lastUsedAt` past what the caller saw.
+    let used = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let meta = directory.session_meta(&id).await.expect("meta").expect("listed");
+            if meta.last_used_at > 0.0 {
+                break meta.last_used_at;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the completed turn stamps lastUsedAt");
+    assert_eq!(ask(json!({ "lastUsedAt": used - 1.0 })).await, refused("changed"));
+    assert!(lock(&rig.deletes.0).is_empty(), "a refusal deletes nothing");
+    assert_eq!(ask(json!({ "lastUsedAt": used })).await, json!({ "deleted": true }));
+    let s = id.as_str();
+    let worktree = format!("releaseDeletedWorktree:{s}");
+    eventually(|| lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
+    let steps = lock(&rig.deletes.0).clone();
+    assert_eq!(steps[0], format!("toolResultOffload:{s}:/ws"), "the purge hooks run first");
+    let tail: Vec<&str> = steps[steps.len() - 5..].iter().map(String::as_str).collect();
+    assert_eq!(
+        tail,
+        [
+            format!("thread/deleted:{s}"),
+            format!("forgetLeadSession:{s}"),
+            format!("releaseSessionWork:{s}:desktop-auto-delete"),
+            format!("forgetSessionSearch:{s}"),
+            format!("releaseDeletedWorktree:{s}"),
+        ]
+    );
+}
+
+async fn handle_of_new(directory: &SessionDirectory) -> Arc<SessionHandle> {
+    start_thread(directory).await
 }
 
 /// A prompt larger than a frame's inline budget goes through the runtime codec into a
@@ -1133,6 +1357,244 @@ async fn a_model_switch_after_a_compaction_anchors_on_the_summary() {
         })
         .collect();
     assert_eq!(anchors, [("sum1".to_owned(), 1)], "the compaction frame's ordinal");
+}
+
+/// A run's live-only events reach the view and the feed as Node's turn shows them: reasoning
+/// grows its item (`item/reasoning/textDelta`), a notice is a polished `info` line, a model
+/// call's usage is `thread/tokenUsage/updated`, a compaction that changed the context marks
+/// where the turn began, and a committed row's own prompt text joins the prompt history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
+    let rig = Rig::new();
+    let gate: Arc<tokio::sync::Notify> = Arc::default();
+    let release = gate.clone();
+    rig.set_script(Arc::new(move |run| {
+        let release = release.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let reasoning = ItemId::from("r1".to_owned());
+            let item = ThreadItem::Reasoning { id: reasoning.clone(), summary: Vec::new(), content: Vec::new(), meta: Default::default() };
+            run.port.item_started(item).await.expect("started");
+            run.port.reasoning_delta(reasoning.clone(), "think ".into()).await.expect("delta");
+            run.port.reasoning_delta(reasoning, "more".into()).await.expect("delta");
+            run.port.notice("model switch failed".into()).await.expect("notice");
+            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, cache_read_tokens: 3, cache_write_tokens: 2, ..Default::default() };
+            run.port.usage(1, usage).await.expect("usage");
+            let event = mixdog_agent::env::CompactEvent {
+                dropped_count: 2,
+                dropped: None,
+                trigger: mixdog_agent::env::CompactTrigger::Auto,
+                changed: true,
+                failed: false,
+                before_messages: 4,
+                after_messages: 1,
+                pressure_tokens: 900,
+                trigger_tokens: 800,
+                boundary_tokens: 1000,
+                target_budget_tokens: 500,
+            };
+            run.port.compact_event(event).await.expect("compact");
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("s-{}", run.turn)),
+                    role: Some("user".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "user", "content": "steered", "meta": { "transcript": { "at": 1 } } }),
+                    prompt: Some("steered words".into()),
+                })
+                .await
+                .expect("commit");
+            release.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    let items = |handle: &SessionHandle| -> Vec<ThreadItem> { handle.cell.view.load_full().items.iter().map(|item| (**item).clone()).collect() };
+    let thinking = eventually(|| {
+        items(&handle).into_iter().find_map(|item| match item {
+            ThreadItem::Reasoning { content, .. } if content.concat() == "think more" => Some(content),
+            _ => None,
+        })
+    })
+    .await;
+    assert_eq!(thinking, ["think more"], "one growing part");
+    eventually(|| prompt_list(&handle).contains(&"steered words".to_owned()).then_some(())).await;
+    gate.notify_one();
+    eventually(|| idle(&handle).then_some(())).await;
+
+    let shown = items(&handle);
+    let kinds: Vec<String> = shown
+        .iter()
+        .map(|item| match item {
+            ThreadItem::UserMessage { display_text, .. } => format!("user:{display_text}"),
+            ThreadItem::StatusRow { kind, meta, .. } => format!("{kind}:{}", meta.label.clone().unwrap_or_default()),
+            other => format!("{:?}", std::mem::discriminant(other)),
+        })
+        .collect();
+    let marker = kinds.iter().position(|k| k == "statusdone:Compact complete").expect("the marker");
+    assert_eq!(kinds[marker + 1], "user:go", "the marker stands before the turn's input row: {kinds:?}");
+    let notice = shown
+        .iter()
+        .find_map(|item| match item {
+            ThreadItem::StatusRow { kind, meta, .. } if kind == "notice" => Some(serde_json::to_value(meta).expect("meta")),
+            _ => None,
+        })
+        .expect("the notice");
+    assert_eq!((notice["ext"]["text"].clone(), notice["ext"]["tone"].clone()), (json!("Couldn’t switch model."), json!("info")), "{notice}");
+
+    let frames = rig.feeds.frames(handle.id.as_str());
+    let methods: Vec<&str> = frames.iter().map(|(_, method, _)| method.as_str()).collect();
+    assert_eq!(methods.iter().filter(|m| **m == "item/reasoning/textDelta").count(), 2);
+    let usage = frames.iter().find(|(_, method, _)| method == "thread/tokenUsage/updated").expect("usage").2["usage"].clone();
+    assert_eq!(
+        (usage["deltaInput"].clone(), usage["deltaOutput"].clone(), usage["deltaCachedRead"].clone(), usage["deltaCacheWrite"].clone(), usage["iterationIndex"].clone()),
+        (json!(10), json!(5), json!(3), json!(2), json!(1))
+    );
+}
+
+/// A Goal set during a user turn continues across it: once the turn settles with the Goal
+/// active and the thread idle, the runtime's continuation runs as an automatic turn whose input
+/// is runtime-synthetic (no user row); that turn pausing the Goal ends the chain, and the lane
+/// shows the paused Goal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_goal_continues_across_a_turn_until_it_stops() {
+    use crate::goal::hooks::GoalViewHooks;
+
+    let rig = Rig::new();
+    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let (seen, goals) = (inputs.clone(), rig.goals.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (seen, goals) = (seen.clone(), goals.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let automatic = run.input_body.pointer("/meta/source") == Some(&json!("goal-continuation"));
+            lock(&seen).push(run.input_body.clone());
+            let action = if automatic {
+                // The automatic turn does work, then the Goal is paused.
+                let call = ItemCommit {
+                    iid: ItemId::from(format!("t-{}", run.turn)),
+                    role: Some("tool".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "tool", "toolCallId": "c1", "content": "ok" }),
+                    prompt: None,
+                };
+                run.port.commit_item(call).await.expect("tool row");
+                json!({ "action": "pause" })
+            } else {
+                json!({ "action": "create", "objective": "Ship the feature" })
+            };
+            goals.goal_control(&run.thread, action).await.expect("goal control");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "start", "op-1").await;
+    eventually(|| (lock(&inputs).len() == 2 && idle(&handle)).then_some(())).await;
+    let goal_status = |frames: &[(u64, String, Value)]| {
+        frames.iter().rev().find(|(_, method, _)| method == "thread/goal/updated").map(|(_, _, p)| p["value"]["status"].clone())
+    };
+    eventually(|| (goal_status(&rig.feeds.frames(handle.id.as_str())) == Some(json!("paused"))).then_some(())).await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let inputs = lock(&inputs).clone();
+    assert_eq!(inputs.len(), 2, "a paused Goal does not continue: {inputs:?}");
+    assert_eq!(inputs[1]["meta"], json!({ "source": "goal-continuation", "synthetic": true }));
+    assert!(!inputs[1]["content"].as_str().unwrap_or_default().is_empty(), "the runtime's continuation prompt");
+    let users: Vec<String> = rows(&handle).into_iter().filter(|(role, _)| *role == "user").map(|(_, text)| text).collect();
+    assert_eq!(users, ["start"], "the automatic turn shows no user row");
+    let frames = rig.feeds.frames(handle.id.as_str());
+    let statuses: Vec<Value> = frames.iter().filter(|(_, m, _)| m == "thread/goal/updated").map(|(_, _, p)| p["value"]["status"].clone()).collect();
+    assert!(statuses.contains(&json!("active")), "{statuses:?}");
+}
+
+/// `thread/clear` resets the environment in the same header change that drops the provider
+/// state (`resetSessionBp3Environment`): the `env` block becomes the environment tail alone and
+/// the next ask adds the `# Session` block again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_clear_resets_the_environment_with_the_provider_state() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let patch = json!({
+        "threadId": handle.id,
+        "set": {
+            "providerState": { "x": 1 },
+            "bp3EnvSplit": true,
+            "promptEnv": "# Session\nold\n\ntail",
+            "bp3EnvironmentContext": "tail",
+            "sessionStartMetaInjected": true,
+        },
+    });
+    handle
+        .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("patch");
+    let expected = crate::run_host::route_change::environment_reset(&handle.cell.header.load());
+    handle
+        .request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-clear" }), "op-clear"))
+        .await
+        .expect("clear");
+    let header = handle.cell.header.load_full();
+    assert!(header.get("providerState").is_none());
+    assert_eq!((header.get("promptEnv"), header.get("sessionStartMetaInjected")), (Some(&json!("tail")), Some(&json!(false))));
+    for (key, value) in &expected.set {
+        assert_eq!(header.get(key), Some(value), "{key}");
+    }
+    for key in &expected.unset {
+        assert!(header.get(key).is_none(), "{key}");
+    }
+}
+
+/// A restored window shows each compaction's divider where 1.4.5 restores it (after the rows
+/// before the compaction, when its replacement kept none of them), the switches anchored on its
+/// summary right after it, and a switch recorded live on the summary joins them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "first", "op-1").await;
+    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let summary = json!({ "role": "user", "content": "[summary] earlier work" });
+            let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
+            run.port.compacted(compaction).await.expect("compacted");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    turn(&handle, "compact", "op-2").await;
+    eventually(|| (idle(&handle) && rows(&handle).len() == 3).then_some(())).await;
+    let id = handle.id.clone();
+    let switch = |at: i64| json!({ "provider": "openai", "modelId": "gpt-next", "at": at });
+    assert!(super::record_model_switch(&directory, &id, &switch(300)).await.expect("record"));
+
+    let ids = |handle: &SessionHandle| -> Vec<String> {
+        handle.cell.view.load_full().items.iter().map(|item| item.id().as_str().to_owned()).collect()
+    };
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let shown = ids(&restored);
+    let divider = shown.iter().position(|id| id.starts_with("divider:") && !id.contains(":model:")).expect("a divider");
+    assert_eq!(divider, 3, "after the rows before the compaction: {shown:?}");
+    let cid = shown[divider].trim_start_matches("divider:").to_owned();
+    assert_eq!(shown[divider + 1..], [format!("divider:{cid}:model:300")]);
+    let ThreadItem::ContextCompaction { meta, .. } = restored.cell.view.load_full().items[divider].as_ref().clone() else {
+        panic!("the divider is a compaction row");
+    };
+    assert_eq!(meta.at, Some(777));
+
+    assert!(super::record_model_switch(&reopened, &id, &switch(400)).await.expect("record live"));
+    eventually(|| (ids(&restored).len() == shown.len() + 1).then_some(())).await;
+    assert_eq!(ids(&restored)[divider + 1..], [format!("divider:{cid}:model:300"), format!("divider:{cid}:model:400")]);
 }
 
 /// `recordModelSwitchBoundary`: the boundary goes on the switch anchor once, as a record
@@ -1453,6 +1915,7 @@ async fn a_tool_result_completes_its_call_in_place() {
                     model: true,
                     visible: true,
                     body: json!({ "text": "listing", "toolCalls": [call] }),
+                    prompt: None,
                 })
                 .await
                 .expect("call");
@@ -1463,6 +1926,7 @@ async fn a_tool_result_completes_its_call_in_place() {
                     model: true,
                     visible: true,
                     body: json!({ "toolCallId": "c1", "text": "a.txt" }),
+                    prompt: None,
                 })
                 .await
                 .expect("result");
@@ -1555,6 +2019,7 @@ async fn a_reaction_is_stored_on_the_users_message_and_refused_as_node_does() {
                     model: true,
                     visible: true,
                     body: json!({ "role": "user", "content": "hello", "meta": { "transcript": { "at": 1, "messageId": "m1" } } }),
+                    prompt: None,
                 })
                 .await
                 .expect("commit");
@@ -1615,4 +2080,55 @@ async fn a_reaction_is_stored_on_the_users_message_and_refused_as_node_does() {
         .request(request("thread/reactions/set", json!({ "agentId": "rev", "emoji": "👍" }), "op-x"))
         .await;
     assert!(matches!(refused, Err(CoreError::InvalidParams { .. }) | Err(CoreError::PermissionDenied { .. })), "{refused:?}");
+}
+
+/// The room log (`agent-room-delivery.mjs` `commit`): a post's rows land in the room session
+/// without a turn and show at once; a messageId the conversation holds, or the post repeats,
+/// is stored once; a session that does not exist is not available, in Node's words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_room_post_stores_each_message_once_and_shows_it() {
+    use super::room_log::RoomLog;
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    let log = super::room_log::SessionRoomLog::new(directory.clone());
+    let row = |message_id: &str, text: &str| {
+        json!({
+            "role": "user",
+            "content": text,
+            "meta": { "source": "room", "room": { "id": "r1", "speaker": "alice" }, "transcript": { "at": 5, "messageId": message_id } },
+        })
+    };
+    let before = rows(&handle).len();
+    let added = log.append_rows(id.as_str(), vec![row("m1", "one"), row("m2", "two"), row("m1", "again")]).await.expect("post");
+    assert_eq!(added, 2, "a messageId repeated in the post is one row");
+    let added = log.append_rows(id.as_str(), vec![row("m2", "two"), row("m3", "three")]).await.expect("post");
+    assert_eq!(added, 1, "a messageId the conversation holds is skipped");
+    eventually(|| (rows(&handle).len() == before + 3).then_some(())).await;
+
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let reread = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let Reply::Value(value) = reread
+        .request(CoreRequest {
+            method: Method("thread/messages/read"),
+            params: json!({}),
+            op: None,
+            ctx: CallContext::internal("test"),
+        })
+        .await
+        .expect("messages")
+    else {
+        panic!("a value")
+    };
+    let texts: Vec<&str> = value["messages"].as_array().expect("messages").iter().filter_map(|m| m["content"].as_str()).collect();
+    assert_eq!(texts, ["one", "two", "three"]);
+
+    let missing = log.append_rows("sess_gone", vec![row("m9", "x")]).await;
+    match missing {
+        Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(message.to_string(), "session sess_gone is not available"),
+        other => panic!("{other:?}"),
+    }
 }

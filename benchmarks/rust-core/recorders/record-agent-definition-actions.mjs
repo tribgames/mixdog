@@ -11,7 +11,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson } from './lib/common.mjs';
+import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree } from './lib/common.mjs';
 
 const sandbox = mkdtempSync(join(tmpdir(), 'agent-actions-'));
 process.env.MIXDOG_DATA_DIR = sandbox;
@@ -40,7 +40,62 @@ const pick = (list) => list[Math.floor(next() * list.length)];
 const CALLERS = { mixy: { id: 'sess_home_lead' }, coding: { id: 'sess_task_1' }, contact: { id: 'sess_home_ada' } };
 const BODIES = ['You are careful.', 'Line one.\nLine two.\n', 'Body\r\nwith CRLF', 'Another body.', ' padded  ', '   ', ''];
 const NAMES = ['Nova', 'Écrivain  du soir', 'a/b c', '', 'ünï', '日本語', 'worker', 'Bot One'];
-const IDS = ['fresh-one', 'Fresh_Two', 'bad id!', '', '.dot', hidden[0], 'maintainer', 'worker'];
+const IDS = ['fresh-one', 'Fresh_Two', 'bad id!', '', '.dot', hidden[0], 'maintainer', 'worker', 'lead'];
+
+// Image uploads as data URLs: a PNG header (optionally animated), a GIF, and broken ones.
+const chunk = (type, data) => Buffer.concat([Buffer.from([0, 0, 0, data.length]), Buffer.from(type), data, Buffer.alloc(4)]);
+function png(width, height, animated = false) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  const parts = [Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header)];
+  if (animated) parts.push(chunk('acTL', Buffer.alloc(8)));
+  parts.push(chunk('IEND', Buffer.alloc(0)));
+  return `data:image/png;base64,${Buffer.concat(parts).toString('base64')}`;
+}
+function gif(width, height) {
+  const bytes = Buffer.alloc(32);
+  bytes.write('GIF89a', 0, 'latin1');
+  bytes.writeUInt16LE(width, 6);
+  bytes.writeUInt16LE(height, 8);
+  return `data:image/gif;base64,${bytes.toString('base64')}`;
+}
+const AVATARS = [
+  null,
+  { kind: 'mascot', species: 'corgi', accessory: 'bow', expression: 'happy', color: '#F06A5F' },
+  { kind: 'mascot', species: 'dalmatian', accessory: 'headset', color: '#5b9bff' },
+  { kind: 'mascot', variant: 'floppy-happy-collar', color: '#e6e6e6' },
+  { kind: 'mascot', species: 'dragon', color: '#e6e6e6' },
+  { kind: 'mascot', species: 'shiba', color: '#123456' },
+  { kind: 'custom', states: { idle: { data: png(16, 16) } } },
+  { kind: 'custom', states: { idle: { data: png(16, 16) }, typing: { data: png(32, 32) } } },
+  { kind: 'image', data: png(16, 16) },
+  { kind: 'custom', states: { idle: { data: gif(16, 16), poster: png(16, 16) } } },
+  { kind: 'custom', states: { idle: { data: gif(16, 16) } } },
+  { kind: 'custom', states: { idle: { data: png(16, 16, true), poster: png(16, 16, true) } } },
+  { kind: 'custom', states: { idle: { data: png(16, 8) } } },
+  { kind: 'custom', states: { idle: { data: png(600, 600) } } },
+  { kind: 'custom', states: { idle: { data: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' } } },
+  { kind: 'custom', states: { idle: { data: gif(16, 16).replace('image/gif', 'image/png') } } },
+  { kind: 'custom', states: { idle: 'idle-0123456789ab.png' } },
+  { kind: 'custom', states: { typing: { data: png(16, 16) } } },
+  { kind: 'nothing' },
+  'mascot',
+];
+const CONNECTORS = [
+  null,
+  { off: ['gmail'] },
+  { off: [' b ', 'a', 'b'], tools: { gmail: { send: 'disabled', read: 'auto', bad: 'x' }, 'gmail-2': { read: 'needs_approval' } } },
+  { off: [] },
+  { off: [], tools: { gmail: { send: 'auto' } } },
+  { tools: { zeta: { run: 'disabled' } } },
+  [],
+  [{ id: 'x', enabled: true }],
+  { off: 'z' },
+  { tools: [] },
+  { other: 1 },
+  'text',
+];
 
 function createArgs() {
   const definition = {};
@@ -67,12 +122,36 @@ function saveArgs(known) {
   return { action: 'save_definition', definitionKind: 'agent', definition };
 }
 
+// A save that goes to the editor itself, with the inputs the setup tool does not give.
+function editorCall(known) {
+  const payload = {};
+  const how = next();
+  if (how < 0.6) payload.id = pick(known);
+  else if (how < 0.8) payload.name = pick(NAMES);
+  else payload.id = pick(IDS);
+  if (chance(0.4)) payload.name = pick(NAMES);
+  payload.body = chance(0.9) ? pick(BODIES.slice(0, 5)) : pick(BODIES);
+  if (chance(0.4)) payload.description = pick(['', 'edited']);
+  if (chance(0.15)) payload.kind = pick(['bot', 'agent']);
+  if (chance(0.35)) payload.persona = pick(['Warm and brief.', '', '  padded  ', null, 7]);
+  if (chance(0.45)) payload.avatar = pick(AVATARS);
+  if (chance(0.45)) payload.connectors = pick(CONNECTORS);
+  if (chance(0.25)) payload.expectedRevision = pick(['$current', '$current', 'stale']);
+  // `route` goes to the route setter (a separate service with its own twin); a unit test checks the call.
+  const options = chance(0.4) ? { noWiden: chance(0.7) } : undefined;
+  return { editor: { payload, ...(options ? { options } : {}) }, args: { action: 'save_agent_definition' } };
+}
+
 function makeCalls(known) {
   const calls = [];
   const count = 4 + Math.floor(next() * 5);
   for (let i = 0; i < count; i += 1) {
     const roll = next();
     let args;
+    if (chance(0.3)) {
+      calls.push({ caller: 'mixy', ...editorCall(known) });
+      continue;
+    }
     if (roll < 0.28) args = createArgs();
     else if (roll < 0.52) args = saveArgs(known);
     else if (roll < 0.72) args = { action: 'delete_definition', definitionKind: 'agent', name: pick(known) };
@@ -102,7 +181,8 @@ function snapshot(dir) {
         continue;
       }
       const rel = relative(dir, file).split('\\').join('/').replace(/defaults-separation-[^/]+/, 'defaults-separation-<ts>');
-      files[rel] = readFileSync(file, 'utf8');
+      // Images are bytes; everything else is text.
+      files[rel] = rel.startsWith('bots/') || rel.startsWith('agents/') ? (/(^|\/)avatar\/|\.png$/.test(rel) ? `b64:${readFileSync(file).toString('base64')}` : readFileSync(file, 'utf8')) : readFileSync(file, 'utf8');
     }
   };
   walk(dir);
@@ -128,6 +208,9 @@ function apiFor(world, dirs, state) {
     saveConfigAndAdopt: (value) => {
       state.config = value;
     },
+    setAgentRoute: async (id, route) => {
+      state.routeCalls.push({ id, route });
+    },
     lookupModelMeta: async () => ({}),
     ensureProvidersReady: async () => {},
     refreshEmptySessionToolPolicy: async () => ({ appliedToCurrentSession: true }),
@@ -143,7 +226,7 @@ async function record(world, index) {
   putFiles(dirs.shipped, world.shipped);
   putFiles(dirs.data, world.data);
   workflow.clearAgentDefinitionCache();
-  const state = { config: { workflow: { active: 'default' }, ...world.config } };
+  const state = { config: { workflow: { active: 'default' }, ...world.config }, routeCalls: [] };
   try {
     const api = apiFor(world, dirs, state);
     // Mostly agents that exist (or sit archived), with a few that do not or are internal.
@@ -155,8 +238,19 @@ async function record(world, index) {
     for (const call of calls) {
       let outcome;
       try {
-        const handler = handlers[call.args.action];
-        const result = await handler(api, call.args, { caller: CALLERS[call.caller] });
+        let result;
+        if (call.editor) {
+          // `$current` stands for the stored definition's revision as the caller loaded it.
+          const payload = { ...call.editor.payload };
+          if (payload.expectedRevision === '$current') {
+            payload.expectedRevision = await Promise.resolve()
+              .then(() => api.getAgentDefinition(String(payload.id ?? '')))
+              .then((definition) => definition.revision, () => 'missing');
+          }
+          result = await api.saveAgentDefinition(payload, call.editor.options);
+        } else {
+          result = await handlers[call.args.action](api, call.args, { caller: CALLERS[call.caller] });
+        }
         outcome = { ok: mask(result, dirs.data) };
       } catch (error) {
         outcome = { error: mask(String(error?.message ?? error), dirs.data) };
@@ -165,6 +259,7 @@ async function record(world, index) {
         ...call,
         ...outcome,
         files: snapshot(dirs.data),
+        routeCalls: JSON.parse(JSON.stringify(state.routeCalls)),
         disabled: Object.fromEntries(world.queries.map((q) => [q, isAgentDisabled(state.config, q)])),
         // The saved config keeps complete routes only; the stub here stores what it is given.
         routes: Object.entries(state.config.agents ?? {})
@@ -182,12 +277,12 @@ async function record(world, index) {
 const worlds = [];
 for (const [index, world] of twin.worlds.entries()) worlds.push(await record({ ...world }, index));
 
-writeJson(`${FIXTURES_ROOT}/desktop/settings/agent-definition-actions-twin.json`, {
-  domain: 'agent-definition-actions-twin',
-  recorder: 'benchmarks/rust-core/recorders/record-agent-definition-actions.mjs',
-  callers: CALLERS,
-  worlds,
-});
+// Not `writeJson`: it sorts object keys, and the order of a connector policy's tools is a
+// stored byte the twin pins.
+writeFileSync(
+  `${FIXTURES_ROOT}/desktop/settings/agent-definition-actions-twin.json`,
+  `${JSON.stringify({ domain: 'agent-definition-actions-twin', recorder: 'benchmarks/rust-core/recorders/record-agent-definition-actions.mjs', callers: CALLERS, worlds }, null, 1)}\n`
+);
 console.log(`recorded ${worlds.length} worlds, ${worlds.reduce((n, w) => n + w.steps.length, 0)} calls`);
 rmSync(sandbox, { recursive: true, force: true });
 process.exit(0);

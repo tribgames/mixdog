@@ -2,7 +2,6 @@
 //! freeze): one replayable patch section per own segment, oldest first, or a view-only entry when
 //! the edit lies outside the root or its bytes were never captured.
 
-use mixdog_core_api::turn_review::ReviewContent;
 use serde_json::Value;
 
 use super::line_diff::LineDiffBudget;
@@ -138,6 +137,3 @@ pub fn needs_object_format(edits: &[Edit]) -> bool {
     edits.iter().any(|edit| edit.binary && edit.inside && !edit.omitted)
 }
 
-pub fn is_omitted_side(content: &ReviewContent) -> bool {
-    matches!(content, ReviewContent::Omitted { .. })
-}

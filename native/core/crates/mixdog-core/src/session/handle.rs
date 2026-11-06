@@ -59,7 +59,9 @@ pub struct SessionHandle {
     pub(crate) lineage: Lineage,
     pub(crate) deps: Arc<SessionDeps>,
     pub(crate) directory: Weak<DirInner>,
-    /// One `thread/reactions/set` at a time: each reads the message, then amends it.
+    /// One room post (`thread/roomRows/append`) or `thread/reactions/set` at a time, in
+    /// order (`agent-room-delivery.mjs` `serialized`): each reads the conversation, then
+    /// writes it.
     pub(crate) reactions: tokio::sync::Mutex<()>,
 }
 
@@ -274,6 +276,35 @@ impl SessionHandle {
         Ok(Reply::Value(reply))
     }
 
+    /// `thread/roomRows/append {messages}`: a room post (`agent-room-delivery.mjs` `commit`). A
+    /// message whose `meta.transcript.messageId` the conversation already holds, or an earlier
+    /// message of the post carries, is skipped; the rest are stored as rows of no turn, each
+    /// shown live as it lands. Answers `{added}`. Internal callers only.
+    async fn room_rows_append(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let messages = req.params.get("messages").and_then(Value::as_array).cloned().ok_or_else(|| CoreError::InvalidParams {
+            path: "messages".into(),
+            expected: "the room row messages".into(),
+        })?;
+        let _one_at_a_time = self.reactions.lock().await;
+        let context = super::run::ModelContext {
+            store: self.deps.store.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        };
+        let fresh = super::room_log::fresh_rows(context.read().await?.iter().map(|(_, message)| message), messages);
+        if fresh.is_empty() {
+            return Ok(Reply::Value(json!({ "added": 0 })));
+        }
+        let append = CoreRequest {
+            method: mixdog_core_api::ids::Method("thread/roomRows/commit"),
+            params: json!({ "messages": fresh }),
+            op: None,
+            ctx: req.ctx,
+        };
+        self.to_actor(append).await
+    }
+
     /// `thread/revertTurnReview {checkpointId?}` / `thread/revertTurnReviewFile {file, checkpointId?}`:
     /// the session runtime's `revertTurnReview(getCwd(), getSessionId(), ...)`. A refusal is a domain
     /// error carrying Node's message.
@@ -301,6 +332,22 @@ impl SessionHandle {
             message: Some(error.message.into()),
             detail: None,
         })
+    }
+
+    /// `thread/delete`: `deleteSession` (`true` once the session is gone, `false` when nothing
+    /// was deleted), or with `ifIdle` the desktop's `deleteSessionIfIdle` (`{deleted, reason?}`).
+    async fn delete(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+        let params: mixdog_app_protocol::v2::thread::ThreadDeleteParams =
+            serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
+                path: "params".into(),
+                expected: "ThreadDeleteParams".into(),
+            })?;
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let id = params.thread_id.as_str();
+        Ok(Reply::Value(match &params.if_idle {
+            Some(expected) => super::delete::delete_session_if_idle(&directory, id, expected).await?,
+            None => Value::Bool(super::delete::delete_session(&directory, id).await?),
+        }))
     }
 
     /// `thread/fork`: a new thread whose history continues this one's acked lineage.
@@ -389,9 +436,11 @@ impl ThreadHandle for SessionHandle {
             "thread/resume" => self.resume(&req),
             "thread/read" => self.read(&req).await,
             "thread/fork" => self.fork(req).await,
+            "thread/delete" => self.delete(&req).await,
             "thread/revertTurnReview" => self.revert_turn_review(&req, false).await,
             "thread/revertTurnReviewFile" => self.revert_turn_review(&req, true).await,
             "thread/reactions/set" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.reactions_set(req).await,
+            "thread/roomRows/append" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.room_rows_append(req).await,
             // The acked header, for the core's own ports; never a connection's read.
             "thread/header/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
                 Ok(Reply::Value(json!({ "header": *self.cell.header.load_full() })))

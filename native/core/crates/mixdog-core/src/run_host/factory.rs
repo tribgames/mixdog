@@ -22,7 +22,7 @@ use mixdog_agent::env::{
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{AgentError, Run, RunCarry, RunConfig};
-use mixdog_core_api::domain::provider::{ProviderAdapter, Role};
+use mixdog_core_api::domain::provider::{Content, ProviderAdapter, Role};
 use mixdog_core_api::domain::retry::RetryDecider;
 use mixdog_core_api::ids::{ItemId, ThreadId, TurnId};
 use mixdog_protocol::{ItemMeta, MaybeBlob, ThreadItem, TurnError};
@@ -47,7 +47,21 @@ pub struct AssembleInput<'a> {
     pub header: &'a mixdog_store::schema::record::Header,
     pub surface: Arc<SessionSurface>,
     pub port: &'a RunPort,
+    /// The session's live tool surface (the gate reads it per call).
+    pub surface_rx: tokio::sync::watch::Receiver<Arc<SessionSurface>>,
 }
+
+/// What the policy gate needs from the run it gates, which exists only after assembly.
+pub struct GateContext {
+    pub observer: Arc<dyn RunObserver>,
+    pub cancel: tokio_util::sync::CancellationToken,
+    pub guards: Arc<dyn TurnGuards>,
+    pub approvals: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>,
+}
+
+/// Builds the turn's gate (PolicyGate) from the run's observer, token and guards.
+pub type GateBuilder = Box<dyn FnOnce(GateContext) -> Arc<dyn ToolGate> + Send>;
+
 
 /// Everything of a turn the host supplies. Owners are named where the real source is not in this
 /// crate yet.
@@ -59,7 +73,7 @@ pub struct Assembled {
     pub tools: ToolSet,
     pub tool_env: ToolEnv,
     /// The policy gate (`PolicyGate`, WP-AGENT/WP-SANDBOX); the factory puts the review in front.
-    pub gate: Arc<dyn ToolGate>,
+    pub gate: GateBuilder,
     /// The turn's final workspace, where the review baseline is taken.
     pub worktree: String,
     /// `RunConfig` from the route and settings: model, request options, limits, compaction,
@@ -67,8 +81,6 @@ pub struct Assembled {
     /// attachments. `thread_id`, `turn_id`, `signal` and `first_request_after` are set by the
     /// factory.
     pub config: RunConfig,
-    /// The system messages, tiered (WP-PROMPT).
-    pub system: Vec<AgentMessage>,
     pub clock: Arc<dyn Clock>,
     pub decider: Arc<dyn RetryDecider>,
     pub guards: Arc<dyn TurnGuards>,
@@ -82,6 +94,8 @@ pub struct Assembled {
     pub step_judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
     pub artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     pub images: Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>,
+    /// The attachment blob reader, for the display facts of a user row (a pasted text's body).
+    pub blobs: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
     /// The guard state that outlives one ask (the session record).
     pub carry: RunCarry,
 }
@@ -138,6 +152,7 @@ struct PortSink {
     streaming: Arc<Mutex<Option<ItemId>>>,
     iids: Mutex<HashMap<String, ItemId>>,
     clock: Arc<dyn Clock>,
+    blobs: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -151,6 +166,7 @@ impl PortSink {
         live: LiveTurnPublisher,
         streaming: Arc<Mutex<Option<ItemId>>>,
         clock: Arc<dyn Clock>,
+        blobs: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
     ) -> Arc<Self> {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
@@ -170,7 +186,7 @@ impl PortSink {
                 done_tx.send_replace(n);
             }
         }));
-        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock })
+        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs })
     }
 
     /// The input row and the context before it: known ids, and the turn's first live message.
@@ -204,7 +220,15 @@ fn dropped_of(dropped: &mixdog_agent::env::Dropped) -> crate::session::run::Drop
 impl TranscriptSink for PortSink {
     fn commit(&self, message: &AgentMessage) -> Ticket {
         let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let row = row_of(message);
+        let mut row = row_of(message);
+        // Node hides a row by what it is: a user row the transcript shows nothing for (a hook or
+        // skill note, internal text) is not visible; a card or cancel line is written into its meta.
+        let visible = if message.role() == Role::User {
+            let mut text = mixdog_protocol::message_class::user_text::UserText::new(&*self.blobs);
+            mixdog_protocol::message_class::row_facts(&mut row, &mut text).is_none_or(|facts| facts.visible)
+        } else {
+            true
+        };
         self.rows.record(message, row.clone());
         {
             let mut turn = lock(&self.turn);
@@ -219,7 +243,7 @@ impl TranscriptSink for PortSink {
             Role::Tool => "tool",
             Role::Developer => "developer",
         };
-        let item = ItemCommit { iid: shown.unwrap_or_else(|| self.iid_of(message)), role: Some(role.to_owned()), model: true, visible: true, body: row };
+        let item = ItemCommit { iid: shown.unwrap_or_else(|| self.iid_of(message)), role: Some(role.to_owned()), model: true, visible, body: row, prompt: None };
         let _ = self.jobs.send(Job::Commit(n, item));
         Ticket(n)
     }
@@ -248,6 +272,7 @@ impl TranscriptSink for PortSink {
 // ---- the observer ------------------------------------------------------------------------------------
 
 enum Shown {
+    Section(crate::session::Section),
     Started(ThreadItem),
     Delta(ItemId, String),
 }
@@ -291,6 +316,15 @@ impl RunObserver for PortObserver {
                 self.text(text);
             }
             RunEvent::ReasoningDelta(_) => self.progress.stream_delta(StreamKind::Reasoning),
+            // The context reading the footer shows (percent is the session's to derive).
+            RunEvent::ContextPressure { used_tokens, .. } => {
+                let context = mixdog_app_protocol::v2::thread::ThreadContext { context_tokens: i64::try_from(used_tokens).ok(), ..Default::default() };
+                let _ = self.out.send(Shown::Section(crate::session::Section::Context(context)));
+            }
+            RunEvent::Stage(Stage::ModelFallback { model }) => {
+                let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
+                let _ = self.out.send(Shown::Section(crate::session::Section::Route(route)));
+            }
             RunEvent::ToolCalls { calls, .. } => {
                 self.progress.stage("tool_running");
                 for call in &calls {
@@ -315,29 +349,43 @@ impl RunObserver for PortObserver {
 async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, .. } = run;
     let surface_now = surface.borrow().clone();
-    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port }).await {
+    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone() }).await {
         Ok(assembled) => assembled,
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, system, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, tail, step_judge, artifacts, images, carry,
+        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, tail, step_judge, artifacts, images, blobs, carry,
     } = assembled;
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
-    let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(review, gate));
 
     let rows = Arc::new(StoredRows::new());
     let stored = match context.read().await {
         Ok(stored) => stored,
         Err(error) => return failed(format!("model context unreadable: {error:?}"), Value::Null),
     };
-    let Some(input) = message_of(&input_body) else { return failed("the turn's input row is not a model message", input_body) };
+    let input = match message_of(&input_body) {
+        Ok(input) => input,
+        Err(error) => return failed(format!("the turn's input row is not a model message: {error}"), input_body),
+    };
     let live = LiveTurnPublisher::new(turn_messages);
     let streaming = Arc::new(Mutex::new(None));
-    let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone());
-    let mut messages = system;
+    let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone(), blobs);
+    // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
+    let mut messages: Vec<AgentMessage> = crate::prompt::blocks::request_system_messages(&header)
+        .into_iter()
+        .map(|wire| {
+            let mut message = AgentMessage::user_content(Content::Text(String::new()));
+            message.message = wire;
+            message
+        })
+        .collect();
     for (iid, body) in stored {
-        let Some(message) = message_of(&body) else { continue };
+        // A stored row the codec cannot read fails the turn: dropping it would change the context.
+        let message = match message_of(&body) {
+            Ok(message) => message,
+            Err(error) => return failed(format!("the model context holds a row this build cannot read: {error}"), body),
+        };
         if let Some(id) = &message.message_id {
             lock(&sink.iids).insert(id.clone(), iid);
         }
@@ -355,6 +403,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     drop(mixdog_rt::spawn("run-shown", TaskClass::Work, async move {
         while let Some(shown) = shown_rx.recv().await {
             let _ = match shown {
+                Shown::Section(section) => shown_port.section(section).await,
                 Shown::Started(item) => shown_port.item_started(item).await,
                 Shown::Delta(id, text) => shown_port.delta(id, text).await,
             };
@@ -366,6 +415,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     config.turn_id = turn.clone();
     config.signal = Some(signal);
     config.first_request_after = Some(Ticket(0));
+    let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(review, gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: Arc::new(port.clone()) })));
     let env = RunEnv {
         clock,
         jitter: Arc::new(RandomJitter),
@@ -513,6 +563,13 @@ mod tests {
         }
     }
 
+    struct NoBlobs;
+    impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
+        fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
+            Ok(None)
+        }
+    }
+
     struct Parts {
         provider: Arc<Scripted>,
         workspace: std::path::PathBuf,
@@ -531,8 +588,6 @@ mod tests {
                 exclusive_with: Vec::new(),
             };
             let tokens = mixdog_rt::testing::tokens();
-            let mut system = AgentMessage::user("be brief");
-            system.message.role = Role::System;
             Ok(Assembled {
                 provider: self.provider.clone(),
                 tools: ToolSet::new(vec![Arc::new(Echo(spec))]),
@@ -548,10 +603,9 @@ mod tests {
                     progress: Arc::new(MockProgress::default()),
                     deadline_of: None,
                 },
-                gate: Arc::new(AllowAll),
+                gate: Box::new(|_| Arc::new(AllowAll)),
                 worktree: self.workspace.to_string_lossy().into_owned(),
                 config: RunConfig::new(input.thread.clone(), input.turn.clone(), "m"),
-                system: vec![system],
                 clock: Arc::new(Fixed),
                 decider: Arc::new(MockRetryDecider),
                 guards: Arc::new(NoGuards),
@@ -565,6 +619,7 @@ mod tests {
                 step_judge: None,
                 artifacts: None,
                 images: None,
+                blobs: Arc::new(NoBlobs),
                 carry: RunCarry::default(),
             })
         }
@@ -642,7 +697,7 @@ mod tests {
         let requests = lock(&provider.requests).clone();
         assert_eq!(requests.len(), 2);
         let second: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
-        assert_eq!(second, [Role::System, Role::User, Role::Assistant, Role::Tool]);
+        assert_eq!(second, [Role::User, Role::Assistant, Role::Tool]);
         let _ = AtomicI64::new(0);
     }
 }

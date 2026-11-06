@@ -32,6 +32,7 @@ use mixdog_store::encode::Encoded;
 use mixdog_store::schema::record::ApprovalRecord;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::ItemRecord;
+use mixdog_store::schema::record::ModelSwitchEntry;
 use mixdog_store::schema::record::QueueRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::record::RunRecord;
@@ -128,6 +129,17 @@ pub struct SessionMeta {
     pub owner_session_id: Value,
     /// `session.sourceType || null`.
     pub source_type: Value,
+    /// `Number(session.lastUsedAt) || 0`: every completed turn moves it.
+    pub last_used_at: f64,
+    /// `knownSessionCwds`' list-row part: `cwd`, `workspace.cwd`, `workspace.projectPath`,
+    /// each a non-empty string, once.
+    pub cwds: Vec<String>,
+}
+
+/// `Number(value) || 0`.
+pub(crate) fn last_used(value: Option<&Value>) -> f64 {
+    let n = value.map_or(0.0, mixdog_js::to_number);
+    if n.is_nan() { 0.0 } else { n }
 }
 
 impl SessionMeta {
@@ -140,6 +152,8 @@ impl SessionMeta {
             agent: field("agent"),
             owner_session_id: field("ownerSessionId"),
             source_type: field("sourceType"),
+            last_used_at: last_used(row.get("lastUsedAt")),
+            cwds: super::delete::row_cwds(&row),
         }
     }
 }
@@ -171,6 +185,19 @@ pub enum ContextStep {
 /// Store-private position where appends continue (open-for-append happens at the first write).
 pub struct AppendPosition(pub Box<dyn Any + Send>);
 
+/// One compaction divider of the restored window (`SqliteStore::dividers`, 1.4.5's
+/// "Conversation compacted" row): shown before window row `before` (the window's length:
+/// after every row), then the model-switch boundaries anchored on its replacement entries.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowDivider {
+    pub before: usize,
+    /// The `compacted` frame's ordinal: a boundary on its summary names it.
+    pub ordinal: u64,
+    pub cid: String,
+    pub at: Option<i64>,
+    pub model_switches: Vec<ModelSwitchEntry>,
+}
+
 /// A decoded log: the state at its newest checkpoint plus the committed frames after it
 /// (SPEC R28). The session folds `tail` onto the checkpoint state with the same fold it uses
 /// for live records, so a reopened thread equals the thread before it was unloaded.
@@ -188,6 +215,8 @@ pub struct OpenedLog {
     /// The newest visible, non-superseded rows before the checkpoint, oldest first, bounded
     /// by the UI window (≤ 200 rows, ≤ 2 MiB bodies).
     pub window: Vec<(u64, ItemRecord)>,
+    /// The compaction dividers among the window's rows, in display order.
+    pub dividers: Vec<WindowDivider>,
     /// Rows older than `window` exist.
     pub has_older: bool,
     /// The prompt-history session part as of the checkpoint: the lineage's non-superseded
@@ -271,6 +300,11 @@ pub trait ThreadStore: Send + Sync + 'static {
 
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
+
+    /// After a delete mark is acked: the index takes every projection acked so far, then the
+    /// fork-aware purge removes each deleted session no live lineage reads (files and index
+    /// rows). The ids it removed.
+    fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
 
     /// The cpu step of a model-context read.
     fn context_cpu(

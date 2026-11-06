@@ -176,6 +176,13 @@ impl RunHostRouteChange {
         }
     }}
 
+/// A cleared conversation's environment reset (Node's resetSessionBp3Environment), as the header change
+/// the clear writes in its own patch.
+pub fn environment_reset(header: &Header) -> HeaderChange {
+    let blocks = crate::prompt::blocks::SystemBlocks::from_header(header);
+    crate::prompt::session::reset_environment(header, &blocks).change
+}
+
 /// Whether the route names another provider or model than `previous` (`routeChanged` of
 /// `updateSessionRoute`). The adapter passes it to `route_prompt_refresh`.
 pub fn route_changed(route: &Route, previous: &Route) -> bool {
@@ -194,6 +201,9 @@ impl RouteChange for RunHostRouteChange {
                 Self::invalidate(&mut change);
             }
         }
+        // A staged re-root and the # Session block, rewritten in the same patch (WP-PROMPT).
+        let blocks = crate::prompt::blocks::SystemBlocks::from_header(header);
+        merge(&mut change, crate::prompt::session::route_prompt(header, &blocks, route_changed).change);
         change
     }
 }

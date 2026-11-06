@@ -1,0 +1,6 @@
+{
+  "id": "worker",
+  "name": "Worker",
+  "description": "Default implementation agent. Use for implementation work unless a specialized agent is clearly more appropriate.",
+  "entry": "AGENT.md"
+}

@@ -42,6 +42,18 @@ pub enum Source {
     CompactContext,
     ActiveTurnContinuation,
     CompactExecutionRecovery,
+    /// The skills a compaction kept, reloaded or restored (compact-skill-window, -reload,
+    /// -restore).
+    CompactSkillWindow,
+    CompactSkillReload,
+    CompactSkillRestore,
+    /// A skill the user named or the model selected (skill-context, skill-selection), the
+    /// skill-update notice, a held request and a room line.
+    SkillContext,
+    SkillSelection,
+    SkillUpdateNotice,
+    HeldRequest,
+    AgentRoom,
     /// Text-only copy compaction keeps of an omitted tool-call turn.
     CompactExecutionText,
     GoalContinuation,
@@ -90,6 +102,10 @@ pub struct AgentMessage {
     /// Tool messages only (Node `uiDiff`): the call's card diff, from the result's `meta.uiDiff`.
     /// The host stores it on the row; it is never wire text.
     pub ui_diff: Option<String>,
+    /// The stored row this message was read from, exactly as stored (see the host message codec):
+    /// whatever the typed fields do not hold (timings, usage counters, envelope extras) is written
+    /// back from it, and a field the run changed is written over it.
+    pub stored: Option<std::sync::Arc<serde_json::Map<String, mixdog_protocol::JsonValue>>>,
 }
 
 impl AgentMessage {
@@ -107,6 +123,7 @@ impl AgentMessage {
             provider_metadata: None,
             effort: None,
             ui_diff: None,
+            stored: None,
         }
     }
 
