@@ -447,10 +447,8 @@ impl WorkerRows for ProbeRows {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn worker_turn_rows_equal_nodes() {
     long_lived_ticker();
-    for (index, scenario) in fixture("worker-turns.json").into_iter().enumerate() {
+    for scenario in fixture("worker-turns.json") {
         let name = scenario["name"].as_str().unwrap();
-        let number = index + 1 + fixture("runner.json").len() * 0;
-        let _ = number;
         let probe = Arc::new(Probe::default());
         let board = JobBoard::new(Arc::new(FixedClock), None, None);
         let changed = probe.clone();

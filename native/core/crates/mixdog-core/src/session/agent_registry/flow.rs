@@ -9,6 +9,28 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use async_trait::async_trait;
+use mixdog_agent::agent_tool::flow::handoff::handoff_content;
+use mixdog_agent::agent_tool::flow::seams::AssistantText;
+use mixdog_agent::agent_tool::flow::seams::TurnError;
+use mixdog_agent::agent_tool::flow::seams::TurnRequest;
+use mixdog_agent::agent_tool::flow::seams::TurnResult;
+use mixdog_agent::agent_tool::flow::seams::TurnSessions;
+use mixdog_app_protocol::v2::thread::TurnInput;
+use mixdog_core_api::Reply;
+use mixdog_core_api::ThreadHandle;
+use mixdog_core_api::call::CallContext;
+use mixdog_core_api::call::CoreRequest;
+use mixdog_core_api::ids::Method;
+use mixdog_core_api::ids::OpId;
+use mixdog_protocol::PromptContent;
+use mixdog_protocol::SubmitOptions;
+use serde_json::json;
+use tokio::sync::oneshot;
+
+use crate::session::control::AgentStart;
+use crate::session::seams::AgentTurn;
+use crate::session::seams::RunOutcome;
 use mixdog_agent::agent_tool::flow::seams::OwnerNotify;
 use mixdog_agent::agent_tool::flow::seams::RowUpdate;
 use mixdog_agent::agent_tool::flow::seams::SessionNames;
@@ -22,7 +44,6 @@ use mixdog_agent::agent_tool::host::Registry;
 use mixdog_agent::agent_tool::scope::clean;
 use mixdog_agent::agent_tool::scope::clean_str;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_tools::exec::TaskNotifier;
 use serde_json::Value;
 
 use super::AgentRegistry;
@@ -216,6 +237,177 @@ impl OwnerNotify for SessionCompletions {
     }
 }
 
+/// What a settled worker session still pins in this process besides its thread: the read-dedup
+/// caches, side questions and read-only worker snapshots (`unloadSessionRuntime`,
+/// `session-close.mjs:344`). Owner: WP-RUN-HOST.
+pub trait RuntimeRelease: Send + Sync {
+    fn release(&self, thread: &ThreadId, reason: &str);
+}
+
+/// The session layer as a worker's turn uses it (`TurnSessions`): reads over the stored model
+/// context, the todo list, and the turn started through the internal `turn/start`.
+pub struct SessionTurns {
+    directory: Arc<SessionDirectory>,
+    release: Arc<dyn RuntimeRelease>,
+}
+
+/// `assistantMessageText(content)`: a string, else the `text`/`output_text` parts joined by a
+/// line break.
+fn assistant_message_text(content: Option<&Value>) -> String {
+    match content {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter(|part| matches!(part.get("type").and_then(Value::as_str), Some("text" | "output_text")))
+            .map(|part| part.get("text").and_then(Value::as_str).unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// `replayItemText(item)`.
+fn replay_item_text(item: &Value) -> String {
+    if !item.is_object() {
+        return String::new();
+    }
+    let text = |item: &Value| item.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
+    match item.get("type").and_then(Value::as_str) {
+        Some("message") => assistant_message_text(item.get("content")),
+        Some("text" | "output_text") => text(item),
+        None if item.get("thought") != Some(&Value::Bool(true)) => text(item),
+        _ => String::new(),
+    }
+}
+
+/// `providerReplayText(replay)`: the visible text of a replay envelope's items.
+fn provider_replay_text(replay: Option<&Value>) -> String {
+    let items = replay.and_then(|replay| replay.get("items")).and_then(Value::as_array);
+    items
+        .into_iter()
+        .flatten()
+        .map(replay_item_text)
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+impl SessionTurns {
+    pub fn new(directory: Arc<SessionDirectory>, release: Arc<dyn RuntimeRelease>) -> Self {
+        Self { directory, release }
+    }
+
+    /// `session.messages`: the model rows since the thread's last compaction.
+    async fn messages(&self, session_id: &str) -> Vec<Value> {
+        let thread = ThreadId::from(clean_str(session_id).as_str());
+        match self.directory.model_context(&thread).read().await {
+            Ok(rows) => rows.into_iter().map(|(_, body)| body).collect(),
+            Err(error) => {
+                tracing::warn!("[agent-turn] the model context of {session_id} is unreadable: {error:?}");
+                Vec::new()
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl TurnSessions for SessionTurns {
+    async fn message_count(&self, session_id: &str) -> usize {
+        self.messages(session_id).await.len()
+    }
+
+    async fn assistant_texts(&self, session_id: &str, start: usize) -> Vec<AssistantText> {
+        self.messages(session_id)
+            .await
+            .into_iter()
+            .skip(start)
+            .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
+            .map(|message| AssistantText {
+                content: assistant_message_text(message.get("content")),
+                replay: provider_replay_text(message.get("providerReplay")),
+            })
+            .collect()
+    }
+
+    /// `notDoneReport(session)` over the session's todo list. The store reads asynchronously;
+    /// this waits for it on the calling worker thread (a multi-thread runtime).
+    fn not_done_report(&self, session_id: &str) -> String {
+        let thread = ThreadId::from(clean_str(session_id).as_str());
+        let todos = self.directory.deps().todos.clone();
+        let list = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(todos.read(&thread)));
+        list.not_done_report()
+    }
+
+    /// Starts the turn through the internal `turn/start` (the worker's input row carries
+    /// `handoffContent(prompt, attachments)` and the submission), then waits for the run's
+    /// outcome: the final result, or the failure's message.
+    async fn run_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
+        let thread = ThreadId::from(clean_str(&request.session_id).as_str());
+        let ctx = CallContext::internal("agent-turn");
+        let handle = self
+            .directory
+            .open_handle(&thread, &ctx)
+            .await
+            .map_err(|error| TurnError::new(format!("agent session {} is unavailable: {error:?}", request.session_id)))?;
+        let submission = request.hooks.submission_id.clone();
+        let op = OpId::from(format!("agent-turn:{}", if submission.is_empty() { uuid::Uuid::new_v4().to_string() } else { submission.clone() }));
+        let input = TurnInput {
+            prompt: PromptContent::Text(request.prompt.clone()),
+            options: Some(SubmitOptions { client_submission_id: Some(submission).filter(|id| !id.is_empty()), ..SubmitOptions::default() }),
+        };
+        let (done, outcome) = oneshot::channel();
+        *handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()) = Some(AgentStart {
+            content: handoff_content(&request.prompt, &request.attachments),
+            turn: AgentTurn {
+                kind: request.kind,
+                hooks: request.hooks,
+                slot: request.slot,
+                context: request.context,
+                skill_selection: request.skill_selection,
+            },
+            done,
+        });
+        let params = json!({ "threadId": thread, "opId": op, "input": input });
+        let started = handle
+            .request(CoreRequest { method: Method("turn/start"), params, op: Some(op.clone()), ctx: ctx.clone() })
+            .await;
+        let unstarted = |message: String| {
+            handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).take();
+            TurnError::new(message)
+        };
+        match started {
+            Ok(Reply::Value(value)) if value["kind"] == "started" => {}
+            Ok(Reply::Value(value)) => {
+                if let Some(queued) = value["queuedId"].as_str() {
+                    let params = json!({ "threadId": thread, "opId": format!("{op}:unqueue"), "queuedId": queued });
+                    let _ = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(OpId::from(format!("{op}:unqueue"))), ctx }).await;
+                }
+                return Err(unstarted(format!("agent session {} is busy with another turn", request.session_id)));
+            }
+            Ok(_) => return Err(unstarted("turn/start answered no value".to_owned())),
+            Err(error) => return Err(unstarted(format!("the turn did not start: {error:?}"))),
+        }
+        match outcome.await {
+            Ok(RunOutcome::Completed(result)) => Ok(*result),
+            Ok(RunOutcome::Failed(error)) => Err(TurnError::new(error.message)),
+            Ok(RunOutcome::Interrupted) => Err(TurnError::new("The turn was interrupted")),
+            Err(_) => Err(TurnError::new(format!("agent session {} closed during its turn", request.session_id))),
+        }
+    }
+
+    /// `unloadSessionRuntime`: vetoed while the session still owns work (a running turn, or a
+    /// closing thread); else the process-local state a settled turn left is released.
+    fn unload_runtime(&self, session_id: &str, reason: &str) {
+        let thread = ThreadId::from(clean_str(session_id).as_str());
+        if let Some(handle) = self.directory.handle(&thread)
+            && (handle.cell.run.load().is_some() || handle.cell.closed.load(Ordering::SeqCst))
+        {
+            return;
+        }
+        self.release.release(&thread, reason);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mixdog_protocol::ThreadItem as ThreadItemKind;
@@ -277,6 +469,128 @@ mod tests {
             let result = outcome.result.map(|r| format!("{}/{}", r.content, r.iterations)).unwrap_or_default();
             self.0.lock().unwrap().push(format!("settled {} {result}", outcome.done));
         }
+    }
+
+    struct Released(Mutex<Vec<String>>);
+    impl RuntimeRelease for Released {
+        fn release(&self, thread: &ThreadId, reason: &str) {
+            self.0.lock().unwrap().push(format!("{thread} {reason}"));
+        }
+    }
+
+    /// `notDoneReport(session)`: the unfinished items under `Not done:`, nothing when the list
+    /// is empty or every item is completed or dropped.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_not_done_report_names_the_unfinished_items() {
+        use mixdog_tools::state::todo::{TodoList, TodoPhase, TodoStatus, TodoTask};
+        let task = |content: &str, status| TodoTask { content: content.into(), status, note: None };
+
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let turns = SessionTurns::new(directory, Arc::new(Released(Mutex::default())));
+        assert_eq!(turns.not_done_report("sess_x"), "");
+        *rig.todos.0.lock().unwrap() = TodoList {
+            phases: vec![TodoPhase {
+                name: "Tasks".into(),
+                tasks: vec![
+                    task("Measure the build", TodoStatus::Completed),
+                    task("Write the summary", TodoStatus::InProgress),
+                    task("Skipped", TodoStatus::Abandoned),
+                    task("Verify", TodoStatus::Pending),
+                ],
+            }],
+            updated_at_ms: 0,
+        };
+        assert_eq!(turns.not_done_report("sess_x"), "Not done:\n- Write the summary\n- Verify");
+        rig.todos.0.lock().unwrap().phases[0].tasks.retain(|t| t.status == TodoStatus::Completed);
+        assert_eq!(turns.not_done_report("sess_x"), "");
+    }
+
+    /// A worker's turn: the input row carries `handoffContent` and the submission, the run
+    /// is handed the turn's pieces, the final result reaches the terminal hook and the caller,
+    /// the reads see only the rows the turn added, and a failure is the turn's own message.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_worker_turn_runs_with_its_handoff_and_returns_the_final_result() {
+        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
+        use crate::session::tests::start_thread;
+
+        let rig = crate::session::testing::Rig::new();
+        let seen: Arc<Mutex<Vec<(Option<String>, TurnKind, Option<String>, Value)>>> = Arc::default();
+        let record = seen.clone();
+        rig.set_script(Arc::new(move |run| {
+            let record = record.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let agent = run.agent_turn.as_ref();
+                record.lock().unwrap().push((
+                    agent.and_then(|a| a.skill_selection.clone()),
+                    agent.map(|a| a.kind).unwrap_or(TurnKind::Send),
+                    agent.and_then(|a| a.context.as_ref().map(|c| c.to_string())),
+                    run.input_body.clone(),
+                ));
+                if run.input_body["content"].to_string().contains("boom") {
+                    return crate::session::RunOutcome::Failed(mixdog_protocol::TurnError { message: "provider down".into(), data: json!({}), provider_error: None });
+                }
+                let reply = crate::session::ItemCommit {
+                    iid: mixdog_core_api::ids::ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "assistant", "content": [{ "type": "text", "text": "worked" }] }),
+                    prompt: None,
+                };
+                run.port.commit_item(reply).await.expect("commit");
+                let result = TurnResult { content: "worked".into(), iterations: 1, ..Default::default() };
+                crate::session::RunOutcome::Completed(Box::new(result))
+            })
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = start_thread(&directory).await;
+        let released = Arc::new(Released(Mutex::default()));
+        let turns = SessionTurns::new(directory.clone(), released.clone());
+        let request = |prompt: &str, submission: &str| {
+            let heard: Arc<Mutex<Vec<String>>> = Arc::default();
+            let sink = heard.clone();
+            let request = TurnRequest {
+                kind: TurnKind::Spawn,
+                session_id: handle.id.as_str().to_owned(),
+                prompt: prompt.to_owned(),
+                attachments: vec![json!({ "type": "image", "attachmentRef": "a".repeat(64), "mimeType": "image/png", "filename": "x.png", "sizeBytes": 5, "data": "dropped" })],
+                context: Some(json!({ "k": 1 })),
+                cwd: String::new(),
+                skill_selection: Some("skills".into()),
+                hooks: TurnHooks {
+                    submission_id: submission.into(),
+                    notify: Arc::new(|_, _| true),
+                    on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
+                    on_terminal_result: Some(Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.content.clone()))),
+                },
+                slot: None,
+            };
+            (request, heard)
+        };
+        assert_eq!(turns.message_count(handle.id.as_str()).await, 0);
+        let (first, terminal) = request("do it", "sub-1");
+        let result = turns.run_turn(first).await.expect("turn");
+        assert_eq!((result.content.as_str(), result.iterations), ("worked", 1));
+        assert_eq!(*terminal.lock().unwrap(), ["worked"], "the terminal hook hears the final result");
+        let (skill, kind, context, body) = seen.lock().unwrap()[0].clone();
+        assert_eq!((skill.as_deref(), kind, context.as_deref()), (Some("skills"), TurnKind::Spawn, Some("{\"k\":1}")));
+        assert_eq!(
+            body["content"],
+            json!([{ "type": "text", "text": "do it" }, { "type": "image", "attachmentRef": "a".repeat(64), "sizeBytes": 5, "mimeType": "image/png", "filename": "x.png" }])
+        );
+        assert_eq!(body["meta"]["transcript"]["submissionIds"], json!(["sub-1"]));
+        assert_eq!(turns.message_count(handle.id.as_str()).await, 2);
+        let texts = turns.assistant_texts(handle.id.as_str(), 1).await;
+        assert_eq!(texts, [AssistantText { content: "worked".into(), replay: String::new() }]);
+        assert!(turns.assistant_texts(handle.id.as_str(), 2).await.is_empty());
+
+        let (second, _) = request("boom", "sub-2");
+        let error = turns.run_turn(second).await.expect_err("failed");
+        assert_eq!(error.message, "provider down");
+        turns.unload_runtime(handle.id.as_str(), "agent-turn-complete");
+        assert_eq!(*released.0.lock().unwrap(), [format!("{} agent-turn-complete", handle.id)]);
     }
 
     /// `observeSessionTurns`: the observer hears each turn start and the run host's final

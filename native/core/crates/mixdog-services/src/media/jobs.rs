@@ -11,7 +11,9 @@ use serde_json::{Map, Value, json};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
+use super::renditions::StillRenditions;
 use super::store::{MediaStore, now_ms};
+use super::variants;
 
 /// Finished jobs stay readable so a slow poller still sees the terminal state.
 const TERMINAL_TTL_MS: i64 = 10 * 60_000;
@@ -83,16 +85,28 @@ pub struct MediaJobs {
     jobs: Mutex<HashMap<String, Job>>,
     updates: broadcast::Sender<Value>,
     max_active: usize,
+    /// When set, each saved asset's tile rendition is built in the background.
+    renditions: Option<StillRenditions>,
 }
 
 impl MediaJobs {
     pub fn new(store: Arc<MediaStore>, generator: Arc<dyn MediaGenerator>, max_active: Option<usize>) -> Arc<Self> {
+        Self::build(store, generator, max_active, None)
+    }
+
+    /// [`new`](Self::new) that also warms the tile rendition of every asset it saves.
+    pub fn with_renditions(store: Arc<MediaStore>, generator: Arc<dyn MediaGenerator>, max_active: Option<usize>, renditions: StillRenditions) -> Arc<Self> {
+        Self::build(store, generator, max_active, Some(renditions))
+    }
+
+    fn build(store: Arc<MediaStore>, generator: Arc<dyn MediaGenerator>, max_active: Option<usize>, renditions: Option<StillRenditions>) -> Arc<Self> {
         Arc::new(Self {
             store,
             generator,
             jobs: Mutex::default(),
             updates: broadcast::channel(256).0,
             max_active: max_active.filter(|n| *n > 0).unwrap_or(DEFAULT_MAX_ACTIVE_JOBS),
+            renditions,
         })
     }
 
@@ -206,11 +220,16 @@ impl MediaJobs {
                     meta.insert("durationSeconds".into(), json!(d));
                 }
                 let (mime, bytes) = (media.mime, media.bytes);
-                self.store
+                let saved = self
+                    .store
                     .run(move |store| store.save_asset(&resolved.kind, &resolved.lane, &resolved.model, &prompt, options, &mime, &bytes, meta))
                     .await
                     .and_then(|saved| saved)
-                    .map_err(|e| MediaFailure::new(e.to_string(), e.code()))
+                    .map_err(|e| MediaFailure::new(e.to_string(), e.code()));
+                if let (Ok(asset), Some(renditions)) = (&saved, &self.renditions) {
+                    variants::prewarm(self.store.clone(), renditions.clone(), asset["id"].as_str().unwrap_or_default().to_owned(), asset["kind"] == "video");
+                }
+                saved
             }
         };
         self.update(&id, |s| {

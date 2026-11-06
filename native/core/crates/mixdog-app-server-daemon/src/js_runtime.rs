@@ -16,7 +16,9 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_rt::LaneToken;
 use serde::Deserialize;
+use tokio_util::sync::CancellationToken;
 
 use crate::compose::JsRuntime;
 
@@ -48,6 +50,13 @@ struct Manifest {
 
 /// The runtime of the install `exe` belongs to; `path` is the `PATH` a bare program name is
 /// searched on. A missing manifest, or one that names something missing, is an error.
+///
+/// Probes the file system: it runs in the lane job of [`resolve_current_on`], or before any
+/// runtime exists ([`resolve_current`]).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "runs in the lane job of `resolve_current_on`, or before any runtime exists in `resolve_current`"
+)]
 pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeError> {
     let Some(dir) = exe.parent() else {
         return Err(JsRuntimeError::NotInstalled { manifest: PathBuf::from(MANIFEST_FILE) });
@@ -77,14 +86,24 @@ pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeE
     Ok(JsRuntime { program, package_root, electron: manifest.electron })
 }
 
-/// The runtime of the running binary's install.
+/// The runtime of the running binary's install, for a caller that has no runtime yet.
 pub fn resolve_current() -> Result<JsRuntime, JsRuntimeError> {
     let exe = std::env::current_exe().map_err(|source| JsRuntimeError::Read { path: PathBuf::from("<current exe>"), source })?;
     resolve(&exe, std::env::var_os("PATH").as_deref())
 }
 
+/// [`resolve_current`] as a job of `lane`, for a caller on the async runtime.
+pub async fn resolve_current_on(lane: impl LaneToken) -> Result<JsRuntime, JsRuntimeError> {
+    let lane_failed = |source| JsRuntimeError::Read { path: PathBuf::from("<lane job>"), source };
+    let job = lane
+        .submit(&CancellationToken::new(), |_lane| resolve_current())
+        .map_err(|_| lane_failed(std::io::Error::other("the lane is full")))?;
+    job.await.map_err(|dropped| lane_failed(std::io::Error::other(dropped)))?
+}
+
 /// A package root inside an `.asar` archive is readable only by Electron, so only the archive
 /// file is checked; any other root must hold the skill entry.
+#[allow(clippy::disallowed_methods, reason = "runs only inside `resolve`")]
 fn package_present(root: &Path) -> bool {
     match root.ancestors().find(|p| p.extension().is_some_and(|e| e == "asar")) {
         Some(archive) => archive.is_file(),
@@ -92,6 +111,7 @@ fn package_present(root: &Path) -> bool {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs only inside `resolve`")]
 fn which(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
     let suffixes: &[&str] = if cfg!(windows) { &["", ".exe", ".cmd"] } else { &[""] };
     std::env::split_paths(path?)
@@ -102,6 +122,7 @@ fn which(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
 /// A test install under `root`: a manifest, an interpreter file and a package root holding the
 /// skill entry, resolved through [`resolve`] as a product install is.
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup writes the install on the test thread")]
 pub(crate) fn fixture(root: &Path) -> JsRuntime {
     let core = root.join("core");
     let package = root.join("js");
@@ -114,6 +135,7 @@ pub(crate) fn fixture(root: &Path) -> JsRuntime {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "tests write their install on the test thread")]
 mod tests {
     use super::*;
 

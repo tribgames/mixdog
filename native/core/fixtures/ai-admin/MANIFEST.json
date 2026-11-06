@@ -33,9 +33,9 @@
       "sha256": "20fd0254ea5d72db6bc2d37606d91c038fd71ec0a4a2ff2b5cbc84cf52231e80"
     },
     {
-      "bytes": 1590490,
+      "bytes": 1919168,
       "path": "quota-settlement-twin.json",
-      "sha256": "b1edc068ce0d3e8abd9bfaf8da6ac5c0d259b36877fab8f2499c96b08fd0b1b4"
+      "sha256": "7429a6b3bf6ad7840343c0ca9b5e71e1f227d29c94c0797ee2bcac999cf6f0ba"
     },
     {
       "bytes": 1218781,
@@ -71,5 +71,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-quota-settlement.mjs",
   "set": "ai-admin",
-  "totalBytes": 30965865
+  "totalBytes": 31294543
 }

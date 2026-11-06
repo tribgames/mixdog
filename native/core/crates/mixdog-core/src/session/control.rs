@@ -61,6 +61,15 @@ pub(crate) enum Ctl {
     },
 }
 
+/// A worker's turn waiting for its run to start.
+pub(crate) struct AgentStart {
+    pub turn: super::seams::AgentTurn,
+    /// The model content of the turn's input row (`handoffContent`).
+    pub content: serde_json::Value,
+    /// Answered with the run's outcome when it ends.
+    pub done: tokio::sync::oneshot::Sender<RunOutcome>,
+}
+
 /// The active run as RT-C sees it.
 pub(crate) struct ActiveRun {
     pub turn: TurnId,
@@ -93,6 +102,11 @@ pub(crate) struct ControlCell {
     /// Who observes this session's turns (`observeSessionTurns`), by subscription id; told
     /// when a turn starts and when it settles.
     pub turn_listeners: Mutex<Vec<(u64, Arc<dyn TurnListener>)>>,
+    /// The worker turn the next `turn/start` of this thread runs (set by `SessionTurns` just
+    /// before its start request; the actor takes it when it starts the run).
+    pub agent_start: Mutex<Option<AgentStart>>,
+    /// The session's "Allow for this session" grants: in memory, one set per loaded session.
+    pub grants: Arc<mixdog_tools::policy::SessionGrants>,
     pub ctl_tx: mpsc::Sender<Ctl>,
     pub steer_cap: usize,
     /// Feed subscribers attached now.

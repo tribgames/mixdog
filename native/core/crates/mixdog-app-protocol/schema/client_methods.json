@@ -11390,9 +11390,13 @@
         },
         "raw": true,
         "reasoningTokens": {
+          "description": "Absent when the provider reported none; an explicit 0 stays 0.",
           "format": "uint64",
           "minimum": 0.0,
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -11400,8 +11404,7 @@
         "cacheWrite1hTokens",
         "cacheWriteTokens",
         "inputTokens",
-        "outputTokens",
-        "reasoningTokens"
+        "outputTokens"
       ],
       "type": "object"
     },

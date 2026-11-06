@@ -1,4 +1,869 @@
 {
+  "advances": [
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        },
+        {
+          "call": "updateSessionRoute",
+          "crossProvider": true,
+          "route": {
+            "autoEffort": true,
+            "contextPercent": null,
+            "contextTokens": null,
+            "effort": null,
+            "fast": false,
+            "model": "gemini-2.5-pro",
+            "modelParameters": {},
+            "provider": "gemini",
+            "selectedContextWindow": 500000
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbacks",
+          "value": [
+            {
+              "model": "gemini-2.5-pro",
+              "provider": "gemini"
+            }
+          ]
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackPrimary",
+          "value": {
+            "model": "grok-4",
+            "provider": "xai"
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackIndex",
+          "value": 1
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackFailures",
+          "value": [
+            {
+              "error": "Provider is rate-limited.",
+              "kind": "rate_limited",
+              "model": "grok-4",
+              "provider": "xai"
+            }
+          ]
+        },
+        {
+          "agent": true,
+          "call": "resolveWireRoute",
+          "legacy": false,
+          "model": "gemini-2.5-pro"
+        },
+        {
+          "call": "set",
+          "field": "wireRoute",
+          "value": {
+            "model": "gemini-2.5-pro",
+            "profileId": "gemini:chat",
+            "provider": "gemini",
+            "source": "default",
+            "wire": "chat"
+          }
+        },
+        {
+          "call": "rebuildToolSurface",
+          "provider": "gemini"
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "a lead session hops: init, route update, hop fields, wire pin, tool surface",
+      "outcome": {
+        "model": "gemini-2.5-pro",
+        "notice": "Grok 4 rate-limited — switched to Gemini 2.5 Pro.",
+        "provider": "gemini",
+        "switched": true
+      },
+      "script": {},
+      "session": {
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": "lead",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    },
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        },
+        {
+          "call": "checkpoint",
+          "value": {
+            "routeChanged": true,
+            "turn": 3
+          }
+        },
+        {
+          "call": "updateSessionRoute",
+          "crossProvider": true,
+          "route": {
+            "autoEffort": true,
+            "contextPercent": null,
+            "contextTokens": null,
+            "effort": null,
+            "fast": false,
+            "model": "gemini-2.5-pro",
+            "modelParameters": {},
+            "provider": "gemini",
+            "selectedContextWindow": 500000
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbacks",
+          "value": [
+            {
+              "model": "gemini-2.5-pro",
+              "provider": "gemini"
+            }
+          ]
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackPrimary",
+          "value": {
+            "model": "grok-4",
+            "provider": "xai"
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackIndex",
+          "value": 1
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackFailures",
+          "value": [
+            {
+              "error": "Provider is rate-limited.",
+              "kind": "rate_limited",
+              "model": "grok-4",
+              "provider": "xai"
+            }
+          ]
+        },
+        {
+          "agent": true,
+          "call": "resolveWireRoute",
+          "legacy": false,
+          "model": "gemini-2.5-pro"
+        },
+        {
+          "call": "set",
+          "field": "wireRoute",
+          "value": {
+            "model": "gemini-2.5-pro",
+            "profileId": "gemini:chat",
+            "provider": "gemini",
+            "source": "default",
+            "wire": "chat"
+          }
+        },
+        {
+          "call": "rebuildToolSurface",
+          "provider": "gemini"
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "a live turn checkpoint is marked route-changed before the update",
+      "outcome": {
+        "model": "gemini-2.5-pro",
+        "notice": "Grok 4 rate-limited — switched to Gemini 2.5 Pro.",
+        "provider": "gemini",
+        "switched": true
+      },
+      "script": {},
+      "session": {
+        "activeTurnCheckpoint": {
+          "turn": 3
+        },
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": "lead",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    },
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        },
+        {
+          "call": "updateSessionRoute",
+          "crossProvider": true,
+          "route": {
+            "autoEffort": true,
+            "contextPercent": null,
+            "contextTokens": null,
+            "effort": null,
+            "fast": false,
+            "model": "gemini-2.5-pro",
+            "modelParameters": {},
+            "provider": "gemini",
+            "selectedContextWindow": 500000
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbacks",
+          "value": [
+            {
+              "model": "gemini-2.5-pro",
+              "provider": "gemini"
+            }
+          ]
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackPrimary",
+          "value": {
+            "model": "grok-4",
+            "provider": "xai"
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackIndex",
+          "value": 1
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackFailures",
+          "value": [
+            {
+              "error": "Provider is rate-limited.",
+              "kind": "rate_limited",
+              "model": "grok-4",
+              "provider": "xai"
+            }
+          ]
+        },
+        {
+          "agent": true,
+          "call": "resolveWireRoute",
+          "legacy": false,
+          "model": "gemini-2.5-pro"
+        },
+        {
+          "call": "set",
+          "field": "wireRoute",
+          "value": {
+            "model": "gemini-2.5-pro",
+            "profileId": "gemini:chat",
+            "provider": "gemini",
+            "source": "default",
+            "wire": "chat"
+          }
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "an agent-owned session keeps the surface the route update applied",
+      "outcome": {
+        "model": "gemini-2.5-pro",
+        "notice": "Grok 4 rate-limited — switched to Gemini 2.5 Pro.",
+        "provider": "gemini",
+        "switched": true
+      },
+      "script": {},
+      "session": {
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": " Agent ",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    },
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "a provider that cannot init throws its own error",
+      "outcome": {
+        "threw": "[provider] Failed to init \"gemini\": cannot build"
+      },
+      "script": {
+        "initError": true
+      },
+      "session": {
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": "lead",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    },
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "a provider the registry does not have fails the hop",
+      "outcome": {
+        "threw": "Provider \"gemini\" not available"
+      },
+      "script": {
+        "missing": true
+      },
+      "session": {
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": "lead",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    },
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        },
+        {
+          "call": "updateSessionRoute",
+          "crossProvider": true,
+          "route": {
+            "autoEffort": true,
+            "contextPercent": null,
+            "contextTokens": null,
+            "effort": null,
+            "fast": false,
+            "model": "gemini-2.5-pro",
+            "modelParameters": {},
+            "provider": "gemini",
+            "selectedContextWindow": 500000
+          }
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "a closed session fails the hop",
+      "outcome": {
+        "threw": "agent session closed during model fallback"
+      },
+      "script": {
+        "closed": true
+      },
+      "session": {
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": "lead",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    },
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        },
+        {
+          "call": "updateSessionRoute",
+          "crossProvider": true,
+          "route": {
+            "autoEffort": true,
+            "contextPercent": null,
+            "contextTokens": null,
+            "effort": null,
+            "fast": false,
+            "model": "gemini-2.5-pro",
+            "modelParameters": {},
+            "provider": "gemini",
+            "selectedContextWindow": 500000
+          }
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "a failing route update escapes as it is",
+      "outcome": {
+        "threw": "session store is read-only"
+      },
+      "script": {
+        "writeError": true
+      },
+      "session": {
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": "lead",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    },
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        },
+        {
+          "call": "updateSessionRoute",
+          "crossProvider": true,
+          "route": {
+            "autoEffort": true,
+            "contextPercent": null,
+            "contextTokens": null,
+            "effort": null,
+            "fast": false,
+            "model": "gemini-2.5-pro",
+            "modelParameters": {},
+            "provider": "gemini",
+            "selectedContextWindow": 500000
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbacks",
+          "value": [
+            {
+              "model": "gemini-2.5-pro",
+              "provider": "gemini"
+            }
+          ]
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackPrimary",
+          "value": {
+            "model": "grok-4",
+            "provider": "xai"
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackIndex",
+          "value": 1
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackFailures",
+          "value": [
+            {
+              "error": "Provider is rate-limited.",
+              "kind": "rate_limited",
+              "model": "grok-4",
+              "provider": "xai"
+            }
+          ]
+        },
+        {
+          "agent": true,
+          "call": "resolveWireRoute",
+          "legacy": false,
+          "model": "gemini-2.5-pro"
+        },
+        {
+          "call": "rebuildToolSurface",
+          "provider": "gemini"
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "a wire that cannot be resolved is not pinned and the hop goes on",
+      "outcome": {
+        "model": "gemini-2.5-pro",
+        "notice": "Grok 4 rate-limited — switched to Gemini 2.5 Pro.",
+        "provider": "gemini",
+        "switched": true
+      },
+      "script": {
+        "resolveError": true
+      },
+      "session": {
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": "lead",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    },
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        },
+        {
+          "call": "updateSessionRoute",
+          "crossProvider": true,
+          "route": {
+            "autoEffort": true,
+            "contextPercent": null,
+            "contextTokens": null,
+            "effort": null,
+            "fast": false,
+            "model": "gemini-2.5-pro",
+            "modelParameters": {},
+            "provider": "gemini",
+            "selectedContextWindow": 500000
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbacks",
+          "value": [
+            {
+              "model": "gemini-2.5-pro",
+              "provider": "gemini"
+            }
+          ]
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackPrimary",
+          "value": {
+            "model": "grok-4",
+            "provider": "xai"
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackIndex",
+          "value": 1
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackFailures",
+          "value": [
+            {
+              "error": "Provider is rate-limited.",
+              "kind": "rate_limited",
+              "model": "grok-4",
+              "provider": "xai"
+            }
+          ]
+        },
+        {
+          "agent": true,
+          "call": "resolveWireRoute",
+          "legacy": false,
+          "model": "gemini-2.5-pro"
+        },
+        {
+          "call": "set",
+          "field": "wireRoute",
+          "value": {
+            "model": "gemini-2.5-pro",
+            "profileId": "gemini:chat",
+            "provider": "gemini",
+            "source": "default",
+            "wire": "chat"
+          }
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "a failing pin write escapes before the tool surface",
+      "outcome": {
+        "threw": "session store is read-only"
+      },
+      "script": {
+        "pinError": true
+      },
+      "session": {
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": "lead",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    },
+    {
+      "calls": [
+        {
+          "call": "initProviders",
+          "config": {
+            "enabled": true
+          },
+          "provider": "gemini"
+        },
+        {
+          "call": "updateSessionRoute",
+          "crossProvider": true,
+          "route": {
+            "autoEffort": true,
+            "contextPercent": null,
+            "contextTokens": null,
+            "effort": null,
+            "fast": false,
+            "model": "gemini-2.5-pro",
+            "modelParameters": {},
+            "provider": "gemini",
+            "selectedContextWindow": 500000
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbacks",
+          "value": [
+            {
+              "model": "gemini-2.5-pro",
+              "provider": "gemini"
+            }
+          ]
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackPrimary",
+          "value": {
+            "model": "grok-4",
+            "provider": "xai"
+          }
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackIndex",
+          "value": 1
+        },
+        {
+          "call": "set",
+          "field": "routeFallbackFailures",
+          "value": [
+            {
+              "error": "Provider is rate-limited.",
+              "kind": "rate_limited",
+              "model": "grok-4",
+              "provider": "xai"
+            }
+          ]
+        },
+        {
+          "agent": true,
+          "call": "resolveWireRoute",
+          "legacy": false,
+          "model": "gemini-2.5-pro"
+        },
+        {
+          "call": "set",
+          "field": "wireRoute",
+          "value": {
+            "model": "gemini-2.5-pro",
+            "profileId": "gemini:chat",
+            "provider": "gemini",
+            "source": "default",
+            "wire": "chat"
+          }
+        },
+        {
+          "call": "rebuildToolSurface",
+          "provider": "gemini"
+        }
+      ],
+      "error": {
+        "message": "slow down",
+        "status": 429
+      },
+      "name": "a failing tool surface rebuild escapes as it is",
+      "outcome": {
+        "threw": "surface rebuild failed"
+      },
+      "script": {
+        "rebuildError": true
+      },
+      "session": {
+        "agent": "reviewer",
+        "id": "sess_h1",
+        "messages": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4",
+        "owner": "lead",
+        "provider": "xai",
+        "routeFallbacks": [
+          {
+            "model": "gemini-2.5-pro",
+            "provider": "gemini"
+          }
+        ]
+      }
+    }
+  ],
   "display": [
     {
       "hint": "",

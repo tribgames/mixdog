@@ -50,6 +50,9 @@ tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v7"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
 [dev-dependencies]
 mixdog-migrate = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }

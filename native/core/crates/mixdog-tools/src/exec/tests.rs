@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods, reason = "tests read and write their fixture files on the test thread")]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;

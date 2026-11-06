@@ -156,6 +156,30 @@ impl SessionDirectory {
         self.inner.loaded(id)
     }
 
+    /// The loaded thread a run belongs to: a run exists only while its thread is loaded.
+    fn running(&self, id: &ThreadId) -> Arc<SessionHandle> {
+        self.inner.loaded(id).expect("a running thread is loaded")
+    }
+
+    /// `SessionSeams::live_header`: the thread's latest acked header, readable without waiting.
+    pub fn live_header(&self, id: &ThreadId) -> Arc<dyn crate::ports::gate::LiveHeader> {
+        self.running(id).live_header()
+    }
+
+    /// `SessionSeams::grants`: the thread's "Allow for this session" grants.
+    pub fn grants(&self, id: &ThreadId) -> Arc<mixdog_tools::policy::SessionGrants> {
+        self.running(id).grants()
+    }
+
+    /// `RunSettings.thread_window`: the thread's compaction count.
+    pub fn thread_window(&self, id: &ThreadId) -> u64 {
+        self.running(id).thread_window()
+    }
+
+    pub(crate) fn deps(&self) -> &Arc<SessionDeps> {
+        &self.inner.deps
+    }
+
     /// `abortSessionTurn(id, reason)`: the turn running in a session no outer turn holds (a
     /// held request's `login-required`, a watchdog) ends with `abortSessionTurn (reason=…)`; the
     /// session stays as it is. False when the thread is not loaded or is closing.
@@ -616,6 +640,8 @@ impl DirInner {
             progress: watch::Sender::new(Default::default()),
             turn_messages: watch::Sender::new(Default::default()),
             turn_listeners: Default::default(),
+            agent_start: Default::default(),
+            grants: Default::default(),
             ctl_tx,
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),

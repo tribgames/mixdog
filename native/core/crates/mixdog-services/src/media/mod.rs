@@ -8,6 +8,7 @@ pub mod renditions;
 pub mod service;
 pub mod store;
 pub mod transfer_source;
+pub mod variants;
 
 pub use transfer_source::MediaAssetSource;
 pub use jobs::{GeneratedMedia, GenerationRequest, MediaFailure, MediaGenerator, MediaJobs, Reference, ResolvedMedia};

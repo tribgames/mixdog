@@ -353,11 +353,19 @@
           "type": "object"
         },
         {
-          "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent.",
+          "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
             "pricing_model": {
               "type": [
                 "string",
+                "null"
+              ]
+            },
+            "request_ms": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
                 "null"
               ]
             },
@@ -633,9 +641,13 @@
         },
         "raw": true,
         "reasoningTokens": {
+          "description": "Absent when the provider reported none; an explicit 0 stays 0.",
           "format": "uint64",
           "minimum": 0.0,
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -643,8 +655,7 @@
         "cacheWrite1hTokens",
         "cacheWriteTokens",
         "inputTokens",
-        "outputTokens",
-        "reasoningTokens"
+        "outputTokens"
       ],
       "type": "object"
     },

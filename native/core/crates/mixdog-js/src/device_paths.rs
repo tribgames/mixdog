@@ -170,12 +170,14 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[allow(clippy::disallowed_methods, reason = "test: stats real inodes on the test thread")]
     fn special_inodes_are_found_by_metadata() {
         assert!(is_special_file(&std::fs::metadata("/dev/null").unwrap()));
         assert!(!is_special_file(&std::fs::metadata(std::env::temp_dir()).unwrap()));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods, reason = "test: writes and stats a real file on the test thread")]
     fn regular_files_and_directories_are_not_special() {
         let file = std::env::temp_dir().join(format!("mixdog-js-device-paths-{}", std::process::id()));
         std::fs::write(&file, "x").unwrap();

@@ -189,9 +189,8 @@ function snapshot(dir) {
   return files;
 }
 
-// Paths and timestamps in an answer are the sandbox's: the twin compares them masked.
-const mask = (value, dir) =>
-  JSON.parse(JSON.stringify(value ?? null, (_k, v) => (typeof v === 'string' ? v.split('\\').join('/').split(dir.split('\\').join('/')).join('<data>') : v)));
+// Only the sandbox's own root in an answer is masked, as written (separators included).
+const mask = (value, dir) => JSON.parse(JSON.stringify(value ?? null, (_k, v) => (typeof v === 'string' ? v.split(dir).join('<data>') : v)));
 
 function apiFor(world, dirs, state) {
   const helpers = workflow.createWorkflowHelpers({ rootDir: dirs.shipped, dataDir: dirs.data, readMarkdownDocument, normalizeAgentPermissionOrNone });
@@ -261,11 +260,7 @@ async function record(world, index) {
         files: snapshot(dirs.data),
         routeCalls: JSON.parse(JSON.stringify(state.routeCalls)),
         disabled: Object.fromEntries(world.queries.map((q) => [q, isAgentDisabled(state.config, q)])),
-        // The saved config keeps complete routes only; the stub here stores what it is given.
-        routes: Object.entries(state.config.agents ?? {})
-          .filter(([, route]) => String(route?.provider || '').trim() && String(route?.model || '').trim())
-          .map(([id]) => id)
-          .sort(),
+        routes: Object.keys(state.config.agents ?? {}).sort(),
       });
     }
     return { name: `actions-${index}`, world: world.name, shipped: world.shipped, data: world.data, config: world.config, main: world.main, steps };

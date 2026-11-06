@@ -40,7 +40,7 @@ pub async fn serve() -> Result<(), ServeError> {
     // The inline test backend runs lane jobs on the calling thread; WP-RT's executors replace it.
     let tokens = mixdog_rt::testing::tokens();
     // Every install ships the manifest: a missing or broken one is a startup error.
-    let js_runtime = js_runtime::resolve_current()?;
+    let js_runtime = js_runtime::resolve_current_on(tokens.interactive_io).await?;
     // Node's `resolvePluginData()`, the dir `mixdogd migrate` converts.
     let data_dir = mixdog_store::paths::Paths::from_process(&js_runtime.package_root).ok_or(ServeError::NoDataDir)?.data_dir;
     let config = compose::ComposeConfig {

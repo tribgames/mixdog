@@ -198,11 +198,17 @@ fn route_from_preset(config: &Obj, slot: &Value) -> Result<Option<Value>, String
 /// `agentRouteFromConfig(config, agentId)` for an id that is no fixed role alias.
 fn agent_route(effective: &Effective, id: &str) -> Result<Option<Value>, String> {
     let Some(candidate) = effective.agents.get(id).filter(|route| truthy(Some(*route))) else { return Ok(None) };
+    route_of_candidate(&effective.config, candidate)
+}
+
+/// One candidate of `agentRouteFromConfig`: a route as it is, else the preset it names (the
+/// legacy preset-name form).
+pub(crate) fn route_of_candidate(config: &Obj, candidate: &Value) -> Result<Option<Value>, String> {
     let empty = Value::Object(Map::new());
     if let Some(route) = normalize_workflow_route(candidate, &empty, false)? {
         return Ok(Some(route));
     }
-    route_from_preset(&effective.config, candidate)
+    route_from_preset(config, candidate)
 }
 
 /// `summarizeWorkflowRoutes(config)`: the Lead route of the default preset, the worker route as

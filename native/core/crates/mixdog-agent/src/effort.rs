@@ -34,6 +34,9 @@ pub enum EffortMode {
     /// Anthropic `output_config` control messages (the Anthropic adapter's own
     /// projection; the Responses projection is not built for it).
     Anthropic,
+    /// A custom route that takes its effort with every request: the snapshot only records it,
+    /// nothing is projected into the history.
+    Custom,
 }
 
 /// The effort a turn, or the step after a tool batch, ran at, as the message
@@ -63,6 +66,7 @@ impl EffortSnapshot {
         let mode = match value.get("mode")?.as_str()? {
             "responses" => EffortMode::Responses,
             "anthropic" => EffortMode::Anthropic,
+            "custom" => EffortMode::Custom,
             _ => return None,
         };
         Some(Self {
@@ -163,6 +167,34 @@ pub trait EffortAdapter: Send + Sync {
         request: Arc<ModelRequest>,
         effort: Option<EffortProjection>,
     ) -> Result<Box<dyn ModelStream>, ProviderError>;
+}
+
+/// The [`EffortAdapter`] of every provider that reads `RequestOptions.effort_projection`
+/// (the Responses adapters, `openai`/`openai-oauth`, and the Messages adapters, which have
+/// effort controls): the projection rides on the request's options and the provider's own
+/// `attempt` encodes it. A provider without effort controls is never wrapped, see
+/// `run_host::route_wiring`.
+pub struct ProjectingAdapter {
+    provider: Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>,
+}
+
+impl ProjectingAdapter {
+    pub fn new(provider: Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>) -> Self {
+        Self { provider }
+    }
+}
+
+#[async_trait]
+impl EffortAdapter for ProjectingAdapter {
+    async fn attempt_with(
+        &self,
+        request: Arc<ModelRequest>,
+        effort: Option<EffortProjection>,
+    ) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let mut request = Arc::unwrap_or_clone(request);
+        request.options.effort_projection = effort.map(Into::into);
+        self.provider.attempt(Arc::new(request)).await
+    }
 }
 
 /// The route's projection inputs and the adapter that consumes them; replaced

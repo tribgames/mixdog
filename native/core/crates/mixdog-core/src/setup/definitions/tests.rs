@@ -132,7 +132,7 @@ fn snapshot(dir: &Path) -> BTreeMap<String, String> {
 /// Paths in an answer are the sandbox's.
 fn mask(value: Value, data: &str) -> Value {
     match value {
-        Value::String(text) => Value::String(text.replace('\\', "/").replace(data, "<data>")),
+        Value::String(text) => Value::String(text.replace(data, "<data>")),
         Value::Array(list) => Value::Array(list.into_iter().map(|v| mask(v, data)).collect()),
         Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, mask(v, data))).collect()),
         other => other,
@@ -155,7 +155,7 @@ async fn the_actions_answer_and_write_what_the_recorded_node_handlers_did() {
         std::fs::create_dir_all(&data).unwrap();
         write_files(&shipped, &world["shipped"]);
         write_files(&data, &world["data"]);
-        let data_text = data.to_string_lossy().replace('\\', "/");
+        let data_text = data.to_string_lossy().into_owned();
 
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
@@ -223,13 +223,11 @@ async fn the_actions_answer_and_write_what_the_recorded_node_handlers_did() {
                     failures.push(format!("{at}: disabled({query}) is {}", !disabled.as_bool().unwrap()));
                 }
             }
-            // The saved config keeps complete routes only; an unwritten one holds what the world gave.
-            let complete = |route: &Value| ["provider", "model"].iter().all(|key| route.get(key).and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty()));
             let mut kept: Vec<String> = config
                 .agent()
                 .get("agents")
                 .and_then(Value::as_object)
-                .map(|agents| agents.iter().filter(|(_, route)| complete(route)).map(|(id, _)| id.clone()).collect())
+                .map(|agents| agents.keys().cloned().collect())
                 .unwrap_or_default();
             kept.sort();
             if json!(kept) != step["routes"] {
@@ -259,4 +257,34 @@ async fn a_route_sent_with_a_save_goes_to_the_route_setter_after_the_files() {
     let payload = json!({ "id": "routed", "body": "Body", "route": null }).as_object().unwrap().clone();
     agents.save(&payload).await.unwrap();
     assert_eq!(effects.0.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_name_that_is_no_text_is_an_unknown_agent_not_the_id_undefined() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let agents = Arc::new(
+        AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config, dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("task"))
+            .with_writes(tokens.durability_io, Arc::new(NoEffects::default()), Arc::new(String::new)),
+    );
+    // An agent that really is called "undefined" and one called "null" exist.
+    for id in ["undefined", "null"] {
+        agents.save(json!({ "id": id, "body": "Body" }).as_object().unwrap()).await.unwrap();
+    }
+    let setup = DefinitionSetup::new(agents, Arc::new(Callers), Arc::new(Unused), Arc::new(Unused));
+    let thread = ThreadId::from("sess_task_1");
+    for (action, args, text) in [
+        ("read_definition", json!({ "definitionKind": "agent" }), "undefined"),
+        ("read_definition", json!({ "definitionKind": "agent", "name": null }), "null"),
+        ("delete_definition", json!({ "definitionKind": "agent" }), "undefined"),
+        ("delete_definition", json!({ "definitionKind": "agent", "name": null }), "null"),
+    ] {
+        let call = SetupCall { action, args: &args, thread: &thread };
+        match setup.run(&call).await {
+            Err(PortError::Failed { message, .. }) => assert_eq!(message, format!("unknown agent \"{text}\""), "{action} {args}"),
+            other => panic!("{action} {args}: {other:?}"),
+        }
+    }
 }

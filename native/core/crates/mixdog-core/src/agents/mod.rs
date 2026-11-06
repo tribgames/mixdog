@@ -5,8 +5,7 @@
 //! workspace. It is the one source `rooms::AgentCatalog` and the definition setup actions read.
 //!
 //! Every listing reads the folders afresh (Node's `listCustomAgentIds`); the shared scan cache
-//! of its status pulse is a speed device and is not ported. Not ported either: the avatar of a
-//! row (`normalizeAgentAvatar`), and preset-name routes in the config (`routeFromPreset`).
+//! of its status pulse is a speed device and is not ported.
 
 mod avatar;
 mod connectors;
@@ -33,6 +32,7 @@ use tokio_util::sync::CancellationToken;
 
 pub use self::connectors::ApprovedToolChange;
 pub use self::files::AgentDefinition;
+pub use self::files::ArchivedIdentity;
 pub use self::files::DELETED_MARKER;
 use self::files::FIXED_SLOTS;
 use self::files::Folders;
@@ -118,7 +118,7 @@ pub trait AgentEvidence: Send + Sync {
     async fn mixy_owns_routines(&self) -> Result<bool, String>;
 }
 
-/// One row of the agent catalog (`listAgents`), without the avatar.
+/// One row of the agent catalog (`listAgents`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct AgentRow {
     pub id: String,
@@ -134,15 +134,19 @@ pub struct AgentRow {
     pub route_configured: bool,
     pub kind: Option<String>,
     pub disabled: bool,
+    /// The normalised avatar; `Null` without one.
+    pub avatar: Value,
     pub definition: Option<AgentDefinition>,
 }
 
-/// `getLeadStatus`, without the avatar.
+/// `getLeadStatus`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LeadStatus {
     /// Mixy's `created` flag: `None` until decided.
     pub created: Option<bool>,
     pub name: String,
+    /// Her normalised avatar; `Null` without one.
+    pub avatar: Value,
     pub home_chatted: bool,
     /// Mixy's own route.
     pub route: Option<Value>,
@@ -187,13 +191,18 @@ impl AgentDefinitions {
         self.writes.clone().ok_or_else(|| AgentsError::Refused("agent definitions cannot be changed here".into()))
     }
 
+    /// Runs the file writes as a lane job that holds the id's `turn` until the IO has finished,
+    /// even if the caller stops waiting: a job already running is not stopped by that, and the
+    /// next change of the id must not start beside it. The turn comes back with the result, for
+    /// the steps that follow.
     async fn write_job<R: Send + 'static>(
         &self,
         writes: &Writes,
+        turn: Option<mixdog_rt::ChainGuard>,
         work: impl FnOnce(&Folders, &mixdog_rt::InLane<DurabilityIo>) -> R + Send + 'static,
-    ) -> Result<R, AgentsError> {
+    ) -> Result<(R, Option<mixdog_rt::ChainGuard>), AgentsError> {
         let folders = self.folders.clone();
-        on_lane(writes.lane, &CancellationToken::new(), move |lane| work(&folders, lane)).await.map_err(AgentsError::Lane)
+        on_lane(writes.lane, &CancellationToken::new(), move |lane| (work(&folders, lane), turn)).await.map_err(AgentsError::Lane)
     }
 
     /// `getAgentDefinition`: the definition as the editor shows it.
@@ -243,22 +252,23 @@ impl AgentDefinitions {
             return Err(AgentsError::Refused("AGENT.md body must not be empty".into()));
         }
         let planned = payload.clone();
-        let plan = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned)).await?.map_err(AgentsError::Refused)?;
-        let _turn = lifecycle(&self.folders.data, &plan.id).await;
-        // The id's turn: what a change ahead of this one left is what is saved over.
-        let (planned, now) = (payload.clone(), writes.now.clone());
-        let plan = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned)).await?.map_err(AgentsError::Refused)?;
+        let target = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned, None)).await?.map_err(AgentsError::Refused)?;
+        let turn = lifecycle(&self.folders.data, &target.id).await;
+        // The id is fixed before queuing (`resolveSaveTarget`); on its turn what a change ahead
+        // left is what is saved over.
+        let (planned, now, fixed) = (payload.clone(), writes.now.clone(), target.id.clone());
+        let plan = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned, Some(&fixed))).await?.map_err(AgentsError::Refused)?;
         let (given, id) = (payload.clone(), plan.id.clone());
-        let done = self
-            .write_job(&writes, move |folders, lane| edit::save_files(folders, lane, &plan, &given, options.no_widen.then_some(options.approved.as_ref()), &*now))
-            .await?
-            .map_err(AgentsError::Refused)?;
+        let (done, _turn) = self
+            .write_job(&writes, turn, move |folders, lane| edit::save_files(folders, lane, &plan, &given, options.no_widen.then_some(options.approved.as_ref()), &*now))
+            .await?;
+        let done = done.map_err(AgentsError::Refused)?;
         if done.reclaimed {
             // Made anew under an archived agent's id: no stale route or switch-off carries over.
             self.routes.set_disabled(&id, false).await?;
             self.routes.clear_route(&id).await?;
         } else if !done.existed && self.routes.is_disabled(&id) {
-            self.routes.set_disabled(&id, false).await?;
+            self.routes.start_enabled(&id).await?;
         }
         if let Some(route) = payload.get("route").filter(|route| crate::workflow::ids::truthy(Some(route))) {
             writes.effects.set_agent_route(&id, route).await.map_err(AgentsError::Refused)?;
@@ -271,11 +281,12 @@ impl AgentDefinitions {
     /// with its chat and routines.
     pub async fn delete(&self, agent_id: &str) -> Result<Value, AgentsError> {
         let writes = self.writes()?;
-        let _turn = lifecycle(&self.folders.data, &agent_editor_id(agent_id)).await;
+        let turn = lifecycle(&self.folders.data, &agent_editor_id(agent_id)).await;
         let wanted = agent_id.to_owned();
         let plan = self.job(move |folders, lane| edit::plan_delete(folders, lane, &wanted)).await?.map_err(AgentsError::Refused)?;
         let id = plan.id.clone();
-        self.write_job(&writes, move |_, lane| edit::delete_files(lane, &plan)).await?.map_err(AgentsError::Refused)?;
+        let (deleted, _turn) = self.write_job(&writes, turn, move |_, lane| edit::delete_files(lane, &plan)).await?;
+        deleted.map_err(AgentsError::Refused)?;
         let reverted = FIXED_SLOTS.iter().any(|slot| slot.0 == id) && self.load(&id).await?.is_some();
         writes.effects.agents_changed().await;
         Ok(json!({ "id": id, "deleted": true, "revertedToBuiltIn": reverted }))
@@ -284,11 +295,12 @@ impl AgentDefinitions {
     /// `restoreAgentDefinition(agentId)`: an archived agent back as it was.
     pub async fn restore(&self, agent_id: &str) -> Result<Value, AgentsError> {
         let writes = self.writes()?;
-        let _turn = lifecycle(&self.folders.data, &agent_editor_id(agent_id)).await;
+        let turn = lifecycle(&self.folders.data, &agent_editor_id(agent_id)).await;
         let wanted = agent_id.to_owned();
         let plan = self.job(move |folders, lane| edit::plan_restore(folders, lane, &wanted)).await?.map_err(AgentsError::Refused)?;
         let id = plan.id.clone();
-        self.write_job(&writes, move |_, _| edit::restore_files(&plan)).await?.map_err(AgentsError::Refused)?;
+        let (restored, _turn) = self.write_job(&writes, turn, move |_, _| edit::restore_files(&plan)).await?;
+        restored.map_err(AgentsError::Refused)?;
         writes.effects.agents_changed().await;
         if let Err(message) = writes.effects.reload_routines().await {
             return Err(AgentsError::Refused(format!(
@@ -332,6 +344,11 @@ impl AgentDefinitions {
         Ok(Some(loaded.definition))
     }
 
+    async fn avatar_of(&self, id: &str) -> Result<Value, AgentsError> {
+        let id = id.to_owned();
+        self.job(move |folders, lane| folders.avatar_of(lane, &id)).await
+    }
+
     /// `hasUserAgentFile`.
     pub async fn has_user_file(&self, id: &str) -> Result<bool, AgentsError> {
         let id = id.to_owned();
@@ -350,6 +367,10 @@ impl AgentDefinitions {
                 None => self.routes.config_route(id).unwrap_or_else(|| json!({})),
             }
         } else {
+            if self.routes.home(id).await? == RouteHome::Config {
+                // `agentRouteFromConfig`: a stored preset name resolves too.
+                return Ok(self.routes.config_route(id));
+            }
             self.routes.own_route(id).await?
         };
         if route.as_object().is_none_or(|map| map.is_empty()) {
@@ -382,6 +403,7 @@ impl AgentDefinitions {
                 route: own.or_else(|| self.main()).unwrap_or(Value::Null),
                 kind: None,
                 disabled: self.routes.is_disabled(id),
+                avatar: self.avatar_of(id).await?,
                 definition: self.load(id).await?,
             });
         }
@@ -397,6 +419,7 @@ impl AgentDefinitions {
                 route: own.or_else(|| self.main()).unwrap_or(Value::Null),
                 kind: definition.as_ref().and_then(|d| d.kind.clone()),
                 disabled: self.routes.is_disabled(&id),
+                avatar: self.avatar_of(&id).await?,
                 definition,
                 id,
             });
@@ -423,8 +446,13 @@ impl AgentDefinitions {
 
     /// `archivedIdentities(..)[id].name`: the name a deleted agent left, `None` when not archived.
     pub async fn archived_name(&self, agent_id: &str) -> Result<Option<String>, AgentsError> {
+        Ok(self.archived_identity(agent_id).await?.map(|who| who.name))
+    }
+
+    /// `archivedIdentities(..)[id]`: the name and face a deleted agent left, `None` when not archived.
+    pub async fn archived_identity(&self, agent_id: &str) -> Result<Option<ArchivedIdentity>, AgentsError> {
         let id = agent_id.to_owned();
-        self.job(move |folders, lane| folders.archived_name(lane, &id)).await
+        self.job(move |folders, lane| folders.archived_identity(lane, &id)).await
     }
 
     /// Mixy's own route (`readMixyRoute`), `None` when she has none.
@@ -440,15 +468,15 @@ impl AgentDefinitions {
 
     /// `getLeadStatus`.
     pub async fn lead_status(&self) -> Result<LeadStatus, AgentsError> {
-        let (created, name) = self
+        let (created, name, avatar) = self
             .job(|folders, lane| {
                 let manifest = files::manifest_of(&folders.identity_dir(lane));
                 let legacy = files::manifest_of(&folders.data.join("agents").join(LEAD_ID));
                 let created = manifest.get("created").and_then(Value::as_bool).or_else(|| legacy.get("created").and_then(Value::as_bool));
-                (created, crate::workflow::ids::one_line(manifest.get("name")))
+                (created, crate::workflow::ids::one_line(manifest.get("name")), manifest.get("avatar").and_then(avatar::normalize_agent_avatar).unwrap_or(Value::Null))
             })
             .await?;
-        Ok(LeadStatus { created, name, home_chatted: self.evidence.home_chatted(LEAD_ID).await, route: self.mixy_route().await? })
+        Ok(LeadStatus { created, name, avatar, home_chatted: self.evidence.home_chatted(LEAD_ID).await, route: self.mixy_route().await? })
     }
 
     /// Whether Mixy exists (`mixyExists`, the one rule): `created: false` is no; a name or a

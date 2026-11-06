@@ -17,6 +17,7 @@ mod patch_review;
 mod patch_unified;
 mod patch_window;
 mod read;
+mod read_batch;
 mod search;
 #[cfg(test)]
 mod tests;

@@ -378,11 +378,10 @@ enum Opened {
     Rejected(ErrorResponse),
 }
 
-/// The request's mid-conversation effort updates in the provider's form.
-/// `RequestOptions` carries no projection yet (P0-API is adding the domain
-/// type); this is the one place that reads it.
-fn effort_of(_request: &ModelRequest) -> Option<EffortProjection> {
-    None
+/// The request's mid-conversation effort updates in the provider's form: the projection the
+/// agent set on the request's options (`EffortAdapter::attempt_with`).
+fn effort_of(request: &ModelRequest) -> Option<EffortProjection> {
+    request.options.effort_projection.as_ref().map(EffortProjection::from)
 }
 
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {

@@ -6,6 +6,7 @@
 //! -- --ignored`.
 
 use std::path::PathBuf;
+#[allow(clippy::disallowed_types, reason = "test: runs the recorded 1.4.5 node clients as a child process")]
 use std::process::Command;
 use std::sync::Arc;
 
@@ -52,6 +53,11 @@ impl Exiter for Quiet {
 
 #[test]
 #[ignore = "needs the v1.4.5 tree: MIXDOG_V145_TREE"]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "test: runs the recorded 1.4.5 node clients as a child process"
+)]
 fn real_1_4_5_clients_get_the_update_text_and_never_stop_the_core() {
     let tree = PathBuf::from(
         std::env::var("MIXDOG_V145_TREE").expect("MIXDOG_V145_TREE: a `git archive 69fe41b05` tree with node_modules"),

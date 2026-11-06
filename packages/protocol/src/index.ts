@@ -2812,7 +2812,7 @@ export type ProxyErrorKind = "overloaded" | "rateLimited" | "quotaExhausted" | "
 /**
  * One stream event of an attempt (`StreamEvent`).
  */
-export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "providerState", state: JsonValue, } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
+export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "providerState", state: JsonValue, } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, requestMs: number | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
 
 /**
  * A failed call as the sender's retry and recovery read it (the classified `ProviderError`);
@@ -2841,11 +2841,23 @@ export type ProxyModel = { id: string, displayName: string | null,
 /**
  * The row's own `name`, the label when no display name is known.
  */
-name: string | null, contextWindow: number | null, 
+name: string | null, 
+/**
+ * A custom provider's own name for itself.
+ */
+providerName: string | null, 
+/**
+ * A custom model added by hand.
+ */
+manual: boolean, supportsReasoningEffortUpdates: boolean | null, supportsPromptCaching: boolean | null, reasoningContentField: string | null, contextWindow: number | null, 
 /**
  * The largest window the listing states for the model.
  */
-maxContextWindow: number | null, maxOutputTokens: number | null, 
+maxContextWindow: number | null, 
+/**
+ * What a managed local runtime has allocated; bounds a selected window.
+ */
+runtimeContextWindow: number | null, maxOutputTokens: number | null, 
 /**
  * The row's own prices, USD per million tokens; absent when not finite.
  */
@@ -2895,7 +2907,7 @@ export type ProxyPhase = "commentary" | "finalAnswer";
 /**
  * What the model picker shows beyond limits and capabilities (``PickerFields``).
  */
-export type ProxyPicker = { releaseDate: string | null, accessPrograms: Array<string> | null, modelParameterOptions: Array<ProxyParameterOption>, parameterVariants: Array<{ [key in string]?: string }>, fastEfforts: Array<string>, serviceTiers: Array<ProxyServiceTier>, additionalSpeedTiers: Array<string>, reasoningOptions: Array<ProxyReasoningOption>, customReasoning: ProxyCustomReasoning | null, };
+export type ProxyPicker = { releaseDate: string | null, accessPrograms: Array<string> | null, modelParameterOptions: Array<ProxyParameterOption>, parameterVariants: Array<{ [key in string]?: string }>, fastEfforts: Array<string>, serviceTiers: Array<ProxyServiceTier>, additionalSpeedTiers: Array<string>, reasoningOptions: Array<ProxyReasoningOption>, customReasoning: ProxyCustomReasoning | null, tier: string | null, latest: boolean, description: string | null, defaultServiceTier: string | null, defaultModelParameters: { [key in string]?: string }, defaultFast: boolean, supportsMaxMode: boolean, };
 
 /**
  * What a server learns of one PC provider: usable or not, and its traits.
@@ -2944,7 +2956,11 @@ export type ProxyTraits = { inputExcludesCache?: boolean, nativePdf?: boolean, c
 
 export type ProxyTransportKind = "http1" | "http2" | "webSocket";
 
-export type ProxyUsage = { inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheWriteTokens: number, cacheWrite1hTokens: number, reasoningTokens: number, raw: JsonValue | null, costTicks: number | null, };
+export type ProxyUsage = { inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheWriteTokens: number, cacheWrite1hTokens: number, 
+/**
+ * Absent when the provider reported none; an explicit 0 stays 0.
+ */
+reasoningTokens: number | null, raw: JsonValue | null, costTicks: number | null, };
 
 export type ProxyWire = "chat" | "responses" | "messages" | "gemini";
 

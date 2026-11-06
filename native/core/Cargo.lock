@@ -3988,6 +3988,7 @@ dependencies = [
  "flate2",
  "futures",
  "indexmap",
+ "libc",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",

@@ -1,10 +1,10 @@
 {
   "input": {
+    "file_path": "lines.txt",
     "limit": 5,
-    "offset": 10,
-    "path": "lines.txt"
+    "offset": 11
   },
   "isError": false,
-  "text": "[lines 11-15]\nline-11\nline-12\nline-13\nline-14\nline-15\n[lines 11-15 of 120; offset:15 for more]",
+  "text": "[lines 11-15]\nline-11\nline-12\nline-13\nline-14\nline-15\n[lines 11-15 of 120; offset:16 for more]",
   "tool": "read"
 }

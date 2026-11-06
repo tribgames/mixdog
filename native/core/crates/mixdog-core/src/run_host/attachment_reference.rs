@@ -8,8 +8,6 @@
 
 use std::sync::Arc;
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::fresh::AttachmentSeam;
 use mixdog_agent::message::AgentMessage;
@@ -326,6 +324,8 @@ impl ReferencedMedia {
 }
 #[cfg(test)]
 mod tests {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
     use mixdog_agent::compact::estimate::PartMeter;
     use serde_json::Value;
 

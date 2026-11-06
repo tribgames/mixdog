@@ -106,6 +106,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::disallowed_methods, reason = "test setup: builds a real PATH directory on the test thread")]
     fn which_finds_files_on_a_supplied_path_through_the_index() {
         let dir = std::env::temp_dir().join(format!("mixdog-which-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

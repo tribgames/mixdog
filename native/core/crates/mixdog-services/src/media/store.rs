@@ -29,6 +29,9 @@ pub enum MediaError {
     BoardNotFound,
     #[error("media asset is too large to preview")]
     TooLarge,
+    /// The extension host could not build a rendition, or the cache could not hold it.
+    #[error("media rendition: {0}")]
+    Rendition(String),
     #[error("media store: {0}")]
     Io(#[from] std::io::Error),
     #[error("media store: {0}")]
@@ -41,6 +44,7 @@ impl MediaError {
             Self::Invalid(_) => "invalid",
             Self::BoardNotFound => "boardNotFound",
             Self::TooLarge => "MEDIA_ASSET_TOO_LARGE",
+            Self::Rendition(_) => "renditionFailed",
             Self::Io(_) | Self::Json(_) => "storeFailed",
         }
     }
@@ -292,8 +296,48 @@ impl MediaStore {
         Ok(json!({"total": all.len(), "assets": page}))
     }
 
-    fn get_asset(&self, id: &str) -> Result<Option<Value>, MediaError> {
+    pub(crate) fn get_asset(&self, id: &str) -> Result<Option<Value>, MediaError> {
         Ok(self.read_assets()?.into_iter().find(|e| str_field(e, "id") == id))
+    }
+
+    /// Derived tile/detail renditions: a rebuildable cache beside the assets, never inside them.
+    pub fn renditions_dir(&self) -> PathBuf {
+        self.dir.join("renditions")
+    }
+
+    /// Persists a duration probed while building a rendition, so the gallery badge survives a
+    /// restart. Nothing is written for no duration or one the row already has.
+    pub fn remember_duration(&self, id: &str, seconds: i64) -> Result<(), MediaError> {
+        if seconds == 0 {
+            return Ok(());
+        }
+        self.mutate_assets(|assets| {
+            let Some(row) = assets.iter().find(|e| str_field(e, "id") == id) else { return (None, ()) };
+            if row.get("durationSeconds").and_then(Value::as_f64) == Some(seconds as f64) {
+                return (None, ());
+            }
+            let next = assets
+                .iter()
+                .map(|e| {
+                    let mut e = e.clone();
+                    if str_field(&e, "id") == id {
+                        e["durationSeconds"] = json!(seconds);
+                    }
+                    e
+                })
+                .collect();
+            (Some(next), ())
+        })
+    }
+
+    /// Base64 of a file for the inline path; larger files belong on the file route.
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+    pub fn inline_base64(path: &Path) -> Result<String, MediaError> {
+        use base64::Engine;
+        if fs::metadata(path)?.len() > MAX_INLINE_BYTES {
+            return Err(MediaError::TooLarge);
+        }
+        Ok(base64::engine::general_purpose::STANDARD.encode(fs::read(path)?))
     }
 
     /// The asset's original as a file. `None` when unknown or its bytes are gone.
@@ -321,13 +365,8 @@ impl MediaStore {
     /// Base64 for the inline path; larger files belong on the file route.
     #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     pub fn read_asset(&self, id: &str) -> Result<Option<Value>, MediaError> {
-        use base64::Engine;
         let Some(mut file) = self.resolve_file(id)? else { return Ok(None) };
-        let path = PathBuf::from(str_field(&file, "path"));
-        if fs::metadata(&path)?.len() > MAX_INLINE_BYTES {
-            return Err(MediaError::TooLarge);
-        }
-        file["base64"] = json!(base64::engine::general_purpose::STANDARD.encode(fs::read(&path)?));
+        file["base64"] = json!(Self::inline_base64(Path::new(str_field(&file, "path")))?);
         Ok(Some(file))
     }
 
@@ -358,6 +397,7 @@ impl MediaStore {
         if let Some(path) = self.stored_asset_path(str_field(entry, "file")) {
             let _ = fs::remove_file(path);
         }
+        super::renditions::remove_renditions(&self.renditions_dir(), str_field(entry, "id"));
     }
 
     /// Bulk cleanup. Filters AND together; one selector (ids, before, missing, all) is required

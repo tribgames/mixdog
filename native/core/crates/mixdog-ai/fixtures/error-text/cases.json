@@ -1,0 +1,1479 @@
+{
+  "cases": [
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "boom",
+      "line": "Error: boom",
+      "options": {},
+      "text": "boom"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "",
+      "line": "Error: Unknown error",
+      "options": {},
+      "text": "Unknown error"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "Error: something broke",
+      "line": "Error: something broke",
+      "options": {},
+      "text": "something broke"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "[error] wrapped: detail",
+      "line": "Error: [error] wrapped: detail",
+      "options": {},
+      "text": "[error] wrapped: detail"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "{\"error\":\"inner message\"}",
+      "line": "Error: inner message",
+      "options": {},
+      "text": "inner message"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "{\"error\":{\"message\":\"nested\"}}",
+      "line": "Error: nested",
+      "options": {},
+      "text": "nested"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "{\"message\":\"top message\"}",
+      "line": "Error: top message",
+      "options": {},
+      "text": "top message"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "{\"error\":{\"code\":\"x\"}}",
+      "line": "Error: {\"code\":\"x\"}",
+      "options": {},
+      "text": "{\"code\":\"x\"}"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "line one\nerror: the real one\nline three",
+      "line": "Error: the real one",
+      "options": {},
+      "text": "the real one"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "Failed = disk full",
+      "line": "Error: disk full",
+      "options": {},
+      "text": "disk full"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "rate_limited",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 429
+      },
+      "error": {
+        "message": "API 429 rate limit",
+        "status": 429
+      },
+      "line": "Error: Provider is rate-limited.",
+      "options": {},
+      "text": "Provider is rate-limited."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "rate_limited",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 429
+      },
+      "error": {
+        "message": "API 429 request rejected",
+        "status": 429
+      },
+      "line": "Error: The provider rejected this request.",
+      "options": {},
+      "text": "The provider rejected this request."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "rate_limited",
+        "resetAt": null,
+        "retryAfterMs": 4000,
+        "status": 429
+      },
+      "error": {
+        "message": "slow down",
+        "retryAfterMs": 4000,
+        "status": 429
+      },
+      "line": "Error: Provider is rate-limited (retry in 4s).",
+      "options": {},
+      "text": "Provider is rate-limited (retry in 4s)."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "rate_limited",
+        "resetAt": null,
+        "retryAfterMs": 125000,
+        "status": 429
+      },
+      "error": {
+        "message": "slow down",
+        "retryAfterMs": 125000,
+        "status": 429
+      },
+      "line": "Error: Provider is rate-limited (retry in 125s).",
+      "options": {},
+      "text": "Provider is rate-limited (retry in 125s)."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "overloaded",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 529
+      },
+      "error": {
+        "message": "busy",
+        "status": 529
+      },
+      "line": "Error: Provider is busy at capacity.",
+      "options": {},
+      "text": "Provider is busy at capacity."
+    },
+    {
+      "descriptor": {
+        "code": "overloaded_error",
+        "kind": "overloaded",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 529
+      },
+      "error": {
+        "code": "overloaded_error",
+        "message": "overloaded_error",
+        "status": 529
+      },
+      "line": "Error: Provider is busy at capacity.",
+      "options": {},
+      "text": "Provider is busy at capacity."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 503
+      },
+      "error": {
+        "message": "The provider is at capacity",
+        "status": 503
+      },
+      "line": "Error: Provider is temporarily unavailable (503).",
+      "options": {},
+      "text": "Provider is temporarily unavailable (503)."
+    },
+    {
+      "descriptor": {
+        "code": "insufficient_quota",
+        "kind": "billing",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 429
+      },
+      "error": {
+        "code": "insufficient_quota",
+        "message": "quota gone",
+        "status": 429
+      },
+      "line": "Error: Out of credits or at spend limit.",
+      "options": {},
+      "text": "Out of credits or at spend limit."
+    },
+    {
+      "descriptor": {
+        "code": "usage_not_included",
+        "kind": "entitlement",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 403
+      },
+      "error": {
+        "code": "usage_not_included",
+        "message": "no plan",
+        "status": 403
+      },
+      "line": "Error: Not included in your plan.",
+      "options": {},
+      "text": "Not included in your plan."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "auth",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 401
+      },
+      "error": {
+        "message": "unauthorized",
+        "status": 401
+      },
+      "line": "Error: Provider authentication failed.",
+      "options": {},
+      "text": "Provider authentication failed."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "permission",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 403
+      },
+      "error": {
+        "message": "forbidden",
+        "status": 403
+      },
+      "line": "Error: Access denied by the provider.",
+      "options": {},
+      "text": "Access denied by the provider."
+    },
+    {
+      "descriptor": {
+        "code": "permission_denied",
+        "kind": "permission",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 403
+      },
+      "error": {
+        "code": "permission_denied",
+        "message": "denied",
+        "status": 403
+      },
+      "line": "Error: Access denied by the provider.",
+      "options": {},
+      "text": "Access denied by the provider."
+    },
+    {
+      "descriptor": {
+        "code": "content_policy_violation",
+        "kind": "policy",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 400
+      },
+      "error": {
+        "code": "content_policy_violation",
+        "message": "blocked",
+        "status": 400
+      },
+      "line": "Error: Refused by the provider safety policy.",
+      "options": {},
+      "text": "Refused by the provider safety policy."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "auth",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 401
+      },
+      "error": {
+        "message": "Invalid API key provided",
+        "status": 401
+      },
+      "line": "Error: Provider authentication failed.",
+      "options": {},
+      "text": "Provider authentication failed."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "invalid api key given",
+      "line": "Error: Provider authentication failed.",
+      "options": {},
+      "text": "Provider authentication failed."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "auth",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "sign in again",
+        "reauthRequired": true
+      },
+      "line": "Error: sign in again",
+      "options": {},
+      "text": "sign in again"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": "refresh token expired, invalid_grant",
+      "line": "Error: refresh token expired, invalid_grant",
+      "options": {},
+      "text": "refresh token expired, invalid_grant"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 400
+      },
+      "error": {
+        "message": "image dimensions exceed 8000px",
+        "status": 400
+      },
+      "line": "Error: An attached image exceeds the provider limit.",
+      "options": {},
+      "text": "An attached image exceeds the provider limit."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 400
+      },
+      "error": {
+        "message": "An attached image exceeds the provider limit",
+        "status": 400
+      },
+      "line": "Error: An attached image exceeds the provider limit.",
+      "options": {},
+      "text": "An attached image exceeds the provider limit."
+    },
+    {
+      "descriptor": {
+        "code": "model_not_found",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 404
+      },
+      "error": {
+        "code": "model_not_found",
+        "message": "The model `gpt-9` does not exist",
+        "status": 404
+      },
+      "line": "Error: This model isn't available for this account.",
+      "options": {},
+      "text": "This model isn't available for this account."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 400
+      },
+      "error": {
+        "message": "Unknown model: x",
+        "status": 400
+      },
+      "line": "Error: This model isn't available for this account.",
+      "options": {},
+      "text": "This model isn't available for this account."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 400
+      },
+      "error": {
+        "message": "invalid schema for function foo",
+        "status": 400
+      },
+      "line": "Error: The provider rejected a tool definition.",
+      "options": {},
+      "text": "The provider rejected a tool definition."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 400
+      },
+      "error": {
+        "message": "tools.3.input_schema: bad",
+        "status": 400
+      },
+      "line": "Error: The provider rejected a tool definition.",
+      "options": {},
+      "text": "The provider rejected a tool definition."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 404
+      },
+      "error": {
+        "message": "route not found",
+        "status": 404
+      },
+      "line": "Error: route not found",
+      "options": {},
+      "text": "route not found"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "agent compact failed (x): The latest message cannot fit this model (LATEST_TURN_EXCEEDS_CONTEXT): it needs about 12,000 tokens, but the 8,000-token window leaves 6,000 for it. Shorten it."
+      },
+      "line": "Error: The latest message cannot fit this model: it needs about 12,000 tokens, but the 8,000-token window leaves 6,000 for it. Shorten it.",
+      "options": {},
+      "text": "The latest message cannot fit this model: it needs about 12,000 tokens, but the 8,000-token window leaves 6,000 for it. Shorten it."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "request_too_large",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 413
+      },
+      "error": {
+        "message": "payload too large",
+        "status": 413
+      },
+      "line": "Error: The request exceeds the size limit.",
+      "options": {},
+      "text": "The request exceeds the size limit."
+    },
+    {
+      "descriptor": {
+        "code": "context_length_exceeded",
+        "kind": "context_overflow",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 400
+      },
+      "error": {
+        "code": "context_length_exceeded",
+        "message": "context length exceeded",
+        "status": 400
+      },
+      "line": "Error: context length exceeded",
+      "options": {},
+      "text": "context length exceeded"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "AGENT_CONTEXT_OVERFLOW: too big"
+      },
+      "line": "Error: Context too large.",
+      "options": {},
+      "text": "Context too large."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "compaction failed badly"
+      },
+      "line": "Error: compaction failed badly",
+      "options": {
+        "surface": "compact"
+      },
+      "text": "compaction failed badly"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "compaction failed badly"
+      },
+      "line": "Error: Compact failed.",
+      "options": {},
+      "text": "Compact failed."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 400
+      },
+      "error": {
+        "message": "bad request body",
+        "status": 400
+      },
+      "line": "Error: The provider rejected this request.",
+      "options": {},
+      "text": "The provider rejected this request."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 422
+      },
+      "error": {
+        "message": "unprocessable",
+        "status": 422
+      },
+      "line": "Error: The provider rejected this request.",
+      "options": {},
+      "text": "The provider rejected this request."
+    },
+    {
+      "descriptor": {
+        "code": "invalid_request_error",
+        "kind": "invalid_request",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "invalid_request_error",
+        "message": "x"
+      },
+      "line": "Error: The provider rejected this request.",
+      "options": {},
+      "text": "The provider rejected this request."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "fetch failed"
+      },
+      "line": "Error: Could not reach the provider.",
+      "options": {},
+      "text": "Could not reach the provider."
+    },
+    {
+      "descriptor": {
+        "code": "econnreset",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "ECONNRESET",
+        "message": "socket closed"
+      },
+      "line": "Error: Connection to the provider was lost (ECONNRESET).",
+      "options": {},
+      "text": "Connection to the provider was lost (ECONNRESET)."
+    },
+    {
+      "descriptor": {
+        "code": "enotfound",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "ENOTFOUND",
+        "message": "dns"
+      },
+      "line": "Error: Could not reach the provider (ENOTFOUND).",
+      "options": {},
+      "text": "Could not reach the provider (ENOTFOUND)."
+    },
+    {
+      "descriptor": {
+        "code": "etimedout",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "ETIMEDOUT",
+        "message": "connect"
+      },
+      "line": "Error: The provider did not respond in time (ETIMEDOUT).",
+      "options": {},
+      "text": "The provider did not respond in time (ETIMEDOUT)."
+    },
+    {
+      "descriptor": {
+        "code": "cert_has_expired",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "CERT_HAS_EXPIRED",
+        "message": "tls"
+      },
+      "line": "Error: Provider TLS certificate check failed (CERT_HAS_EXPIRED).",
+      "options": {},
+      "text": "Provider TLS certificate check failed (CERT_HAS_EXPIRED)."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 503
+      },
+      "error": {
+        "message": "API 503 upstream",
+        "status": 503
+      },
+      "line": "Error: Provider is temporarily unavailable (503).",
+      "options": {},
+      "text": "Provider is temporarily unavailable (503)."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 502
+      },
+      "error": {
+        "message": "gateway",
+        "status": 502
+      },
+      "line": "Error: Provider is temporarily unavailable (502).",
+      "options": {},
+      "text": "Provider is temporarily unavailable (502)."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "closed",
+        "wsCloseCode": 1006
+      },
+      "line": "Error: Connection to the provider was lost.",
+      "options": {},
+      "text": "Connection to the provider was lost."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "OpenAI WS closed before response.completed (code=1011, reason=x)"
+      },
+      "line": "Error: Connection to the provider was lost.",
+      "options": {},
+      "text": "Connection to the provider was lost."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "terminated"
+      },
+      "line": "Error: Connection to the provider was lost.",
+      "options": {},
+      "text": "Connection to the provider was lost."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "connection reset by peer"
+      },
+      "line": "Error: Connection to the provider was lost.",
+      "options": {},
+      "text": "Connection to the provider was lost."
+    },
+    {
+      "descriptor": {
+        "code": "truncated_stream",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "TRUNCATED_STREAM",
+        "message": "stream ended"
+      },
+      "line": "Error: Connection to the provider was lost (TRUNCATED_STREAM).",
+      "options": {},
+      "text": "Connection to the provider was lost (TRUNCATED_STREAM)."
+    },
+    {
+      "descriptor": {
+        "code": "truncated_stream",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "TRUNCATED_STREAM",
+        "message": "stream ended",
+        "streamCorruption": true
+      },
+      "line": "Error: stream ended",
+      "options": {},
+      "text": "stream ended"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "attempts": 2,
+        "message": "timed out after 30000ms",
+        "timeoutPhase": "headers",
+        "waitedMs": 30000
+      },
+      "line": "Error: Model still thinking: no output in 30s; OpenAI sent nothing yet; attempts: 2.",
+      "options": {
+        "providerLabel": "OpenAI"
+      },
+      "text": "Model still thinking: no output in 30s; OpenAI sent nothing yet; attempts: 2."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "first byte timed out after 45000ms",
+        "timeoutPhase": "first-chunk"
+      },
+      "line": "Error: Model still thinking: no output in 45s; the provider sent nothing yet.",
+      "options": {},
+      "text": "Model still thinking: no output in 45s; the provider sent nothing yet."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "timed out after 90000ms of inactivity",
+        "timeoutPhase": "idle"
+      },
+      "line": "Error: No progress 90s.",
+      "options": {},
+      "text": "No progress 90s."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "timed out",
+        "timeoutPhase": "idle"
+      },
+      "line": "Error: No progress.",
+      "options": {},
+      "text": "No progress."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "timed out after 90000ms of inactivity",
+        "name": "StreamStalledError"
+      },
+      "line": "Error: No progress 90s.",
+      "options": {},
+      "text": "No progress 90s."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "first byte timed out after 61000ms",
+        "name": "ProviderTimeoutError"
+      },
+      "line": "Error: No first response 61s.",
+      "options": {},
+      "text": "No first response 61s."
+    },
+    {
+      "descriptor": {
+        "code": "eprovidertimeout",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "EPROVIDERTIMEOUT",
+        "message": "x"
+      },
+      "line": "Error: No first response.",
+      "options": {},
+      "text": "No first response."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "first transport stale (30000ms)"
+      },
+      "line": "Error: Agent watchdog stopped the run: no model response in 30s.",
+      "options": {},
+      "text": "Agent watchdog stopped the run: no model response in 30s."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "agent first response stale (120000ms)"
+      },
+      "line": "Error: No first response from the agent within 2m.",
+      "options": {
+        "surface": "agent"
+      },
+      "text": "No first response from the agent within 2m."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "first response stale (60000ms)"
+      },
+      "line": "Error: No first response from the web search agent within 1m.",
+      "options": {
+        "surface": "web-search"
+      },
+      "text": "No first response from the web search agent within 1m."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "first response stale (60000ms)"
+      },
+      "line": "Error: No first response from the request within 1m.",
+      "options": {
+        "surface": "turn"
+      },
+      "text": "No first response from the request within 1m."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "agent task stale (300000ms since progress)"
+      },
+      "line": "Error: The agent went stale after 5m without new stream/tool progress.",
+      "options": {
+        "surface": "task"
+      },
+      "text": "The agent went stale after 5m without new stream/tool progress."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "tool running stale (45000ms)"
+      },
+      "line": "Error: The tool went stale after 45s without new stream/tool progress.",
+      "options": {},
+      "text": "The tool went stale after 45s without new stream/tool progress."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "Session \"sess_abc\" closed: aborted during call"
+      },
+      "line": "Error: Agent stopped while waiting for a response.",
+      "options": {
+        "surface": "agent"
+      },
+      "text": "Agent stopped while waiting for a response."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "Session \"sess_abc\" closed: closed during call"
+      },
+      "line": "Error: Tool stopped before the response completed.",
+      "options": {},
+      "text": "Tool stopped before the response completed."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "Session closed: closeSession"
+      },
+      "line": "Error: Tool stopped.",
+      "options": {},
+      "text": "Tool stopped."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "parent signal aborted"
+      },
+      "line": "Error: Tool was cancelled by its caller.",
+      "options": {},
+      "text": "Tool was cancelled by its caller."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "cancelled": true,
+        "message": "whatever"
+      },
+      "line": "Error: Tool was cancelled.",
+      "options": {},
+      "text": "Tool was cancelled."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "cancelled": true,
+        "message": "whatever"
+      },
+      "line": "Error: Cancelled",
+      "options": {
+        "surface": "turn"
+      },
+      "text": "Cancelled"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "aborted",
+        "name": "AbortError"
+      },
+      "line": "Error: Tool was cancelled.",
+      "options": {},
+      "text": "Tool was cancelled."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "x",
+        "name": "SessionClosedError"
+      },
+      "line": "Error: Agent was cancelled.",
+      "options": {
+        "surface": "agent"
+      },
+      "text": "Agent was cancelled."
+    },
+    {
+      "descriptor": {
+        "code": "provider_prefix_mutation",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "PROVIDER_PREFIX_MUTATION",
+        "message": "prefix changed"
+      },
+      "line": "Error: Session state changed unexpectedly.",
+      "options": {},
+      "text": "Session state changed unexpectedly."
+    },
+    {
+      "descriptor": {
+        "code": "TOOL_SURFACE_EXCEEDS_CONTEXT",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "Tool surface too big (TOOL_SURFACE_EXCEEDS_CONTEXT)\nline two"
+      },
+      "line": "Error: Tool surface too big (TOOL_SURFACE_EXCEEDS_CONTEXT)\nline two",
+      "options": {},
+      "text": "Tool surface too big (TOOL_SURFACE_EXCEEDS_CONTEXT)\nline two"
+    },
+    {
+      "descriptor": {
+        "code": "TOOL_SURFACE_EXCEEDS_CONTEXT",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "code": "TOOL_SURFACE_EXCEEDS_CONTEXT",
+        "message": "x"
+      },
+      "line": "Error: x",
+      "options": {},
+      "text": "x"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "rate limit retryAfter=90s cooldown"
+      },
+      "line": "Error: Provider quota/rate limit hit; retry after 1m 30s. Re-login or switch the provider account to continue now.",
+      "options": {},
+      "text": "Provider quota/rate limit hit; retry after 1m 30s. Re-login or switch the provider account to continue now."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "Anthropic OAuth quota exceeded retryAfter=3h"
+      },
+      "line": "Error: Anthropic quota/rate limit hit; retry after 3h.",
+      "options": {},
+      "text": "Anthropic quota/rate limit hit; retry after 3h."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "Anthropic OAuth quota exceeded retryAfter=45s"
+      },
+      "line": "Error: Anthropic quota/rate limit hit; retry after 45s.",
+      "options": {},
+      "text": "Anthropic quota/rate limit hit; retry after 45s."
+    },
+    {
+      "descriptor": {
+        "code": "rate_limit_exceeded",
+        "kind": "rate_limited",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 429
+      },
+      "error": {
+        "code": "rate_limit_exceeded",
+        "message": "too many requests",
+        "status": 429
+      },
+      "line": "Error: Provider is rate-limited.",
+      "options": {},
+      "text": "Provider is rate-limited."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "The provider usage limit was reached"
+      },
+      "line": "Error: The provider usage limit was reached",
+      "options": {},
+      "text": "The provider usage limit was reached"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 503
+      },
+      "error": {
+        "message": "Provider is busy at capacity.",
+        "status": 503
+      },
+      "line": "Error: Provider is temporarily unavailable (503).",
+      "options": {},
+      "text": "Provider is temporarily unavailable (503)."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "Bearer abcdefghijklmnop token leak https://user:pw@host/x?api_key=SECRETVALUE end"
+      },
+      "line": "Error: Bearer [redacted] token leak https://[redacted]@host/x?api_key=[redacted] end",
+      "options": {},
+      "text": "Bearer [redacted] token leak https://[redacted]@host/x?api_key=[redacted] end"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "sk-aaaaaaaaaaaaaaaaaaaa and xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "line": "Error: [redacted] and xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...",
+      "options": {
+        "max": 80
+      },
+      "text": "[redacted] and xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx..."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 café 😀 "
+      },
+      "line": "Error: café 😀 café 😀 café 😀 café 😀 café ...",
+      "options": {
+        "max": 40
+      },
+      "text": "café 😀 café 😀 café 😀 café 😀 café ..."
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "session sess_ABC123 run_ABCDEFGHIJKLMNOPQRS failed"
+      },
+      "line": "Error: session session run failed",
+      "options": {},
+      "text": "session session run failed"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "data:image/png;base64,AAAA+/== in body"
+      },
+      "line": "Error: [image data]",
+      "options": {},
+      "text": "[image data]"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "\u001b[31mred\u001b[0m text"
+      },
+      "line": "Error: red text",
+      "options": {},
+      "text": "red text"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "unknown",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 0
+      },
+      "error": {
+        "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "line": "Error: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n…",
+      "options": {
+        "max": 20000
+      },
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n…"
+    },
+    {
+      "descriptor": {
+        "code": "",
+        "kind": "transient",
+        "resetAt": null,
+        "retryAfterMs": null,
+        "status": 500
+      },
+      "error": {
+        "message": "Error invoking remote method 'x': Error: quota hit",
+        "status": 500
+      },
+      "line": "Error: Provider quota/rate limit hit.",
+      "options": {},
+      "text": "Provider quota/rate limit hit."
+    }
+  ]
+}

@@ -137,11 +137,13 @@ pub struct Exec {
     pub wakes: Arc<WakeHub>,
 }
 
-/// `skill_launcher_dir` is the directory the skills owner ensured (`mixdog_mcp::launcher`).
+/// `skill_launcher_dir` is the directory the skills owner ensured (`mixdog_mcp::launcher`);
+/// `shell_path` the default shell, probed on a lane (`shell_name::resolve_program_current_on`).
 pub fn build_exec(
     tokens: &LaneTokens,
     data_dir: &Path,
     skill_launcher_dir: PathBuf,
+    shell_path: String,
     skill_runtime: SkillRuntime,
     ext_pool: Arc<dyn ExtPool>,
 ) -> (Exec, ExecEvents) {
@@ -174,8 +176,8 @@ pub fn build_exec(
         elevation: Arc::new(OsPromptElevation),
         oem: host_oem(),
         skill_runtime: Some(skill_runtime),
-        shell_path: crate::shell_name::resolve_program_current(),
-        shell_name: crate::shell_name::resolve_current(),
+        shell_name: crate::shell_name::name_of(&shell_path),
+        shell_path,
         script_syntax: Arc::new(ExtSyntax::new(ext_pool)),
         windows: cfg!(windows),
         // Node's default shell on Windows is PowerShell.

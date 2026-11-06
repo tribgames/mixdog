@@ -43,7 +43,16 @@ struct IgnoreEntry {
     names: HashSet<String>,
     ignored: HashSet<String>,
     unserved: bool,
-    pending: bool,
+    /// Bumped by every synchronous (miss) probe, so a refresh started before it is discarded.
+    generation: u64,
+    /// The generation a refresh in flight was started at.
+    refresh: Option<u64>,
+}
+
+impl IgnoreEntry {
+    fn covers(&self, names: &[String]) -> bool {
+        self.names.len() == names.len() && names.iter().all(|name| self.names.contains(name))
+    }
 }
 
 #[derive(Default)]
@@ -80,12 +89,42 @@ impl StartupObservations {
         self.state().change.insert(root.to_owned(), ChangeEntry { value, unserved: prewarm, pending: false });
     }
 
-    /// Records the git-ignored names among `names` of `directory`.
+    /// Records the git-ignored names among `names` of `directory`. `prewarm` is a synchronous
+    /// answer (a miss resolved before composing, or the boot prewarm): it replaces the observation
+    /// and is fresh for its first use. Otherwise it is a refresh's answer, applied only if no
+    /// synchronous answer came since the refresh started.
     pub fn record_ignored(&self, directory: &str, names: Vec<String>, ignored: HashSet<String>, prewarm: bool) {
-        let entry = IgnoreEntry { names: names.into_iter().collect(), ignored, unserved: prewarm, pending: false };
-        self.state().ignore.insert(directory.to_owned(), entry);
+        let mut state = self.state();
+        let names: HashSet<String> = names.into_iter().collect();
+        let Some(entry) = state.ignore.get_mut(directory) else {
+            if prewarm {
+                state.ignore.insert(directory.to_owned(), IgnoreEntry { names, ignored, unserved: true, generation: 0, refresh: None });
+            }
+            return;
+        };
+        if prewarm {
+            entry.names = names;
+            entry.ignored = ignored;
+            entry.unserved = true;
+            entry.generation += 1;
+        } else {
+            if entry.refresh == Some(entry.generation) {
+                entry.names = names;
+                entry.ignored = ignored;
+            }
+            entry.refresh = None;
+        }
     }
 
+    /// Whether an observation exists that serves `request`: what is asked for and not answered
+    /// is a miss the host resolves before the composition goes on.
+    pub fn answers(&self, request: &ProbeRequest) -> bool {
+        let state = self.state();
+        match request {
+            ProbeRequest::ChangeState { root } => state.change.contains_key(root),
+            ProbeRequest::Ignored { directory, names } => state.ignore.get(directory).is_some_and(|entry| entry.covers(names)),
+        }
+    }
     /// Records the POSIX login-shell probe's line for `path_env`.
     pub fn record_shell_tools(&self, path_env: &str, line: &str) {
         self.state().shell_tools = Some((path_env.to_owned(), line.to_owned()));
@@ -138,30 +177,28 @@ impl StartupObservations {
         value
     }
 
-    /// The ignored names among `names`; an observation that does not cover exactly these names
-    /// is a miss (a probe is requested and nothing is ignored meanwhile).
+    /// The ignored names among `names`. Any observation that does not cover exactly these names
+    /// is a miss (`_coversNames`): a probe is requested, nothing is ignored meanwhile, and the
+    /// host resolves it before the composition goes on.
     pub(super) fn ignored(&self, directory: &str, names: &[String]) -> HashSet<String> {
         let mut state = self.state();
         let request = ProbeRequest::Ignored { directory: directory.to_owned(), names: names.to_vec() };
-        let covers = state.ignore.get(directory).is_some_and(|e| e.names.len() == names.len() && names.iter().all(|n| e.names.contains(n)));
-        if !covers {
+        let Some(entry) = state.ignore.get_mut(directory).filter(|entry| entry.covers(names)) else {
             if !state.requests.contains(&request) {
                 state.requests.push(request);
             }
             return HashSet::new();
-        }
-        let Some(entry) = state.ignore.get_mut(directory) else { return HashSet::new() };
+        };
         let ignored = entry.ignored.clone();
         if entry.unserved {
             entry.unserved = false;
-        } else if !entry.pending {
-            entry.pending = true;
+        } else if entry.refresh.is_none() {
+            entry.refresh = Some(entry.generation);
             state.requests.push(request);
         }
         ignored
     }
 }
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicI64;
@@ -239,5 +276,43 @@ mod tests {
         let more = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
         assert!(probes.ignored("/d", &more).is_empty());
         assert_eq!(probes.take_requests(), [ProbeRequest::Ignored { directory: "/d".into(), names: more }]);
+    }
+
+    /// Name sets A → B → A: each change is a miss resolved synchronously (`runtime-capabilities.mjs`
+    /// `_gitIgnoredEntries`), never a refresh of a stale observation that shows ignored entries.
+    #[test]
+    fn a_name_set_that_comes_back_is_a_miss_not_a_refresh() {
+        let (probes, _) = observations();
+        let a = vec!["keep".to_owned(), "skip".to_owned()];
+        let b = vec!["keep".to_owned(), "other".to_owned()];
+        let ask = |names: &Vec<String>| ProbeRequest::Ignored { directory: "/d".into(), names: names.clone() };
+        assert!(!probes.answers(&ask(&a)));
+        probes.record_ignored("/d", a.clone(), HashSet::from(["skip".to_owned()]), true);
+        assert!(probes.answers(&ask(&a)));
+        assert!(!probes.answers(&ask(&b)), "B is not covered by A's observation");
+        assert!(probes.ignored("/d", &b).is_empty());
+        probes.record_ignored("/d", b.clone(), HashSet::new(), true);
+        assert!(!probes.answers(&ask(&a)), "A is not covered by B's observation");
+        probes.take_requests();
+        assert!(probes.ignored("/d", &a).is_empty(), "a miss serves nothing");
+        assert_eq!(probes.take_requests(), [ask(&a)]);
+        probes.record_ignored("/d", a.clone(), HashSet::from(["skip".to_owned()]), true);
+        assert_eq!(probes.ignored("/d", &a), HashSet::from(["skip".to_owned()]));
+    }
+
+    /// A refresh started before a synchronous probe is discarded (`generation`).
+    #[test]
+    fn a_refresh_that_started_before_a_miss_answer_is_discarded() {
+        let (probes, _) = observations();
+        let a = vec!["keep".to_owned(), "skip".to_owned()];
+        let b = vec!["keep".to_owned()];
+        probes.record_ignored("/d", a.clone(), HashSet::from(["skip".to_owned()]), true);
+        probes.ignored("/d", &a);
+        probes.ignored("/d", &a);
+        assert_eq!(probes.take_requests().len(), 1, "the second use starts the refresh");
+        probes.record_ignored("/d", b.clone(), HashSet::new(), true);
+        probes.record_ignored("/d", a.clone(), HashSet::new(), false);
+        assert!(probes.answers(&ProbeRequest::Ignored { directory: "/d".into(), names: b }), "the late refresh of A did not replace B");
+        assert!(!probes.answers(&ProbeRequest::Ignored { directory: "/d".into(), names: a }));
     }
 }

@@ -334,6 +334,17 @@ fn skipped(path: &Path, error: &std::io::Error) {
     }
 }
 
+/// `openSync(path, O_RDONLY | O_NONBLOCK)`.
+fn open_nonblocking(path: &Path) -> std::io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    options.open(path)
+}
 /// `readInstructionFile({ path, root })`.
 fn read_instruction_file(path: &Path, root: Option<&Path>) -> String {
     let real = match fs::canonicalize(path) {
@@ -356,7 +367,17 @@ fn read_instruction_file(path: &Path, root: Option<&Path>) -> String {
             return String::new();
         }
     }
-    let file = match fs::File::open(&real) {
+    // The type is checked before the open: opening a FIFO for reading blocks until a writer
+    // appears. The open itself is non-blocking and the opened file's type is checked once more.
+    match fs::metadata(&real) {
+        Ok(stats) if !stats.is_file() => return String::new(),
+        Ok(_) => {}
+        Err(error) => {
+            skipped(path, &error);
+            return String::new();
+        }
+    }
+    let file = match open_nonblocking(&real) {
         Ok(file) => file,
         Err(error) => {
             skipped(path, &error);
@@ -370,8 +391,7 @@ fn read_instruction_file(path: &Path, root: Option<&Path>) -> String {
             skipped(path, &error);
             return String::new();
         }
-    }
-    let mut head = Vec::new();
+    }    let mut head = Vec::new();
     if let Err(error) = file.take((INSTRUCTION_FILE_MAX_BYTES + 3 + 1) as u64).read_to_end(&mut head) {
         skipped(path, &error);
         return String::new();
@@ -611,5 +631,25 @@ impl PromptSources for RealSources<'_> {
 
     fn system_locale(&self) -> String {
         self.host.locale.to_owned()
+    }
+}
+
+#[cfg(all(test, unix))]
+#[allow(clippy::disallowed_methods, reason = "test setup: a real FIFO")]
+mod fifo_tests {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    use super::read_instruction_file;
+
+    /// A FIFO named like an instruction file has no content and does not block the composition
+    /// (`instruction-files.mjs`: the type is checked before the open, which is non-blocking).
+    #[test]
+    fn a_fifo_instruction_file_is_skipped_without_blocking() {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("AGENTS.md");
+        let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert_eq!(read_instruction_file(&fifo, Some(dir.path())), "");
     }
 }

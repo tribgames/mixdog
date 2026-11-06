@@ -64,14 +64,14 @@
       "sha256": "fd7aab315c746866a19c759b87c246d439becc176e710c908b29ae966d875889"
     },
     {
-      "bytes": 1776434,
+      "bytes": 1774556,
       "path": "settings/agent-definition-actions-twin.json",
-      "sha256": "4eb0a3a358eb2e32692dfbe5952cf0668688e967fefc7880d14e7e46c0b0b03e"
+      "sha256": "be76d363137f10e0afc6e51bc7ef7d9eb1baab2df90fa9a3fb56397bc320f47e"
     },
     {
-      "bytes": 1256571,
+      "bytes": 1287921,
       "path": "settings/agent-definitions-twin.json",
-      "sha256": "aa316361d4efceb2e3cf552d75b71cf513f7ef2792a2d0edb58ffa40de5b3333"
+      "sha256": "2cb05c6b3ca683eaf7fbdd869235eb7abe16aefd152a9ff252c736db437be8d6"
     },
     {
       "bytes": 1878785,
@@ -94,9 +94,9 @@
       "sha256": "93edcf30e737bd0ebb25b2967dbdd2d3713d323434c2b077abdcc0ad079a9aa3"
     },
     {
-      "bytes": 586089,
+      "bytes": 615874,
       "path": "settings/connector-policy-twin.json",
-      "sha256": "4ce09b63a3c00287ad0e8885f0f0bb9fdbfd2087b35ba6435afd424f5ae205ef"
+      "sha256": "917954b4a525c757e500fd3c52c147a111f910a2a8e2a0b5be86718b5faf6b6a"
     },
     {
       "bytes": 7394,
@@ -172,5 +172,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 12495353
+  "totalBytes": 12554610
 }

@@ -93,27 +93,30 @@ impl MessageFacts for StoredRows {
     }
 }
 
-pub struct LoopReactions {
-    facts: Arc<dyn MessageFacts>,
-    /// `isInternalTranscriptDisplayText`: runtime control rows persisted as user messages.
-    is_internal_text: fn(&str) -> bool,
-    targets: Mutex<(HashMap<String, (String, bool)>, VecDeque<String>)>,
+/// What successful react calls hit, process-wide and keyed by session and call id
+/// (`reactionTargets` in `reaction-tool-defs.mjs`): the react tool records a target here from
+/// whatever task serves the call, and the loop of that session takes it. One value is shared by
+/// the react tool and every turn's [`LoopReactions`].
+#[derive(Default)]
+pub struct ReactionTargets {
+    inner: Mutex<(HashMap<(String, String), (String, bool)>, VecDeque<(String, String)>)>,
 }
 
-impl LoopReactions {
-    pub fn new(facts: Arc<dyn MessageFacts>, is_internal_text: fn(&str) -> bool) -> Self {
-        Self { facts, is_internal_text, targets: Mutex::new((HashMap::new(), VecDeque::new())) }
+impl ReactionTargets {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// The react tool records the message a successful call landed on (`noteReactionTarget`).
-    pub fn note_target(&self, call_id: &str, message_id: &str, room: bool) {
-        if call_id.is_empty() || message_id.is_empty() {
+    /// `noteReactionTarget`: the message a successful call landed on.
+    pub fn note(&self, session_id: &str, call_id: &str, message_id: &str, room: bool) {
+        if session_id.is_empty() || call_id.is_empty() || message_id.is_empty() {
             return;
         }
-        let mut guard = self.targets.lock().unwrap_or_else(|e| e.into_inner());
+        let key = (session_id.to_owned(), call_id.to_owned());
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let (map, order) = &mut *guard;
-        if map.insert(call_id.to_owned(), (message_id.to_owned(), room)).is_none() {
-            order.push_back(call_id.to_owned());
+        if map.insert(key.clone(), (message_id.to_owned(), room)).is_none() {
+            order.push_back(key);
         }
         while map.len() > TARGET_CAP {
             if let Some(oldest) = order.pop_front() {
@@ -122,18 +125,59 @@ impl LoopReactions {
         }
     }
 
-    /// The run ended: its leftover records go (`clearReactionTargets`).
-    pub fn clear(&self) {
-        let mut guard = self.targets.lock().unwrap_or_else(|e| e.into_inner());
-        guard.0.clear();
-        guard.1.clear();
+    /// `takeReactionTarget`: consumed.
+    pub fn take(&self, session_id: &str, call_id: &str) -> Option<ReactionTarget> {
+        let key = (session_id.to_owned(), call_id.to_owned());
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let (message_id, room) = guard.0.remove(&key)?;
+        guard.1.retain(|k| *k != key);
+        Some(ReactionTarget { message_id, room })
+    }
+
+    /// `clearReactionTargets`: the session's loop ended, its leftovers go.
+    pub fn clear(&self, session_id: &str) {
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        guard.0.retain(|(session, _), _| session != session_id);
+        guard.1.retain(|(session, _)| session != session_id);
     }
 
     pub fn held(&self) -> usize {
-        self.targets.lock().unwrap_or_else(|e| e.into_inner()).0.len()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).0.len()
     }
 }
 
+/// Clears a session's records when its turn ends, on every exit path (Node clears "whenever the
+/// loop ends, success or not").
+pub struct ReactionScope {
+    targets: Arc<ReactionTargets>,
+    session_id: String,
+}
+
+impl ReactionScope {
+    pub fn new(targets: Arc<ReactionTargets>, session_id: &str) -> Self {
+        Self { targets, session_id: session_id.to_owned() }
+    }
+}
+
+impl Drop for ReactionScope {
+    fn drop(&mut self) {
+        self.targets.clear(&self.session_id);
+    }
+}
+
+pub struct LoopReactions {
+    session_id: String,
+    targets: Arc<ReactionTargets>,
+    facts: Arc<dyn MessageFacts>,
+    /// `isInternalTranscriptDisplayText`: runtime control rows persisted as user messages.
+    is_internal_text: fn(&str) -> bool,
+}
+
+impl LoopReactions {
+    pub fn new(session_id: &str, targets: Arc<ReactionTargets>, facts: Arc<dyn MessageFacts>, is_internal_text: fn(&str) -> bool) -> Self {
+        Self { session_id: session_id.to_owned(), targets, facts, is_internal_text }
+    }
+}
 impl Reactions for LoopReactions {
     /// Direct, or bridged through `call_tool`.
     fn is_reaction_call(&self, call: &ToolCall) -> bool {
@@ -143,10 +187,7 @@ impl Reactions for LoopReactions {
     }
 
     fn take_target(&self, call_id: &str) -> Option<ReactionTarget> {
-        let mut guard = self.targets.lock().unwrap_or_else(|e| e.into_inner());
-        let (message_id, room) = guard.0.remove(call_id)?;
-        guard.1.retain(|id| id != call_id);
-        Some(ReactionTarget { message_id, room })
+        self.targets.take(&self.session_id, call_id)
     }
 
     /// A prompt typed or steered into the chat, or the user's own row in a room's log.
@@ -181,7 +222,7 @@ mod tests {
     use super::*;
 
     fn reactions() -> LoopReactions {
-        LoopReactions::new(Arc::new(NoMessageFacts), |t| t.starts_with("<runtime-notice>"))
+        LoopReactions::new("s", Arc::new(ReactionTargets::new()), Arc::new(NoMessageFacts), |t| t.starts_with("<runtime-notice>"))
     }
 
     fn call(name: &str, args: serde_json::Value) -> ToolCall {
@@ -197,27 +238,40 @@ mod tests {
     }
 
     #[test]
-    fn a_target_is_consumed_once() {
-        let r = reactions();
-        r.note_target("c1", "m1", true);
-        r.note_target("", "m", false);
+    fn a_target_is_consumed_once_by_the_session_that_recorded_it() {
+        let targets = Arc::new(ReactionTargets::new());
+        let r = LoopReactions::new("s", targets.clone(), Arc::new(NoMessageFacts), |_| false);
+        let other = LoopReactions::new("other", targets.clone(), Arc::new(NoMessageFacts), |_| false);
+        targets.note("s", "c1", "m1", true);
+        targets.note("s", "", "m", false);
+        assert!(other.take_target("c1").is_none(), "a record belongs to its session's loop");
         let t = r.take_target("c1").unwrap();
         assert_eq!((t.message_id.as_str(), t.room), ("m1", true));
         assert!(r.take_target("c1").is_none());
-        assert_eq!(r.held(), 0);
+        assert_eq!(targets.held(), 0);
     }
 
     #[test]
     fn the_record_map_is_capped() {
-        let r = reactions();
+        let targets = ReactionTargets::new();
         for i in 0..300 {
-            r.note_target(&format!("c{i}"), "m", false);
+            targets.note("s", &format!("c{i}"), "m", false);
         }
-        assert_eq!(r.held(), TARGET_CAP);
-        assert!(r.take_target("c0").is_none());
-        assert!(r.take_target("c299").is_some());
+        assert_eq!(targets.held(), TARGET_CAP);
+        assert!(targets.take("s", "c0").is_none());
+        assert!(targets.take("s", "c299").is_some());
     }
 
+    /// `clearReactionTargets`: the scope's end drops its session's leftovers and no other's.
+    #[test]
+    fn a_turns_scope_clears_only_its_sessions_records_when_it_ends() {
+        let targets = Arc::new(ReactionTargets::new());
+        targets.note("s", "c1", "m1", false);
+        targets.note("other", "c1", "m2", false);
+        drop(ReactionScope::new(targets.clone(), "s"));
+        assert!(targets.take("s", "c1").is_none());
+        assert_eq!(targets.take("other", "c1").unwrap().message_id, "m2");
+    }
     #[test]
     fn only_real_user_input_is_reactable() {
         let r = reactions();
@@ -275,7 +329,7 @@ mod tests {
         assert_eq!((facts.room_row("never-registered"), facts.room_row_is_user("never-registered")), (None, None));
         assert!(!facts.not_user_written("never-registered"));
 
-        let r = LoopReactions::new(rows.clone(), |t| t.starts_with("<runtime-notice>"));
+        let r = LoopReactions::new("s", Arc::new(ReactionTargets::new()), rows.clone(), |t| t.starts_with("<runtime-notice>"));
         let reactable: Vec<bool> = [&typed, &synthetic, &synthetic_text, &from_agent, &routine, &own_row, &relayed_row, &bot_row, &kindless, &member_prompt]
             .iter()
             .map(|m| r.is_reactable(m))

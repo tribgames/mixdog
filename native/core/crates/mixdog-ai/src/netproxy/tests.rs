@@ -390,7 +390,9 @@ async fn socks_once(onward: Option<String>) -> (String, tokio::sync::oneshot::Re
         let (mut socket, _) = listener.accept().await.unwrap();
         drop(listener);
         let mut buffer = [0u8; 300];
-        socket.read(&mut buffer).await.unwrap();
+        // The greeting: version 5, a method count, then that many methods.
+        let greeting = socket.read(&mut buffer).await.unwrap();
+        assert!(greeting >= 3 && buffer[0] == 5 && greeting == 2 + buffer[1] as usize, "not a SOCKS5 greeting: {:?}", &buffer[..greeting]);
         socket.write_all(&[5, 0]).await.unwrap();
         let n = socket.read(&mut buffer).await.unwrap();
         let (kind, host) = match buffer[3] {

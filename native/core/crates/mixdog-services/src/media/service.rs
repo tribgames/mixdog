@@ -9,8 +9,12 @@ use mixdog_core_api::service::Admit;
 use mixdog_core_api::{CoreError, CoreRequest, DomainService, Reply};
 use serde_json::{Value, json};
 
+use mixdog_protocol::ThreadId;
+
 use super::jobs::MediaJobs;
+use super::renditions::StillRenditions;
 use super::store::{MediaError, MediaStore};
+use super::variants;
 use crate::tidy::process::{Processes, RunOptions};
 
 const OPENER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -19,6 +23,7 @@ pub struct MediaService {
     store: Arc<MediaStore>,
     jobs: Arc<MediaJobs>,
     processes: Processes,
+    renditions: StillRenditions,
 }
 
 fn domain(code: &str) -> CoreError {
@@ -60,14 +65,17 @@ async fn open_with_os(processes: &Processes, path: &Path, reveal: bool) -> bool 
 }
 
 impl MediaService {
-    pub fn new(store: Arc<MediaStore>, jobs: Arc<MediaJobs>, processes: Processes) -> Self {
-        Self { store, jobs, processes }
+    pub fn new(store: Arc<MediaStore>, jobs: Arc<MediaJobs>, processes: Processes, renditions: StillRenditions) -> Self {
+        Self { store, jobs, processes, renditions }
     }
 
     async fn dispatch(&self, method: &str, request: &Value) -> Result<Value, CoreError> {
         let args = request.get("params").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({}));
         let text = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("");
         let id = text("id");
+        let thread = ThreadId(if text("threadId").is_empty() { "media".to_owned() } else { text("threadId").to_owned() });
+        let options = args.get("options").cloned().unwrap_or_else(|| json!({}));
+        let input = args.get("input").cloned().unwrap_or(Value::Null);
         // Every store call reads or writes files: it runs as one job on the store's lane.
         let store = &self.store;
         let owned = args.clone();
@@ -92,8 +100,8 @@ impl MediaService {
                 })
                 .await??),
             "media/listMediaBoards" => Ok(store.run(|s| s.list_boards()).await??),
-            "media/readMediaAsset" => Ok(store.run(move |s| s.read_asset(&owned_id)).await??.unwrap_or(Value::Null)),
-            "media/resolveMediaFile" => Ok(store.run(move |s| s.resolve_file(&owned_id)).await??.unwrap_or(Value::Null)),
+            "media/readMediaAsset" => Ok(variants::read_media_asset(store, &self.renditions, &thread, id, options).await?),
+            "media/resolveMediaFile" => Ok(variants::resolve_media_file(store, &self.renditions, &thread, id, options).await?),
             "media/deleteMediaAsset" => Ok(store.run(move |s| s.delete_asset(&owned_id)).await??),
             "media/deleteMediaAssets" => Ok(store.run(move |s| s.delete_assets(&owned)).await??),
             "media/createMediaBoard" => Ok(store.run(move |s| s.create_board(owned.get("name"))).await??),
@@ -102,8 +110,7 @@ impl MediaService {
             "media/setMediaAssetBoard" => Ok(store
                 .run(move |s| s.set_asset_board(owned.get("ids").or(owned.get("id")).unwrap_or(&Value::Null), owned.get("boardId").unwrap_or(&Value::Null)))
                 .await??),
-            // Rendition caches retired; Chromium-made thumbnails are not kept.
-            "media/cacheMediaThumbnail" => Ok(json!({"id": id, "available": false})),
+            "media/cacheMediaThumbnail" => Ok(variants::cache_media_thumbnail(store, &self.renditions, id, input).await?),
             "media/openMediaAsset" => {
                 let found = store.run(move |s| s.asset_path(&owned_id)).await??;
                 let opened = match found {

@@ -25,6 +25,9 @@ use crate::ports::route::Route;
 use crate::ports::route::RouteSession;
 use crate::ports::route::is_summary_anchor;
 use crate::ports::threads::ThreadState;
+use crate::run_host::hop_host::HopSession;
+use crate::run_host::hop_host::HopSessions;
+use crate::run_host::route_fallback::HopWrite;
 use crate::run_host::route_chain::BotRoutes;
 use crate::run_host::route_chain::Obj;
 use crate::run_host::route_chain::owner_route_fallbacks;
@@ -230,36 +233,7 @@ impl RouteSession for SessionRouteAdapter {
     /// change does to the session, as one durable header change. `false` when the session is
     /// closed or gone.
     async fn update_route(&self, thread: &ThreadId, route: Route, cross_provider: bool) -> Result<bool, PortError> {
-        let header = match self.threads.header(thread).await {
-            Ok(header) => header,
-            Err(PortError::NotFound { .. }) => return Ok(false),
-            Err(error) => return Err(error),
-        };
-        if header.get("closed") == Some(&Value::Bool(true)) {
-            return Ok(false);
-        }
-        let mut previous = Route::new();
-        for key in ["provider", "model"] {
-            if let Some(value) = header.get(key) {
-                previous.insert(key.to_owned(), value.clone());
-            }
-        }
-        let mut change = route_fields(&header, &route);
-        let routed = applied(&header, &change);
-        let derived = self.change.route_change(&routed, &route, &previous, cross_provider);
-        // The prompt half: a staged workspace change applies on a new route, and the
-        // `# Session` block is rebuilt for the session's cwd.
-        let changed = crate::run_host::route_change::route_changed(&route, &previous);
-        let prompt = super::worktree::route_prompt_refresh(&super::worktree::PromptView { header: &routed, tier3: None, env: None }, changed);
-        for part in [derived, prompt.change] {
-            for key in part.unset {
-                unset(&mut change, &key);
-            }
-            for (key, value) in part.set {
-                set(&mut change, &key, value);
-            }
-        }
-        set(&mut change, "updatedAt", json!(self.clock.now_ms()));
+        let Some((_, change)) = self.route_patch(thread, &route, cross_provider).await? else { return Ok(false) };
         self.threads.patch_header(thread, change.set, change.unset).await?;
         Ok(true)
     }
@@ -305,6 +279,115 @@ impl RouteSession for SessionRouteAdapter {
 
     fn invalidate_context_status(&self, thread: &ThreadId) {
         self.gauge.invalidate(thread);
+    }
+}
+
+impl SessionRouteAdapter {
+    /// The one header change of `updateSessionRoute(id, route, { crossProvider })`: the route's
+    /// fields and what the route change does to the session. `None` when the session is closed
+    /// or gone. The header returned is the one the change was computed from.
+    pub(crate) async fn route_patch(&self, thread: &ThreadId, route: &Route, cross_provider: bool) -> Result<Option<(Header, HeaderChange)>, PortError> {
+        let header = match self.threads.header(thread).await {
+            Ok(header) => header,
+            Err(PortError::NotFound { .. }) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if header.get("closed") == Some(&Value::Bool(true)) {
+            return Ok(None);
+        }
+        let mut previous = Route::new();
+        for key in ["provider", "model"] {
+            if let Some(value) = header.get(key) {
+                previous.insert(key.to_owned(), value.clone());
+            }
+        }
+        let mut change = route_fields(&header, &route);
+        let routed = applied(&header, &change);
+        let derived = self.change.route_change(&routed, &route, &previous, cross_provider);
+        // The prompt half: a staged workspace change applies on a new route, and the
+        // `# Session` block is rebuilt for the session's cwd.
+        let changed = crate::run_host::route_change::route_changed(&route, &previous);
+        let prompt = super::worktree::route_prompt_refresh(&super::worktree::PromptView { header: &routed, tier3: None, env: None }, changed);
+        for part in [derived, prompt.change] {
+            for key in part.unset {
+                unset(&mut change, &key);
+            }
+            for (key, value) in part.set {
+                set(&mut change, &key, value);
+            }
+        }
+        set(&mut change, "updatedAt", json!(self.clock.now_ms()));
+        Ok(Some((header, change)))
+    }
+
+    /// `advanceAgentRoute`'s one write: `updateSessionRoute(id, route, { crossProvider: true })`
+    /// followed by the hop's fields, in the one header change. The route change leaves
+    /// `wireRoute` null. The updated header; `None` when the session is closed or gone.
+    pub(crate) async fn write_hop(&self, thread: &ThreadId, route: Route, hop: &crate::run_host::route_fallback::HopWrite) -> Result<Option<Header>, PortError> {
+        let Some((header, mut change)) = self.route_patch(thread, &route, true).await? else { return Ok(None) };
+        set(&mut change, "routeFallbacks", Value::Array(hop.chain.clone()));
+        if let Some(primary) = &hop.primary {
+            set(&mut change, "routeFallbackPrimary", primary.clone());
+        }
+        set(&mut change, "routeFallbackIndex", json!(hop.index));
+        set(&mut change, "routeFallbackFailures", Value::Array(hop.failures.clone()));
+        if hop.checkpoint_route_changed
+            && let Some(Value::Object(checkpoint)) = header.get("activeTurnCheckpoint")
+        {
+            let mut checkpoint = checkpoint.clone();
+            checkpoint.insert("routeChanged".into(), Value::Bool(true));
+            set(&mut change, "activeTurnCheckpoint", Value::Object(checkpoint));
+        }
+        self.threads.patch_header(thread, change.set, change.unset).await?;
+        self.threads.header(thread).await.map(Some)
+    }
+}
+
+/// The sessions a route hop can write (`run_host::hop_host::HopSessions`): the threads this
+/// process hosts.
+pub struct SessionHops {
+    adapter: Arc<SessionRouteAdapter>,
+}
+
+impl SessionHops {
+    pub fn new(adapter: Arc<SessionRouteAdapter>) -> Self {
+        Self { adapter }
+    }
+}
+
+impl HopSessions for SessionHops {
+    /// `None` when the thread is not loaded here.
+    fn open(&self, thread: &ThreadId) -> Option<Arc<dyn HopSession>> {
+        let handle = self.adapter.directory.handle(thread)?;
+        Some(Arc::new(SessionHop { adapter: self.adapter.clone(), handle }))
+    }
+}
+
+struct SessionHop {
+    adapter: Arc<SessionRouteAdapter>,
+    handle: Arc<super::SessionHandle>,
+}
+
+#[async_trait]
+impl HopSession for SessionHop {
+    fn header(&self) -> Option<Arc<Header>> {
+        let header = self.handle.cell.header.load_full();
+        let closed = self.handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst) || header.get("closed") == Some(&Value::Bool(true));
+        (!closed).then_some(header)
+    }
+
+    async fn write_hop(&self, route: Obj, write: &HopWrite) -> Result<Option<Header>, PortError> {
+        self.adapter.write_hop(&self.handle.id, route, write).await
+    }
+
+    async fn write_wire_pin(&self, pin: Value) -> Result<(), PortError> {
+        let mut set = Map::new();
+        set.insert("wireRoute".into(), pin);
+        self.adapter.threads.patch_header(&self.handle.id, set, Vec::new()).await
+    }
+
+    async fn rebuild_tool_surface(&self, provider: &str) -> Result<(), PortError> {
+        RouteSession::rebuild_tool_surface(&*self.adapter, &self.handle.id, provider).await
     }
 }
 
@@ -415,6 +498,63 @@ mod tests {
         let (seen, previous, cross) = change.0.lock().unwrap()[0].clone();
         assert_eq!((seen["model"].clone(), previous, cross), (json!("claude-x"), json!({ "provider": "openai", "model": "gpt-a" }), true));
         assert!(!adapter.update_route(&ThreadId::from("sess_gone"), Route::new(), false).await.expect("gone"));
+    }
+
+    struct NullWire;
+    impl RouteChange for NullWire {
+        fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool) -> HeaderChange {
+            HeaderChange { set: obj(json!({ "wireRoute": null })), unset: Vec::new() }
+        }
+    }
+
+    /// `advanceAgentRoute`'s write: the route change and the hop's fields land as one header
+    /// change; the primary is written only when the hop names one, the checkpoint is marked only
+    /// when asked, and the wire pin is a later write of its own.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_hop_writes_the_route_and_its_fields_in_one_header_change() {
+        use crate::ports::threads::SessionThreads;
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let thread = ThreadId::from("sess_hop");
+        let header = obj(json!({
+            "provider": "openai", "model": "gpt-a", "wireRoute": { "wire": "responses" },
+            "routeFallbackPrimary": { "provider": "openai", "model": "gpt-a" },
+            "activeTurnCheckpoint": { "turn": 3 },
+        }));
+        directory.create_with_id(thread.clone(), header, json!({})).await.expect("create");
+        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let adapter = Arc::new(SessionRouteAdapter::new(directory.clone(), threads.clone(), Arc::new(NullWire), Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone()));
+        let hops = SessionHops::new(adapter);
+        assert!(hops.open(&ThreadId::from("sess_gone")).is_none());
+        let session = hops.open(&thread).expect("loaded");
+        assert_eq!(session.header().expect("open")["model"], "gpt-a");
+
+        let next = json!({ "provider": "anthropic", "model": "claude-x" });
+        let write = HopWrite {
+            chain: vec![next.clone()],
+            primary: None,
+            index: 1,
+            failures: vec![json!({ "provider": "openai", "model": "gpt-a", "kind": "overloaded" })],
+            checkpoint_route_changed: false,
+        };
+        let stored = session.write_hop(obj(next.clone()), &write).await.expect("hop").expect("open session");
+        assert_eq!((stored["provider"].clone(), stored["model"].clone()), (json!("anthropic"), json!("claude-x")));
+        assert_eq!(stored["wireRoute"], Value::Null, "the route change leaves the wire unpinned");
+        assert_eq!((stored["routeFallbacks"].clone(), stored["routeFallbackIndex"].clone()), (json!([next]), json!(1)));
+        assert_eq!(stored["routeFallbackFailures"][0]["kind"], "overloaded");
+        assert_eq!(stored["routeFallbackPrimary"], json!({ "provider": "openai", "model": "gpt-a" }), "no primary named: the stored one stays");
+        assert_eq!(stored["activeTurnCheckpoint"], json!({ "turn": 3 }), "not marked unless asked");
+
+        let primary = json!({ "provider": "anthropic", "model": "claude-x" });
+        let write = HopWrite { primary: Some(primary.clone()), index: 2, checkpoint_route_changed: true, ..write };
+        let stored = session.write_hop(obj(primary.clone()), &write).await.expect("hop").expect("open session");
+        assert_eq!((stored["routeFallbackPrimary"].clone(), stored["routeFallbackIndex"].clone()), (primary, json!(2)));
+        assert_eq!(stored["activeTurnCheckpoint"], json!({ "turn": 3, "routeChanged": true }));
+
+        let pin = json!({ "provider": "anthropic", "model": "claude-x", "wire": "messages" });
+        session.write_wire_pin(pin.clone()).await.expect("pin");
+        assert_eq!(session.header().expect("open")["wireRoute"], pin);
+        session.rebuild_tool_surface("anthropic").await.expect("rebuild");
     }
 
     /// A route change on a session with a staged re-root applies it in the same header change,

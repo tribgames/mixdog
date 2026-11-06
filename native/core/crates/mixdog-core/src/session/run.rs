@@ -221,9 +221,51 @@ pub(crate) enum RunShown {
     /// A muted transcript notice (`pushNotice(text, 'info', {transcript: true})`).
     Notice(String),
     /// One model call's usage (`onUsageDelta`).
-    Usage { iteration: u32, usage: mixdog_core_api::domain::provider::Usage },
+    Usage(UsageReport),
+    /// The finished `Reasoning` item (`item/completed`).
+    Reasoning(ThreadItem),
     /// The compact marker (`applyCompactEvent`).
     Compact(mixdog_agent::env::CompactEvent),
+}
+
+/// Everything Node's `usageDeltaEvent` carries about one model call (`onUsageDelta`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct UsageReport {
+    pub iteration: u32,
+    pub usage: mixdog_core_api::domain::provider::Usage,
+    /// `response.model || model`.
+    pub model: String,
+    /// The model the request named.
+    pub requested_model: String,
+    /// `deltaToolCalls`.
+    pub delta_tool_calls: u64,
+    /// `requestMs`.
+    pub request_ms: u64,
+    /// `deltaPrompt`.
+    pub delta_prompt: u64,
+    /// `sendTools`.
+    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    /// `reasoningUsage(usage)`: `None` when the provider reported none.
+    pub reasoning_tokens: Option<u64>,
+    pub reasoning_tokens_complete: bool,
+}
+
+impl UsageReport {
+    /// The report of a loop `RunEvent::Usage`.
+    pub fn from_event(iteration: u32, usage: mixdog_core_api::domain::provider::Usage, delta: mixdog_agent::env::UsageDelta) -> Self {
+        Self {
+            iteration,
+            usage,
+            model: delta.model,
+            requested_model: delta.requested_model,
+            delta_tool_calls: delta.delta_tool_calls,
+            request_ms: delta.request_ms,
+            delta_prompt: delta.delta_prompt,
+            send_tools: delta.send_tools,
+            reasoning_tokens: delta.reasoning_tokens,
+            reasoning_tokens_complete: delta.reasoning_tokens_complete,
+        }
+    }
 }
 
 /// A compaction of the run's model context: the store's `compacted` record.
@@ -346,8 +388,15 @@ impl RunPort {
 
     /// One model call's usage (`onUsageDelta`): `thread/tokenUsage/updated` with Node's delta
     /// (`usageDeltaEvent`).
-    pub async fn usage(&self, iteration: u32, usage: mixdog_core_api::domain::provider::Usage) -> Result<(), RunError> {
-        self.shown(RunShown::Usage { iteration, usage }).await
+    pub async fn usage(&self, report: UsageReport) -> Result<(), RunError> {
+        self.shown(RunShown::Usage(report)).await
+    }
+
+    /// The `Reasoning` item the run started (`item_started`) is complete: `item/completed` with
+    /// the thinking text as its `content`, which Node's CLI reads. Live only.
+    pub async fn reasoning_completed(&self, item: ItemId, text: String) -> Result<(), RunError> {
+        let item = ThreadItem::Reasoning { id: item, summary: Vec::new(), content: vec![text], meta: Default::default() };
+        self.shown(RunShown::Reasoning(item)).await
     }
 
     /// A compaction pass's marker (`onCompactEvent` → `applyCompactEvent`): the

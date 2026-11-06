@@ -1,5 +1,7 @@
 //! Extraction corpus gate (D4) and web tool behaviour against local fake servers.
 
+#![allow(clippy::disallowed_methods, reason = "tests read their corpus and write fixture files on the test thread")]
+
 use std::path::PathBuf;
 
 use serde_json::Value;

@@ -30,6 +30,8 @@ mod tests;
 pub use self::sessions::AgentSessions;
 pub use self::sessions::AgentStatusline;
 pub use self::flow::AgentTaskStarts;
+pub use self::flow::RuntimeRelease;
+pub use self::flow::SessionTurns;
 pub use self::flow::SessionCompletions;
 pub use self::workers::AgentWorkers;
 

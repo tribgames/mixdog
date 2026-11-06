@@ -23,10 +23,6 @@ const store = await importFrom(tree, 'src/runtime/shared/quota-resume-store.mjs'
 const lane = await importFrom(tree, 'src/tui/session/quota-resume.mjs');
 const { transcriptTurnKeys } = await importFrom(tree, 'src/runtime/shared/transcript-turn-keys.mjs');
 
-// The queueing half of `beginQuotaSettlement` reads the session's prompt rows and the config; it
-// is the session's, so the setting is off and only the recording half is under test here.
-store.setQuotaAutoResumeEnabled(false);
-
 let seed = 0x5e771e;
 const rnd = () => {
   seed = (seed + 0x6d2b79f5) | 0;
@@ -100,27 +96,53 @@ for (let c = 0; c < 120; c += 1) {
   store.reloadQuotaResumeStore();
   rmSync(join(dir, store.QUOTA_RESUME_FILE), { force: true });
   store.reloadQuotaResumeStore();
+  store.setQuotaAutoResumeEnabled(true);
   const state = { sessionId: 'sess_a', items: [], busy: false, commandBusy: false };
+  const notices = [];
+  // What the session's runtime offers `hasResumeInput` and `sessionRoute`; a begin step sets it.
+  const runtime = {};
   const bag = {
-    runtime: {},
+    runtime,
     flags: { disposed: false },
     getState: () => state,
     set: () => {},
     pending: [],
-    pushNotice: () => {},
+    pushNotice: (text, level, options) => notices.push([text, level, options]),
   };
   const guard = lane.createQuotaResumeLane(bag);
   const steps = [];
-  for (let s = 0; s < 14; s += 1) {
-    const op = pick(['items', 'items', 'begin', 'begin', 'finish', 'finish', 'finish', 'userInput', 'supersede', 'cancel', 'session']);
+  for (let s = 0; s < 16; s += 1) {
+    const op = pick(['items', 'items', 'begin', 'begin', 'begin', 'finish', 'finish', 'userInput', 'supersede', 'cancel', 'session', 'auto']);
     const step = { op };
     let answer = null;
+    notices.length = 0;
     if (op === 'items') {
       state.items = plain(transcript());
       step.items = state.items;
     } else if (op === 'session') {
       state.sessionId = step.sessionId = pick(['sess_a', 'sess_b', '']);
+    } else if (op === 'auto') {
+      step.enabled = chance(0.8);
+      store.setQuotaAutoResumeEnabled(step.enabled);
     } else if (op === 'begin') {
+      const retained = chance(0.3);
+      const goalReactivatable = chance(0.4);
+      step.context = {
+        autoResume: store.quotaAutoResumeEnabled(),
+        retainedRetry: retained,
+        goalReactivatable,
+        routeProvider: pick(['anthropic', 'openai', '']),
+        routeModel: pick(['m1', 'm2', '']),
+      };
+      runtime.readModelMessages = () => ({
+        messages: retained
+          ? [{ role: 'user', content: 'c', meta: { transcript: { messageId: 'm', completion: { status: 'failed', attemptId: 'a' } } } }]
+          : [],
+      });
+      runtime.goalStatus = () => (goalReactivatable ? { id: 'g' } : {});
+      runtime.reactivateUsageLimitedGoal = () => {};
+      runtime.sessionProvider = step.context.routeProvider;
+      runtime.sessionModel = step.context.routeModel;
       answer = plain(guard.beginQuotaSettlement());
     } else if (op === 'finish') {
       step.goalId = pick(['goal-1', 'goal-2', '']);
@@ -139,6 +161,7 @@ for (let c = 0; c < 120; c += 1) {
       }
     }
     step.answer = answer;
+    step.notices = notices.map((n) => plain(n));
     step.notes = ['sess_a', 'sess_b'].map((id) => plain(store.listQuotaResumeEntries().find((e) => e.sessionId === id) ?? null));
     step.suspended = ['sess_a', 'sess_b'].flatMap((id) =>
       (transcriptTurnKeys(state.items).concat(['turn:u1'])).map((key) => store.quotaSuspendedGoal(id, key)),
@@ -163,4 +186,12 @@ writeSetManifest(outDir, {
   identityTree: tree,
 });
 rmSync(dir, { recursive: true, force: true });
-console.log(`recorded ${keyCases.length} key cases, ${failureCases.filter((c) => c.failure).length} failures, ${flows.length} flows`);
+const all = flows.flatMap((f) => f.steps);
+const queued = all.filter((s) => s.op === 'begin' && s.answer).length;
+const populated = all.filter((s) => s.notes.some(Boolean)).length;
+const cleared = all.filter((s) => ['userInput', 'supersede', 'cancel'].includes(s.op) && s.notes.every((n) => !n)).length;
+console.log(
+  `recorded ${keyCases.length} key cases, ${failureCases.filter((c) => c.failure).length} failures, ${flows.length} flows; ` +
+    `${queued} resumes queued, ${populated} steps with an entry, ${cleared} cancels leaving none, ` +
+    `${all.filter((s) => s.notices.length).length} not-resumable notices`,
+);

@@ -201,6 +201,8 @@ impl SessionState {
             }
             Change::Barrier => {}
             Change::Shown { item, before } => {
+                // A live item shown complete (a finished `Reasoning` item) becomes its row.
+                self.live.retain(|live| live.item.id() != item.id());
                 let at = before
                     .as_ref()
                     .and_then(|before| self.window.iter().position(|row| row.item.id() == before))

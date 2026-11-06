@@ -3,7 +3,11 @@
 //! has been waiting. It does not kill, restart or fence; the user terminates through the
 //! control listener.
 
-#![allow(clippy::disallowed_methods, reason = "diagnostics are appended by the monitor OS thread, which exists to survive a stalled runtime")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "diagnostics are appended by the monitor OS thread, which exists to survive a stalled runtime"
+)]
 
 use std::path::PathBuf;
 use std::sync::Arc;

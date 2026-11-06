@@ -1376,10 +1376,26 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
             let item = ThreadItem::Reasoning { id: reasoning.clone(), summary: Vec::new(), content: Vec::new(), meta: Default::default() };
             run.port.item_started(item).await.expect("started");
             run.port.reasoning_delta(reasoning.clone(), "think ".into()).await.expect("delta");
-            run.port.reasoning_delta(reasoning, "more".into()).await.expect("delta");
+            run.port.reasoning_delta(reasoning.clone(), "more".into()).await.expect("delta");
+            run.port.reasoning_completed(reasoning, "think more".into()).await.expect("completed");
             run.port.notice("model switch failed".into()).await.expect("notice");
             let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, cache_read_tokens: 3, cache_write_tokens: 2, ..Default::default() };
-            run.port.usage(1, usage).await.expect("usage");
+            let tool = mixdog_core_api::domain::provider::ToolDefinition { name: "read".into(), description: "d".into(), input_schema: json!({ "type": "object" }), defer_loading: true };
+            run.port
+                .usage(crate::session::UsageReport {
+                    iteration: 1,
+                    usage,
+                    model: "gpt-answered".into(),
+                    requested_model: "gpt-asked".into(),
+                    delta_tool_calls: 2,
+                    request_ms: 340,
+                    delta_prompt: 15,
+                    send_tools: vec![tool],
+                    reasoning_tokens: Some(4),
+                    reasoning_tokens_complete: true,
+                })
+                .await
+                .expect("usage");
             let event = mixdog_agent::env::CompactEvent {
                 dropped_count: 2,
                 dropped: None,
@@ -1455,6 +1471,30 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
         (usage["deltaInput"].clone(), usage["deltaOutput"].clone(), usage["deltaCachedRead"].clone(), usage["deltaCacheWrite"].clone(), usage["iterationIndex"].clone()),
         (json!(10), json!(5), json!(3), json!(2), json!(1))
     );
+    // `usageDeltaEvent`'s other fields, in Node's key order.
+    let keys: Vec<&str> = usage.as_object().expect("usage").keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        [
+            "sessionId", "iterationIndex", "source", "requestedModel", "model", "deltaInput", "deltaOutput", "deltaToolCalls", "reasoningTokens",
+            "reasoningTokensComplete", "deltaPrompt", "requestMs", "promptKnown", "deltaCachedRead", "deltaCacheWrite", "contextInputTokens",
+            "contextOutputTokens", "contextPromptTokens", "contextCachedReadTokens", "contextCacheWriteTokens", "contextMeasuredTokens", "sendTools", "ts"
+        ]
+    );
+    assert_eq!(
+        (usage["model"].clone(), usage["requestedModel"].clone(), usage["deltaToolCalls"].clone(), usage["requestMs"].clone(), usage["deltaPrompt"].clone(), usage["reasoningTokens"].clone()),
+        (json!("gpt-answered"), json!("gpt-asked"), json!(2), json!(340), json!(15), json!(4))
+    );
+    assert_eq!(usage["sendTools"], json!([{ "name": "read", "description": "d", "inputSchema": { "type": "object" }, "deferLoading": true }]));
+    // The finished thinking is `item/completed` of type `reasoning`, once, in place of the live item.
+    let completed: Vec<&Value> = frames
+        .iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "reasoning")
+        .map(|(_, _, params)| params)
+        .collect();
+    assert_eq!(completed.len(), 1);
+    assert_eq!((completed[0]["item"]["id"].clone(), completed[0]["item"]["content"].clone()), (json!("r1"), json!(["think more"])));
+    assert_eq!(shown.iter().filter(|item| matches!(item, ThreadItem::Reasoning { .. })).count(), 1);
 }
 
 /// A Goal set during a user turn continues across it: once the turn settles with the Goal

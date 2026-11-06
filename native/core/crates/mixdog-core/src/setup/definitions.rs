@@ -255,6 +255,10 @@ impl SetupActions for DefinitionSetup {
         if call.action == "restore_definition" && kind != "agent" {
             return Err(failed("Only an archived agent or bot can be restored; a deleted workflow is gone".into()));
         }
+        // `agentEditorId` reads only text: a name that is none (absent, null, a number) is no id.
+        if kind == "agent" && matches!(call.action, "read_definition" | "delete_definition") && !call.args.get("name").is_some_and(Value::is_string) {
+            return Err(failed(format!("unknown agent \"{}\"", text_arg(call.args, "name"))));
+        }
         match call.action {
             "read_definition" => self.read_kind(kind, &text_arg(call.args, "name")).await,
             "create_definition" | "save_definition" => self.save(kind, call).await,

@@ -17,10 +17,12 @@ use mixdog_agent::env::Clock;
 use mixdog_agent::env::ResultReuse;
 use mixdog_agent::env::Reused;
 use mixdog_core_api::domain::provider::ToolCall;
+use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_js::device_paths;
 use mixdog_js::utf16_len;
 use mixdog_js::value_to_string;
 use mixdog_protocol::JsonValue;
+use mixdog_rt::{CancellationToken, InLane, InteractiveIo, LaneToken};
 use serde_json::Map;
 
 use super::grep_args::prepare_grep_args;
@@ -130,10 +132,9 @@ struct Stat {
     dev: u64,
 }
 
-// Node's `statSync`: one metadata call per path argument. `ResultReuse` is async now, so the host can
-// run this on a lane (`lookup_now`/`store_now` still call it on the calling thread).
-#[allow(clippy::disallowed_methods, reason = "one metadata stat on the calling thread (Node statSync); to move onto a lane")]
-fn stat_tuple(abs: &str) -> Option<Stat> {
+/// Node's `statSync`: one metadata call per path argument, taken inside an io-interactive lane job.
+#[allow(clippy::disallowed_methods, reason = "takes the lane's proof: it runs inside a lane job body")]
+fn stat_tuple(_lane: &InLane<InteractiveIo>, abs: &str) -> Option<Stat> {
     if device_paths::is_unc_path(abs)
         || device_paths::is_windows_device_path(abs)
         || device_paths::has_unsafe_win32_component(abs)
@@ -163,6 +164,16 @@ fn stat_tuple(abs: &str) -> Option<Stat> {
             dev: 0,
         })
     }
+}
+
+/// The stat tuples of `paths`, in one lane job. A stat that cannot be taken (the lane refused or
+/// went away) reads as a missing file, which is a cache miss and never a stale hit.
+async fn stats_of(io: &ToolIo, paths: Vec<String>) -> Vec<Option<Stat>> {
+    let missing = vec![None; paths.len()];
+    let Ok(job) = io.interactive.submit(&CancellationToken::new(), move |lane| paths.iter().map(|path| stat_tuple(lane, path)).collect::<Vec<_>>()) else {
+        return missing;
+    };
+    job.await.unwrap_or(missing)
 }
 
 fn cacheable(stat: &Option<Stat>) -> bool {
@@ -261,14 +272,14 @@ fn elem_opts(args: &JsonValue) -> ElemOpts {
 }
 
 /// The key and stats of an array-form path: top-level options are per-element defaults.
-fn array_key(args: &JsonValue, cwd: &str) -> Option<(String, Vec<(String, Option<Stat>)>)> {
+fn array_key(args: &JsonValue, cwd: &str) -> Option<(String, Vec<String>)> {
     let elems = path_arg(args)?.as_array()?;
     let base = u8::from(arg(args, "file_path").is_some_and(JsonValue::is_array) && arg(args, "path").is_none());
     let top = elem_opts(args);
     let pages = text_of(args, "pages");
     let full = text_of(args, "full");
     let mut parts = Vec::new();
-    let mut stats: Vec<(String, Option<Stat>)> = Vec::new();
+    let mut paths: Vec<String> = Vec::new();
     for elem in elems {
         let (abs, own) = match elem {
             JsonValue::String(s) => (normalize_abs(s, cwd)?, elem_opts(&JsonValue::Null)),
@@ -289,9 +300,8 @@ fn array_key(args: &JsonValue, cwd: &str) -> Option<(String, Vec<(String, Option
             pick(&own.context, &top.context),
             pick(&own.full, &top.full),
         ));
-        if !stats.iter().any(|(a, _)| *a == abs) {
-            let stat = stat_tuple(&abs);
-            stats.push((abs, stat));
+        if !paths.contains(&abs) {
+            paths.push(abs);
         }
     }
     let key = format!(
@@ -305,7 +315,7 @@ fn array_key(args: &JsonValue, cwd: &str) -> Option<(String, Vec<(String, Option
         top.context,
         top.full,
     );
-    Some((key, stats))
+    Some((key, paths))
 }
 
 fn scalar_key(args: &JsonValue, cwd: &str) -> Option<(String, String)> {
@@ -623,6 +633,7 @@ struct Inner {
 }
 
 pub struct ToolResultReuse {
+    io: ToolIo,
     session_id: String,
     cwd: String,
     /// Cursor's native file protocol needs source content, not a receipt that it was seen.
@@ -633,8 +644,9 @@ pub struct ToolResultReuse {
 
 impl ToolResultReuse {
     /// `cwd` is the session's working directory; `needs_read_body` is true on a Cursor route.
-    pub fn new(session_id: &str, cwd: &Path, needs_read_body: bool, clock: Arc<dyn Clock>) -> Self {
+    pub fn new(io: ToolIo, session_id: &str, cwd: &Path, needs_read_body: bool, clock: Arc<dyn Clock>) -> Self {
         Self {
+            io,
             session_id: session_id.to_owned(),
             cwd: cwd.to_string_lossy().into_owned(),
             needs_read_body,
@@ -678,17 +690,22 @@ impl ToolResultReuse {
         }
     }
 
-    fn lookup_read(&self, call: &ToolCall) -> Option<Reused> {
-        let mut inner = self.lock();
+    async fn lookup_read(&self, call: &ToolCall) -> Option<Reused> {
         let key = match path_arg(&call.arguments) {
             Some(JsonValue::Array(_)) => array_key(&call.arguments, &self.cwd)?.0,
             _ => scalar_key(&call.arguments, &self.cwd)?.0,
         };
+        let held: Vec<String> = {
+            let inner = self.lock();
+            let at = inner.read.position(&key)?;
+            inner.read.entries[at].meta.stats.iter().map(|(abs, _)| abs.clone()).collect()
+        };
+        // The stats are taken off the state lock, in a lane job; the entry is judged against them.
+        let current = stats_of(&self.io, held).await;
+        let mut inner = self.lock();
         let entry = inner.read.remove(&key)?;
-        let fresh = entry.meta.stats.iter().all(|(abs, stored)| {
-            let now = stat_tuple(abs);
-            stored.is_some() && *stored == now && cacheable(&now)
-        });
+        let fresh = entry.meta.stats.len() == current.len()
+            && entry.meta.stats.iter().zip(&current).all(|((_, stored), now)| stored.is_some() && stored == now && cacheable(now));
         if !fresh {
             return None;
         }
@@ -721,27 +738,27 @@ impl ToolResultReuse {
         Some(reused)
     }
 
-    fn store_read(&self, call: &ToolCall, content: &str, tool_use_id: &str) {
-        let mut inner = self.lock();
-        let (key, stats) = match path_arg(&call.arguments) {
+    async fn store_read(&self, call: &ToolCall, content: &str, tool_use_id: &str) {
+        let (key, paths) = match path_arg(&call.arguments) {
             Some(JsonValue::Array(_)) => {
-                let Some((key, stats)) = array_key(&call.arguments, &self.cwd) else {
+                let Some(keyed) = array_key(&call.arguments, &self.cwd) else {
                     return;
                 };
-                (key, stats)
+                keyed
             }
             _ => {
                 let Some((key, abs)) = scalar_key(&call.arguments, &self.cwd) else {
                     return;
                 };
-                let stat = stat_tuple(&abs);
-                (key, vec![(abs, stat)])
+                (key, vec![abs])
             }
         };
+        let taken = stats_of(&self.io, paths.clone()).await;
+        let stats: Vec<(String, Option<Stat>)> = paths.into_iter().zip(taken).collect();
         if !stats.iter().all(|(_, s)| cacheable(s)) {
             return;
         }
-        inner.read.set(Entry {
+        self.lock().read.set(Entry {
             key,
             content: content.to_owned(),
             ts: self.clock.now_ms(),
@@ -753,12 +770,12 @@ impl ToolResultReuse {
     /// `store` with the dependency roots the tool recorded while it ran (`output.meta
     /// ["dependencyRoots"]`): `code_graph` is cached only with them, and they replace the roots
     /// guessed from its path arguments.
-    pub fn store_with_roots(&self, call: &ToolCall, content: &str, tool_use_id: &str, roots: Option<&[String]>) {
+    pub async fn store_with_roots(&self, call: &ToolCall, content: &str, tool_use_id: &str, roots: Option<&[String]>) {
         if self.session_id.is_empty() || content.is_empty() {
             return;
         }
         match strip_mcp(&call.name) {
-            "read" => self.store_read(call, content, tool_use_id),
+            "read" => self.store_read(call, content, tool_use_id).await,
             tool @ ("glob" | "list" | "code_graph" | "grep") => self.store_scoped(tool, call, content, tool_use_id, roots),
             _ => {}
         }
@@ -820,24 +837,18 @@ fn canonical_scoped(tool: &str, args: &JsonValue) -> Option<JsonValue> {
 }
 
 impl ToolResultReuse {
-    /// `ResultReuse::lookup`, run to completion on the calling thread.
-    pub fn lookup_now(&self, call: &ToolCall, touch: bool) -> Option<Reused> {
+    async fn lookup_with(&self, call: &ToolCall, touch: bool) -> Option<Reused> {
         if call.id.starts_with(CURSOR_NATIVE_PREFIX) || self.session_id.is_empty() {
             return None;
         }
         match strip_mcp(&call.name) {
-            "read" => self.lookup_read(call),
+            "read" => self.lookup_read(call).await,
             tool @ ("glob" | "list" | "code_graph" | "grep") => self.lookup_scoped(tool, call, touch),
             _ => None,
         }
     }
 
-    pub fn store_now(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &mixdog_core_api::domain::tool::ToolOutput) {
-        let roots = mixdog_tools::code_graph::dependency_roots(output);
-        self.store_with_roots(call, content, tool_use_id, roots.as_deref());
-    }
-
-    pub fn after_call_now(&self, call: &ToolCall, failed: bool) {
+    fn after_call_now(&self, call: &ToolCall, failed: bool) {
         if self.session_id.is_empty() {
             return;
         }
@@ -874,11 +885,12 @@ impl ToolResultReuse {
 #[async_trait::async_trait]
 impl ResultReuse for ToolResultReuse {
     async fn lookup(&self, call: &ToolCall, touch: bool) -> Option<Reused> {
-        self.lookup_now(call, touch)
+        self.lookup_with(call, touch).await
     }
 
     async fn store(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &mixdog_core_api::domain::tool::ToolOutput) {
-        self.store_now(call, content, tool_use_id, output);
+        let roots = mixdog_tools::code_graph::dependency_roots(output);
+        self.store_with_roots(call, content, tool_use_id, roots.as_deref()).await;
     }
 
     async fn after_call(&self, call: &ToolCall, failed: bool) {
@@ -904,25 +916,30 @@ mod tests {
         ToolCall { id: "c1".into(), name: name.into(), arguments: args, native_type: None }
     }
 
-    fn reuse(dir: &Path, now: i64) -> ToolResultReuse {
-        ToolResultReuse::new("sess_1", dir, false, Arc::new(Fixed(now)))
+    fn io() -> ToolIo {
+        let tokens = mixdog_rt::testing::tokens();
+        ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io }
     }
 
-    #[test]
-    fn a_read_is_reused_until_the_file_changes() {
+    fn reuse(dir: &Path, now: i64) -> ToolResultReuse {
+        ToolResultReuse::new(io(), "sess_1", dir, false, Arc::new(Fixed(now)))
+    }
+
+    #[tokio::test]
+    async fn a_read_is_reused_until_the_file_changes() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("a.txt");
         std::fs::write(&file, "one").unwrap();
         let r = reuse(dir.path(), 0);
         let c = call("read", json!({"path": "a.txt"}));
-        assert!(r.lookup_now(&c, true).is_none());
-        r.store_with_roots(&c, "one", "t1", None);
-        let hit = r.lookup_now(&c, true).unwrap();
+        assert!(r.lookup(&c, true).await.is_none());
+        r.store_with_roots(&c, "one", "t1", None).await;
+        let hit = r.lookup(&c, true).await.unwrap();
         assert_eq!((hit.content.as_str(), hit.first_tool_use_id.as_str()), ("one", "t1"));
         // another offset is another key
-        assert!(r.lookup_now(&call("read", json!({"path": "a.txt", "offset": 3})), true).is_none());
+        assert!(r.lookup(&call("read", json!({"path": "a.txt", "offset": 3})), true).await.is_none());
         std::fs::write(&file, "two!").unwrap();
-        assert!(r.lookup_now(&c, true).is_none());
+        assert!(r.lookup(&c, true).await.is_none());
     }
 
     #[test]
@@ -934,24 +951,24 @@ mod tests {
         assert!(key.ends_with("|base=1"));
     }
 
-    #[test]
-    fn a_patch_drops_the_files_it_touches_and_the_scoped_entries_over_them() {
+    #[tokio::test]
+    async fn a_patch_drops_the_files_it_touches_and_the_scoped_entries_over_them() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("src/a.txt"), "one").unwrap();
         let r = reuse(dir.path(), 0);
         let read = call("read", json!({"path": "src/a.txt"}));
         let list = call("list", json!({"path": "src"}));
-        r.store_with_roots(&read, "one", "t1", None);
-        r.store_with_roots(&list, "a.txt", "t2", None);
-        assert!(r.lookup_now(&list, true).is_some());
+        r.store_with_roots(&read, "one", "t1", None).await;
+        r.store_with_roots(&list, "a.txt", "t2", None).await;
+        assert!(r.lookup(&list, true).await.is_some());
         r.after_call_now(&call("apply_patch", json!({"patch": "--- a/src/a.txt\n+++ b/src/a.txt\n@@\n-x\n+y\n"})), false);
-        assert!(r.lookup_now(&read, true).is_none());
-        assert!(r.lookup_now(&list, true).is_none());
+        assert!(r.lookup(&read, true).await.is_none());
+        assert!(r.lookup(&list, true).await.is_none());
     }
 
-    #[test]
-    fn scoped_entries_expire_after_thirty_seconds() {
+    #[tokio::test]
+    async fn scoped_entries_expire_after_thirty_seconds() {
         let dir = tempfile::tempdir().unwrap();
         let clock = Arc::new(Mutex::new(0i64));
         struct Shared(Arc<Mutex<i64>>);
@@ -960,45 +977,45 @@ mod tests {
                 *self.0.lock().unwrap()
             }
         }
-        let r = ToolResultReuse::new("s", dir.path(), false, Arc::new(Shared(clock.clone())));
+        let r = ToolResultReuse::new(io(), "s", dir.path(), false, Arc::new(Shared(clock.clone())));
         let c = call("glob", json!({"pattern": "*.rs", "root": "."}));
-        r.store_with_roots(&c, "a.rs", "t", None);
+        r.store_with_roots(&c, "a.rs", "t", None).await;
         // `root` is an alias of `path`: either spelling is one key
-        assert!(r.lookup_now(&call("glob", json!({"pattern": "*.rs", "path": "."})), true).is_some());
+        assert!(r.lookup(&call("glob", json!({"pattern": "*.rs", "path": "."})), true).await.is_some());
         *clock.lock().unwrap() = 30_000;
-        assert!(r.lookup_now(&c, true).is_none());
+        assert!(r.lookup(&c, true).await.is_none());
     }
 
-    #[test]
-    fn shell_and_git_mutations_clear_scoped_entries() {
+    #[tokio::test]
+    async fn shell_and_git_mutations_clear_scoped_entries() {
         let dir = tempfile::tempdir().unwrap();
         let r = reuse(dir.path(), 0);
         let list = call("list", json!({}));
-        r.store_with_roots(&list, "x", "t", None);
+        r.store_with_roots(&list, "x", "t", None).await;
         r.after_call_now(&call("git", json!({"command": "git status"})), false);
-        assert!(r.lookup_now(&list, true).is_some());
+        assert!(r.lookup(&list, true).await.is_some());
         r.after_call_now(&call("shell", json!({"command": "rm x"})), false);
-        assert!(r.lookup_now(&list, true).is_none());
+        assert!(r.lookup(&list, true).await.is_none());
     }
 
-    #[test]
-    fn grep_spellings_share_an_entry_and_invalid_requests_never_hit() {
+    #[tokio::test]
+    async fn grep_spellings_share_an_entry_and_invalid_requests_never_hit() {
         let dir = tempfile::tempdir().unwrap();
         let r = reuse(dir.path(), 0);
         let stored = call("grep", json!({"pattern": "foo", "path": "src", "head_limit": 5}));
-        r.store_with_roots(&stored, "hit", "t", None);
+        r.store_with_roots(&stored, "hit", "t", None).await;
         // alias spellings, numeric strings and `limit` all reach one canonical request
         let same = call("grep", json!({"query": "foo", "root": "src", "limit": "5"}));
-        assert_eq!(r.lookup_now(&same, true).unwrap().content, "hit");
+        assert_eq!(r.lookup(&same, true).await.unwrap().content, "hit");
         // explicit context is a different request from the automatic window
-        assert!(r.lookup_now(&call("grep", json!({"pattern": "foo", "path": "src", "head_limit": 5, "context": 2})), true).is_none());
+        assert!(r.lookup(&call("grep", json!({"pattern": "foo", "path": "src", "head_limit": 5, "context": 2})), true).await.is_none());
         // count ignores context flags
-        r.store_with_roots(&call("grep", json!({"pattern": "z", "output_mode": "count"})), "n", "t2", None);
-        assert!(r.lookup_now(&call("grep", json!({"pattern": "z", "mode": "count", "-A": 3})), true).is_some());
+        r.store_with_roots(&call("grep", json!({"pattern": "z", "output_mode": "count"})), "n", "t2", None).await;
+        assert!(r.lookup(&call("grep", json!({"pattern": "z", "mode": "count", "-A": 3})), true).await.is_some());
         // invalid: stored nothing, looked up nothing
         let bad = call("grep", json!({"pattern": "z", "head_limit": -1}));
-        r.store_with_roots(&bad, "x", "t3", None);
-        assert!(r.lookup_now(&bad, true).is_none());
+        r.store_with_roots(&bad, "x", "t3", None).await;
+        assert!(r.lookup(&bad, true).await.is_none());
     }
 
     #[test]
