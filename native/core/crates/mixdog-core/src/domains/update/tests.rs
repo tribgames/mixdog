@@ -2,6 +2,8 @@
 //! answered (`tools/gen-update-golden.mjs`, with a stubbed registry); the controller's
 //! install path runs against a scripted installer.
 
+#![allow(clippy::disallowed_methods, reason = "test setup: seeds and inspects the cache files on the test thread")]
+
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;

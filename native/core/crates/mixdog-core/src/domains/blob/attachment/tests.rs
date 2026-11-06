@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods, reason = "test setup: stores blobs and inspects the staged temp files on the test thread")]
+
 use std::io::Read;
 use std::sync::Arc;
 

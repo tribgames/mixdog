@@ -1,5 +1,7 @@
 //! Goldens recorded from Node by `benchmarks/rust-core/recorders/record-ai-account.mjs`.
 
+#![allow(clippy::disallowed_methods, reason = "test setup: reads the recorded goldens on the test thread")]
+
 use mixdog_ai::accounts::AccountStore;
 use mixdog_ai::oauth::CredentialIo;
 use serde_json::Value;

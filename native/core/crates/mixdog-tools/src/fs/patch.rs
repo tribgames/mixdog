@@ -945,7 +945,7 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
         targets.push((resolve_path(base, &unit.path)?, unit.kind == Kind::Delete));
     }
     let delete_only = delete_only_keys(&targets);
-    let before = if !dry && ctx.review.is_some() { capture(ctx, &unit_paths, &delete_only).await?.unwrap_or_default() } else { Vec::new() };
+    let before = if !dry && (ctx.review.is_some() || opts.state.is_some()) { capture(ctx, &unit_paths, &delete_only).await?.unwrap_or_default() } else { Vec::new() };
     let mut mutated: Vec<AbsPath> = Vec::new();
     let outcome: R<()> = async {
     for (i, unit) in units.iter().enumerate() {
@@ -1559,7 +1559,7 @@ async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFil
         }
     }
     let delete_only = delete_only_keys(&targets);
-    let before = if !opts.dry && ctx.review.is_some() { capture(ctx, &unit_paths, &delete_only).await?.unwrap_or_default() } else { Vec::new() };
+    let before = if !opts.dry && (ctx.review.is_some() || opts.state.is_some()) { capture(ctx, &unit_paths, &delete_only).await?.unwrap_or_default() } else { Vec::new() };
     let mut mutated: Vec<AbsPath> = Vec::new();
     let outcome: R<()> = async {
     for (i, file) in files.into_iter().enumerate() {

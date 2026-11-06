@@ -311,6 +311,8 @@ pub struct Run {
     /// The request the latest send settled on, and when its send began (`requestStartedAt`).
     pub(crate) last_request: Option<Arc<mixdog_core_api::domain::provider::ModelRequest>>,
     pub(crate) request_started_ms: i64,
+    /// The logical send in flight (`RequestOptions.send_group`); settled when it ends unsuccessfully.
+    pub(crate) send_group: Option<crate::send::SendGroup>,
     /// The provider's last measured context footprint (`session.lastContextTokens`).
     pub(crate) context: crate::boundary::ContextReading,
     pub(crate) no_tool: NoToolState,
@@ -429,6 +431,7 @@ impl Run {
             baseline: None,
             last_request: None,
             request_started_ms: 0,
+            send_group: None,
             no_tool: NoToolState::default(),
             carry,
             quiet_compact_retry_used: false,

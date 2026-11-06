@@ -245,6 +245,7 @@ enum Found {
     Text(String),
 }
 
+#[allow(clippy::disallowed_methods, reason = "body of the lane jobs that read an item's state")]
 fn read_instruction_file(path: &Path) -> Found {
     let meta = match std::fs::metadata(path) {
         Ok(meta) => meta,
@@ -576,6 +577,7 @@ impl InstructionsService {
         let item = self.item(&params.group, &params.id)?;
         // Read raw: the typed field folds `null` into absent, which Node tells apart.
         let expected = req.params.get("expectedRevision").cloned();
+        #[allow(clippy::disallowed_methods, reason = "body of a durability-io lane job")]
         let remove = {
             let item = item.clone();
             move || -> Result<(), CoreError> {

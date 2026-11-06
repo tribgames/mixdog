@@ -14,6 +14,7 @@ use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
@@ -73,9 +74,54 @@ enum Route {
 
 enum Recovery {
     Proceed(Box<ModelResponse>),
-    /// Run another attempt of the same round.
+    /// Run another attempt of the same logical send (the decider's `Retry` or `Fallback`).
     Replay,
+    /// The request itself changed (a dropped tool, repaired replay, stripped images): the old
+    /// send ended in its failure and the replay is a new logical send.
+    Rebuilt,
     RetryRound,
+}
+
+/// One logical send as the provider's accounting sees it (`RequestOptions.send_group`): the id
+/// rides on every attempt the decider replays, and the group must end exactly once. The guard
+/// makes that structural: unless it was completed or settled, dropping it settles the group as
+/// cancelled, so no exit path leaves a ledger row held open.
+pub(crate) struct SendGroup {
+    id: String,
+    provider: Arc<dyn ProviderAdapter>,
+    open: bool,
+}
+
+impl SendGroup {
+    fn new(provider: Arc<dyn ProviderAdapter>) -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self { id: format!("send-{n}"), provider, open: true }
+    }
+
+    /// The send succeeded: the provider already wrote its row.
+    fn complete(mut self) {
+        self.open = false;
+    }
+
+    async fn settle(mut self, end: SendEnd) {
+        self.open = false;
+        self.provider.settle_send(&self.id, end).await;
+    }
+}
+
+impl Drop for SendGroup {
+    fn drop(&mut self) {
+        if !self.open {
+            return;
+        }
+        // Only a dropped future gets here (an explicit exit settled the group); settling is
+        // async, so it runs on the runtime the run was on.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let (provider, id) = (Arc::clone(&self.provider), std::mem::take(&mut self.id));
+            runtime.spawn(async move { provider.settle_send(&id, SendEnd::Cancelled).await });
+        }
+    }
 }
 
 /// The facts that end a stream after it started.
@@ -148,6 +194,8 @@ impl Run {
     fn build_request(&mut self) -> ModelRequest {
         let mut options = self.config.options.clone();
         options.provider_state = self.provider_state.clone();
+        let provider = Arc::clone(&self.provider);
+        options.send_group = Some(self.send_group.get_or_insert_with(|| SendGroup::new(provider)).id.clone());
         // The output-limit escalation is one-shot: this attempt alone carries it.
         options.max_output_tokens_override = self.max_output_override.take().or(options.max_output_tokens_override);
         let mut messages = if self.unprojected {
@@ -184,6 +232,20 @@ impl Run {
     /// Sends the transcript, recovering from failures. The returned response
     /// is whole; a retry never leaks a dead attempt's output.
     pub(crate) async fn send_provider_request(&mut self) -> Result<SendResult, AgentError> {
+        let result = self.send_attempts().await;
+        // Whatever left the group open ended without a success: a surfaced failure (a recovered
+        // partial, a route switch, an error), or the user's abort. Settled before any other send.
+        let end = match &result {
+            Err(AgentError::Aborted | AgentError::Admission(_)) => SendEnd::Cancelled,
+            _ => SendEnd::Surfaced,
+        };
+        if let Some(group) = self.send_group.take() {
+            group.settle(end).await;
+        }
+        result
+    }
+
+    async fn send_attempts(&mut self) -> Result<SendResult, AgentError> {
         self.request_started_ms = self.env.clock.now_ms();
         loop {
             self.throw_if_aborted()?;
@@ -197,6 +259,9 @@ impl Run {
                     self.retry = RetryStates::new(&self.model);
                     self.image_strip_active = false;
                     self.image_strip_used = false;
+                    if let Some(group) = self.send_group.take() {
+                        group.complete();
+                    }
                     return Ok(SendResult::Proceed(Box::new(response)));
                 }
                 Err(failure) => failure,
@@ -204,6 +269,12 @@ impl Run {
             match self.recover(*failure).await? {
                 Recovery::Proceed(response) => return Ok(SendResult::Proceed(response)),
                 Recovery::Replay => continue,
+                Recovery::Rebuilt => {
+                    if let Some(group) = self.send_group.take() {
+                        group.settle(SendEnd::Surfaced).await;
+                    }
+                    continue;
+                }
                 Recovery::RetryRound => return Ok(SendResult::RetryRound),
             }
         }
@@ -526,7 +597,7 @@ impl Run {
                 if !self.tool_schema_drop_used && self.drop_rejected_tool(error) =>
             {
                 self.tool_schema_drop_used = true;
-                Some(Recovery::Replay)
+                Some(Recovery::Rebuilt)
             }
             // The latest assistant turn carries reasoning replay the API will
             // not take back: drop it from that turn, in place, once.
@@ -534,7 +605,7 @@ impl Run {
                 if !self.replay_repair_used && self.repair_thinking_replay() =>
             {
                 self.replay_repair_used = true;
-                Some(Recovery::Replay)
+                Some(Recovery::Rebuilt)
             }
             // An image the provider refuses: replay once without the latest
             // turn's images, only when no tool ran and nothing was shown.
@@ -552,7 +623,7 @@ impl Run {
                     delay: std::time::Duration::ZERO,
                     reason: mixdog_core_api::domain::retry::RetryReason::Other,
                 }));
-                Some(Recovery::Replay)
+                Some(Recovery::Rebuilt)
             }
             _ => None,
         }

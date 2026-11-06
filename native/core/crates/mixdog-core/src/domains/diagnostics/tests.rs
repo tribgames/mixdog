@@ -2,6 +2,8 @@
 //! daemon answered (`tools/gen-doctor-golden.mjs`) for scripted runtimes over scripted data
 //! folders; the same status contracts are fed to the sources here.
 
+#![allow(clippy::disallowed_methods, reason = "test setup: builds the scripted data folders on the test thread")]
+
 use std::sync::Mutex;
 
 use mixdog_core_api::ids::ThreadId;

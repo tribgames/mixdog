@@ -20,9 +20,11 @@ use mixdog_ai::registry::keys::api_key_account;
 use mixdog_ai::registry::providers::ProviderBuilder;
 use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::oauth_usage::OAuthUsage;
+use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::service::oauth_usage::RouteInfo;
 use mixdog_core_api::domain::login::LoginSession;
 use mixdog_core_api::domain::login::LoginState;
+use mixdog_rt::CancellationToken;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -35,6 +37,7 @@ use super::flows::Settle;
 use super::js::clean;
 use super::js::truthy;
 use crate::config::Config;
+use crate::domains::support::on_lane;
 
 /// `API_PROVIDERS` ids, in setup order.
 const API_PROVIDER_IDS: [&str; 7] = ["openrouter", "openai", "anthropic", "gemini", "vertex-ai", "deepseek", "xai"];
@@ -105,6 +108,8 @@ pub struct ProviderAdmin {
     vertex_adc: Arc<dyn VertexAdc>,
     pub(crate) registry: Arc<ProviderRegistry>,
     pub(crate) oauth_usage: Arc<OAuthUsage>,
+    /// The lanes the account store's credential files are worked on.
+    credential_io: CredentialIo,
 }
 
 impl ProviderAdmin {
@@ -119,8 +124,20 @@ impl ProviderAdmin {
         vertex_adc: Arc<dyn VertexAdc>,
         registry: Arc<ProviderRegistry>,
         oauth_usage: Arc<OAuthUsage>,
+        credential_io: CredentialIo,
     ) -> Arc<Self> {
-        Arc::new(Self { providers, builder, accounts, vault, config, refresh, vertex_adc, registry, oauth_usage })
+        Arc::new(Self {
+            providers,
+            builder,
+            accounts,
+            vault,
+            config,
+            refresh,
+            vertex_adc,
+            registry,
+            oauth_usage,
+            credential_io,
+        })
     }
 
     /// `availableOAuthProvider`.
@@ -325,7 +342,10 @@ impl ProviderAdmin {
             let from = self.accounts.account_path(id, signed_in).map_err(acct)?;
             let to = self.accounts.account_path(id, &existing).map_err(acct)?;
             if let (Some(from), Some(to)) = (from, to) {
-                std::fs::rename(from, to).map_err(|e| Failure::error(e.to_string()))?;
+                let cancel = CancellationToken::new();
+                #[allow(clippy::disallowed_methods, reason = "body of a durability-io lane job")]
+                let renamed = on_lane(self.credential_io.write, &cancel, move |_lane| std::fs::rename(from, to));
+                renamed.await.map_err(|e| Failure::error(e.to_string()))?.map_err(|e| Failure::error(e.to_string()))?;
             }
             account = existing;
         }

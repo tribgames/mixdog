@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+#[allow(clippy::disallowed_types, reason = "the one room writer: a mutation reads, changes and saves under it across the store's awaits on purpose")]
 use tokio::sync::Mutex;
 
 use super::RoomError;
@@ -105,10 +106,12 @@ fn remove_from_room(room: &mut RoomRecord, gone: &[String]) {
 pub struct Rooms<S: RoomStore> {
     store: S,
     // The one room writer: reads of the live records also pass through it, briefly.
+    #[allow(clippy::disallowed_types, reason = "the one room writer: a mutation reads, changes and saves under it across the store's awaits on purpose")]
     doc: Mutex<Option<RoomDoc>>,
 }
 
 impl<S: RoomStore> Rooms<S> {
+    #[allow(clippy::disallowed_types, reason = "the one room writer: a mutation reads, changes and saves under it across the store's awaits on purpose")]
     pub fn new(store: S) -> Self {
         Self { store, doc: Mutex::new(None) }
     }

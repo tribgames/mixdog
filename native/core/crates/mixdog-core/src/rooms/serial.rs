@@ -4,9 +4,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
+#[allow(clippy::disallowed_types, reason = "one key's turn is held across its caller's awaits on purpose: per-key serialization is this type's contract")]
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 #[derive(Default)]
+#[allow(clippy::disallowed_types, reason = "one key's turn is held across its caller's awaits on purpose: per-key serialization is this type's contract")]
 pub struct KeyedSerial {
     // Weak entries: a key nobody holds or waits on is forgotten.
     locks: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
@@ -18,6 +20,7 @@ impl KeyedSerial {
     }
 
     /// Wait for `key`'s turn; the returned guard ends it.
+    #[allow(clippy::disallowed_types, reason = "one key's turn is held across its caller's awaits on purpose: per-key serialization is this type's contract")]
     pub async fn lock(&self, key: &str) -> OwnedMutexGuard<()> {
         let lock = {
             let mut locks = self.locks.lock().unwrap_or_else(|e| e.into_inner());

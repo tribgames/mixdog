@@ -2,6 +2,8 @@
 //! `tools/gen-instructions-golden.mjs` recorded from the 1.4.5 Node API over the same shipped
 //! files (`goldens/instructions-shipped`).
 
+#![allow(clippy::disallowed_methods, reason = "test setup: seeds and inspects the instruction files on the test thread")]
+
 use std::sync::Arc;
 use std::sync::Mutex;
 

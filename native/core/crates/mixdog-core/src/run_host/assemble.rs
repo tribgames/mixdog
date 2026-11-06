@@ -32,7 +32,7 @@ use mixdog_tools::policy::{ConnectorPermissions, SessionGrants, ToolPolicy, Tool
 use serde_json::{json, Value};
 
 use super::artifact::ToolResultArtifacts;
-use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts};
+use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
 use super::result_reuse::ToolResultReuse;
@@ -61,6 +61,14 @@ pub struct RunSettings {
     pub model_max_output_tokens: Option<u32>,
 }
 
+/// What the explicit skill selector is made of, besides the run's own gate, environment and token.
+pub struct SkillParts {
+    /// The skill names available for a cwd (`SkillCatalog`).
+    pub names: Arc<dyn mixdog_mcp::skill_select::SkillNames>,
+    /// The session's `Skill` tool.
+    pub tool: Arc<dyn Tool>,
+}
+
 /// What a turn needs and no crate supplies yet. Every method is a seam with its owner.
 pub trait SessionSeams: Send + Sync + 'static {
     /// The surface's tools: the built-ins its tool spec names and the connected MCP servers' tools
@@ -84,7 +92,7 @@ pub trait SessionSeams: Send + Sync + 'static {
     fn hop_host(&self, thread: &ThreadId, header: &Header) -> Option<Arc<dyn HopHost>>;
     /// Explicit skill selection for typed steering, over the turn's trusted selection text (`AgentTurn.skill_selection`,
     /// `prepareExplicitSkills` `selection`). Owner: WP-MCP (skills domain).
-    fn skills(&self, selection: Option<&str>) -> Option<Arc<dyn SkillSelector>>;
+    fn skill_parts(&self) -> Option<SkillParts>;
     /// The route's, settings' and agent's `RunConfig` fields. Owner: WP-AGENT (limits, compaction
     /// settings, effort wiring, text-only), WP-CONFIG (settings).
     fn run_settings(&self, thread: &ThreadId, header: &Header) -> RunSettings;
@@ -273,7 +281,12 @@ impl RunParts for HostRunParts {
             guards,
             compactor: seams.compactor(thread, header),
             route: seams.hop_host(thread, header).map(|host| Arc::new(RouteHop::new(host)) as Arc<dyn RouteFallback>),
-            skills: seams.skills(input.skill_selection.as_deref()),
+            skills: seams.skill_parts().map(|parts| {
+                let selection = input.skill_selection.clone();
+                Box::new(move |run: SkillContext| {
+                    Arc::new(super::mcp_seams::ExplicitSkillSelector::new(parts.names, parts.tool, run.gate, run.env, run.cancel).with_selection(selection)) as Arc<dyn SkillSelector>
+                }) as SkillsBuilder
+            }),
             hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
             reuse: Some(Arc::new(ToolResultReuse::new(s.io, session_id, &cwd, read_body, s.clock.clone()))),
             reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),

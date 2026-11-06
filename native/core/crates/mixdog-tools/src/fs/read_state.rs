@@ -35,30 +35,43 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
     format!("{:x}", sha2::Sha256::digest(bytes))
 }
 
-/// The identity of a file's content on disk (`fileVersion`). Node compares modification time,
-/// change time, size, inode and device; the file service reports the first and the size, so the
-/// others are compared only where both sides have them.
+/// The identity of a file's content on disk (`fileVersion`): modification time, change time, size,
+/// inode and device. Times are Node's float milliseconds and the file index goes through a JS
+/// number, so two stamps are equal exactly when Node's are.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FileVersion {
     pub mtime_ms: f64,
     pub size: u64,
     pub ctime_ms: Option<f64>,
-    pub ino: Option<u64>,
-    pub dev: Option<u64>,
+    pub ino: Option<f64>,
+    pub dev: Option<f64>,
 }
 
-impl FileVersion {
-    pub fn new(mtime: Option<std::time::SystemTime>, size: u64) -> Option<Self> {
-        let at = mtime?.duration_since(std::time::UNIX_EPOCH).ok()?;
-        Some(Self { mtime_ms: at.as_nanos() as f64 / 1e6, size, ctime_ms: None, ino: None, dev: None })
+/// libuv's `mtimeMs`: seconds times 1000 plus the nanoseconds over 1e6.
+fn epoch_ms(t: std::time::SystemTime) -> f64 {
+    match t.duration_since(std::time::UNIX_EPOCH) {
+        Ok(d) => d.as_secs() as f64 * 1e3 + f64::from(d.subsec_nanos()) / 1e6,
+        Err(e) => -(e.duration().as_secs() as f64 * 1e3 + f64::from(e.duration().subsec_nanos()) / 1e6),
     }
 }
 
-/// `sameFileVersion`.
-pub fn same_version(a: &FileVersion, b: &FileVersion) -> bool {
-    a.mtime_ms == b.mtime_ms && a.size == b.size && a.ctime_ms == b.ctime_ms && a.ino == b.ino && a.dev == b.dev
+impl FileVersion {
+    pub fn of(stat: &mixdog_core_api::domain::fs::FileStat) -> Option<Self> {
+        Some(Self {
+            mtime_ms: epoch_ms(stat.modified?),
+            size: stat.len,
+            ctime_ms: stat.ctime.map(epoch_ms),
+            ino: Some(stat.inode as f64),
+            dev: Some(stat.device as f64),
+        })
+    }
 }
 
+/// `sameFileVersion`: every one of the five fields must be present on both sides and equal.
+pub fn same_version(a: &FileVersion, b: &FileVersion) -> bool {
+    let eq = |x: Option<f64>, y: Option<f64>| matches!((x, y), (Some(x), Some(y)) if x.is_finite() && x == y);
+    a.mtime_ms.is_finite() && a.mtime_ms == b.mtime_ms && a.size == b.size && eq(a.ctime_ms, b.ctime_ms) && eq(a.ino, b.ino) && eq(a.dev, b.dev)
+}
 /// A 1-based inclusive line range; `end: None` runs to the end of the file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LineRange {
@@ -187,24 +200,72 @@ struct Inner {
     cache_bytes: usize,
     scopes: Vec<Scope>,
     hydrated: Vec<String>,
-    persisting: Vec<String>,
+    /// Sessions with a flush timer pending, each with its generation: releasing a session cancels
+    /// its timer (`persistPending`), and a timer that finds a newer generation does nothing.
+    timers: Vec<(String, u64)>,
+    next_timer: u64,
+    /// Persistence work in the order it was asked for, run one at a time on the durability lane.
+    outbox: std::collections::VecDeque<Job>,
+    draining: bool,
+}
+
+/// One unit of persistence, run on the durability lane and never under the state's mutex.
+enum Job {
+    /// A session's file, read for its first use.
+    Load { scope: String, reply: tokio::sync::oneshot::Sender<Option<String>> },
+    /// The session's snapshots as they are when the job runs (`persistScopeSync`).
+    Flush { scope: String },
+    /// A released session's last content, or its deletion (`releaseReadSnapshotScope`).
+    Save { scope: String, json: Option<String> },
+    /// A forgotten path leaves every persisted file (`deleteReadSnapshotPathEverywhere`).
+    Sweep { path: String },
 }
 
 /// Where a session's snapshots survive a restart: `read-snapshots/<scope>.json` under the plugin
-/// data directory, in Node's format. Calls are blocking and are made off the async path. The store
-/// also owns Node's 30-day sweep of stale scope files.
+/// data directory, in Node's format. Calls are blocking; the state makes them only as durability
+/// lane jobs. The store also owns Node's 30-day sweep of stale scope files.
 pub trait SnapshotPersist: Send + Sync {
     fn load(&self, scope: &str) -> Option<String>;
+    /// Every session that has a persisted file.
+    fn scopes(&self) -> Vec<String>;
     /// `None` removes the scope's file (an empty scope leaves none behind).
     fn save(&self, scope: &str, json: Option<&str>);
 }
 
+/// A store, and the durability lane its calls run on.
+#[derive(Clone)]
+pub struct Persistence {
+    store: Arc<dyn SnapshotPersist>,
+    lane: mixdog_rt::DurabilityIo,
+}
+
+impl Persistence {
+    pub fn new(store: Arc<dyn SnapshotPersist>, lane: mixdog_rt::DurabilityIo) -> Self {
+        Self { store, lane }
+    }
+
+    async fn run<R: Send + 'static>(&self, work: impl FnOnce(&dyn SnapshotPersist) -> R + Send + 'static) -> Option<R> {
+        use mixdog_rt::LaneToken;
+        let store = Arc::clone(&self.store);
+        let job = self.lane.submit_wait(&tokio_util::sync::CancellationToken::new(), move |_| work(store.as_ref())).await.ok()?;
+        job.await.ok()
+    }
+}
+
 type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
-pub struct ReadState {
-    inner: Arc<Mutex<Inner>>,
+struct Shared {
+    inner: Mutex<Inner>,
     clock: Clock,
-    persist: Option<Arc<dyn SnapshotPersist>>,
+    persist: Option<Persistence>,
+    /// How long a change waits before its session is written.
+    debounce: std::time::Duration,
+    /// Signalled when the outbox has been emptied.
+    idle: tokio::sync::Notify,
+}
+
+pub struct ReadState {
+    shared: Arc<Shared>,
 }
 
 impl Default for ReadState {
@@ -226,43 +287,106 @@ fn paths_overlap(a: &str, b: &str) -> bool {
     a == b || a.starts_with(&sep_prefix(b)) || b.starts_with(&sep_prefix(a))
 }
 
-impl ReadState {
-    pub fn new(persist: Option<Arc<dyn SnapshotPersist>>) -> Self {
-        Self { inner: Arc::new(Mutex::new(Inner::default())), clock: Arc::new(now_ms), persist }
-    }
-
-    /// A state on a given clock (milliseconds), so a cache lifetime can be tested.
-    pub fn with_clock(persist: Option<Arc<dyn SnapshotPersist>>, clock: Clock) -> Self {
-        Self { inner: Arc::new(Mutex::new(Inner::default())), clock, persist }
-    }
-
+impl Shared {
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Brings a session's persisted snapshots into memory on its first use (`readFilesForScope`'s
-    /// lazy hydration). Only the first call per session does any work.
-    pub async fn ensure_scope(&self, scope: &str) {
+    /// Queues persistence work and makes sure one drain task is running. With no store the work
+    /// is dropped (a load answers nothing).
+    fn enqueue(self: &Arc<Self>, inner: &mut Inner, job: Job) {
+        if self.persist.is_none() {
+            if let Job::Load { reply, .. } = job {
+                let _ = reply.send(None);
+            }
+            return;
+        }
+        inner.outbox.push_back(job);
+        self.kick(inner);
+    }
+
+    fn kick(self: &Arc<Self>, inner: &mut Inner) {
+        if inner.draining || inner.outbox.is_empty() {
+            return;
+        }
+        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+        inner.draining = true;
+        let shared = Arc::clone(self);
+        handle.spawn(async move { shared.drain().await });
+    }
+
+    /// Runs the outbox front to back, one job at a time, the lock held only to take a job.
+    async fn drain(self: Arc<Self>) {
         let Some(persist) = self.persist.clone() else { return };
-        if self.lock().hydrated.iter().any(|s| s == scope) {
-            return;
-        }
-        let owned = scope.to_owned();
-        let loaded = tokio::task::spawn_blocking(move || persist.load(&owned)).await.ok().flatten();
-        let mut inner = self.lock();
-        if inner.hydrated.iter().any(|s| s == scope) {
-            return;
-        }
-        inner.hydrated.push(scope.to_owned());
-        if inner.scopes.iter().all(|s| s.key != scope) {
-            let files = loaded.map(|text| files_from_json(&text)).unwrap_or_default();
-            inner.scopes.push(Scope { key: scope.to_owned(), files });
-            self.prune(&mut inner, scope);
+        loop {
+            let job = {
+                let mut inner = self.lock();
+                match inner.outbox.pop_front() {
+                    Some(job) => job,
+                    None => {
+                        inner.draining = false;
+                        drop(inner);
+                        self.idle.notify_waiters();
+                        return;
+                    }
+                }
+            };
+            match job {
+                Job::Load { scope, reply } => {
+                    let text = persist.run(move |store| store.load(&scope)).await.flatten();
+                    let _ = reply.send(text);
+                }
+                Job::Flush { scope } => {
+                    let json = {
+                        let inner = self.lock();
+                        match inner.scopes.iter().find(|s| s.key == scope) {
+                            Some(s) => Some(files_to_json(&s.files)),
+                            None => None,
+                        }
+                    };
+                    // A session released since the flush was asked for has its own save queued.
+                    if let Some(json) = json {
+                        persist.run(move |store| store.save(&scope, json.as_deref())).await;
+                    }
+                }
+                Job::Save { scope, json } => {
+                    persist.run(move |store| store.save(&scope, json.as_deref())).await;
+                }
+                Job::Sweep { path } => {
+                    persist
+                        .run(move |store| {
+                            for scope in store.scopes() {
+                                let Some(text) = store.load(&scope) else { continue };
+                                let Ok(JsonValue::Object(mut obj)) = serde_json::from_str::<JsonValue>(&text) else { continue };
+                                if obj.remove(&path).is_none() {
+                                    continue;
+                                }
+                                if obj.is_empty() {
+                                    store.save(&scope, None);
+                                } else if let Ok(json) = serde_json::to_string(&JsonValue::Object(obj)) {
+                                    store.save(&scope, Some(&json));
+                                }
+                            }
+                        })
+                        .await;
+                }
+            }
         }
     }
 
+    /// `releaseReadSnapshotScope`: the session's flush is cancelled, it leaves memory, and its last
+    /// content (or, for a deleted session, nothing) is queued to be written.
+    fn release(self: &Arc<Self>, inner: &mut Inner, released: Scope, delete: bool) {
+        let key = released.key;
+        inner.timers.retain(|(s, _)| *s != key);
+        inner.outbox.retain(|job| !matches!(job, Job::Flush { scope } if *scope == key));
+        inner.hydrated.retain(|k| *k != key);
+        let json = if delete { None } else { files_to_json(&released.files) };
+        self.enqueue(inner, Job::Save { scope: key, json });
+    }
+
     /// Scope access order: the used scope moves to the end; past 32 the oldest is released.
-    fn touch<'a>(&self, inner: &'a mut Inner, scope: &str) -> &'a mut Scope {
+    fn touch<'a>(self: &Arc<Self>, inner: &'a mut Inner, scope: &str) -> &'a mut Scope {
         match inner.scopes.iter().position(|s| s.key == scope) {
             Some(at) => {
                 let s = inner.scopes.remove(at);
@@ -277,22 +401,119 @@ impl ReadState {
         inner.scopes.last_mut().expect("just pushed")
     }
 
-    fn prune(&self, inner: &mut Inner, protected: &str) {
+    fn prune(self: &Arc<Self>, inner: &mut Inner, protected: &str) {
         while inner.scopes.len() > SCOPES_IN_MEMORY {
             let Some(at) = inner.scopes.iter().position(|s| s.key != protected) else { break };
             let released = inner.scopes.remove(at);
-            inner.hydrated.retain(|k| *k != released.key);
-            if let Some(persist) = &self.persist {
-                persist.save(&released.key, files_to_json(&released.files).as_deref());
+            self.release(inner, released, false);
+        }
+    }
+
+    /// `scheduleScopePersist`: one flush per session, 500 ms after the first change.
+    fn schedule_persist(self: &Arc<Self>, scope: &str) {
+        if self.persist.is_none() {
+            return;
+        }
+        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+        let generation = {
+            let mut inner = self.lock();
+            if inner.timers.iter().any(|(s, _)| s == scope) {
+                return;
+            }
+            inner.next_timer += 1;
+            let generation = inner.next_timer;
+            inner.timers.push((scope.to_owned(), generation));
+            generation
+        };
+        let (shared, scope) = (Arc::clone(self), scope.to_owned());
+        handle.spawn(async move {
+            tokio::time::sleep(shared.debounce).await;
+            let mut inner = shared.lock();
+            // Only the timer that is still the session's own fires; a release cancelled the rest.
+            if inner.timers.iter().any(|(s, g)| *s == scope && *g == generation) {
+                inner.timers.retain(|(s, _)| *s != scope);
+                shared.enqueue(&mut inner, Job::Flush { scope });
+            }
+        });
+    }
+}
+
+impl ReadState {
+    pub fn new(persist: Option<Persistence>) -> Self {
+        Self::with_clock(persist, Arc::new(now_ms))
+    }
+
+    /// A state on a given clock (milliseconds), so a cache lifetime can be tested.
+    pub fn with_clock(persist: Option<Persistence>, clock: Clock) -> Self {
+        Self::build(persist, clock, std::time::Duration::from_millis(PERSIST_DEBOUNCE_MS))
+    }
+
+    fn build(persist: Option<Persistence>, clock: Clock, debounce: std::time::Duration) -> Self {
+        Self { shared: Arc::new(Shared { inner: Mutex::new(Inner::default()), clock, persist, debounce, idle: tokio::sync::Notify::new() }) }
+    }
+
+    /// Brings a session's persisted snapshots into memory on its first use (`readFilesForScope`'s
+    /// lazy hydration), through the same ordered queue as every write.
+    pub async fn ensure_scope(&self, scope: &str) {
+        if self.shared.persist.is_none() {
+            return;
+        }
+        let reply = {
+            let mut inner = self.shared.lock();
+            if inner.hydrated.iter().any(|s| s == scope) {
+                return;
+            }
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            self.shared.enqueue(&mut inner, Job::Load { scope: scope.to_owned(), reply: tx });
+            rx
+        };
+        let loaded = reply.await.ok().flatten();
+        let mut inner = self.shared.lock();
+        if inner.hydrated.iter().any(|s| s == scope) {
+            return;
+        }
+        inner.hydrated.push(scope.to_owned());
+        if inner.scopes.iter().all(|s| s.key != scope) {
+            let files = loaded.map(|text| files_from_json(&text)).unwrap_or_default();
+            inner.scopes.push(Scope { key: scope.to_owned(), files });
+            self.shared.prune(&mut inner, scope);
+        }
+    }
+
+    /// Waits until every queued persistence job has run.
+    pub async fn settle(&self) {
+        loop {
+            let notified = self.shared.idle.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            {
+                let mut inner = self.shared.lock();
+                if inner.outbox.is_empty() && !inner.draining {
+                    return;
+                }
+                self.shared.kick(&mut inner);
+            }
+            notified.await;
+        }
+    }
+
+    /// The exit drain (`flushAllScopesSync`): every pending flush runs now, and the queue is emptied.
+    pub async fn flush_all(&self) {
+        {
+            let mut inner = self.shared.lock();
+            let pending: Vec<String> = inner.timers.drain(..).map(|(s, _)| s).collect();
+            for scope in pending {
+                self.shared.enqueue(&mut inner, Job::Flush { scope });
             }
         }
+        self.settle().await;
     }
 
     /// `getReadSnapshot`.
     pub fn snapshot(&self, scope: Option<&str>, path: &str) -> Option<Snapshot> {
         let scope = scope?;
-        let mut inner = self.lock();
-        let s = self.touch(&mut inner, scope);
+        let mut inner = self.shared.lock();
+        let s = self.shared.touch(&mut inner, scope);
         s.files.iter().find(|(p, _)| p == path).map(|(_, snap)| snap.clone())
     }
 
@@ -300,74 +521,81 @@ impl ReadState {
     pub fn record(&self, scope: Option<&str>, path: &str, version: Option<FileVersion>, meta: SnapshotMeta) {
         let Some(scope) = scope else { return };
         let Some(identity) = version else { return };
-        let mut inner = self.lock();
-        let files = &mut self.touch(&mut inner, scope).files;
-        let mutation = is_mutation_source(&meta.source);
-        let incoming = meta.ranges.clone().unwrap_or_else(|| vec![LineRange::WHOLE]);
-        let fresh_large = identity.size > CACHEABLE_BYTES && !mutation;
-        let replace = meta.replace_existing || fresh_large;
-        let prior = files.iter().find(|(p, _)| p == path).map(|(_, s)| s.clone());
-        let existing = if replace { None } else { prior.clone() };
-        let same_file = existing.as_ref().filter(|e| same_version(&identity, &e.version));
-        let undelivered_mutation = same_file.is_some_and(|e| is_mutation_source(&e.source) && e.body_delivered != Some(true));
-        let retained: Vec<LineRange> = match same_file {
-            Some(e) if !undelivered_mutation => e.ranges.clone(),
-            _ => Vec::new(),
-        };
-        let merged = merge_ranges(&[retained, incoming].concat());
-        let mut next = Snapshot {
-            version: identity,
-            ranges: merged,
-            source: meta.source.clone(),
-            body_delivered: None,
-            content_hash: meta.content_hash.clone(),
-            grep_only: false,
-            file_line_count: None,
-            extra: serde_json::Map::new(),
-        };
-        if next.content_hash.is_none() {
-            next.content_hash = same_file.and_then(|e| e.content_hash.clone());
+        {
+            let mut inner = self.shared.lock();
+            let files = &mut self.shared.touch(&mut inner, scope).files;
+            let mutation = is_mutation_source(&meta.source);
+            let incoming = meta.ranges.clone().unwrap_or_else(|| vec![LineRange::WHOLE]);
+            let fresh_large = identity.size > CACHEABLE_BYTES && !mutation;
+            let replace = meta.replace_existing || fresh_large;
+            let prior = files.iter().find(|(p, _)| p == path).map(|(_, s)| s.clone());
+            let existing = if replace { None } else { prior.clone() };
+            let same_file = existing.as_ref().filter(|e| same_version(&identity, &e.version));
+            let undelivered_mutation = same_file.is_some_and(|e| is_mutation_source(&e.source) && e.body_delivered != Some(true));
+            let retained: Vec<LineRange> = match same_file {
+                Some(e) if !undelivered_mutation => e.ranges.clone(),
+                _ => Vec::new(),
+            };
+            let merged = merge_ranges(&[retained, incoming].concat());
+            let mut next = Snapshot {
+                version: identity,
+                ranges: merged,
+                source: meta.source.clone(),
+                body_delivered: None,
+                content_hash: meta.content_hash.clone(),
+                grep_only: false,
+                file_line_count: None,
+                extra: serde_json::Map::new(),
+            };
+            if next.content_hash.is_none() {
+                next.content_hash = same_file.and_then(|e| e.content_hash.clone());
+            }
+            let incoming_is_grep = meta.source == "grep";
+            next.grep_only = incoming_is_grep && same_file.map_or(true, |e| e.grep_only);
+            let prior_for_delivery = if fresh_large { None } else { prior.as_ref() };
+            if let Some(delivered) = resolve_body_delivered(&next, &meta, prior_for_delivery, &identity, incoming_is_grep) {
+                next.body_delivered = Some(delivered);
+            }
+            if let Some(count) = meta.file_line_count {
+                next.file_line_count = Some(count);
+            } else if let Some(count) = same_file.and_then(|e| e.file_line_count) {
+                next.file_line_count = Some(count);
+            }
+            // The session keeps its newest file last; past the cap the oldest goes.
+            files.retain(|(p, _)| p != path);
+            files.push((path.to_owned(), next));
+            while files.len() > FILES_PER_SCOPE {
+                files.remove(0);
+            }
         }
-        let incoming_is_grep = meta.source == "grep";
-        next.grep_only = incoming_is_grep && same_file.map_or(true, |e| e.grep_only);
-        let prior_for_delivery = if fresh_large { None } else { prior.as_ref() };
-        if let Some(delivered) = resolve_body_delivered(&next, &meta, prior_for_delivery, &identity, incoming_is_grep) {
-            next.body_delivered = Some(delivered);
-        }
-        if let Some(count) = meta.file_line_count {
-            next.file_line_count = Some(count);
-        } else if let Some(count) = same_file.and_then(|e| e.file_line_count) {
-            next.file_line_count = Some(count);
-        }
-        // The session keeps its newest file last; past the cap the oldest goes.
-        files.retain(|(p, _)| p != path);
-        files.push((path.to_owned(), next));
-        while files.len() > FILES_PER_SCOPE {
-            files.remove(0);
-        }
-        drop(inner);
-        self.schedule_persist(scope);
+        self.shared.schedule_persist(scope);
     }
 
     /// `releaseReadSnapshotScope(scope, { deletePersisted: true })`: a deleted session forgets its
     /// snapshots, in memory and in the store (the `read_cache` purge hook).
     pub fn forget_session(&self, scope: &str) {
-        {
-            let mut inner = self.lock();
-            inner.scopes.retain(|s| s.key != scope);
-            inner.hydrated.retain(|k| k != scope);
-        }
-        if let Some(persist) = &self.persist {
-            persist.save(scope, None);
+        let mut inner = self.shared.lock();
+        match inner.scopes.iter().position(|s| s.key == scope) {
+            Some(at) => {
+                let released = inner.scopes.remove(at);
+                self.shared.release(&mut inner, released, true);
+            }
+            None => {
+                inner.timers.retain(|(s, _)| s != scope);
+                inner.outbox.retain(|job| !matches!(job, Job::Flush { scope: s } if s == scope));
+                inner.hydrated.retain(|k| k != scope);
+                self.shared.enqueue(&mut inner, Job::Save { scope: scope.to_owned(), json: None });
+            }
         }
     }
 
-    /// `clearReadSnapshotForPath`: the path's cached answers and every session's snapshot of it.
+    /// `clearReadSnapshotForPath`: the path's cached answers and every session's snapshot of it,
+    /// in memory and in every persisted file.
     pub fn forget_path(&self, path: &str) {
         self.invalidate(&[path]);
-        let mut touched = Vec::new();
-        {
-            let mut inner = self.lock();
+        let touched: Vec<String> = {
+            let mut inner = self.shared.lock();
+            let mut touched = Vec::new();
             for s in &mut inner.scopes {
                 let before = s.files.len();
                 s.files.retain(|(p, _)| p != path);
@@ -375,16 +603,18 @@ impl ReadState {
                     touched.push(s.key.clone());
                 }
             }
-        }
+            self.shared.enqueue(&mut inner, Job::Sweep { path: path.to_owned() });
+            touched
+        };
         for key in touched {
-            self.schedule_persist(&key);
+            self.shared.schedule_persist(&key);
         }
     }
 
     /// `invalidateBuiltinResultCache(paths)`: cached answers about these paths (or inside, or
     /// holding them) are dropped.
     pub fn invalidate(&self, paths: &[&str]) {
-        let mut inner = self.lock();
+        let mut inner = self.shared.lock();
         let before = inner.cache.len();
         inner.cache.retain(|e| !e.paths.iter().any(|p| paths.iter().any(|a| paths_overlap(p, a))));
         if inner.cache.len() != before {
@@ -394,8 +624,8 @@ impl ReadState {
 
     /// `cacheGetEntry`: a live entry, expiring those past 30 s.
     pub fn cache_get(&self, key: &str) -> Option<CacheHit> {
-        let now = (self.clock)();
-        let mut inner = self.lock();
+        let now = (self.shared.clock)();
+        let mut inner = self.shared.lock();
         let at = inner.cache.iter().position(|e| e.key == key)?;
         if now.saturating_sub(inner.cache[at].ts) > CACHE_TTL_MS {
             let gone = inner.cache.remove(at);
@@ -411,8 +641,8 @@ impl ReadState {
         if bytes >= CACHE_MAX_BYTES {
             return;
         }
-        let now = (self.clock)();
-        let mut inner = self.lock();
+        let now = (self.shared.clock)();
+        let mut inner = self.shared.lock();
         if let Some(at) = inner.cache.iter().position(|e| e.key == key) {
             let gone = inner.cache.remove(at);
             inner.cache_bytes = inner.cache_bytes.saturating_sub(gone.bytes);
@@ -432,30 +662,6 @@ impl ReadState {
             let gone = inner.cache.remove(0);
             inner.cache_bytes = inner.cache_bytes.saturating_sub(gone.bytes);
         }
-    }
-
-    /// `scheduleScopePersist`: one flush per session, 500 ms after the first change.
-    fn schedule_persist(&self, scope: &str) {
-        let Some(persist) = self.persist.clone() else { return };
-        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
-        {
-            let mut inner = self.lock();
-            if inner.persisting.iter().any(|s| s == scope) {
-                return;
-            }
-            inner.persisting.push(scope.to_owned());
-        }
-        let owned = scope.to_owned();
-        let state = Arc::clone(&self.inner);
-        handle.spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(PERSIST_DEBOUNCE_MS)).await;
-            let json = {
-                let mut inner = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                inner.persisting.retain(|s| *s != owned);
-                inner.scopes.iter().find(|s| s.key == owned).and_then(|s| files_to_json(&s.files))
-            };
-            let _ = tokio::task::spawn_blocking(move || persist.save(&owned, json.as_deref())).await;
-        });
     }
 }
 
@@ -496,6 +702,11 @@ fn resolve_body_delivered(
 
 // ---- Node's persisted format ----
 
+/// A JS number: whole values print without a fraction, as `JSON.stringify` does.
+fn number(v: f64) -> JsonValue {
+    if v.fract() == 0.0 && v.abs() < 9.007_199_254_740_992e15 { JsonValue::from(v as i64) } else { JsonValue::from(v) }
+}
+
 fn range_to_json(r: &LineRange) -> JsonValue {
     serde_json::json!({
         "startLine": r.start,
@@ -510,16 +721,16 @@ fn files_to_json(files: &[(String, Snapshot)]) -> Option<String> {
     let mut obj = serde_json::Map::new();
     for (path, s) in files {
         let mut o = s.extra.clone();
-        o.insert("mtimeMs".into(), JsonValue::from(s.version.mtime_ms));
+        o.insert("mtimeMs".into(), number(s.version.mtime_ms));
         o.insert("size".into(), JsonValue::from(s.version.size));
         if let Some(v) = s.version.ctime_ms {
-            o.insert("ctimeMs".into(), JsonValue::from(v));
+            o.insert("ctimeMs".into(), number(v));
         }
         if let Some(v) = s.version.ino {
-            o.insert("ino".into(), JsonValue::from(v));
+            o.insert("ino".into(), number(v));
         }
         if let Some(v) = s.version.dev {
-            o.insert("dev".into(), JsonValue::from(v));
+            o.insert("dev".into(), number(v));
         }
         o.insert("ranges".into(), JsonValue::Array(s.ranges.iter().map(range_to_json).collect()));
         o.insert("source".into(), JsonValue::String(s.source.clone()));
@@ -564,8 +775,8 @@ fn files_from_json(text: &str) -> Vec<(String, Snapshot)> {
             mtime_ms,
             size,
             ctime_ms: o.remove("ctimeMs").and_then(|v| v.as_f64()),
-            ino: o.remove("ino").and_then(|v| v.as_u64()),
-            dev: o.remove("dev").and_then(|v| v.as_u64()),
+            ino: o.remove("ino").and_then(|v| v.as_f64()),
+            dev: o.remove("dev").and_then(|v| v.as_f64()),
         };
         let source = o.remove("source").and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
         let body_delivered = o.remove("bodyDelivered").and_then(|v| v.as_bool());
@@ -582,7 +793,35 @@ mod tests {
     use super::*;
 
     fn version(mtime: f64, size: u64) -> FileVersion {
-        FileVersion { mtime_ms: mtime, size, ctime_ms: None, ino: None, dev: None }
+        FileVersion { mtime_ms: mtime, size, ctime_ms: Some(mtime), ino: Some(7.0), dev: Some(3.0) }
+    }
+
+    /// A store that keeps its files in memory.
+    #[derive(Default)]
+    struct Memory(Mutex<Vec<(String, String)>>);
+
+    impl SnapshotPersist for Memory {
+        fn load(&self, scope: &str) -> Option<String> {
+            self.0.lock().unwrap().iter().find(|(s, _)| s == scope).map(|(_, j)| j.clone())
+        }
+        fn scopes(&self) -> Vec<String> {
+            self.0.lock().unwrap().iter().map(|(s, _)| s.clone()).collect()
+        }
+        fn save(&self, scope: &str, json: Option<&str>) {
+            let mut files = self.0.lock().unwrap();
+            files.retain(|(s, _)| s != scope);
+            if let Some(json) = json {
+                files.push((scope.to_owned(), json.to_owned()));
+            }
+        }
+    }
+
+    const DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(30);
+
+    /// A state whose flush timer is short enough to wait out.
+    fn persistent(store: Arc<dyn SnapshotPersist>) -> ReadState {
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        ReadState::build(Some(Persistence::new(store, lane)), Arc::new(now_ms), DEBOUNCE)
     }
 
     #[test]
@@ -593,6 +832,25 @@ mod tests {
             LineRange { start: 10, end: None },
         ]);
         assert_eq!(merged, vec![LineRange { start: 1, end: Some(7) }, LineRange { start: 10, end: None }]);
+    }
+
+    #[test]
+    fn a_file_is_the_same_version_only_when_all_five_identity_fields_agree() {
+        let base = version(5.0, 10);
+        assert!(same_version(&base, &base));
+        for changed in [
+            FileVersion { mtime_ms: 6.0, ..base },
+            FileVersion { size: 11, ..base },
+            FileVersion { ctime_ms: Some(6.0), ..base },
+            FileVersion { ino: Some(8.0), ..base },
+            FileVersion { dev: Some(4.0), ..base },
+            FileVersion { ctime_ms: None, ..base },
+        ] {
+            assert!(!same_version(&base, &changed), "{changed:?}");
+        }
+        // A stamp missing a field (a legacy persisted file) is never the same as anything.
+        let legacy = FileVersion { ino: None, ..base };
+        assert!(!same_version(&legacy, &legacy));
     }
 
     #[test]
@@ -646,9 +904,128 @@ mod tests {
     fn snapshots_round_trip_through_node_s_file_format() {
         let state = ReadState::default();
         state.record(Some("s"), "/a", Some(version(1.5, 10)), SnapshotMeta { content_hash: Some("ab".to_owned()), ..SnapshotMeta::new("read") });
-        let files = state.lock().scopes[0].files.clone();
+        let files = state.shared.lock().scopes[0].files.clone();
         let text = files_to_json(&files).unwrap();
         assert!(text.contains(INFINITY_SENTINEL));
         assert_eq!(files_from_json(&text), files);
+    }
+
+    /// 33 sessions, the first one touched earliest: it is released when the 33rd arrives.
+    fn fill_past_the_scope_cap(state: &ReadState) {
+        state.record(Some("s0"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        for i in 1..=SCOPES_IN_MEMORY {
+            state.record(Some(&format!("s{i}")), "/y", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_released_session_keeps_what_its_release_saved_when_its_flush_timer_would_have_fired() {
+        let store = Arc::new(Memory::default());
+        let state = persistent(store.clone());
+        fill_past_the_scope_cap(&state);
+        // s0's debounce timer would fire during this wait; the release cancelled it.
+        tokio::time::sleep(DEBOUNCE * 4).await;
+        state.settle().await;
+        assert!(state.shared.lock().timers.iter().all(|(s, _)| s != "s0"), "the release cancelled the flush timer");
+        let saved = store.load("s0").expect("the released session's file survives its cancelled flush");
+        assert!(saved.contains("\"/x\""));
+    }
+
+    #[tokio::test]
+    async fn a_released_session_loads_back_what_it_saved_in_the_order_it_was_asked() {
+        let store = Arc::new(Memory::default());
+        let state = persistent(store.clone());
+        fill_past_the_scope_cap(&state);
+        state.ensure_scope("s0").await;
+        assert!(state.snapshot(Some("s0"), "/x").is_some());
+    }
+
+    #[tokio::test]
+    async fn a_deleted_session_loses_its_file_and_its_pending_flush() {
+        let store = Arc::new(Memory::default());
+        let state = persistent(store.clone());
+        state.record(Some("gone"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        state.forget_session("gone");
+        tokio::time::sleep(DEBOUNCE * 4).await;
+        state.settle().await;
+        assert!(store.load("gone").is_none());
+        assert!(state.snapshot(Some("gone"), "/x").is_none());
+    }
+
+    #[tokio::test]
+    async fn the_exit_drain_writes_every_session_that_is_still_waiting() {
+        let store = Arc::new(Memory::default());
+        let state = persistent(store.clone());
+        state.record(Some("a"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        assert!(store.load("a").is_none(), "not before the debounce");
+        state.flush_all().await;
+        assert!(store.load("a").unwrap().contains("\"/x\""));
+    }
+
+    /// A store whose every call asks the state a question: if the state made the call while
+    /// holding its mutex, the question would never be answered.
+    struct Asking {
+        state: std::sync::OnceLock<Arc<ReadState>>,
+        files: Mutex<Vec<(String, String)>>,
+        asked: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Asking {
+        fn ask(&self) {
+            let state = self.state.get().expect("set before use");
+            let _ = state.snapshot(Some("probe"), "/p");
+            self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl SnapshotPersist for Asking {
+        fn load(&self, scope: &str) -> Option<String> {
+            self.ask();
+            self.files.lock().unwrap().iter().find(|(s, _)| s == scope).map(|(_, j)| j.clone())
+        }
+        fn scopes(&self) -> Vec<String> {
+            self.ask();
+            self.files.lock().unwrap().iter().map(|(s, _)| s.clone()).collect()
+        }
+        fn save(&self, scope: &str, json: Option<&str>) {
+            self.ask();
+            let mut files = self.files.lock().unwrap();
+            files.retain(|(s, _)| s != scope);
+            if let Some(json) = json {
+                files.push((scope.to_owned(), json.to_owned()));
+            }
+        }
+    }
+
+    /// The one thread of a current-thread runtime would hang if a store call ran under the mutex.
+    #[tokio::test]
+    async fn persistence_runs_outside_the_state_mutex() {
+        let store = Arc::new(Asking { state: std::sync::OnceLock::new(), files: Mutex::new(Vec::new()), asked: std::sync::atomic::AtomicUsize::new(0) });
+        let state = Arc::new(persistent(store.clone()));
+        store.state.set(Arc::clone(&state)).ok();
+        fill_past_the_scope_cap(&state);
+        state.ensure_scope("s0").await;
+        state.forget_path("/x");
+        state.forget_session("s1");
+        state.flush_all().await;
+        assert!(store.asked.load(std::sync::atomic::Ordering::SeqCst) >= 4);
+    }
+
+    #[tokio::test]
+    async fn forgetting_a_path_rewrites_every_persisted_session_file_and_removes_an_emptied_one() {
+        let one = ReadState::default();
+        one.record(Some("a"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        one.record(Some("a"), "/y", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        one.record(Some("b"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
+        let files: Vec<(String, String)> = one.shared.lock().scopes.iter().map(|s| (s.key.clone(), files_to_json(&s.files).unwrap())).collect();
+        let disk = Arc::new(Memory(Mutex::new(files)));
+        // A fresh process: nothing in memory, both sessions on disk.
+        let state = persistent(disk.clone());
+        state.forget_path("/x");
+        state.settle().await;
+        let left = disk.0.lock().unwrap().clone();
+        assert_eq!(left.len(), 1, "session b had only /x and its file is gone");
+        assert_eq!(left[0].0, "a");
+        assert!(!left[0].1.contains("\"/x\"") && left[0].1.contains("\"/y\""));
     }
 }

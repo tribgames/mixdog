@@ -392,6 +392,10 @@ impl Transcript for TextTranscript {
         let Slot::Inline(body) = &record.body else {
             return Vec::new();
         };
+        // A `{shownItem}` body shows that item as it is.
+        if let Some(item) = body.get("shownItem") {
+            return vec![Shown::Item(serde_json::from_value(item.clone()).expect("a thread item"))];
+        }
         if let Some(call) = body["toolCallId"].as_str() {
             return vec![Shown::Update(ThreadItem::ToolCall {
                 id: format!("call:{call}").as_str().into(),
@@ -645,6 +649,8 @@ pub(crate) struct Rig {
     /// reads them.
     pub todos: Arc<TestTodos>,
     pub work: Arc<TestWork>,
+    /// The quota-resume queue over the temp data dir.
+    pub quota: Arc<crate::quota_resume::QuotaResumeStore>,
 }
 
 /// An in-memory todo list shared by every thread of the rig.
@@ -787,7 +793,15 @@ impl Rig {
             crate::goal::GoalConfig::new(data.path().join("goals").to_string_lossy().into_owned()),
             crate::goal::GoalEnv::system(mixdog_rt::testing::tokens().durability_io),
         );
+        // The open is one lane job, which runs on the lane's own thread.
+        let quota = futures::executor::block_on(crate::quota_resume::QuotaResumeStore::open(
+            data.path(),
+            mixdog_rt::testing::tokens().durability_io,
+            mixdog_rt::CancellationToken::new(),
+        ))
+        .expect("quota-resume store");
         Self {
+            quota: Arc::new(quota),
             goals,
             todos: Arc::default(),
             work: Arc::default(),
@@ -838,8 +852,8 @@ impl Rig {
             search: self.ingests.clone(),
             memory: self.closes.clone(),
             sensitive: Arc::new(super::store::SensitiveMarksOf(self.sensitive.clone())),
-            user_cwd: super::UserCwd::new(self._data.path()),
-            attachments: Arc::new(super::user_facts::DataBlobs(self._data.path().to_path_buf())),
+            user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
+            attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
             feeds: self.feeds.clone(),
             server_requests: self.sink.clone(),
             approval_ids: Arc::new(Counter::default()),
@@ -853,6 +867,10 @@ impl Rig {
             todos: self.todos.clone(),
             work: self.work.clone(),
             cycles: Arc::default(),
+            quota: super::quota_lane::SessionQuota {
+                goals: crate::goal::quota::GoalQuotaResume::new(self.quota.clone(), self.goals.clone()),
+                auto_resume: Arc::new(|| true),
+            },
             lanes: SessionLanes {
                 cpu: tokens.cpu_interactive,
                 io: tokens.interactive_io,

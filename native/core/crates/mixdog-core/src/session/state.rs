@@ -389,7 +389,23 @@ impl SessionState {
                     self.has_older = true;
                 }
             }
-            Record::Compacted(_) | Record::Op(_) | Record::Checkpoint(_) => {}
+            // A live compaction shows its divider at the end of the window; it lives and goes
+            // with the `compacted` record's ordinal, as a restored one does.
+            Record::Compacted(_) => {
+                let Display::Items(shown) = display else {
+                    return;
+                };
+                for shown in shown {
+                    if let Shown::Item(new) = shown {
+                        self.window.push_back(WindowItem { ordinal, item: Arc::new(new.clone()), prompt: None });
+                    }
+                }
+                while self.window.len() > self.view_items {
+                    self.window.pop_front();
+                    self.has_older = true;
+                }
+            }
+            Record::Op(_) | Record::Checkpoint(_) => {}
         }
     }
 

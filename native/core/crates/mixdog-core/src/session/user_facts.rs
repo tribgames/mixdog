@@ -2,7 +2,11 @@
 //! migration also writes (`mixdog_protocol::message_class::row_facts`), so a live row and a
 //! migrated row of one message are identical.
 
+use std::path::Path;
 use std::path::PathBuf;
+
+use mixdog_rt::InLane;
+use mixdog_rt::InteractiveIo;
 
 pub use mixdog_protocol::message_class::RowFacts;
 use mixdog_protocol::message_class::row_facts;
@@ -17,15 +21,31 @@ pub fn user_facts(body: &mut Value, blobs: &dyn Blobs) -> RowFacts {
     row_facts(body, &mut UserText::new(blobs)).unwrap_or(RowFacts { visible: true, prompt: None })
 }
 
-/// The prompt-attachment store (`<data>/prompt-attachments/sha256/<ab>/<hex>`).
-pub struct DataBlobs(pub PathBuf);
+/// The prompt-attachment store (`<data>/prompt-attachments/sha256/<ab>/<hex>`) under the data
+/// dir. Its reads run in an interactive-io lane job: [`Self::facts`] takes the lane.
+#[derive(Clone, Debug)]
+pub struct AttachmentStore(pub PathBuf);
 
-impl Blobs for DataBlobs {
+impl AttachmentStore {
+    /// [`user_facts`] of `body`, reading the store on `lane`.
+    pub fn facts(&self, lane: &InLane<InteractiveIo>, body: &mut Value) -> RowFacts {
+        user_facts(body, &LaneBlobs { root: &self.0, _lane: lane })
+    }
+}
+
+/// The store as read inside a lane job (`_lane` is the proof).
+struct LaneBlobs<'a> {
+    root: &'a Path,
+    _lane: &'a InLane<InteractiveIo>,
+}
+
+impl Blobs for LaneBlobs<'_> {
+    #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof field)")]
     fn text_within(&self, hex: &str, max_bytes: u64) -> Result<Option<String>, ReadError> {
         let Some(shard) = hex.get(..2) else {
             return Err(ReadError::Other);
         };
-        let path = self.0.join("prompt-attachments/sha256").join(shard).join(hex);
+        let path = self.root.join("prompt-attachments/sha256").join(shard).join(hex);
         match std::fs::read(path) {
             Ok(bytes) if bytes.len() as u64 > max_bytes => Ok(None),
             Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),

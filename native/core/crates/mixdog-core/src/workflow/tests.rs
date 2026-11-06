@@ -2,6 +2,8 @@
 //! the real `Config`, the real pack files and the real op scopes. What the host owns (Main
 //! route, provider facts) answers as the recording's scenario states it.
 
+#![allow(clippy::disallowed_methods, reason = "test setup: reads the recorded packs and seeds config files on the test thread")]
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;

@@ -142,5 +142,5 @@ pub(super) async fn note_edit(ctx: &ToolContext, state: &ReadState, abs: &AbsPat
         content_hash: content_hash_of(written).or_else(|| Some(hash_text(""))),
         ..SnapshotMeta::new("edit")
     };
-    state.record(Some(&ctx.thread_id.to_string()), &key, FileVersion::new(stat.modified, stat.len), meta);
+    state.record(Some(&ctx.thread_id.to_string()), &key, FileVersion::of(&stat), meta);
 }

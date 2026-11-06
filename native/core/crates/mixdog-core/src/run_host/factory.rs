@@ -66,6 +66,16 @@ pub struct GateContext {
     pub approvals: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>,
 }
 
+/// What the explicit skill selector needs from the run it serves, which exists only after assembly.
+pub struct SkillContext {
+    pub gate: Arc<dyn ToolGate>,
+    pub env: ToolEnv,
+    pub cancel: tokio_util::sync::CancellationToken,
+}
+
+/// Builds the turn's skill selector from the run's gate, environment and token.
+pub type SkillsBuilder = Box<dyn FnOnce(SkillContext) -> Arc<dyn SkillSelector> + Send>;
+
 /// Builds the turn's gate (PolicyGate) from the run's observer, token and guards.
 pub type GateBuilder = Box<dyn FnOnce(GateContext) -> Arc<dyn ToolGate> + Send>;
 
@@ -93,7 +103,7 @@ pub struct Assembled {
     pub guards: Arc<dyn TurnGuards>,
     pub compactor: Option<Arc<dyn Compactor>>,
     pub route: Option<Arc<dyn RouteFallback>>,
-    pub skills: Option<Arc<dyn SkillSelector>>,
+    pub skills: Option<SkillsBuilder>,
     pub hooks: Option<Arc<dyn ToolHooks>>,
     pub reuse: Option<Arc<dyn ResultReuse>>,
     pub reactions: Option<Arc<dyn Reactions>>,
@@ -501,6 +511,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     config.signal = Some(signal);
     config.first_request_after = Some(Ticket(0));
     let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(review, gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: Arc::new(port.clone()) })));
+    let skills = skills.map(|build| build(SkillContext { gate: gate.clone(), env: tool_env.clone(), cancel: cancel.clone() }));
     let env = RunEnv {
         clock,
         jitter: Arc::new(RandomJitter),

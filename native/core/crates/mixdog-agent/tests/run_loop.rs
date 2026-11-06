@@ -110,6 +110,8 @@ struct Scripted {
     codec: MockCodec,
     script: Mutex<VecDeque<Attempt>>,
     requests: Mutex<Vec<Arc<ModelRequest>>>,
+    /// Every `settle_send` the loop made, in order.
+    settled: Mutex<Vec<(String, mixdog_core_api::domain::provider::SendEnd)>>,
 }
 
 impl Scripted {
@@ -121,7 +123,16 @@ impl Scripted {
             codec: MockCodec,
             script: Mutex::new(script.into()),
             requests: Mutex::new(Vec::new()),
+            settled: Mutex::new(Vec::new()),
         })
+    }
+
+    fn settled(&self) -> Vec<(String, mixdog_core_api::domain::provider::SendEnd)> {
+        self.settled.lock().unwrap().clone()
+    }
+
+    fn groups(&self) -> Vec<Option<String>> {
+        self.requests().iter().map(|r| r.options.send_group.clone()).collect()
     }
 
     fn requests(&self) -> Vec<Arc<ModelRequest>> {
@@ -153,6 +164,9 @@ impl ProviderAdapter for Scripted {
             Some(Attempt::Reject(error)) => Err(error),
             None => panic!("provider script exhausted"),
         }
+    }
+    async fn settle_send(&self, group: &str, end: mixdog_core_api::domain::provider::SendEnd) {
+        self.settled.lock().unwrap().push((group.to_owned(), end));
     }
 }
 
@@ -1599,6 +1613,78 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
     );
     // the stored transcript keeps the image
     assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if matches!(p[1], ContentPart::Image(_))));
+}
+
+#[tokio::test]
+async fn a_retried_send_keeps_one_group_and_settles_nothing_on_success() {
+    let h = Harness::new(vec![overloaded(), overloaded(), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    let groups = h.provider.groups();
+    assert_eq!(groups.len(), 3);
+    assert!(groups[0].is_some() && groups.iter().all(|g| *g == groups[0]), "{groups:?}");
+    // The provider's own accounting folds the group into one row with `attempts` on success.
+    assert!(h.provider.settled().is_empty());
+}
+
+#[tokio::test]
+async fn a_request_changing_replay_settles_the_old_group_and_starts_a_new_one() {
+    use mixdog_core_api::domain::provider::SendEnd;
+    let h = Harness::new(vec![
+        rejection(ErrorKind::ReplayRejected, None),
+        overloaded(),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let mut assistant = AgentMessage::assistant("t", Vec::new());
+    assistant.message.assistant_blocks = Some(json!([{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "t"}]));
+    finish(h.run(config(), vec![], vec![AgentMessage::user("a"), assistant, AgentMessage::user("b")])).await;
+    let groups = h.provider.groups();
+    assert_eq!(groups.len(), 3);
+    assert_ne!(groups[0], groups[1]);
+    assert_eq!(groups[1], groups[2], "the decider's retry keeps the group");
+    assert_eq!(h.provider.settled(), [(groups[0].clone().unwrap(), SendEnd::Surfaced)]);
+}
+
+#[tokio::test]
+async fn a_surfaced_failure_settles_its_group_before_the_error_returns() {
+    use mixdog_core_api::domain::provider::SendEnd;
+    let h = Harness::new(vec![rejection(ErrorKind::InvalidRequest, None)]);
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("surfaced");
+    assert!(matches!(failure.error, AgentError::Provider(_)));
+    let groups = h.provider.groups();
+    assert_eq!(h.provider.settled(), [(groups[0].clone().unwrap(), SendEnd::Surfaced)]);
+}
+
+#[tokio::test]
+async fn an_aborted_turn_leaves_no_open_group() {
+    use mixdog_core_api::domain::provider::SendEnd;
+    let h = Harness::new(vec![turn(vec![text("a"), Step::Hang])]);
+    let cancel = h.cancel.clone();
+    let task = tokio::spawn(h.run(config(), vec![], vec![AgentMessage::user("go")]).run());
+    while h.provider.requests().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    cancel.cancel();
+    let failure = task.await.unwrap().expect_err("aborted");
+    assert!(matches!(failure.error, AgentError::Aborted));
+    let groups = h.provider.groups();
+    assert_eq!(h.provider.settled(), [(groups[0].clone().unwrap(), SendEnd::Cancelled)]);
+}
+
+#[tokio::test]
+async fn a_dropped_turn_settles_its_group_as_cancelled() {
+    use mixdog_core_api::domain::provider::SendEnd;
+    let h = Harness::new(vec![turn(vec![text("a"), Step::Hang])]);
+    let task = tokio::spawn(h.run(config(), vec![], vec![AgentMessage::user("go")]).run());
+    while h.provider.requests().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    task.abort();
+    let _ = task.await;
+    while h.provider.settled().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    let groups = h.provider.groups();
+    assert_eq!(h.provider.settled(), [(groups[0].clone().unwrap(), SendEnd::Cancelled)]);
 }
 
 #[tokio::test]

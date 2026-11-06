@@ -756,6 +756,7 @@ fn report_session_log(status: &Value) -> Option<Verdict> {
 
 // --- Local installation state -----------------------------------------------------------
 
+#[allow(clippy::disallowed_methods, reason = "body of the interactive-io lane job in `run_check`")]
 fn data_folder(dir: &std::path::Path) -> Option<Verdict> {
     let shown = dir.to_string_lossy();
     match std::fs::metadata(dir) {
@@ -775,6 +776,7 @@ fn data_folder(dir: &std::path::Path) -> Option<Verdict> {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "body of the interactive-io lane job in `run_check`")]
 fn config_file(dir: &std::path::Path) -> Reported {
     let raw = match std::fs::read_to_string(dir.join("mixdog-config.json")) {
         Ok(raw) => raw,
@@ -798,6 +800,7 @@ fn config_file(dir: &std::path::Path) -> Reported {
     })
 }
 
+#[allow(clippy::disallowed_methods, reason = "body of the interactive-io lane job in `run_check`")]
 fn log_files(dir: &std::path::Path) -> Reported {
     let entries = std::fs::read_dir(dir).map_err(|_| ProbeFailed)?;
     let count = entries

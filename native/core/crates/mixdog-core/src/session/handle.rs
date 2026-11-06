@@ -62,7 +62,7 @@ pub struct SessionHandle {
     /// One room post (`thread/roomRows/append`) or `thread/reactions/set` at a time, in
     /// order (`agent-room-delivery.mjs` `serialized`): each reads the conversation, then
     /// writes it.
-    pub(crate) reactions: tokio::sync::Mutex<()>,
+    pub(crate) reactions: Arc<mixdog_rt::SerialChain>,
 }
 
 fn window_of(window: &ResumeWindow) -> Window {
@@ -223,7 +223,7 @@ impl SessionHandle {
             Some(back) => back.as_u64().ok_or_else(|| invalid("messagesBack", "a count"))?,
         };
         let others_keep = params.get("othersKeep").and_then(Value::as_bool).unwrap_or(false);
-        let _one_at_a_time = self.reactions.lock().await;
+        let _one_at_a_time = self.reactions.acquire().await;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
             lanes: self.deps.lanes,
@@ -298,7 +298,7 @@ impl SessionHandle {
             path: "messages".into(),
             expected: "the room row messages".into(),
         })?;
-        let _one_at_a_time = self.reactions.lock().await;
+        let _one_at_a_time = self.reactions.acquire().await;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
             lanes: self.deps.lanes,
@@ -309,9 +309,21 @@ impl SessionHandle {
         if fresh.is_empty() {
             return Ok(Reply::Value(json!({ "added": 0 })));
         }
+        // Each row's facts read the prompt-attachment store: an io-lane job.
+        let store = self.deps.attachments.clone();
+        let read = self.deps.lanes.io.submit(&req.ctx.cancel, move |lane| {
+            fresh
+                .into_iter()
+                .map(|mut body| {
+                    let facts = store.facts(lane, &mut body);
+                    json!({ "body": body, "visible": facts.visible, "prompt": facts.prompt })
+                })
+                .collect::<Vec<Value>>()
+        })?;
+        let rows = read.await.map_err(|_| CoreError::Internal { incident_id: "session-room-facts-dropped".into() })?;
         let append = CoreRequest {
             method: mixdog_core_api::ids::Method("thread/roomRows/commit"),
-            params: json!({ "messages": fresh }),
+            params: json!({ "rows": rows }),
             op: None,
             ctx: req.ctx,
         };
@@ -350,17 +362,8 @@ impl SessionHandle {
     /// `thread/delete`: `deleteSession` (`true` once the session is gone, `false` when nothing
     /// was deleted), or with `ifIdle` the desktop's `deleteSessionIfIdle` (`{deleted, reason?}`).
     async fn delete(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
-        let params: mixdog_app_protocol::v2::thread::ThreadDeleteParams =
-            serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
-                path: "params".into(),
-                expected: "ThreadDeleteParams".into(),
-            })?;
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
-        let id = params.thread_id.as_str();
-        Ok(Reply::Value(match &params.if_idle {
-            Some(expected) => super::delete::delete_session_if_idle(&directory, id, expected).await?,
-            None => Value::Bool(super::delete::delete_session(&directory, id).await?),
-        }))
+        super::delete::serve(&directory, &req.params).await
     }
 
     /// `thread/fork`: a new thread whose history continues this one's acked lineage.

@@ -6,6 +6,7 @@
 //! serves an id only when THIS session's transcript names it; whether it does is the
 //! `SessionAttachments` the session domain answers.
 
+#[allow(clippy::disallowed_types, reason = "the open file a transfer source hands over")]
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -141,6 +142,7 @@ pub(crate) fn lane_failure(error: CoreError) -> WsError {
 }
 
 /// The bytes of attachment `digest`, checked, in a new temp file opened for reading.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs on the interactive-io lane job (lane proof argument)")]
 fn stage(store: &BlobStore, lane: &mixdog_rt::InLane<InteractiveIo>, digest: &BlobDigest, id: &str) -> WsResult<(File, PathBuf)> {
     let bytes = store.read(lane, digest).map_err(|error| match error {
         BlobError::Missing { .. } => refused(Reason::NotFound, "This attachment is no longer stored on the PC."),

@@ -42,6 +42,7 @@ mod ops;
 mod outbox;
 mod pending;
 pub mod prompt_history;
+pub mod quota_lane;
 pub(crate) mod run;
 mod seams;
 mod state;
@@ -145,7 +146,7 @@ pub struct SessionDeps {
     /// The cwd files under the data dir (`user-cwd.mjs`).
     pub user_cwd: UserCwd,
     /// The prompt-attachment store user text reads offloaded parts from.
-    pub attachments: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
+    pub attachments: user_facts::AttachmentStore,
     pub feeds: Arc<dyn FeedFactory>,
     pub server_requests: Arc<dyn ServerRequestSink>,
     pub approval_ids: Arc<dyn ApprovalIds>,
@@ -167,6 +168,8 @@ pub struct SessionDeps {
     pub todos: Arc<dyn mixdog_tools::state::todo::TodoStore>,
     pub work: Arc<dyn crate::run_host::guards::RunningWork>,
     pub cycles: Arc<crate::run_host::guards::UserCycles>,
+    /// The quota-resume queue a quota-failed turn queues its resume on.
+    pub quota: quota_lane::SessionQuota,
     pub lanes: SessionLanes,
     pub limits: SessionLimits,
 }

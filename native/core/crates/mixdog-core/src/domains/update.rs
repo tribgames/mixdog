@@ -203,6 +203,7 @@ struct Cache {
     last_checked_at: Value,
 }
 
+#[allow(clippy::disallowed_methods, reason = "body of an interactive-io lane job")]
 fn read_cache(dir: &std::path::Path) -> Option<Cache> {
     let Ok(Value::Object(raw)) = serde_json::from_slice(&std::fs::read(dir.join(CACHE_FILE)).ok()?)
     else {

@@ -916,6 +916,7 @@ impl ThreadDirectory for SessionDirectory {
                     resume_from: None,
                 }))
             }
+            "thread/delete" => super::delete::serve(&self.inner, &req.params).await,
             _ => Err(CoreError::InvalidParams {
                 path: "method".into(),
                 expected: "a session-directory method".into(),
