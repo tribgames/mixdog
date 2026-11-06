@@ -358,7 +358,7 @@ impl Shared {
                             for scope in store.scopes() {
                                 let Some(text) = store.load(&scope) else { continue };
                                 let Ok(JsonValue::Object(mut obj)) = serde_json::from_str::<JsonValue>(&text) else { continue };
-                                if obj.remove(&path).is_none() {
+                                if obj.shift_remove(&path).is_none() {
                                     continue;
                                 }
                                 if obj.is_empty() {
@@ -754,10 +754,10 @@ fn files_from_json(text: &str) -> Vec<(String, Snapshot)> {
     let mut out = Vec::new();
     for (path, entry) in obj {
         let JsonValue::Object(mut o) = entry else { continue };
-        let (Some(mtime_ms), Some(size)) = (o.remove("mtimeMs").and_then(|v| v.as_f64()), o.remove("size").and_then(|v| v.as_u64())) else {
+        let (Some(mtime_ms), Some(size)) = (o.shift_remove("mtimeMs").and_then(|v| v.as_f64()), o.shift_remove("size").and_then(|v| v.as_u64())) else {
             continue;
         };
-        let ranges = match o.remove("ranges") {
+        let ranges = match o.shift_remove("ranges") {
             Some(JsonValue::Array(rows)) => rows
                 .iter()
                 .filter_map(|r| {
@@ -774,15 +774,15 @@ fn files_from_json(text: &str) -> Vec<(String, Snapshot)> {
         let version = FileVersion {
             mtime_ms,
             size,
-            ctime_ms: o.remove("ctimeMs").and_then(|v| v.as_f64()),
-            ino: o.remove("ino").and_then(|v| v.as_f64()),
-            dev: o.remove("dev").and_then(|v| v.as_f64()),
+            ctime_ms: o.shift_remove("ctimeMs").and_then(|v| v.as_f64()),
+            ino: o.shift_remove("ino").and_then(|v| v.as_f64()),
+            dev: o.shift_remove("dev").and_then(|v| v.as_f64()),
         };
-        let source = o.remove("source").and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
-        let body_delivered = o.remove("bodyDelivered").and_then(|v| v.as_bool());
-        let content_hash = o.remove("contentHash").and_then(|v| v.as_str().map(str::to_owned));
-        let grep_only = o.remove("grepOnly").and_then(|v| v.as_bool()).unwrap_or(false);
-        let file_line_count = o.remove("fileLineCount").and_then(|v| v.as_u64());
+        let source = o.shift_remove("source").and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
+        let body_delivered = o.shift_remove("bodyDelivered").and_then(|v| v.as_bool());
+        let content_hash = o.shift_remove("contentHash").and_then(|v| v.as_str().map(str::to_owned));
+        let grep_only = o.shift_remove("grepOnly").and_then(|v| v.as_bool()).unwrap_or(false);
+        let file_line_count = o.shift_remove("fileLineCount").and_then(|v| v.as_u64());
         out.push((path, Snapshot { version, ranges, source, body_delivered, content_hash, grep_only, file_line_count, extra: o }));
     }
     out
@@ -1027,5 +1027,24 @@ mod tests {
         assert_eq!(left.len(), 1, "session b had only /x and its file is gone");
         assert_eq!(left[0].0, "a");
         assert!(!left[0].1.contains("\"/x\"") && left[0].1.contains("\"/y\""));
+    }
+
+    /// Node: `delete obj["/a"]` on `{"/a":…,"/b":…,"/c":…}` leaves `/b` before `/c`.
+    #[tokio::test]
+    async fn forgetting_a_path_keeps_the_survivors_in_their_persisted_order() {
+        let stored = r#"{"/a":{"mtimeMs":1,"size":1},"/b":{"mtimeMs":2,"size":2},"/c":{"mtimeMs":3,"size":3}}"#;
+        let disk = Arc::new(Memory(Mutex::new(vec![("a".to_owned(), stored.to_owned())])));
+        let state = persistent(disk.clone());
+        state.forget_path("/a");
+        state.settle().await;
+        let left = disk.0.lock().unwrap().clone();
+        assert_eq!(left, [("a".to_owned(), r#"{"/b":{"mtimeMs":2,"size":2},"/c":{"mtimeMs":3,"size":3}}"#.to_owned())]);
+    }
+
+    /// Node: deleting the known keys one by one from `{mtimeMs, x, y, size}` leaves `x` before `y`.
+    #[test]
+    fn the_unknown_keys_of_a_persisted_entry_stay_in_their_stored_order() {
+        let files = files_from_json(r#"{"/a":{"mtimeMs":1,"x":1,"y":2,"size":1}}"#);
+        assert_eq!(serde_json::to_string(&files[0].1.extra).unwrap(), r#"{"x":1,"y":2}"#);
     }
 }

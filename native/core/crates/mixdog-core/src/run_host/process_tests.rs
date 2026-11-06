@@ -28,6 +28,7 @@ use mixdog_store::schema::record::Header;
 use serde_json::{json, Map, Value};
 
 use super::accounting_scope::{accounting_deps, HeaderScope};
+use super::fixture_fs;
 use super::builder_env::{builder_env, client_identity, CatalogCaps, CatalogOpenAiFacts};
 use super::hop_bindings::HopBindings;
 use super::ladder_sources::ProcessLadder;
@@ -235,15 +236,15 @@ async fn an_installation_id_needs_a_valid_version_and_variant_and_a_damaged_file
         let dir = tempfile::tempdir().unwrap();
         let id = resolve_installation_id(&set(bad), &tokens, dir.path()).await;
         assert_ne!(id, bad, "{bad} is not a uuid");
-        assert_eq!(std::fs::read_to_string(dir.path().join("installation_id")).unwrap(), id);
+        assert_eq!(fixture_fs::read_to_string(dir.path().join("installation_id")).unwrap(), id);
     }
     // A file that holds a bad variant, nothing, or NULs is replaced by the generated id.
     for damaged in ["11111111-2222-4333-c444-555555555555", "", "\0\0\0\0"] {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("installation_id"), damaged).unwrap();
+        fixture_fs::write(dir.path().join("installation_id"), damaged);
         let id = resolve_installation_id(&TestEnv(HashMap::new()), &tokens, dir.path()).await;
         assert_ne!(id, damaged);
-        assert_eq!(std::fs::read_to_string(dir.path().join("installation_id")).unwrap(), id, "{damaged:?}");
+        assert_eq!(fixture_fs::read_to_string(dir.path().join("installation_id")).unwrap(), id, "{damaged:?}");
         assert_eq!(resolve_installation_id(&TestEnv(HashMap::new()), &tokens, dir.path()).await, id, "the repaired file is read back");
     }
 }
@@ -507,12 +508,11 @@ async fn a_manual_override_keeps_the_levels_discovery_found() {
 #[tokio::test]
 async fn a_rejection_the_file_holds_reaches_the_ladder() {
     let w = world(&[], json!({}), Vec::new()).await;
-    std::fs::create_dir_all(&w.services.plugin_data).unwrap();
-    std::fs::write(
+    fixture_fs::create_dir_all(&w.services.plugin_data);
+    fixture_fs::write(
         w.services.plugin_data.join("effort-rejections.json"),
         r#"{"version":1,"models":{"openai:gpt-5.5":{"rejected":["xhigh"],"allowed":["low","high"]},"x:y":{"rejected":[]}}}"#,
-    )
-    .unwrap();
+    );
     let store = FileRejections::new(&w.services.lanes, &w.services.plugin_data);
     let entry = store.entry("openai", "GPT-5.5 ").await.unwrap();
     assert_eq!((entry.rejected, entry.allowed), (vec!["xhigh".to_owned()], vec!["low".to_owned(), "high".to_owned()]));
@@ -526,15 +526,15 @@ async fn a_rejection_the_file_holds_reaches_the_ladder() {
 async fn a_file_another_process_changed_is_reloaded_on_the_next_read() {
     let w = world(&[], json!({}), Vec::new()).await;
     let file = w.services.plugin_data.join("effort-rejections.json");
-    std::fs::create_dir_all(&w.services.plugin_data).unwrap();
+    fixture_fs::create_dir_all(&w.services.plugin_data);
     let store = FileRejections::new(&w.services.lanes, &w.services.plugin_data);
     assert!(store.entry("openai", "gpt-5.5").await.is_none(), "no file holds nothing");
-    std::fs::write(&file, r#"{"version":1,"models":{"openai:gpt-5.5":{"rejected":["xhigh"]}}}"#).unwrap();
+    fixture_fs::write(&file, r#"{"version":1,"models":{"openai:gpt-5.5":{"rejected":["xhigh"]}}}"#);
     assert_eq!(store.entry("openai", "gpt-5.5").await.map(|e| e.rejected), Some(vec!["xhigh".to_owned()]));
-    std::fs::write(&file, r#"{"version":1,"models":{"openai:gpt-5.5":{"rejected":["xhigh","high"]},"x:y":{"rejected":["low"]}}}"#).unwrap();
+    fixture_fs::write(&file, r#"{"version":1,"models":{"openai:gpt-5.5":{"rejected":["xhigh","high"]},"x:y":{"rejected":["low"]}}}"#);
     assert_eq!(store.entry("openai", "gpt-5.5").await.map(|e| e.rejected), Some(vec!["xhigh".to_owned(), "high".to_owned()]));
     assert_eq!(store.entry("x", "y").await.map(|e| e.rejected), Some(vec!["low".to_owned()]));
-    std::fs::remove_file(&file).unwrap();
+    fixture_fs::remove_file(&file);
     assert!(store.entry("openai", "gpt-5.5").await.is_none(), "a removed file holds nothing");
 }
 

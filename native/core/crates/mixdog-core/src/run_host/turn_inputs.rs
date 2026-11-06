@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mixdog_ai::catalog::CatalogService;
-use mixdog_rt::{CancellationToken, InteractiveIo, LaneToken};
+use mixdog_core_config::config::is_store_bot;
+use mixdog_rt::{CancellationToken, InLane, InteractiveIo, LaneToken};
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value};
 
@@ -22,7 +23,6 @@ use mixdog_core_run::run_host::route_chain::BotRoutes;
 use super::settings::{OutputCeilingSource, OutputCeilings};
 
 const BOTS_DIR: &str = "bots";
-const MIGRATION_MANIFEST: &str = "migration.json";
 const MIXY_BOT_ID: &str = "mixy";
 /// Mixy's runtime id (`MIXY_AGENT_ID`).
 const MIXY_RUNTIME_ID: &str = "lead";
@@ -41,9 +41,9 @@ impl BotRouteStore {
     }
 
     /// One lane job; a lane that cannot run it answers as a store with nothing in it.
-    async fn on_lane<T: Send + 'static>(&self, read: impl FnOnce(&BotReads) -> T + Send + 'static) -> Option<T> {
+    async fn on_lane<T: Send + 'static>(&self, read: impl FnOnce(&BotReads, &InLane<InteractiveIo>) -> T + Send + 'static) -> Option<T> {
         let reads = self.reads.clone();
-        self.io.submit(&CancellationToken::new(), move |_lane| read(&reads)).ok()?.await.ok()
+        self.io.submit(&CancellationToken::new(), move |lane| read(&reads, lane)).ok()?.await.ok()
     }
 }
 
@@ -57,18 +57,6 @@ impl BotReads {
         self.data_dir.join(BOTS_DIR).join(id)
     }
 
-    /// `isStoreBot`.
-    fn is_store_bot(&self, id: &str) -> bool {
-        if self.data_dir.as_os_str().is_empty() || id.is_empty() || id == MIXY_BOT_ID || id.starts_with('.') {
-            return false;
-        }
-        let Some(manifest) = read_object(&self.data_dir.join(BOTS_DIR).join(MIGRATION_MANIFEST)) else { return false };
-        if manifest.get("version").and_then(Value::as_i64) != Some(1) {
-            return false;
-        }
-        self.bot_dir(id).exists() || manifest.get("bots").and_then(Value::as_array).is_some_and(|bots| bots.iter().any(|b| b.as_str() == Some(id)))
-    }
-
     /// The route in a bot folder's `agent.json` when it is complete.
     fn route_in(&self, bot: &str) -> Option<Value> {
         read_object(&self.bot_dir(bot).join("agent.json"))?.get("route").filter(|r| is_complete(r)).cloned()
@@ -76,15 +64,15 @@ impl BotReads {
 }
 
 impl BotReads {
-    fn bot_route(&self, agent_id: &str) -> Option<Option<Value>> {
-        self.is_store_bot(agent_id).then(|| self.route_in(agent_id))
+    fn bot_route(&self, lane: &InLane<InteractiveIo>, agent_id: &str) -> Option<Option<Value>> {
+        is_store_bot(lane, &self.data_dir, agent_id).then(|| self.route_in(agent_id))
     }
 
-    fn stored_bot_route(&self, agent_id: &str) -> Option<Value> {
+    fn stored_bot_route(&self, lane: &InLane<InteractiveIo>, agent_id: &str) -> Option<Value> {
         if self.data_dir.as_os_str().is_empty() {
             return None;
         }
-        if agent_id == MIXY_RUNTIME_ID { self.route_in(MIXY_BOT_ID) } else { self.bot_route(agent_id).flatten() }
+        if agent_id == MIXY_RUNTIME_ID { self.route_in(MIXY_BOT_ID) } else { self.bot_route(lane, agent_id).flatten() }
     }
 }
 
@@ -93,13 +81,13 @@ impl BotRoutes for BotRouteStore {
     /// `readBotRoute`: `None` when `agent_id` is no store bot, `Some(None)` for a bot without a route.
     async fn bot_route(&self, agent_id: &str) -> Option<Option<Value>> {
         let id = agent_id.to_owned();
-        self.on_lane(move |reads| reads.bot_route(&id)).await.flatten()
+        self.on_lane(move |reads, lane| reads.bot_route(lane, &id)).await.flatten()
     }
 
     /// `storedBotRoute`: Mixy (runtime id `lead`) reads `bots/mixy`.
     async fn stored_bot_route(&self, agent_id: &str) -> Option<Value> {
         let id = agent_id.to_owned();
-        self.on_lane(move |reads| reads.stored_bot_route(&id)).await.flatten()
+        self.on_lane(move |reads, lane| reads.stored_bot_route(lane, &id)).await.flatten()
     }
 }
 
@@ -186,8 +174,7 @@ mod tests {
     use super::*;
 
     fn write(path: PathBuf, body: &str) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, body).unwrap();
+        crate::run_host::fixture_fs::write(path, body);
     }
 
     fn io() -> InteractiveIo {

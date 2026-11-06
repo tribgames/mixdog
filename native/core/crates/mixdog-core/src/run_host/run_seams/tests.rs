@@ -31,7 +31,7 @@ async fn seams(stored: Option<Value>, env: HashMap<String, String>) -> (tempfile
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mixdog-config.json");
     if let Some(stored) = stored {
-        std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        crate::run_host::fixture_fs::write(&path, serde_json::to_vec(&stored).unwrap());
     }
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };

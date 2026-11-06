@@ -105,12 +105,19 @@ mod tests {
     fn only_scopes_older_than_thirty_days_are_swept() {
         let dir = tempfile::tempdir().unwrap();
         let store = FileSnapshotPersist::new(dir.path());
-        store.save("old", Some("{}"));
         store.save("new", Some("{}"));
-        let old = std::fs::File::options().write(true).open(dir.path().join("read-snapshots").join("old.json")).unwrap();
+        // The old scope's file is made through the temp file's handle, which carries the mtime.
+        let (old, path) = tempfile::Builder::new()
+            .prefix("old-")
+            .suffix(".json")
+            .tempfile_in(dir.path().join("read-snapshots"))
+            .unwrap()
+            .keep()
+            .unwrap();
         old.set_modified(SystemTime::now() - Duration::from_secs(31 * 24 * 60 * 60)).unwrap();
+        let old = path.file_stem().unwrap().to_str().unwrap().to_owned();
         store.sweep_stale(SystemTime::now());
-        assert_eq!(store.load("old"), None);
+        assert_eq!(store.load(&old), None);
         assert!(store.load("new").is_some());
     }
 }

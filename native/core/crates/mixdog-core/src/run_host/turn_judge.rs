@@ -69,8 +69,8 @@ mod tests {
     #[tokio::test]
     async fn a_model_that_fails_to_load_skips_with_the_load_error_and_is_not_retried_inside_the_back_off() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("model.onnx"), b"not a model").unwrap();
-        std::fs::write(dir.path().join("tokenizer.json"), b"{}").unwrap();
+        crate::run_host::fixture_fs::write(dir.path().join("model.onnx"), b"not a model");
+        crate::run_host::fixture_fs::write(dir.path().join("tokenizer.json"), b"{}");
         let judge = judge_over(dir.path(), JudgeTiming::from_env(&|_| None));
         let JudgeAnswer::Skipped(first) = judge.judge(request()).await else { panic!("a broken model cannot answer") };
         assert!(first.starts_with("load-error: "), "{first}");

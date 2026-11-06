@@ -108,7 +108,17 @@ async fn a_closing_session_is_ingested_by_the_memory_module() {
 async fn the_thread_store_opens_over_a_fresh_data_dir() {
     let data = tempfile::tempdir().expect("data dir");
     let _store = super::tests::real_store(data.path()).await;
-    assert!(data.path().join("sessions").is_dir());
+    use mixdog_rt::LaneToken;
+    let tokens = mixdog_rt::testing::tokens();
+    let sessions = data.path().join("sessions");
+    let meta = tokens
+        .interactive_io
+        .submit(&tokio_util::sync::CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &sessions))
+        .expect("lane has room")
+        .await
+        .expect("job ran")
+        .expect("sessions exists");
+    assert!(meta.is_dir());
 }
 
 struct NoTurns;

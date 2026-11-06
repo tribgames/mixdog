@@ -26,6 +26,21 @@ apps/relay/deploy/coturn/* text eol=lf
 # Covers every run folder records/<harness>/<model>/<date>/, including new harnesses.
 benchmarks/terminal-bench-2.1/records/*/*/*/** -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol conflict-marker-size=1024
 
+# Rust core: sources, fixtures and goldens are compared byte-for-byte by tests and
+# by benchmarks/rust-core/recorders/verify-manifests.mjs (sha256 per file), so they
+# must check out as LF on every platform. text=auto keeps binary fixtures untouched.
+native/core/** text=auto eol=lf
+
+# Recorded evidence hashed by a fixture MANIFEST in the exact bytes it was recorded
+# with (CRLF / mixed line endings): keep verbatim, no end-of-line conversion.
+native/core/fixtures/agent/compact/record.mjs -text
+native/core/fixtures/agent/record-compact-marker.mjs -text
+native/core/fixtures/providers/oracles/openai-codex-metadata-golden.json -text
+native/core/fixtures/providers/oracles/openai-models-golden.json -text
+native/core/fixtures/providers/oracles/openai-retry-policy-golden.json -text
+native/core/fixtures/providers/oracles/openai-transport-switch-golden.json -text
+native/core/fixtures/providers/oracles/openai-ws-delta-golden.json -text
+
 # Binary
 *.png binary
 *.jpg binary
