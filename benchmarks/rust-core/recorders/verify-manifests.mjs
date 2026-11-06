@@ -4,7 +4,7 @@
 // missing or unlisted file. `--write-index` refreshes the index only.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { FIXTURES_ROOT, parseArgs, resolveTree, sha256, walkFiles, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, parseArgs, resolveTree, sha256, walkFiles, writeCanonicalJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
 // A set is every top-level directory under the fixtures root, except `migration`, whose children are the sets
@@ -63,6 +63,6 @@ for (const set of SETS) {
   }
   index.push({ set, manifest: `${set}/MANIFEST.json`, manifestSha256: sha256(readFileSync(manifestPath)), recorder: manifest.recorder, command: manifest.command, fileCount: manifest.fileCount, totalBytes: manifest.totalBytes, productSrcTree: manifest.product.srcTree });
 }
-if (!bad) writeJson(join(FIXTURES_ROOT, 'MANIFEST.json'), { note: 'Index of P0-BENCH fixture sets. Verify with benchmarks/rust-core/recorders/verify-manifests.mjs.', sets: index });
+if (!bad) writeCanonicalJson(join(FIXTURES_ROOT, 'MANIFEST.json'), { note: 'Index of P0-BENCH fixture sets. Verify with benchmarks/rust-core/recorders/verify-manifests.mjs.', sets: index });
 console.log(bad ? `FAILED: ${bad} problem(s)` : `OK: ${index.length} sets, ${index.reduce((s, x) => s + x.fileCount, 0)} files`);
 process.exit(bad ? 1 : 0);

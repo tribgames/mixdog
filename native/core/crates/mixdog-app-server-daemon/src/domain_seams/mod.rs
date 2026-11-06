@@ -23,7 +23,8 @@ pub(crate) fn golden() -> serde_json::Value {
 #[cfg(test)]
 pub(crate) fn portable(value: &serde_json::Value, root: &std::path::Path) -> serde_json::Value {
     use serde_json::Value;
-    let swap = |text: &str| text.replace(root.to_string_lossy().as_ref(), "<root>").replace('\\', "/");
+    let shown = root.to_string_lossy();
+    let swap = |text: &str| text.replace(shown.as_ref(), "<root>").replace(shown.replace('\\', "/").as_str(), "<root>").replace('\\', "/");
     match value {
         Value::String(text) => Value::String(swap(text)),
         Value::Array(items) => Value::Array(items.iter().map(|item| portable(item, root)).collect()),

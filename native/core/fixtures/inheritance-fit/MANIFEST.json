@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 360488,
+      "bytes": 283094,
       "path": "golden.json",
-      "sha256": "b6b01257f544c26a774d3cf48e27931ab88230eba0b789fb5d55a6eb96cb0bb0"
+      "sha256": "f4c34b1ee59a841983c3e320f2548e46db6fde03cbb625cf6dbf4758946ba2c9"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-inheritance-fit.mjs",
   "set": "inheritance-fit",
-  "totalBytes": 360488
+  "totalBytes": 283094
 }

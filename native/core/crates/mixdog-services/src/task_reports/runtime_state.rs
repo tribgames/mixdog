@@ -144,7 +144,8 @@ mod tests {
     fn entry_of(spec: &Value) -> RuntimeEntry {
         RuntimeEntry {
             closed: spec.get("closed") == Some(&Value::Bool(true)),
-            controller_live: spec.get("controller").is_some_and(|c| c.pointer("/signal/aborted") == Some(&Value::Bool(false))),
+            // The recorded spec names the controller `"live"` or `"aborted"`; Node builds `{ signal: { aborted } }` from it.
+            controller_live: spec.get("controller").and_then(Value::as_str) == Some("live"),
             stage: spec.get("stage").and_then(Value::as_str).map(str::to_owned),
             session: spec.get("session").cloned().unwrap_or(Value::Null),
         }
@@ -199,12 +200,12 @@ mod tests {
         drop(second);
         assert_eq!(answer(&live.in_flight_session_activity()), expect(2));
         // A run that fails still ends its count: the guard drops on the way out.
-        let failed: Result<(), &str> = (|| {
+        let run = |live: &Arc<RuntimeLiveness>| -> Result<(), &str> {
             let _turn = live.dispatched("t");
             assert_eq!(answer(&live.in_flight_session_activity()), expect(3));
             Err("boom")
-        })();
-        assert_eq!(failed, Err("boom"));
+        };
+        assert_eq!(run(&live), Err("boom"));
         assert_eq!(answer(&live.in_flight_session_activity()), expect(4));
     }
 

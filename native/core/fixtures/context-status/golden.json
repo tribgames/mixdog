@@ -6,18 +6,21 @@
       "breakdown": {},
       "cwd": "",
       "header": null,
+      "headerText": "null",
       "messages": [],
       "mode": "default",
       "name": "no session",
       "nativePrefix": 0,
       "requestTools": [],
+      "requestToolsText": "[]",
       "route": {
         "contextWindow": null,
         "model": "",
         "provider": ""
       },
       "status": null,
-      "tools": []
+      "tools": [],
+      "toolsText": "[]"
     },
     {
       "active": false,
@@ -40,6 +43,7 @@
         "model": "gpt-test",
         "provider": "openai"
       },
+      "headerText": "{\"id\":\"s_ctx\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\"}",
       "messages": [],
       "mode": "default",
       "name": "empty conversation",
@@ -81,6 +85,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -246,7 +251,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": false,
@@ -279,6 +285,7 @@
         "totalOutputTokens": 300,
         "totalUncachedInputTokens": 2000
       },
+      "headerText": "{\"id\":\"s_ctx\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\",\"lastInputTokens\":900,\"lastUncachedInputTokens\":400,\"lastOutputTokens\":60,\"lastCachedReadTokens\":500,\"lastCacheWriteTokens\":10,\"totalInputTokens\":5000,\"totalUncachedInputTokens\":2000,\"totalOutputTokens\":300,\"totalCachedReadTokens\":3000,\"totalCacheWriteTokens\":40}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -325,6 +332,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -490,7 +498,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": true,
@@ -513,6 +522,7 @@
         "model": "gpt-test",
         "provider": "openai"
       },
+      "headerText": "{\"id\":\"s_ctx\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\"}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -593,6 +603,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -769,7 +780,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": true,
@@ -804,6 +816,7 @@
         "totalOutputTokens": 300,
         "totalUncachedInputTokens": 2000
       },
+      "headerText": "{\"id\":\"s_ctx\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\",\"lastContextTokens\":1200,\"lastContextTokensUpdatedAt\":1799999995000,\"lastInputTokens\":900,\"lastUncachedInputTokens\":400,\"lastOutputTokens\":60,\"lastCachedReadTokens\":500,\"lastCacheWriteTokens\":10,\"totalInputTokens\":5000,\"totalUncachedInputTokens\":2000,\"totalOutputTokens\":300,\"totalCachedReadTokens\":3000,\"totalCacheWriteTokens\":40}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -884,6 +897,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -1060,7 +1074,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": true,
@@ -1100,6 +1115,7 @@
         "totalOutputTokens": 300,
         "totalUncachedInputTokens": 2000
       },
+      "headerText": "{\"id\":\"s_ctx\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\",\"lastContextTokens\":1200,\"lastContextTokensUpdatedAt\":1799999995000,\"compactBoundaryTokens\":60000,\"compaction\":{\"boundaryTokens\":60000,\"lastCompactAt\":1799999910000},\"lastInputTokens\":900,\"lastUncachedInputTokens\":400,\"lastOutputTokens\":60,\"lastCachedReadTokens\":500,\"lastCacheWriteTokens\":10,\"totalInputTokens\":5000,\"totalUncachedInputTokens\":2000,\"totalOutputTokens\":300,\"totalCachedReadTokens\":3000,\"totalCacheWriteTokens\":40}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -1180,6 +1196,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -1357,7 +1374,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": true,
@@ -1397,6 +1415,7 @@
         "totalOutputTokens": 300,
         "totalUncachedInputTokens": 2000
       },
+      "headerText": "{\"id\":\"s_ctx\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\",\"lastContextTokens\":1200,\"lastContextTokensUpdatedAt\":1799999900000,\"lastContextTokensStaleAfterCompact\":true,\"compaction\":{\"boundaryTokens\":60000,\"lastCompactAt\":1799999910000},\"lastInputTokens\":900,\"lastUncachedInputTokens\":400,\"lastOutputTokens\":60,\"lastCachedReadTokens\":500,\"lastCacheWriteTokens\":10,\"totalInputTokens\":5000,\"totalUncachedInputTokens\":2000,\"totalOutputTokens\":300,\"totalCachedReadTokens\":3000,\"totalCacheWriteTokens\":40}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -1477,6 +1496,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -1654,7 +1674,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": true,
@@ -1702,6 +1723,7 @@
         "totalOutputTokens": 300,
         "totalUncachedInputTokens": 2000
       },
+      "headerText": "{\"id\":\"s_base\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\",\"lastInputTokens\":900,\"lastUncachedInputTokens\":400,\"lastOutputTokens\":60,\"lastCachedReadTokens\":500,\"lastCacheWriteTokens\":10,\"totalInputTokens\":5000,\"totalUncachedInputTokens\":2000,\"totalOutputTokens\":300,\"totalCachedReadTokens\":3000,\"totalCacheWriteTokens\":40,\"lastContextTokens\":1200,\"lastContextTokensUpdatedAt\":1799999995000,\"contextPressureBaselineTokens\":1200,\"contextPressureBaselineOutputTokens\":100,\"contextPressureBaselineMessageCount\":7,\"contextPressureBaselinePrefixSignature\":\"2d77d37c073dec894afb84d2d34c323c611b7958210ab07d57bbdf94575a882d\",\"contextPressureBaselineShapeSignature\":\"6af84ebf76f7d7ad7d56dcd493156d17281ca5b927a7b8a6f8cf09ed840beaf7\",\"contextPressureBaselineProvider\":\"openai\",\"contextPressureBaselineModel\":\"gpt-test\",\"contextPressureBaselineToolSignature\":\"1312f8f294e87737e3713910788748e829893279f608c916459db8b790beb024\",\"contextPressureBaselineRequestReserveTokens\":161,\"contextPressureBaselineBoundary\":\"complete\",\"contextPressureBaselineUpdatedAt\":1800000000000,\"lastContextTokensStaleAfterCompact\":false,\"contextPressureBaselineSource\":\"provider\"}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -1782,6 +1804,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -1958,7 +1981,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": true,
@@ -2006,6 +2030,7 @@
         "totalOutputTokens": 300,
         "totalUncachedInputTokens": 2000
       },
+      "headerText": "{\"id\":\"s_base\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\",\"lastInputTokens\":900,\"lastUncachedInputTokens\":400,\"lastOutputTokens\":60,\"lastCachedReadTokens\":500,\"lastCacheWriteTokens\":10,\"totalInputTokens\":5000,\"totalUncachedInputTokens\":2000,\"totalOutputTokens\":300,\"totalCachedReadTokens\":3000,\"totalCacheWriteTokens\":40,\"lastContextTokens\":1200,\"lastContextTokensUpdatedAt\":1799999995000,\"contextPressureBaselineTokens\":1200,\"contextPressureBaselineOutputTokens\":100,\"contextPressureBaselineMessageCount\":7,\"contextPressureBaselinePrefixSignature\":\"2d77d37c073dec894afb84d2d34c323c611b7958210ab07d57bbdf94575a882d\",\"contextPressureBaselineShapeSignature\":\"6af84ebf76f7d7ad7d56dcd493156d17281ca5b927a7b8a6f8cf09ed840beaf7\",\"contextPressureBaselineProvider\":\"openai\",\"contextPressureBaselineModel\":\"gpt-test\",\"contextPressureBaselineToolSignature\":\"1312f8f294e87737e3713910788748e829893279f608c916459db8b790beb024\",\"contextPressureBaselineRequestReserveTokens\":161,\"contextPressureBaselineBoundary\":\"complete\",\"contextPressureBaselineUpdatedAt\":1800000000000,\"lastContextTokensStaleAfterCompact\":false,\"contextPressureBaselineSource\":\"provider\"}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -2090,6 +2115,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -2266,7 +2292,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": true,
@@ -2324,6 +2351,7 @@
         "totalOutputTokens": 300,
         "totalUncachedInputTokens": 2000
       },
+      "headerText": "{\"id\":\"s_snap\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\",\"lastInputTokens\":900,\"lastUncachedInputTokens\":400,\"lastOutputTokens\":60,\"lastCachedReadTokens\":500,\"lastCacheWriteTokens\":10,\"totalInputTokens\":5000,\"totalUncachedInputTokens\":2000,\"totalOutputTokens\":300,\"totalCachedReadTokens\":3000,\"totalCacheWriteTokens\":40,\"lastContextTokens\":0,\"compaction\":{\"boundaryTokens\":60000,\"lastCompactAt\":1799999910000},\"contextUsageSnapshot\":{\"version\":1,\"source\":\"post_compact\",\"usedTokens\":777,\"limitTokens\":60000,\"messageTokensEst\":0,\"messageCount\":7,\"messagesSignature\":\"2d77d37c073dec894afb84d2d34c323c611b7958210ab07d57bbdf94575a882d\",\"tailRole\":\"user\",\"tailId\":\"\",\"usageMetricsTurnId\":\"\",\"usageMetricsEpoch\":0,\"toolSchemaSignature\":\"1312f8f294e87737e3713910788748e829893279f608c916459db8b790beb024\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"boundaryTokens\":60000,\"triggerTokens\":60000,\"updatedAt\":1799999999000}}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -2404,6 +2432,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -2581,7 +2610,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": true,
@@ -2608,6 +2638,7 @@
           "reasoningTokensComplete": true
         }
       },
+      "headerText": "{\"id\":\"s_ctx\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\",\"reasoningUsage\":{\"reasoningTokens\":17,\"reasoningTokensComplete\":true}}",
       "messages": [
         {
           "content": "Think about it.",
@@ -2669,6 +2700,7 @@
           "name": "tool_search"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -2848,7 +2880,240 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
+    },
+    {
+      "active": false,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_empty_tools",
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "headerText": "{\"id\":\"s_empty_tools\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\"}",
+      "messages": [],
+      "mode": "default",
+      "name": "empty conversation with tools",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": 100000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 0,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 0,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 100000,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 0,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 0,
+          "estimatedTokens": 0,
+          "roles": {
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "user": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "chat": {
+              "count": 0,
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "otherTokens": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "workflow": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 0,
+          "toolSchemaBreakdown": {},
+          "toolSchemaTokens": 0
+        },
+        "sessionId": "s_empty_tools",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastContextTokens": 0,
+          "lastInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "usageReadout": null
+        },
+        "usedSource": "empty",
+        "usedTokens": 0
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     },
     {
       "active": true,
@@ -2858,6 +3123,7 @@
       "header": {
         "id": "s_route"
       },
+      "headerText": "{\"id\":\"s_route\"}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -2902,6 +3168,7 @@
       "name": "window from the route only",
       "nativePrefix": 0,
       "requestTools": [],
+      "requestToolsText": "[]",
       "route": {
         "contextWindow": null,
         "model": "",
@@ -3033,7 +3300,8 @@
         "usedSource": "estimated",
         "usedTokens": 134
       },
-      "tools": []
+      "tools": [],
+      "toolsText": "[]"
     },
     {
       "active": true,
@@ -3056,6 +3324,7 @@
         "model": "gpt-test",
         "provider": "openai"
       },
+      "headerText": "{\"id\":\"s_bare\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\"}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -3120,6 +3389,7 @@
           "name": "bare"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"bare\",\"description\":\"No schema\"}]",
       "route": {
         "contextWindow": 100000,
         "model": "gpt-test",
@@ -3295,7 +3565,8 @@
           },
           "name": "read"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"bare\",\"description\":\"No schema\"},{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}]"
     },
     {
       "active": true,
@@ -3387,6 +3658,7 @@
         "model": "claude-test",
         "provider": "anthropic"
       },
+      "headerText": "{\"id\":\"s_defer\",\"provider\":\"anthropic\",\"model\":\"claude-test\",\"contextWindow\":100000,\"cwd\":\"C:/w\",\"deferredNativeTools\":true,\"deferredMcpToolNames\":[\"mcp__ok__found\"],\"deferredDiscoveredTools\":[\"web_search\",\"mcp__ok__found\",\"mcp__no__hidden\"],\"deferredToolCatalog\":[{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"q\":{\"type\":\"string\"}}}},{\"name\":\"recall\",\"description\":\"Recall memory\",\"inputSchema\":{\"type\":\"object\"}},{\"name\":\"mcp__ok__found\",\"description\":\"Listed MCP tool\",\"inputSchema\":{\"type\":\"object\"}},{\"name\":\"mcp__no__hidden\",\"description\":\"Unlisted MCP tool\",\"inputSchema\":{\"type\":\"object\"}}],\"deferredLateToolCatalog\":[{\"name\":\"late_tool\",\"description\":\"Late\",\"inputSchema\":{\"type\":\"object\"}}]}",
       "messages": [
         {
           "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
@@ -3527,6 +3799,7 @@
           "name": "late_tool"
         }
       ],
+      "requestToolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true},{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"q\":{\"type\":\"string\"}}},\"deferLoading\":true},{\"name\":\"recall\",\"description\":\"Recall memory\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true},{\"name\":\"mcp__ok__found\",\"description\":\"Listed MCP tool\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true},{\"name\":\"late_tool\",\"description\":\"Late\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]",
       "route": {
         "contextWindow": 100000,
         "model": "claude-test",
@@ -3719,7 +3992,8 @@
           },
           "name": "tool_search"
         }
-      ]
+      ],
+      "toolsText": "[{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},{\"name\":\"grep\",\"description\":\"Search files\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}}}},{\"name\":\"tool_search\",\"description\":\"Find deferred tools\",\"inputSchema\":{\"type\":\"object\"},\"deferLoading\":true}]"
     }
   ],
   "note": "contextStatusForSession over crafted sessions at a fixed clock; request tools, breakdown, mode and history flag from the same Node functions",

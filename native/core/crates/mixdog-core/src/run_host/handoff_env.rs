@@ -7,8 +7,8 @@
 //!   grant (`human-gate/gate.mjs`): one audit line for the agent the session acts for.
 //! - `computer_bind` / `computer_input`: the Computer Use secret bind and fill, which the desktop
 //!   served over the computer bridge (`computer-bridge/client.mjs` `computerSecretBind`,
-//!   `computerSecretInput`); the value is the one `approval/provideSecret` put in the shared
-//!   [`SecretRequests`].
+//!   `computerSecretInput`); the value is the one `approval/provideSecret` put in the one secret
+//!   store, [`SecretFill`]'s slots, and the fill is that store's.
 
 use std::sync::Arc;
 
@@ -18,14 +18,12 @@ use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::rooms::ids::room_member_of_session;
 use mixdog_core_session::session::SessionDirectory;
+use mixdog_core_session::session::secret_input::SecretFill;
 use mixdog_tools::policy::AuditEntry;
 use mixdog_tools::policy::GrantStore;
 use mixdog_tools::state::handoff::GateRecord;
 use mixdog_tools::state::handoff::HandoffEnv;
-use mixdog_tools::state::secrets::ComputerBinding;
 use mixdog_tools::state::secrets::ComputerSecretHost;
-use mixdog_tools::state::secrets::SecretRequests;
-use mixdog_tools::state::secrets::type_computer_secret;
 
 use super::mcp_seams::UnattendedRuns;
 use super::unattended::UnattendedRunRegistry;
@@ -50,7 +48,7 @@ pub trait ComputerHosts: Send + Sync {
 pub struct SessionHandoffEnv {
     runs: Arc<UnattendedRunRegistry>,
     store: Arc<dyn GrantStore>,
-    secrets: Arc<SecretRequests>,
+    fill: Arc<SecretFill>,
     computers: Arc<dyn ComputerHosts>,
     aborts: Arc<dyn TurnAborts>,
 }
@@ -59,11 +57,11 @@ impl SessionHandoffEnv {
     pub fn new(
         runs: Arc<UnattendedRunRegistry>,
         store: Arc<dyn GrantStore>,
-        secrets: Arc<SecretRequests>,
+        fill: Arc<SecretFill>,
         computers: Arc<dyn ComputerHosts>,
         aborts: Arc<dyn TurnAborts>,
     ) -> Self {
-        Self { runs, store, secrets, computers, aborts }
+        Self { runs, store, fill, computers, aborts }
     }
 
     /// `agentIdForSession`: the unattended run's owner, a room member, a home thread's agent,
@@ -108,16 +106,14 @@ impl HandoffEnv for SessionHandoffEnv {
         if thread.as_str().is_empty() || request_id.is_empty() || self.computers.secret_host(thread).is_none() {
             return "blocked".to_owned();
         }
-        let binding = ComputerBinding { session: thread.as_str().to_owned(), window_id: window_id.to_owned(), reference: reference.to_owned() };
-        if self.secrets.bind_computer(request_id, binding) { "bound" } else { "no_field" }.to_owned()
+        self.fill.computer_bind(thread, request_id, window_id, reference)
     }
 
     async fn computer_input(&self, thread: &ThreadId, request_id: &str, window_id: &str, reference: &str) -> String {
-        if thread.as_str().is_empty() || request_id.is_empty() {
+        if thread.as_str().is_empty() || request_id.is_empty() || self.computers.secret_host(thread).is_none() {
             return "blocked".to_owned();
         }
-        let Some(host) = self.computers.secret_host(thread) else { return "blocked".to_owned() };
-        type_computer_secret(&self.secrets, &*host, thread.as_str(), request_id, reference, window_id).await.to_owned()
+        self.fill.computer_input(thread, request_id, window_id, reference).await
     }
 }
 
@@ -126,7 +122,14 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Mutex;
 
+    use mixdog_core_base::support::testing::request;
+    use mixdog_core_base::support::testing::value;
     use mixdog_core_ports::ports::run_stamps::RunStamps;
+    use mixdog_core_session::session::secret_input::ComputerCommands;
+    use mixdog_core_session::session::secret_input::FillGates;
+    use mixdog_core_session::session::secret_input::SECRET_INPUT_TIMEOUT;
+    use mixdog_core_session::session::secret_input::SecretInputService;
+    use mixdog_core_session::session::secret_input::SecretSlots;
     use mixdog_tools::policy::MemoryGrantStore;
     use mixdog_tools::policy::RunKind;
     use serde_json::Map;
@@ -175,11 +178,38 @@ mod tests {
         }
     }
 
+    /// The fill's commands, onto the session's helper: what the production adapter does.
+    struct HelperCommands(Arc<Helper>);
+    #[async_trait]
+    impl ComputerCommands for HelperCommands {
+        async fn execute(&self, _: &ThreadId, command: Value) -> Result<Value, String> {
+            let Value::Object(command) = command else { return Err("not an object".to_owned()) };
+            self.0.execute(command).await.map(Value::Object)
+        }
+    }
+
+    /// No takeover or human-only approval is pending.
+    struct NothingHeld;
+    impl FillGates for NothingHeld {
+        fn browser_free(&self, _: &ThreadId) -> bool {
+            true
+        }
+        fn computer_free(&self) -> bool {
+            true
+        }
+    }
+
+    /// The one place that builds the fill.
+    fn fill_over(slots: &Arc<SecretSlots>, helper: &Arc<Helper>) -> Arc<SecretFill> {
+        Arc::new(SecretFill::new(slots.clone(), Arc::new(NothingHeld), Arc::new(HelperCommands(helper.clone()))))
+    }
+
     struct Rig {
         env: SessionHandoffEnv,
         runs: Arc<UnattendedRunRegistry>,
         store: Arc<MemoryGrantStore>,
-        secrets: Arc<SecretRequests>,
+        slots: Arc<SecretSlots>,
+        fill: Arc<SecretFill>,
         aborts: Arc<Aborts>,
         helper: Arc<Helper>,
     }
@@ -187,12 +217,13 @@ mod tests {
     fn rig() -> Rig {
         let runs = UnattendedRunRegistry::new(Arc::new(NoStamps));
         let store = Arc::new(MemoryGrantStore::default());
-        let secrets = Arc::new(SecretRequests::new());
+        let slots = Arc::new(SecretSlots::new(SECRET_INPUT_TIMEOUT));
         let aborts = Arc::new(Aborts::default());
         let helper = Arc::new(Helper::default());
+        let fill = fill_over(&slots, &helper);
         let computers = Arc::new(Computers(HashMap::from([("sess_pc".to_owned(), helper.clone())])));
-        let env = SessionHandoffEnv::new(runs.clone(), store.clone(), secrets.clone(), computers, aborts.clone());
-        Rig { env, runs, store, secrets, aborts, helper }
+        let env = SessionHandoffEnv::new(runs.clone(), store.clone(), fill.clone(), computers, aborts.clone());
+        Rig { env, runs, store, slots, fill, aborts, helper }
     }
 
     fn thread(id: &str) -> ThreadId {
@@ -272,15 +303,32 @@ mod tests {
         assert_eq!(rig.env.computer_bind(&pc, "not-a-request", "w1", "e1").await, "no_field");
         assert_eq!(rig.env.computer_bind(&pc, "secret_abcdefgh", "w1", "e1").await, "bound");
         // The card's value arrives through `approval/provideSecret`.
-        assert!(rig.secrets.provide("secret_abcdefgh", "pw"));
+        assert!(rig.slots.provide("secret_abcdefgh", "pw"));
         assert_eq!(rig.env.computer_input(&thread("sess_none"), "secret_abcdefgh", "w1", "e1").await, "blocked");
         assert_eq!(rig.env.computer_input(&pc, "secret_abcdefgh", "w2", "e1").await, "page_changed");
         assert_eq!(rig.env.computer_input(&pc, "secret_abcdefgh", "w1", "e1").await, "expired", "a refused fill dropped the value");
         assert!(rig.helper.0.lock().unwrap().is_empty());
         assert_eq!(rig.env.computer_bind(&pc, "secret_abcdefgh", "w1", "e1").await, "bound");
-        assert!(rig.secrets.provide("secret_abcdefgh", "pw"));
+        assert!(rig.slots.provide("secret_abcdefgh", "pw"));
         assert_eq!(rig.env.computer_input(&pc, "secret_abcdefgh", "w1", "e1").await, "entered");
         assert_eq!(rig.helper.0.lock().unwrap().len(), 2, "the write and the read-back of a two-character value");
-        assert_eq!(rig.secrets.redact("sess_pc", "the pw"), "the [redacted]");
+        assert_eq!(rig.fill.redact(&pc, "the pw"), "the [redacted]");
+    }
+
+    /// The value the card hands `approval/provideSecret` is the one the bound field is typed with:
+    /// one store, no copy between the request and the fill.
+    #[tokio::test]
+    async fn a_value_provided_through_provide_secret_is_the_one_computer_input_types() {
+        let rig = rig();
+        let pc = thread("sess_pc");
+        let provide = SecretInputService::new(rig.slots.clone());
+        assert_eq!(rig.env.computer_bind(&pc, "secret_abcdefgh", "w1", "e1").await, "bound");
+        let params = json!({ "opId": "x", "requestId": "secret_abcdefgh", "secret": "pw" });
+        assert_eq!(value(&provide, request("approval/provideSecret", params, Some(1))).await.unwrap(), json!({}));
+        assert_eq!(rig.env.computer_input(&pc, "secret_abcdefgh", "w1", "e1").await, "entered");
+        let sent = rig.helper.0.lock().unwrap().clone();
+        assert_eq!(sent[0], json!({ "action": "type", "text": "pw", "session_id": "sess_pc", "ref": "e1", "window_id": "w1" }));
+        assert!(!rig.slots.has("secret_abcdefgh"), "the value is taken once");
+        assert_eq!(rig.fill.redact(&pc, "the pw"), "the [redacted]");
     }
 }

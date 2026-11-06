@@ -77,19 +77,34 @@ impl DaemonDoctorHost {
     pub fn new(inputs: DoctorInputs) -> Arc<Self> {
         Arc::new(Self { inputs })
     }
-
-    /// `readPackageJson()?.engines?.node`: `None` when the file is unreadable or not an object.
-    async fn engines(&self) -> Result<Option<String>, ProbeFailed> {
-        let path = self.inputs.package_root.join("package.json");
-        let bytes = on_lane(self.inputs.io, &CancellationToken::new(), move |_lane| read_content(&path))
-            .await
-            .map_err(|_| ProbeFailed)?;
-        let Ok(Some(bytes)) = bytes else { return Ok(None) };
-        let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-        Ok(parsed.get("engines").and_then(|e| e.get("node")).and_then(Value::as_str).map(str::to_owned))
-    }
 }
 
+/// `readPackageJson()?.engines?.node`: `None` when the file is unreadable, not JSON, or names no
+/// engine.
+async fn read_engines(io: InteractiveIo, package_root: &Path) -> Result<Option<String>, ProbeFailed> {
+    let path = package_root.join("package.json");
+    let bytes = on_lane(io, &CancellationToken::new(), move |_lane| read_content(&path)).await.map_err(|_| ProbeFailed)?;
+    let Ok(Some(bytes)) = bytes else { return Ok(None) };
+    let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    Ok(parsed.get("engines").and_then(|e| e.get("node")).and_then(Value::as_str).map(str::to_owned))
+}
+
+/// `process.versions.node` of the interpreter the install runs.
+async fn probe_version(processes: &Processes, interpreter: &JsInterpreter, cwd: &Path) -> Result<String, ProbeFailed> {
+    let mut env: HashMap<String, String> = std::env::vars().collect();
+    if interpreter.electron {
+        env.insert("ELECTRON_RUN_AS_NODE".into(), "1".into());
+    }
+    let mut options = RunOptions::new(cwd);
+    options.env = Some(&env);
+    options.timeout = VERSION_PROBE_TIMEOUT;
+    let args = ["-p".to_owned(), "process.versions.node".to_owned()];
+    let result = processes.run(&interpreter.program.to_string_lossy(), &args, options).await;
+    if result.code != 0 {
+        return Err(ProbeFailed);
+    }
+    Ok(mixdog_js::js_trim(&result.stdout).to_owned())
+}
 /// `readMigrationProgress`: the progress record, a fresh one when the file is missing; `Err`
 /// when the file is not a progress record (its skips are never guessed).
 fn read_progress(path: &Path) -> Result<(bool, i64, Vec<(String, String)>), ()> {
@@ -157,24 +172,10 @@ fn session_log_status(data_dir: &Path, lane: &mixdog_rt::InLane<InteractiveIo>) 
 #[async_trait]
 impl DoctorHost for DaemonDoctorHost {
     async fn node_runtime(&self) -> Probe {
-        let interpreter = &self.inputs.interpreter;
-        let mut env: HashMap<String, String> = std::env::vars().collect();
-        if interpreter.electron {
-            env.insert("ELECTRON_RUN_AS_NODE".into(), "1".into());
-        }
-        let mut options = RunOptions::new(&self.inputs.data_dir);
-        options.env = Some(&env);
-        options.timeout = VERSION_PROBE_TIMEOUT;
-        let args = ["-p".to_owned(), "process.versions.node".to_owned()];
-        let result = self.inputs.processes.run(&interpreter.program.to_string_lossy(), &args, options).await;
-        if result.code != 0 {
-            return Err(ProbeFailed);
-        }
-        let version = mixdog_js::js_trim(&result.stdout).to_owned();
-        let engines = self.engines().await?;
+        let version = probe_version(&self.inputs.processes, &self.inputs.interpreter, &self.inputs.data_dir).await?;
+        let engines = read_engines(self.inputs.io, &self.inputs.package_root).await?;
         Ok(Some(json!({ "version": version, "engines": engines })))
     }
-
     async fn provider_setup(&self) -> Probe {
         self.inputs.providers.get(false, false, false, false).await.map(Some).map_err(|_| ProbeFailed)
     }
@@ -240,5 +241,34 @@ mod tests {
                 .unwrap();
             assert_eq!(status, case["status"], "{}", case["name"]);
         }
+    }
+
+    /// The package the doctor reads `engines.node` from: the recorded `package.json` gives the
+    /// recorded engine; a folder without one gives none.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_engine_requirement_is_the_package_jsons() {
+        let node = &golden()["nodeRuntime"];
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("package.json"), node["packageJson"].as_str().unwrap()).unwrap();
+        let io = mixdog_rt::testing::tokens().interactive_io;
+        assert_eq!(read_engines(io, dir.path()).await.unwrap().as_deref(), node["engines"].as_str());
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(read_engines(io, empty.path()).await.unwrap(), None);
+    }
+
+    /// `process.versions.node` is a dotted triple: the recorded one and the interpreter's.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_interpreters_version_has_the_shape_nodes_has() {
+        let shaped = |version: &str| {
+            let parts: Vec<&str> = version.split('.').collect();
+            parts.len() == 3 && parts.iter().all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        };
+        assert!(shaped(golden()["nodeRuntime"]["version"].as_str().unwrap()));
+        let tokens = mixdog_rt::testing::tokens();
+        let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+        let processes = Processes::new(manager, tokens.durability_io);
+        let interpreter = JsInterpreter { program: PathBuf::from("node"), electron: false };
+        let version = probe_version(&processes, &interpreter, &std::env::temp_dir()).await.unwrap();
+        assert!(shaped(&version), "{version}");
     }
 }

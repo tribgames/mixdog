@@ -1,12 +1,12 @@
 {
-  "cases": 14,
+  "cases": 15,
   "command": "node benchmarks/rust-core/recorders/record-context-status.mjs --tree <tree>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 94842,
+      "bytes": 120165,
       "path": "golden.json",
-      "sha256": "c4659368ea5f44ea6825f2ae3418cdc160863b8dc49483ef66fc393a61972db2"
+      "sha256": "6ae9ee38c3f87ee3cae24459132fca79be7d5c3a7c9b1124166e982b8ed1b69e"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-context-status.mjs",
   "set": "context-status",
-  "totalBytes": 94842
+  "totalBytes": 120165
 }

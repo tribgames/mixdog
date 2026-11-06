@@ -1,0 +1,30 @@
+{
+  "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-secret-gates.mjs --tree <tree>)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8522,
+      "path": "gates.json",
+      "sha256": "3c43939663d076fc37059edd02ca0643cb8e5176f77ff845a70722e4f8346446"
+    }
+  ],
+  "product": {
+    "appsSha256": "25355d908927cf4dc23a2142d48d7a62d462f97cb7058a301af564aa8fa01551",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9237,
+    "refComparison": {
+      "closestCommit": "bd2393f2a2269ff69713d0cc5cb286835b3bf9bc",
+      "commitFilesMissingFromTree": 5,
+      "exact": false,
+      "filesDifferingFromCommit": 14
+    },
+    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-secret-gates.mjs",
+  "set": "secret-gates",
+  "totalBytes": 8522
+}

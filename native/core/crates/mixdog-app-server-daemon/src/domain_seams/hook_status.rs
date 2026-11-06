@@ -436,9 +436,11 @@ mod tests {
 
     #[test]
     fn payload_summaries_and_compaction_match_nodes() {
+        // `compact_value` keeps the first 12 keys in insertion order: the compared text holds the key order.
         for case in golden()["hooks"]["payloads"].as_array().unwrap() {
-            assert_eq!(summarize_payload(&case["payload"]), case["summary"].as_str().unwrap(), "{}", case["payload"]);
-            assert_eq!(compact_value(&case["payload"]), case["compact"], "{}", case["payload"]);
+            let payload = &case["payload"];
+            assert_eq!(summarize_payload(payload), case["summary"].as_str().unwrap(), "{payload}");
+            assert_eq!(compact_value(payload).to_string(), case["compact"].to_string(), "{payload}");
         }
     }
 

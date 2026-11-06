@@ -470,6 +470,15 @@
       "totalBytes": 1467708
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-session-activity.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "session-activity/MANIFEST.json",
+      "manifestSha256": "74f5644f3fee69f47bb2902528ed970e92b9a7d39e3021046f3828d48a1fc22c",
+      "recorder": "benchmarks/rust-core/recorders/record-session-activity.mjs",
+      "set": "session-activity",
+      "totalBytes": 62256
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-session-list.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "session-list/MANIFEST.json",

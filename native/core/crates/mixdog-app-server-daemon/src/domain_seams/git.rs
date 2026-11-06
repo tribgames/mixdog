@@ -45,12 +45,10 @@ impl GitRunner for ProcessGit {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git(dir: &std::path::Path) -> Arc<ProcessGit> {
-        let tokens = mixdog_rt::testing::tokens();
-        let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-        ProcessGit::new(Processes::new(manager, tokens.durability_io), Handle::current(), dir.to_path_buf())
-    }
+    use crate::domain_seams::golden;
+    use crate::domain_seams::portable;
+    use serde_json::Value;
+    use serde_json::json;
 
     async fn on_thread<R: Send + 'static>(job: impl FnOnce() -> R + Send + 'static) -> R {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -58,21 +56,33 @@ mod tests {
         rx.await.unwrap()
     }
 
+    /// Node's `runGit` over the recorded scenario: one repository made, cloned from nothing, read and
+    /// committed in, each step's trimmed stdout or its failure text.
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_clone_returns_the_trimmed_stdout_and_a_failure_the_trimmed_stderr() {
+    async fn each_git_step_answers_what_nodes_run_git_answers() {
         let dir = tempfile::tempdir().unwrap();
-        let runner = git(dir.path());
-        let source = dir.path().join("source");
-        let args = vec!["init".to_owned(), source.to_string_lossy().into_owned()];
-        let out = on_thread({
+        let base = dir.path().to_path_buf();
+        let tokens = mixdog_rt::testing::tokens();
+        let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+        let runner = ProcessGit::new(Processes::new(manager, tokens.durability_io), Handle::current(), base.clone());
+        for step in golden()["git"].as_array().unwrap() {
+            if let Some(files) = step["before"].as_object() {
+                for (rel, text) in files {
+                    let path = base.join(rel);
+                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    std::fs::write(path, text.as_str().unwrap()).unwrap();
+                }
+            }
+            let root = base.to_string_lossy().into_owned();
+            let args: Vec<String> = step["args"].as_array().unwrap().iter().map(|arg| arg.as_str().unwrap().replace("<root>", &root)).collect();
             let runner = runner.clone();
-            move || runner.run(&args, Duration::from_secs(60))
-        })
-        .await
-        .unwrap();
-        assert!(out.starts_with("Initialized empty Git repository"), "{out}");
-        let missing = vec!["clone".to_owned(), dir.path().join("none").to_string_lossy().into_owned(), dir.path().join("x").to_string_lossy().into_owned()];
-        let err = on_thread(move || runner.run(&missing, Duration::from_secs(60))).await.unwrap_err();
-        assert!(err.starts_with("fatal:") && err == err.trim(), "{err}");
+            let outcome = on_thread(move || runner.run(&args, Duration::from_secs(60))).await;
+            let shown: Value = match outcome {
+                Ok(out) => json!({ "ok": out }),
+                Err(error) => json!({ "error": error }),
+            };
+            let expected = if step["ok"].is_null() { json!({ "error": step["error"] }) } else { json!({ "ok": step["ok"] }) };
+            assert_eq!(portable(&shown, &base), expected, "{}", step["args"]);
+        }
     }
 }

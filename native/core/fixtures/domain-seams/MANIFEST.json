@@ -1,11 +1,11 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-domain-seams.mjs --tree <tree>",
+  "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-domain-seams.mjs --tree <tree>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 40104,
+      "bytes": 65963,
       "path": "golden.json",
-      "sha256": "5567f4850510a679bbcf659672e60d85d031d0a194be4865e4a887e98de450e0"
+      "sha256": "df2e13a52174b1f2cb62f0e3d8433364680ca25947deba2f9d72684342f6e5cf"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-domain-seams.mjs",
   "set": "domain-seams",
-  "totalBytes": 40104
+  "totalBytes": 65963
 }

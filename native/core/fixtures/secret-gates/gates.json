@@ -1,0 +1,446 @@
+{
+  "cases": [
+    {
+      "expiryMs": 900000,
+      "name": "nothing is held",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": true
+        }
+      ],
+      "steps": [
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 900000,
+      "name": "a browser takeover holds its own session only",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": false,
+            "U": true
+          },
+          "computerFree": true
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": true
+        }
+      ],
+      "steps": [
+        {
+          "do": "takeover",
+          "id": "a1",
+          "surface": "browser",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "do": "resolve",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 900000,
+      "name": "a screen takeover holds its session and the screen",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": false,
+            "U": true
+          },
+          "computerFree": false
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": true
+        }
+      ],
+      "steps": [
+        {
+          "do": "takeover",
+          "id": "a1",
+          "surface": "computer",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "do": "resolve",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 900000,
+      "name": "a takeover of an agent shown as a copy in its parent chat holds the agent only",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": false,
+            "U": true
+          },
+          "computerFree": true
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": true
+        }
+      ],
+      "steps": [
+        {
+          "copyTo": "S",
+          "do": "takeover",
+          "id": "a1",
+          "surface": "browser",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "copyTo": "S",
+          "do": "resolve",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 900000,
+      "name": "two sessions are held apart",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": false,
+            "U": false
+          },
+          "computerFree": true
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": false
+          },
+          "computerFree": true
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": true
+        }
+      ],
+      "steps": [
+        {
+          "do": "takeover",
+          "id": "a1",
+          "surface": "browser",
+          "thread": "T"
+        },
+        {
+          "do": "takeover",
+          "id": "b1",
+          "surface": "browser",
+          "thread": "U"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "do": "resolve",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "do": "resolve",
+          "thread": "U"
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 900000,
+      "name": "a new takeover of a session replaces its old one",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": false,
+            "U": true
+          },
+          "computerFree": true
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": true
+        }
+      ],
+      "steps": [
+        {
+          "do": "takeover",
+          "id": "a1",
+          "surface": "computer",
+          "thread": "T"
+        },
+        {
+          "do": "takeover",
+          "id": "a2",
+          "surface": "browser",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "do": "resolve",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 900000,
+      "name": "a pending browser approval holds the screen and no session",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": false
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": true
+        }
+      ],
+      "steps": [
+        {
+          "do": "browserApproval",
+          "id": "p1"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "do": "answerBrowserApproval",
+          "id": "p1"
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 900000,
+      "name": "the screen is held until the last of its holders ends",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": false,
+            "U": true
+          },
+          "computerFree": false
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": false,
+            "U": true
+          },
+          "computerFree": false
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": true
+        }
+      ],
+      "steps": [
+        {
+          "do": "browserApproval",
+          "id": "p1"
+        },
+        {
+          "do": "takeover",
+          "id": "a1",
+          "surface": "computer",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "do": "answerBrowserApproval",
+          "id": "p1"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "do": "resolve",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 900000,
+      "name": "a screen takeover of one session leaves another session browsing",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": false
+          },
+          "computerFree": false
+        }
+      ],
+      "steps": [
+        {
+          "do": "takeover",
+          "id": "b1",
+          "surface": "computer",
+          "thread": "U"
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 60,
+      "name": "a takeover nobody finishes frees the session and the screen at its expiry",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": false,
+            "U": true
+          },
+          "computerFree": false
+        },
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": true
+        }
+      ],
+      "steps": [
+        {
+          "do": "takeover",
+          "id": "a1",
+          "surface": "computer",
+          "thread": "T"
+        },
+        {
+          "do": "observe"
+        },
+        {
+          "do": "wait",
+          "ms": 150
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    },
+    {
+      "expiryMs": 60,
+      "name": "a browser approval has no expiry",
+      "observed": [
+        {
+          "browserFree": {
+            "S": true,
+            "T": true,
+            "U": true
+          },
+          "computerFree": false
+        }
+      ],
+      "steps": [
+        {
+          "do": "browserApproval",
+          "id": "p1"
+        },
+        {
+          "do": "wait",
+          "ms": 150
+        },
+        {
+          "do": "observe"
+        }
+      ]
+    }
+  ],
+  "sessions": [
+    "T",
+    "U",
+    "S"
+  ]
+}

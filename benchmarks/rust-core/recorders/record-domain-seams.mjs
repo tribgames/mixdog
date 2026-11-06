@@ -13,7 +13,8 @@
 // `<root>` and backslashes `/`, so the golden is the same on every OS. Clock, pid and uuid are frozen.
 // Rust `mixdog-app-server-daemon` `domain_seams` must answer the same for the same inputs.
 //
-//   node benchmarks/rust-core/recorders/record-domain-seams.mjs [--tree <dir>]
+//   node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs \\
+//     benchmarks/rust-core/recorders/record-domain-seams.mjs [--tree <dir>]
 //
 // Output: native/core/fixtures/domain-seams/golden.json.
 process.env.TZ = 'UTC';
@@ -48,6 +49,20 @@ crypto.randomUUID = () => UUID;
 const realPlatform = os.platform;
 const realHomedir = os.homedir;
 syncBuiltinESMExports();
+
+// Two private functions the recording needs are exposed by one appended export line each (the module
+// itself is not changed): plugin-admin's `runGit` and the notifier's `createNativePresenter`.
+register(
+  `data:text/javascript,${encodeURIComponent(`export async function load(url, context, next) {
+    const loaded = await next(url, context);
+    const add = url.endsWith('/src/session-runtime/services/plugin-admin.mjs')
+      ? '\\nexport { runGit as __runGit };\\n'
+      : url.endsWith('/apps/desktop/src/main/desktop-turn-notifier.ts')
+        ? '\\nexport { createNativePresenter as __createNativePresenter };\\n'
+        : '';
+    return add ? { ...loaded, source: String(loaded.source) + add } : loaded;
+  }`)}`
+);
 
 const root = mkdtempSync(join(tmpdir(), 'domain-seams-'));
 const dataDir = join(root, 'data');
@@ -201,6 +216,7 @@ const RULES = [
   { tools: ['a', 'b'], args: { key: 'v', n: 2 }, action: '', decision: 'modify', enabled: 0 },
   { tool: null, name: 'n2', match: null, contains: 'c', reason: '', message: 'mm' },
 ];
+// compactValue keeps the FIRST 12 keys in insertion order; `writeJson` keeps that order in the payload and its compaction.
 const hookPayloads = PAYLOADS.map((payload) => ({ payload, summary: payloadModule.summarizePayload(payload), compact: payloadModule.compactValue(payload) }));
 const hookRules = RULES.map((rule, index) => ({ rule, index, summary: rulesModule.summarizeRule(rule, index) }));
 const stdHook = (command, matcher) => ({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command }] });
@@ -317,9 +333,182 @@ for (const scenario of MARKER_CASES) {
   marker.cases.push({ name: scenario.name, prior: scenario.prior, file: readFileSync(join(base, 'mixdog-secrets-changed.json'), 'utf8') });
 }
 
+// ---- remote: relay URL, access settings, host name, pair-code manager ----
+const relayDevice = await at('apps/desktop/src/main/remote-relay-device.ts');
+const relayUrl = [undefined, '', '   ', '0', 'false', 'OFF', ' Off ', 'wss://relay.example', ' wss://relay.example/path?x=1 ', 'ws://127.0.0.1:9800', 'ws://localhost', 'ws://[::1]:9', 'ws://relay.example', 'https://relay.example', 'not a url', 'wss://user:pw@relay.example', 'wss://u@relay.example'].map((raw) => {
+  const env = raw === undefined ? {} : { MIXDOG_RELAY_URL: raw };
+  try {
+    return { env: raw === undefined ? null : raw, url: relayDevice.resolveRelayUrl(env) };
+  } catch (e) {
+    return { env: raw === undefined ? null : raw, error: e.message };
+  }
+});
+const { createRemoteAccessSettingsStore } = await at('apps/desktop/src/main/remote-access-settings.ts');
+const settingsScenarios = [
+  { name: 'fresh', files: {} },
+  { name: 'activated', files: { 'remote-activated.json': '{"activatedAt":1}' } },
+  { name: 'legacy-evidence', files: { 'relay-device.json': '{}' } },
+  { name: 'trust-evidence', files: { 'remote-client-trust.json': '{}' } },
+  { name: 'switched-off', files: { 'remote-activated.json': '{}', 'remote-access-settings.json': '{"enabled":false}' } },
+  { name: 'named', files: { 'remote-access-settings.json': '{"name":"My PC","enabled":true}' } },
+  { name: 'empty-name', files: { 'remote-access-settings.json': '{"name":""}' } },
+  { name: 'long-name-kept', files: { 'remote-access-settings.json': JSON.stringify({ name: 'n'.repeat(100) }) } },
+  { name: 'damaged', files: { 'remote-access-settings.json': '{broken' } },
+  { name: 'wrong-types', files: { 'remote-access-settings.json': '{"enabled":"yes","name":5}' } },
+];
+const settingsReads = [];
+for (const scenario of settingsScenarios) {
+  const base = join(root, `access-${scenario.name}`);
+  mkdirSync(base, { recursive: true });
+  lay(base, scenario.files);
+  const store = createRemoteAccessSettingsStore(base, () => 'HOST-FIXED');
+  const view = await store.read();
+  settingsReads.push({ name: scenario.name, files: scenario.files, view, disabled: await store.disabled(), aliases: await store.deviceAliases(), after: (await import('node:fs')).readdirSync(base).sort() });
+}
+const mutBase = join(root, 'access-mutations');
+mkdirSync(mutBase, { recursive: true });
+const mutStore = createRemoteAccessSettingsStore(mutBase, () => 'HOST-FIXED');
+const readSettingsFile = () => {
+  try {
+    return JSON.parse(readFileSync(join(mutBase, 'remote-access-settings.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+};
+const settingsMutations = [];
+const mutate = async (op, args, run) => {
+  const result = await run();
+  settingsMutations.push({ op, args, result, file: readSettingsFile() });
+};
+await mutate('setEnabled', [true], () => mutStore.setEnabled(true));
+await mutate('setName', ['  My Desk  '], () => mutStore.setName('  My Desk  '));
+await mutate('setName', ['x'.repeat(70)], () => mutStore.setName('x'.repeat(70)));
+await mutate('setName', [''], () => mutStore.setName(''));
+await mutate('setDeviceAlias', ['c1', '  Phone  '], () => mutStore.setDeviceAlias('c1', '  Phone  '));
+await mutate('setDeviceAlias', ['c2', 'a'.repeat(90)], () => mutStore.setDeviceAlias('c2', 'a'.repeat(90)));
+await mutate('setDeviceAlias', ['c1', ''], () => mutStore.setDeviceAlias('c1', ''));
+await mutate('setEnabled', [false], () => mutStore.setEnabled(false));
+const hostName = { hostname: os.hostname(), computerName: process.env.COMPUTERNAME ?? null, platform: process.platform };
+const { createPairCodeManager } = await at('apps/desktop/src/main/remote-pair-code.ts');
+const PAIR_STEPS = [
+  { op: 'ensure', at: 0 },
+  { op: 'ensure', at: 1000 },
+  { op: 'issued', at: 2000, envelope: { ok: true, code: '123456', expiresInMs: 600000, lease: '$last' } },
+  { op: 'ensure', at: 3000 },
+  { op: 'used', at: 4000, envelope: { lease: '$other' } },
+  { op: 'ensure', at: 4001 },
+  { op: 'used', at: 5000, envelope: { lease: '$last' } },
+  { op: 'ensure', at: 5001 },
+  { op: 'issued', at: 6000, envelope: { ok: true, code: '654321', expiresInMs: 100000, lease: '$other' } },
+  { op: 'issued', at: 6100, envelope: { ok: true, code: '654321', expiresInMs: 100000, lease: '$last' } },
+  { op: 'ensure', at: 6500 },
+  { op: 'ensure', at: 106100 },
+  { op: 'release', at: 107000 },
+  { op: 'release', at: 108000 },
+  { op: 'ensure', at: 109000 },
+  { op: 'connected', at: 109100 },
+];
+let pairNow = 0;
+let leaseCounter = 0;
+const pairSent = [];
+const pair = createPairCodeManager({
+  sendEnvelope: (payload) => {
+    pairSent.push(payload);
+    return true;
+  },
+  hostName: () => 'PC-FIXED',
+  now: () => pairNow,
+  newLease: () => `lease-${++leaseCounter}`,
+});
+let lastLease = null;
+const pairSteps = [];
+for (const step of PAIR_STEPS) {
+  pairNow = step.at;
+  pairSent.length = 0;
+  const envelope = step.envelope && { ...step.envelope, lease: step.envelope.lease === '$last' ? lastLease : 'someone-else' };
+  let result;
+  if (step.op === 'ensure') result = pair.ensure();
+  else if (step.op === 'issued') pair.onIssued(envelope);
+  else if (step.op === 'used') pair.onUsed(envelope);
+  else if (step.op === 'release') pair.release();
+  else pair.onConnected();
+  const sent = pairSent.map((payload) => {
+    if (payload.lease) lastLease = payload.lease;
+    return { ...payload, ...(payload.lease ? { lease: '$last' } : {}) };
+  });
+  pairSteps.push({ ...step, result: result ?? null, sent });
+}
+// The lease a manager mints when none is injected: what a relay sees.
+const sample = [];
+createPairCodeManager({ sendEnvelope: (p) => (sample.push(p), true), hostName: 'h' }).ensure();
+const remote = {
+  relayUrl,
+  settings: { reads: settingsReads, mutations: settingsMutations },
+  hostName,
+  pairCode: { hostName: 'PC-FIXED', steps: pairSteps, defaultLease: { length: sample[0].lease.length, hex: /^[0-9a-f]+$/.test(sample[0].lease) } },
+};
+
+// ---- ProcessGit: plugin-admin's runGit ----
+const { __runGit: runGit } = await at('src/session-runtime/services/plugin-admin.mjs');
+const savedGitDir = process.env.GIT_DIR;
+delete process.env.GIT_DIR; // the manifest step points git at the repository; the scenarios must not
+const gitBase = join(root, 'git');
+mkdirSync(gitBase, { recursive: true });
+const subst = (text) => text.replaceAll('<root>', gitBase);
+const GIT_STEPS = [
+  { args: ['init', '<root>/source'] },
+  { args: ['-C', '<root>/source', 'config', 'user.name', 'n'] },
+  { args: ['-C', '<root>/source', 'config', 'core.autocrlf', 'false'] },
+  { args: ['-C', '<root>/source', 'rev-parse', '--is-inside-work-tree'] },
+  { args: ['clone', '<root>/none', '<root>/dest'] },
+  { args: ['nosuchcommand'] },
+  { args: ['-C', '<root>/source', 'diff', '--quiet'] },
+  { args: ['-C', '<root>/source', 'status', '--porcelain'], before: { 'source/f.txt': 'one\n' } },
+  { args: ['-C', '<root>/source', 'add', 'f.txt'] },
+  { args: ['-C', '<root>/source', '-c', 'user.name=a', '-c', 'user.email=b@c', 'commit', '-q', '-m', 'm'] },
+  { args: ['-C', '<root>/source', 'status', '--porcelain'], before: { 'source/f.txt': 'two\n' } },
+  { args: ['-C', '<root>/source', 'diff', '--quiet'] },
+];
+const git = [];
+for (const step of GIT_STEPS) {
+  if (step.before) lay(gitBase, step.before);
+  const args = step.args.map(subst);
+  let out;
+  try {
+    out = { ok: runGit(args) };
+  } catch (e) {
+    out = { error: e.message };
+  }
+  git.push({ args: step.args, before: step.before ?? null, ...portableOutcome(out) });
+}
+function portableOutcome(outcome) {
+  const swap = (text) => text.split(gitBase).join('<root>').split(gitBase.replaceAll('\\', '/')).join('<root>').replaceAll('\\', '/');
+  return Object.fromEntries(Object.entries(outcome).map(([k, v]) => [k, swap(v)]));
+}
+
+if (savedGitDir !== undefined) process.env.GIT_DIR = savedGitDir;
+
+// ---- node_runtime: the doctor's `{version, engines}` ----
+const packageText = readFileSync(join(tree, 'package.json'), 'utf8');
+const nodeRuntime = { packageJson: packageText, version: process.versions.node, engines: JSON.parse(packageText).engines?.node ?? null };
+
+// ---- notification_clicks: the notifier's click report ----
+const { __createNativePresenter: createNativePresenter } = await at('apps/desktop/src/main/desktop-turn-notifier.ts');
+const reported = [];
+const handlers = new Map();
+const fake = { on: (name, fn) => handlers.set(name, fn), show: () => {}, close: () => {} };
+const opened = [];
+const { present } = createNativePresenter({ createNotification: () => fake, openSession: (id) => opened.push(id) }, (event, sessionId, details = {}) => reported.push({ event, sessionId, details }));
+present('sess_click', { title: 't', body: 'b' });
+handlers.get('click')();
+// index.ts names the diagnostic `turn-notification-${event}`: the prefix is read from its source.
+const indexSource = readFileSync(join(tree, 'apps/desktop/src/main/index.ts'), 'utf8');
+const prefix = /diagnostic: \(event, details\) => \{\s*diagnostics\?\.write\(`([^`$]*)\$\{event\}`/.exec(indexSource)[1];
+const clicks = { reported, opened, prefix };
+
 const finalDir = join(FIXTURES_ROOT, 'domain-seams');
 const stage = stageSet(finalDir);
 const recorder = 'benchmarks/rust-core/recorders/record-domain-seams.mjs';
-writeJson(join(stage, 'golden.json'), { frozenNow: FROZEN, shell, developer, fonts, instructions, hooks, sessionLog, marker });
-writeSetManifest(stage, { set: 'domain-seams', recorder, command: `node ${recorder} --tree <tree>`, identityTree: tree });
+writeJson(join(stage, 'golden.json'), { frozenNow: FROZEN, shell, developer, fonts, instructions, hooks, sessionLog, marker, remote, git, nodeRuntime, clicks });
+writeSetManifest(stage, { set: 'domain-seams', recorder, command: `node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs ${recorder} --tree <tree>`, identityTree: tree });
 commitStage(stage, finalDir);

@@ -25,8 +25,12 @@ use crate::session::tests::eventually;
 use crate::session::tests::turn;
 
 fn recording(name: &str) -> Value {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/thread-settings").join(name);
-    serde_json::from_str(&std::fs::read_to_string(path).expect("the recording")).expect("json")
+    let text = match name {
+        "session-switches.json" => include_str!("../../../../fixtures/thread-settings/session-switches.json"),
+        "context-switch.json" => include_str!("../../../../fixtures/thread-settings/context-switch.json"),
+        _ => unreachable!("a recording of this set"),
+    };
+    serde_json::from_str(text).expect("json")
 }
 
 /// The recorder's stubs for the prompt side, read from the recording itself.
@@ -91,7 +95,7 @@ fn the_switches_match_node() {
             continue;
         }
         let mut session = header_of(&scenario["session"]);
-        let mut messages = array(session.remove("messages").as_ref());
+        let mut messages = array(session.shift_remove("messages").as_ref());
         let mut in_flight = scenario["inFlight"] == json!(true);
         for (i, step) in scenario["steps"].as_array().expect("steps").iter().enumerate() {
             let op = step["op"].as_str().unwrap_or_default();
@@ -179,8 +183,8 @@ impl World {
     fn scenario_header(&self, name: &str) -> Header {
         let scenario = self.golden["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).expect("scenario");
         let mut header = header_of(&scenario["session"]);
-        header.remove("messages");
-        header.remove("id");
+        header.shift_remove("messages");
+        header.shift_remove("id");
         header.insert("createdAt".into(), json!(1));
         header
     }
@@ -197,7 +201,27 @@ impl World {
     /// The last model message of the conversation: where the boundaries land.
     async fn anchor(&self, id: &str) -> Value {
         let context = self.directory.model_context(&ThreadId::from(id)).read().await.expect("context");
-        context.last().map(|(_, message)| message.clone()).expect("a message")
+        let (iid, message) = context.last().cloned().expect("a message");
+        self.amends(id, iid.as_str()).pop().unwrap_or(message)
+    }
+
+    /// The bodies the row `iid` was amended to, in order. The in-memory store keeps the amend
+    /// records but does not fold them into its model context, so the boundary is read from them.
+    fn amends(&self, id: &str, iid: &str) -> Vec<Value> {
+        use mixdog_store::schema::blob::Slot;
+        use mixdog_store::schema::record::Record;
+        self.rig
+            .store
+            .records(&ThreadId::from(id))
+            .into_iter()
+            .filter_map(|(_, record)| match record {
+                Record::Amend(amend) if amend.iid.as_str() == iid => match amend.body {
+                    Slot::Inline(body) => Some(body),
+                    Slot::Blob(_) => None,
+                },
+                _ => None,
+            })
+            .collect()
     }
 }
 
@@ -254,7 +278,8 @@ async fn an_idle_conversation_takes_the_switch_now_and_keeps_its_boundary() {
     // The same choice again: nothing moves, nothing is recorded twice.
     let again = world.switches.switch_workflow("sess_a", "beta").await.expect("switched").expect("a conversation");
     assert_eq!(again, step(&world, "idle-workflow-round-trip", 1)["ok"]);
-    assert_eq!(world.anchor("sess_a").await["meta"]["workflowSwitches"].as_array().map(Vec::len), Some(1));
+    let iid = world.directory.model_context(&ThreadId::from("sess_a")).read().await.expect("context").last().expect("a message").0.clone();
+    assert_eq!(world.amends("sess_a", iid.as_str()).len(), 1, "the repeated choice amended nothing");
 
     // A workflow that is gone is refused with Node's text and changes nothing.
     let gone = world.switches.switch_workflow("sess_a", "nope").await.expect_err("gone");
@@ -419,8 +444,18 @@ async fn the_session_left_is_closed_as_node_closes_it() {
 
     world.session("sess_scratch", world.scenario_header("empty-conversation")).await;
     switch.switch_context("sess_scratch", Some("/work/a".into()), None, true).await.expect("switched");
-    let closed = world.stored("sess_scratch").await;
-    assert_eq!((closed.get("closed"), closed.get("closedReason")), (Some(&json!(true)), Some(&json!(CONTEXT_SWITCH_REASON))));
+    // The closed thread is unloaded and the in-memory store reads its header from the session
+    // record alone, so the tombstone is read from the header change it committed.
+    let tombstoned = world.rig.store.records(&ThreadId::from("sess_scratch")).into_iter().any(|(_, record)| match record {
+        mixdog_store::schema::record::Record::Meta(meta) => match meta.change {
+            mixdog_store::schema::blob::Slot::Inline(change) => {
+                change.set.get("closed") == Some(&json!(true)) && change.set.get("closedReason") == Some(&json!(CONTEXT_SWITCH_REASON))
+            }
+            mixdog_store::schema::blob::Slot::Blob(_) => false,
+        },
+        _ => false,
+    });
+    assert!(tombstoned, "a scratch session is tombstoned with the context-switch reason");
 
     world.rig.set_script(answer_then_wait());
     let handle = world.session("sess_used", world.scenario_header("idle-workflow-round-trip")).await;

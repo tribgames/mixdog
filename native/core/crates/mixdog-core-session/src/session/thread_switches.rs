@@ -101,7 +101,7 @@ fn unique(items: impl IntoIterator<Item = String>) -> Vec<String> {
 }
 
 fn strings(value: Option<&Value>) -> Vec<String> {
-    value.and_then(Value::as_array).map(|list| list.iter().map(|item| mixdog_js::value_to_string(item)).collect()).unwrap_or_default()
+    value.and_then(Value::as_array).map(|list| list.iter().map(mixdog_js::value_to_string).collect()).unwrap_or_default()
 }
 
 fn array(value: Option<&Value>) -> Vec<Value> {
@@ -350,7 +350,7 @@ fn merge_deferred_delta(session: &mut Header, added: &[(String, String)], remove
     let next_value = mixdog_js::json_number(next);
     session.insert("deferredToolDeltaRevision".into(), next_value.clone());
     if by_name.is_empty() && gone.is_empty() {
-        session.remove("pendingDeferredToolDelta");
+        session.shift_remove("pendingDeferredToolDelta");
         return;
     }
     let mut delta = Map::new();
@@ -407,7 +407,7 @@ fn stage_workflow_notice(session: &mut Header, from: &Value, to: &Value) {
     };
     let next = workflow_ref(to);
     if next.is_null() || told.get("id") == next.get("id") && !told.is_null() {
-        session.remove("workflowSwitch");
+        session.shift_remove("workflowSwitch");
         return;
     }
     let revision = prior.as_ref().and_then(|prior| prior.get("revision")).and_then(Value::as_f64).filter(|n| *n != 0.0).unwrap_or(0.0) + 1.0;
@@ -421,7 +421,7 @@ fn stage_mode_notice(session: &mut Header, from: &str, to: &str) {
         None => from.to_owned(),
     };
     if to.is_empty() || told == to {
-        session.remove("orchestrationModeSwitch");
+        session.shift_remove("orchestrationModeSwitch");
         return;
     }
     let revision = prior.as_ref().and_then(|prior| prior.get("revision")).and_then(Value::as_f64).filter(|n| *n != 0.0).unwrap_or(0.0) + 1.0;
@@ -535,7 +535,7 @@ fn apply_workflow_switch(session: &mut Header, surface: &dyn WorkflowSurface, re
     let meta = workflow_meta(&resolved.target.summary);
     session.insert("workflow".into(), meta.clone());
     session.insert("orchestrationMode".into(), json!(resolved.target.orchestration_mode));
-    session.remove("workflowOverlay");
+    session.shift_remove("workflowOverlay");
     if meta.get("id") == prompt.get("id") && !prompt.is_null() {
         close_reopened_tools(session, surface, resolved, now);
     } else {
@@ -582,7 +582,7 @@ fn apply_mode_switch(session: &mut Header, surface: &dyn WorkflowSurface, mode: 
     let from = current_mode(session);
     let prompt = prompt_mode(session);
     session.insert("orchestrationMode".into(), json!(mode));
-    session.remove("orchestrationModeOverlay");
+    session.shift_remove("orchestrationModeOverlay");
     if mode != prompt {
         let loadable = mode_loadable_tools(session, mode);
         let overlay = json!({ "prompt": prompt, "mode": mode, "loadableTools": loadable, "content": mode_notice_content(surface, mode, &loadable) });
@@ -642,7 +642,7 @@ fn switchable(session: &Header, facts: &Facts, what: &str) -> Result<bool, Strin
 /// cancels it.
 fn stage_pending(session: &mut Header, field: &str, value: &str, current: &str, now: i64) {
     if value == current {
-        session.remove(field);
+        session.shift_remove(field);
     } else {
         session.insert(field.into(), json!(value));
     }
@@ -665,7 +665,7 @@ pub fn switch_workflow(session: &mut Header, facts: &Facts, surface: &dyn Workfl
         return Ok(Some(Switched { result, boundaries: Vec::new() }));
     }
     let resolved = resolve_workflow(session, surface, workflow_id, &current_mode(session))?;
-    session.remove("pendingWorkflowId");
+    session.shift_remove("pendingWorkflowId");
     Ok(Some(apply_workflow_switch(session, surface, &resolved, facts.now)))
 }
 
@@ -684,7 +684,7 @@ pub fn switch_mode(session: &mut Header, facts: &Facts, surface: &dyn WorkflowSu
         let result = json!({ "appliedToCurrentSession": true, "deferred": true, "mode": shown, "orchestrationModeSwitch": null });
         return Ok(Some(Switched { result, boundaries: Vec::new() }));
     }
-    session.remove("pendingOrchestrationMode");
+    session.shift_remove("pendingOrchestrationMode");
     Ok(Some(apply_mode_switch(session, surface, mode, facts.now)))
 }
 
@@ -735,8 +735,8 @@ pub fn apply_pending(session: &mut Header, surface: &dyn WorkflowSurface, now: i
     } else if let Some(unavailable) = unavailable {
         switches.insert("workflowSwitch".into(), unavailable);
     }
-    session.remove("pendingOrchestrationMode");
-    session.remove("pendingWorkflowId");
+    session.shift_remove("pendingOrchestrationMode");
+    session.shift_remove("pendingWorkflowId");
     let landed = |key: &str| truthy(switches.get(key));
     (landed("orchestrationModeSwitch") || landed("workflowSwitch")).then(|| Switched { result: Value::Object(switches), boundaries })
 }

@@ -160,8 +160,7 @@ mod tests {
     }
 
     fn golden() -> Value {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-list/golden.json");
-        serde_json::from_slice(&std::fs::read(path).expect("golden")).expect("golden json")
+        serde_json::from_str(include_str!("../../../../fixtures/session-list/golden.json")).expect("golden json")
     }
 
     async fn service(data: &std::path::Path, golden: &Value) -> ThreadListService {
@@ -177,7 +176,7 @@ mod tests {
         let store = Arc::new(index);
         for entry in golden["sessions"].as_array().expect("sessions") {
             let mut header = entry["record"].as_object().expect("record").clone();
-            header.remove("messages");
+            header.shift_remove("messages");
             let id = header["id"].as_str().expect("id").to_owned();
             store.upsert(CatalogHead { session: id, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
         }

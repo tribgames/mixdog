@@ -127,12 +127,19 @@ mod tests {
     /// messages and log id must give the same bytes.
     #[test]
     fn the_export_is_the_log_node_wrote_for_the_conversation() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/session-log-export/session_log.json")).expect("golden");
-        let record = golden["record"].as_object().expect("record");
-        let header: Header = record.iter().filter(|(key, _)| key.as_str() != "messages").map(|(key, value)| (key.clone(), value.clone())).collect();
+        let (golden, record, header) = recorded();
         let messages = record["messages"].as_array().expect("messages");
         let made = render(golden["logId"].as_str().expect("logId"), record["id"].as_str().expect("id"), &header, messages);
         assert_eq!(made, golden["log"].as_str().expect("log"));
+    }
+
+    /// The golden, the record Node saved (in the key order Node had it: the log's key order is the
+    /// record's), and its header: the record without its messages.
+    fn recorded() -> (Value, serde_json::Map<String, Value>, Header) {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/session-log-export/session_log.json")).expect("golden");
+        let record = golden["record"].as_object().expect("record").clone();
+        let header: Header = record.iter().filter(|(key, _)| key.as_str() != "messages").map(|(key, value)| (key.clone(), value.clone())).collect();
+        (golden, record, header)
     }
 
     /// A session in the real thread store with the given log id, header and message bodies, made
@@ -208,9 +215,7 @@ mod tests {
     /// log id, header and message bodies: the export is Node's log byte for byte.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_store_session_exports_the_log_node_wrote_for_the_conversation() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/session-log-export/session_log.json")).expect("golden");
-        let record = golden["record"].as_object().expect("record");
-        let header: Header = record.iter().filter(|(key, _)| key.as_str() != "messages").map(|(key, value)| (key.clone(), value.clone())).collect();
+        let (golden, record, header) = recorded();
         let id = record["id"].as_str().expect("id");
         let data = tempfile::tempdir().expect("data dir");
         let store = super::super::tests::real_store(data.path()).await;

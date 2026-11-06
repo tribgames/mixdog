@@ -108,7 +108,7 @@ fn internal(step: &str, error: &dyn std::fmt::Display) -> CoreError {
 pub struct Projector(mpsc::UnboundedSender<Projecting>);
 
 enum Projecting {
-    Frames(Projection),
+    Frames(Box<Projection>),
     /// Answered once every projection sent before it is committed.
     Flush(tokio::sync::oneshot::Sender<()>),
 }
@@ -121,7 +121,7 @@ impl Projector {
             while let Some(msg) = rx.recv().await {
                 match msg {
                     // A failed projection leaves the session dirty; reconcile re-projects it.
-                    Projecting::Frames(projection) => drop(index.project(projection).await),
+                    Projecting::Frames(projection) => drop(index.project(*projection).await),
                     Projecting::Flush(done) => drop(done.send(())),
                 }
             }
@@ -130,7 +130,7 @@ impl Projector {
     }
 
     fn send(&self, projection: Projection) {
-        let _ = self.0.send(Projecting::Frames(projection));
+        let _ = self.0.send(Projecting::Frames(Box::new(projection)));
     }
 
     /// Waits until the index holds every barrier acked so far.
