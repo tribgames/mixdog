@@ -64,9 +64,7 @@ pub trait TodoView: Send + Sync {
     async fn awaiting_background_work(&self) -> bool;
     /// The turn waits on the user outside the loop's own sight (an `ask_user` question left
     /// unanswered, which the todo store records).
-    async fn user_waiting(&self) -> bool {
-        false
-    }
+    async fn user_waiting(&self) -> bool;
     /// Whether a call changes files, runs commands or mutates a repository
     /// (typed from the tool's annotations by the host).
     fn is_mutation(&self, call: &ToolCall) -> bool;
@@ -244,6 +242,9 @@ mod tests {
             self.goal
         }
         async fn awaiting_background_work(&self) -> bool {
+            false
+        }
+        async fn user_waiting(&self) -> bool {
             false
         }
         fn is_mutation(&self, call: &ToolCall) -> bool {

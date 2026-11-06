@@ -3,28 +3,28 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 8184,
+      "bytes": 12641,
       "path": "golden.json",
-      "sha256": "4698e1c38e77a33c0de973c05b99536af85f93336c88bb9414c1612ae8f2deee"
+      "sha256": "5b0ee5e645f52112e4709a6229955c193568576ba857edff29d9a859713728db"
     }
   ],
   "product": {
-    "appsSha256": "1ba13ae4c6213282aa4baf8e39dd32a65446dfddf9d3fe560f802a85d7e64ec3",
-    "commit": "ee79f521cc8cff449335daee8f9a7a50c876bc43",
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9240,
+    "files": 43481,
     "refComparison": {
-      "closestCommit": "ee79f521cc8cff449335daee8f9a7a50c876bc43",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34407
     },
-    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-caps.mjs",
   "set": "anthropic-caps",
-  "totalBytes": 8184
+  "totalBytes": 12641
 }

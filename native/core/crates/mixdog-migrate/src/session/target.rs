@@ -218,6 +218,13 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                         let entry = qr.entry.ok_or("enqueue without entry")?;
                         folded.queue.push((qr.qid.as_str().to_string(), resolve(cx, entry)?.0));
                     }
+                    QueueAction::Update => {
+                        let entry = qr.entry.ok_or("update without entry")?;
+                        let entry = resolve(cx, entry)?.0;
+                        if let Some(queued) = folded.queue.iter_mut().find(|q| q.0 == qr.qid.as_str()) {
+                            queued.1 = entry;
+                        }
+                    }
                     QueueAction::Dequeue => folded.queue.retain(|q| q.0 != qr.qid.as_str()),
                 },
                 // Folded back into its anchor's `meta.modelSwitches`, where 1.4.5 kept it

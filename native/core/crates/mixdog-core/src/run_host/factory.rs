@@ -965,15 +965,6 @@ mod tests {
         }
     }
 
-    struct NoWorld;
-    impl super::super::compactors::CompactionWorld for NoWorld {
-        fn facts(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> super::super::compactors::CompactionFacts {
-            unreachable!("the test's settings leave compaction off")
-        }
-        fn compaction_config(&self) -> Option<Value> {
-            None
-        }
-    }
     struct NoMcp;
     impl super::super::session_tools::SessionMcp for NoMcp {
         fn tools(&self, _: &std::path::Path) -> Vec<Arc<dyn Tool>> {
@@ -1008,29 +999,40 @@ mod tests {
         }
     }
 
-    struct Env;
-    #[async_trait::async_trait]
-    impl crate::ports::gate::GateEnv for Env {
-        fn run_of(&self, _: &ThreadId) -> Option<crate::ports::gate::GateRun> {
+    struct NoStamps;
+    impl super::super::unattended::RunStamps for NoStamps {
+        fn stamp_of(&self, _: &ThreadId) -> Option<Value> {
             None
-        }
-        fn is_contact_bot(&self, _: &str) -> bool {
-            false
-        }
-        fn allow_all_actions(&self) -> bool {
-            false
-        }
-        async fn connector_account(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, _: &mixdog_agent::env::GateCall) -> Result<Option<mixdog_agent::env::BoundAccount>, String> {
-            Ok(None)
         }
     }
 
+    struct AllowNone;
+    impl super::super::mcp_seams::AllowAllActions for AllowNone {
+        fn allow_all_actions(&self) -> bool {
+            false
+        }
+    }
+
+    struct NoEvidence;
+    #[async_trait]
+    impl crate::agents::AgentEvidence for NoEvidence {
+        async fn home_greeted(&self, _: &str) -> bool {
+            false
+        }
+        async fn home_chatted(&self, _: &str) -> bool {
+            false
+        }
+        async fn mixy_owns_routines(&self) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
     struct NoLadder;
+    #[async_trait]
     impl super::super::step_judge::LadderSources for NoLadder {
         fn cached_row(&self, _: &str, _: &str) -> Option<serde_json::Map<String, Value>> {
             None
         }
-        fn rejected(&self, _: &str, _: &str) -> Option<mixdog_ai::effort::RejectionEntry> {
+        async fn rejected(&self, _: &str, _: &str) -> Option<mixdog_ai::effort::RejectionEntry> {
             None
         }
         fn custom_config(&self, _: &str) -> Option<(mixdog_ai::providers::custom::Protocol, String)> {
@@ -1180,6 +1182,7 @@ mod tests {
             mixdog_services::effort_judge::judge::JudgeOptions { tick: Default::default(), manifest: None, progress: None },
         )
         .unwrap();
+        let compaction = super::super::compaction_world::tests::services(workspace.path(), json!({}), Arc::default()).await;
         let hook_bus = mixdog_mcp::hook_bus::HookBus::new(data.clone(), tokens.maintenance_io, processes.clone(), None, None, None);
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
@@ -1193,7 +1196,10 @@ mod tests {
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
             connectors,
             resolver: Arc::new(PoolResolver(pool.clone())),
-            gate_env: Arc::new(Env),
+            run_stamps: Arc::new(NoStamps),
+            agents: Arc::new(crate::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, crate::config::AgentRoutes::new(compaction.config.clone(), workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
+            allow_all: Arc::new(AllowNone),
+            hub: (mixdog_mcp::McpHub::new(mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, workspace.path().to_path_buf(), Default::default())),
             blobs: Arc::new(NoBlobs),
             tool_pool: pool,
             mcp: Arc::new(NoMcp),
@@ -1218,7 +1224,7 @@ mod tests {
                     deps
                 }
             }),
-            compaction: Arc::new(NoWorld),
+            compaction,
             hops: Box::new({
                 let registry_dir = workspace.path().join("catalog");
                 move |_directory, registry| {

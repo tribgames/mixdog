@@ -25,7 +25,6 @@ use super::agent_registry::WorkerStore;
 use super::seams::CloseIngest;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually;
 use super::tests::start_thread;
 
 /// Thread feeds take the core's wire limits (`ringBytes` 4 MiB, `maxSnapshotBytes` 3 MiB) and
@@ -186,19 +185,38 @@ impl ReapWindow for Workers {
     }
 }
 
+/// A provider registry with nothing registered (its release is `mixdog-ai`'s test).
+struct NoProviders;
+
+#[async_trait]
+impl mixdog_ai::registry::providers::ProviderBuilder for NoProviders {
+    async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+        Err(format!("no {name}"))
+    }
+    async fn custom_key_ids(&self, _: &str) -> Vec<String> {
+        Vec::new()
+    }
+    fn available(&self, _: &str) -> bool {
+        false
+    }
+    async fn oauth_credentials_usable(&self, _: &str) -> bool {
+        false
+    }
+}
+
 #[allow(clippy::disallowed_methods, reason = "test setup writes the deleted session's files")]
 fn write(path: &Path, text: &str) {
     std::fs::create_dir_all(path.parent().expect("a parent")).unwrap();
     std::fs::write(path, text).unwrap();
 }
 
-/// `_runSessionPurgeHooks` over the real owners: the session's offloaded tool results, its
-/// conversation transcripts under each known cwd, its connector account choices, its worker
-/// row (a tombstone now), its compaction archive and its scratch folders go; another session's
-/// stay.
+/// `_runSessionPurgeHooks` over the real owners: when it returns, the session's offloaded tool
+/// results, its conversation transcripts under each known cwd, its connector account choices,
+/// its worker row (a tombstone now), its compaction archive and its scratch folders are gone
+/// (Node's hooks finish before the delete does); another session's stay.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[allow(clippy::disallowed_methods, reason = "the test reads what the hooks left")]
-async fn the_purge_hooks_drop_a_deleted_sessions_state_from_its_owners() {
+async fn the_purge_hooks_have_dropped_a_deleted_sessions_state_when_they_return() {
     let (data, home) = (tempfile::tempdir().expect("data"), tempfile::tempdir().expect("home"));
     let (d, h) = (data.path(), home.path());
     let id = "sess_gone";
@@ -230,26 +248,21 @@ async fn the_purge_hooks_drop_a_deleted_sessions_state_from_its_owners() {
         maintenance: mixdog_rt::testing::tokens().maintenance_io,
         read_state: Arc::new(mixdog_tools::fs::ReadState::new(None)),
         warm: mixdog_ai::registry::warm::WarmLedger::new(),
+        providers: Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoProviders))),
         worker_turns: WorkerTurns::new(turns.clone(), turns.clone(), turns.clone(), turns, Arc::new(|| {})),
         agents,
     });
-    assert!(hooks.usage_metrics.is_none() && hooks.browser_session.is_none());
-    assert!(hooks.compaction_capture.is_none() && hooks.provider_connections.is_none());
     let rig = Rig::new();
     let review = rig.deps_parts(rig.store.clone()).turn_review;
-    hooks.run(review.as_ref(), id, &[cwd]);
+    hooks.run(review.as_ref(), id, &[cwd]).await;
 
-    eventually(|| created.iter().all(|path| !path.exists()).then_some(())).await;
+    let left: Vec<_> = created.iter().filter(|path| path.exists()).collect();
+    assert!(left.is_empty(), "{left:?}");
     assert!(!offloaded.parent().unwrap().exists() && !scratch.exists());
-    let left = eventually(|| {
-        let text = std::fs::read_to_string(&accounts).ok()?;
-        let value: Value = serde_json::from_str(&text).ok()?;
-        value.get(id).is_none().then_some(value)
-    })
-    .await;
-    assert_eq!(left, json!({ "sess_kept": { "accounts": { "gmail": "b" } } }));
-    let tombstoned = eventually(|| lock(&workers.0).iter().find(|(s, m)| s == id && m.contains_key("tombstone")).map(|(_, m)| m.clone())).await;
-    assert!(!tombstoned.contains_key("sessionId"), "{tombstoned:?}");
+    let accounts: Value = serde_json::from_str(&std::fs::read_to_string(&accounts).unwrap()).unwrap();
+    assert_eq!(accounts, json!({ "sess_kept": { "accounts": { "gmail": "b" } } }));
+    let tombstoned = lock(&workers.0).iter().find(|(s, _)| s == id).map(|(_, m)| m.clone()).expect("the row");
+    assert!(tombstoned.contains_key("tombstone") && !tombstoned.contains_key("sessionId"), "{tombstoned:?}");
 }
 
 /// `autoEffortMode`: a set `MIXDOG_AUTO_EFFORT` wins (an unknown spelling is off), else the

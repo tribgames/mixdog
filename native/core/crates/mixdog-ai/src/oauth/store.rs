@@ -75,6 +75,9 @@ pub enum Probe<T> {
 pub struct CredentialFile {
     path: PathBuf,
     io: CredentialIo,
+    /// `MIXDOG_MODEL_PROXY=client`: the server holds no model credentials, so the file reads as
+    /// absent and refuses every write (`modelProxyClientMode()` at each Node credential loader).
+    remote_client: bool,
 }
 
 type Document = Map<String, Value>;
@@ -123,7 +126,13 @@ fn merged(path: &Path, update: Document) -> Document {
 
 impl CredentialFile {
     pub fn new(path: PathBuf, io: CredentialIo) -> Self {
-        Self { path, io }
+        Self { path, io, remote_client: false }
+    }
+
+    /// The file of a server that holds no model credentials when `on`.
+    pub fn remote_client(mut self, on: bool) -> Self {
+        self.remote_client = on;
+        self
     }
 
     pub fn path(&self) -> &Path {
@@ -131,6 +140,9 @@ impl CredentialFile {
     }
 
     async fn read_job(&self) -> Probe<Document> {
+        if self.remote_client {
+            return Probe::Absent;
+        }
         let path = self.path.clone();
         match self
             .io
@@ -163,6 +175,12 @@ impl CredentialFile {
         &self,
         body: impl FnOnce(&InLane<DurabilityIo>, &Path) -> io::Result<R> + Send + 'static,
     ) -> io::Result<R> {
+        if self.remote_client {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "model credentials are not available on this server: MIXDOG_MODEL_PROXY=client runs every model call on the client PC.",
+            ));
+        }
         let path = self.path.clone();
         let job = self
             .io

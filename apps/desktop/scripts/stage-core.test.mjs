@@ -6,7 +6,7 @@ import { test } from 'node:test';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 import { loadServerPayloads } from '../src/main/ssh/remote-install-payload.ts';
-import { HOST_TARGETS, stageCore, workspaceVersion } from './stage-core.mjs';
+import { HOST_TARGETS, jsRuntimeManifest, stageCore, workspaceVersion } from './stage-core.mjs';
 
 function builtTargets(dir, targets) {
   for (const target of targets) {
@@ -41,7 +41,11 @@ test('staging puts the host core and every server runtime where the build and th
     program: '../../Mixdog.exe',
     packageRoot: '../runtime.asar/node_modules/mixdog',
     electron: true,
+    // The file onnxruntime-node's binding loads, mirrored unpacked beside the archive.
+    ortLibrary: '../runtime.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll',
   });
+  // macOS x64 has no onnxruntime-node binding: its manifest names no library.
+  assert.equal('ortLibrary' in jsRuntimeManifest('darwin', 'x64'), false);
   assert.deepEqual(Object.keys(manifest.binaries).sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']);
   // The ssh install reads exactly what was staged, and finds the same build.
   const payloads = await loadServerPayloads(join(runtimeDir, 'server-cores'));

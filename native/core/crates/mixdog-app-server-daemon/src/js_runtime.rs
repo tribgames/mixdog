@@ -4,13 +4,19 @@
 //! An install describes it in `js-runtime.json` beside the `mixdogd` binary it ships with:
 //!
 //! ```json
-//! { "program": "../../Mixdog.exe", "packageRoot": "../runtime.asar/node_modules/mixdog", "electron": true }
+//! { "program": "../../Mixdog.exe", "packageRoot": "../runtime.asar/node_modules/mixdog", "electron": true,
+//!   "ortLibrary": "../runtime.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll" }
 //! ```
 //!
 //! Relative paths are taken from the manifest's directory. A `program` without a path separator
 //! (`"node"`) is searched on `PATH`. The desktop writes the manifest when it stages the core
 //! (`apps/desktop/scripts/stage-core.mjs`); every product install ships it, desktop and remote
 //! alike, so a missing manifest is as much a startup error as a broken one.
+//!
+//! `ortLibrary` is the one place the daemon looks for the ONNX Runtime shared library the
+//! embedding and effort-judge models load ([`resolve_ort_library`]): the same file Node's
+//! `onnxruntime-node` binding loads. A manifest without it describes an install that has no ONNX
+//! Runtime (macOS x64); one that names a file that is not there is a startup error.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -37,6 +43,8 @@ pub enum JsRuntimeError {
     MissingProgram { program: PathBuf, manifest: PathBuf },
     #[error("the JS package root {} named by {} does not hold src/skill-script-entry.mjs", .root.display(), .manifest.display())]
     MissingPackage { root: PathBuf, manifest: PathBuf },
+    #[error("the ONNX Runtime library {} named by {} does not exist", .library.display(), .manifest.display())]
+    MissingOrtLibrary { library: PathBuf, manifest: PathBuf },
 }
 
 #[derive(Deserialize)]
@@ -46,18 +54,13 @@ struct Manifest {
     package_root: String,
     #[serde(default)]
     electron: bool,
+    #[serde(default)]
+    ort_library: Option<String>,
 }
 
-/// The runtime of the install `exe` belongs to; `path` is the `PATH` a bare program name is
-/// searched on. A missing manifest, or one that names something missing, is an error.
-///
-/// Probes the file system: it runs in the lane job of [`resolve_current_on`], or before any
-/// runtime exists ([`resolve_current`]).
-#[allow(
-    clippy::disallowed_methods,
-    reason = "runs in the lane job of `resolve_current_on`, or before any runtime exists in `resolve_current`"
-)]
-pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeError> {
+/// The manifest beside `exe`, with its path and directory.
+#[allow(clippy::disallowed_methods, reason = "runs in the callers' lane job, or before any runtime exists")]
+fn read_manifest(exe: &Path) -> Result<(PathBuf, PathBuf, Manifest), JsRuntimeError> {
     let Some(dir) = exe.parent() else {
         return Err(JsRuntimeError::NotInstalled { manifest: PathBuf::from(MANIFEST_FILE) });
     };
@@ -71,6 +74,20 @@ pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeE
     };
     let manifest: Manifest =
         serde_json::from_str(&text).map_err(|source| JsRuntimeError::Parse { path: manifest_path.clone(), source })?;
+    Ok((dir.to_path_buf(), manifest_path, manifest))
+}
+
+/// The runtime of the install `exe` belongs to; `path` is the `PATH` a bare program name is
+/// searched on. A missing manifest, or one that names something missing, is an error.
+///
+/// Probes the file system: it runs in the lane job of [`resolve_current_on`], or before any
+/// runtime exists ([`resolve_current`]).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "runs in the lane job of `resolve_current_on`, or before any runtime exists in `resolve_current`"
+)]
+pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeError> {
+    let (dir, manifest_path, manifest) = read_manifest(exe)?;
     let program = if manifest.program.contains(['/', '\\']) {
         dir.join(&manifest.program)
     } else {
@@ -86,19 +103,57 @@ pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeE
     Ok(JsRuntime { program, package_root, electron: manifest.electron })
 }
 
+/// The ONNX Runtime library of the install `exe` belongs to: the manifest's `ortLibrary`, which
+/// must exist. `None` when the manifest names none (an install without ONNX Runtime).
+///
+/// Probes the file system, like [`resolve`].
+#[allow(clippy::disallowed_methods, reason = "runs in the lane job of `resolve_ort_library_current_on`")]
+pub fn resolve_ort_library(exe: &Path) -> Result<Option<PathBuf>, JsRuntimeError> {
+    let (dir, manifest_path, manifest) = read_manifest(exe)?;
+    let Some(library) = manifest.ort_library else {
+        return Ok(None);
+    };
+    let library = dir.join(library);
+    if !library.is_file() {
+        return Err(JsRuntimeError::MissingOrtLibrary { library, manifest: manifest_path });
+    }
+    Ok(Some(library))
+}
+
+fn current_exe() -> Result<PathBuf, JsRuntimeError> {
+    std::env::current_exe().map_err(|source| JsRuntimeError::Read { path: PathBuf::from("<current exe>"), source })
+}
+
 /// The runtime of the running binary's install, for a caller that has no runtime yet.
 pub fn resolve_current() -> Result<JsRuntime, JsRuntimeError> {
-    let exe = std::env::current_exe().map_err(|source| JsRuntimeError::Read { path: PathBuf::from("<current exe>"), source })?;
-    resolve(&exe, std::env::var_os("PATH").as_deref())
+    resolve(&current_exe()?, std::env::var_os("PATH").as_deref())
+}
+
+/// [`resolve_ort_library`] of the running binary's install.
+pub fn resolve_ort_library_current() -> Result<Option<PathBuf>, JsRuntimeError> {
+    resolve_ort_library(&current_exe()?)
+}
+
+/// One of the resolvers above as a job of `lane`, for a caller on the async runtime.
+async fn on_lane<T: Send + 'static>(
+    lane: impl LaneToken,
+    resolver: fn() -> Result<T, JsRuntimeError>,
+) -> Result<T, JsRuntimeError> {
+    let lane_failed = |source| JsRuntimeError::Read { path: PathBuf::from("<lane job>"), source };
+    let job = lane
+        .submit(&CancellationToken::new(), move |_lane| resolver())
+        .map_err(|_| lane_failed(std::io::Error::other("the lane is full")))?;
+    job.await.map_err(|dropped| lane_failed(std::io::Error::other(dropped)))?
 }
 
 /// [`resolve_current`] as a job of `lane`, for a caller on the async runtime.
 pub async fn resolve_current_on(lane: impl LaneToken) -> Result<JsRuntime, JsRuntimeError> {
-    let lane_failed = |source| JsRuntimeError::Read { path: PathBuf::from("<lane job>"), source };
-    let job = lane
-        .submit(&CancellationToken::new(), |_lane| resolve_current())
-        .map_err(|_| lane_failed(std::io::Error::other("the lane is full")))?;
-    job.await.map_err(|dropped| lane_failed(std::io::Error::other(dropped)))?
+    on_lane(lane, resolve_current).await
+}
+
+/// [`resolve_ort_library_current`] as a job of `lane`, for a caller on the async runtime.
+pub async fn resolve_ort_library_current_on(lane: impl LaneToken) -> Result<Option<PathBuf>, JsRuntimeError> {
+    on_lane(lane, resolve_ort_library_current).await
 }
 
 /// A package root inside an `.asar` archive is readable only by Electron, so only the archive
@@ -193,6 +248,19 @@ mod tests {
         assert!(!js.electron);
         assert_eq!(js.program, bin.join(name));
         assert!(matches!(resolve(&exe, None), Err(JsRuntimeError::MissingProgram { .. })));
+    }
+
+    #[test]
+    fn the_ort_library_is_the_manifests_file_or_an_error() {
+        let (root, exe) = install(r#"{"program":"x","packageRoot":"../js"}"#);
+        assert_eq!(resolve_ort_library(&exe).unwrap(), None);
+
+        let manifest = r#"{"program":"x","packageRoot":"../js","ortLibrary":"../ort/onnxruntime.dll"}"#;
+        std::fs::write(root.path().join("core").join(MANIFEST_FILE), manifest).unwrap();
+        assert!(matches!(resolve_ort_library(&exe), Err(JsRuntimeError::MissingOrtLibrary { .. })));
+        std::fs::create_dir_all(root.path().join("ort")).unwrap();
+        std::fs::write(root.path().join("ort/onnxruntime.dll"), "").unwrap();
+        assert_eq!(resolve_ort_library(&exe).unwrap(), Some(root.path().join("core").join("../ort/onnxruntime.dll")));
     }
 
     #[test]

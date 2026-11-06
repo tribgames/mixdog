@@ -588,6 +588,9 @@ mod tests {
             }
             Ok(())
         }
+        async fn patch_header_if(&self, thread: &ThreadId, _: Map<String, Value>, set: Map<String, Value>, unset: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+            self.patch_header(thread, set, unset).await.map(|()| None)
+        }
         async fn publish(&self, _: &ThreadId, _: crate::session::Section) -> Result<(), PortError> {
             Ok(())
         }

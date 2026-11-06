@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::effort::RejectionEntry;
 use mixdog_ai::providers::custom::listing::{manual_rows, public_rows};
@@ -78,13 +79,14 @@ impl ProcessLadder {
     }
 }
 
+#[async_trait]
 impl LadderSources for ProcessLadder {
     fn cached_row(&self, provider: &str, model: &str) -> Option<Map<String, Value>> {
         cached_row(&self.catalog, &self.config, provider, model)
     }
 
-    fn rejected(&self, provider: &str, model_id: &str) -> Option<RejectionEntry> {
-        self.rejections.entry(provider, model_id)
+    async fn rejected(&self, provider: &str, model_id: &str) -> Option<RejectionEntry> {
+        self.rejections.entry(provider, model_id).await
     }
 
     fn custom_config(&self, provider: &str) -> Option<(Protocol, String)> {

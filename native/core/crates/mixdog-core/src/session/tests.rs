@@ -1036,7 +1036,8 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
     ));
     assert!(!data.path().join("sessions").join(id.as_str()).exists(), "no fork reads it: its files are gone");
 
-    // The hook order is the golden's (the turn review's hook is not recorded here).
+    // The hook order is the golden's (the turn review's hook is not recorded here; Node's
+    // usage-metrics, browser and compaction-capture hooks have no Rust state).
     let golden: Vec<String> = serde_json::from_str(include_str!("delete_goldens/purge_order.json")).unwrap();
     let name = |path: &str| match path.rsplit('/').next().unwrap() {
         "tool-result-offload.mjs:506" => "toolResultOffload",
@@ -1054,8 +1055,9 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
         other => panic!("{other}"),
     };
     let s = id.as_str();
-    let mut expected = vec![format!("forgetLeadSession:{s}"), format!("releaseSessionWork:{s}:desktop-session-delete")];
-    for hook in golden.iter().map(|path| name(path)).filter(|hook| *hook != "turnReview").chain(["compactionArchive", "scratchDir"]) {
+    let mut expected = vec![format!("releaseSessionWork:{s}:desktop-session-delete")];
+    let unrecorded = ["turnReview", "usageMetrics", "browserSession", "compactionCapture"];
+    for hook in golden.iter().map(|path| name(path)).filter(|hook| !unrecorded.contains(hook)).chain(["compactionArchive", "scratchDir"]) {
         expected.push(format!("{hook}:{s}:/ws"));
     }
     expected.extend([format!("thread/deleted:{s}"), format!("forgetSessionSearch:{s}"), format!("releaseDeletedWorktree:{s}")]);
@@ -1116,7 +1118,6 @@ async fn a_deleted_base_stays_readable_by_its_fork() {
 /// nothing; an archived, unfavored, idle and unchanged session is deleted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_session() {
-    use super::delete::SidebarState;
     let data = tempfile::tempdir().expect("data dir");
     let store = real_store(data.path()).await;
     let rig = Rig::new();
@@ -1147,23 +1148,32 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
             }
         }
     };
+    // The desktop's archive and favorite marks are the session's header fields.
     let state = |archived: bool, favorite: bool| {
-        let mut sidebar = SidebarState::default();
-        if archived {
-            sidebar.archived.insert(id.as_str().to_owned());
+        let handle = handle.clone();
+        async move {
+            let (mut set, mut unset) = (serde_json::Map::new(), Vec::new());
+            for (key, on) in [("archivedAt", archived), ("favoriteAt", favorite)] {
+                if on {
+                    set.insert(key.into(), json!(1_793_306_570_000_i64));
+                } else {
+                    unset.push(key);
+                }
+            }
+            let params = json!({ "threadId": handle.id, "set": set, "unset": unset });
+            handle
+                .request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") })
+                .await
+                .expect("patch");
         }
-        if favorite {
-            sidebar.favorites.insert(id.as_str().to_owned());
-        }
-        *lock(&rig.deletes.1) = Some(sidebar);
     };
     let refused = |reason: &str| json!({ "deleted": false, "reason": reason });
-    assert_eq!(ask(json!({})).await, refused("not-archived"), "no sidebar state");
-    state(false, false);
+    assert_eq!(ask(json!({})).await, refused("not-archived"), "never archived");
+    state(false, true).await;
     assert_eq!(ask(json!({})).await, refused("not-archived"));
-    state(true, true);
+    state(true, true).await;
     assert_eq!(ask(json!({})).await, refused("favorite"));
-    state(true, false);
+    state(true, false).await;
     turn(&handle, "work", "op-1").await;
     assert_eq!(ask(json!({})).await, refused("busy"));
     release.notify_one();
@@ -1188,12 +1198,11 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     eventually(|| lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
     let steps = lock(&rig.deletes.0).clone();
     assert_eq!(steps[0], format!("toolResultOffload:{s}:/ws"), "the purge hooks run first");
-    let tail: Vec<&str> = steps[steps.len() - 5..].iter().map(String::as_str).collect();
+    let tail: Vec<&str> = steps[steps.len() - 4..].iter().map(String::as_str).collect();
     assert_eq!(
         tail,
         [
             format!("thread/deleted:{s}"),
-            format!("forgetLeadSession:{s}"),
             format!("releaseSessionWork:{s}:desktop-auto-delete"),
             format!("forgetSessionSearch:{s}"),
             format!("releaseDeletedWorktree:{s}"),

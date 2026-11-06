@@ -20,7 +20,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use mixdog_js::{json_stringify, js_trim_start, number_to_string};
+use mixdog_js::{json_stringify, js_trim_start, number_to_string, value_to_string};
 use serde_json::{Map, Value};
 
 use crate::memory::session_search::ingest::SensitiveValues;
@@ -283,10 +283,16 @@ fn redact_text_or_json(store: &SensitiveStore, session: &str, text: &str) -> Str
     store.redact_text(session, text)
 }
 
-/// `isAttachmentReference`: `/^[a-f0-9]{64}$/` over `String(attachmentRef || '')`; a reference
-/// is an encoding, never text.
+/// `isAttachmentReference`: `/^[a-f0-9]{64}$/` over `String(value.attachmentRef || '')` (a falsy
+/// reference is the empty text, any other value its JS string form: an array of one hash spells
+/// it); a reference is an encoding, never text.
 fn is_attachment_reference(part: &Map<String, Value>) -> bool {
-    part.get("attachmentRef").and_then(Value::as_str).is_some_and(|r| r.len() == 64 && r.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    let spelled = match part.get("attachmentRef") {
+        None | Some(Value::Null | Value::Bool(false)) => String::new(),
+        Some(Value::Number(n)) if n.as_f64() == Some(0.0) => String::new(),
+        Some(other) => value_to_string(other),
+    };
+    spelled.len() == 64 && spelled.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 fn map_part_text(store: &SensitiveStore, session: &str, part: &Value) -> Value {

@@ -14,6 +14,7 @@
 
 mod agent_routes;
 mod agent_store;
+mod auto_effort;
 mod browser_permissions;
 mod network_proxy_store;
 pub mod patch;
@@ -26,6 +27,10 @@ mod schema;
 mod seams;
 mod service;
 
+pub use auto_effort::{
+    AutoEffortDecision, ConfigAutoEffort, EffortConfiguration, EffortDecisionLog, EffortDiagnostics, JudgeAnswer, RegistryConfiguration, TurnAutoEffort,
+    TurnAutoEffortInput, TurnJudge, TurnJudgeInput,
+};
 pub use run_seams::{ConfigRunSeams, EnvReader};
 pub(crate) use run_seams::token_calibration;
 pub use seams::ConfigFeatureGate;

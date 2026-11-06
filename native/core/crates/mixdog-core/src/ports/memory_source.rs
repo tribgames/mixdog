@@ -110,6 +110,9 @@ mod tests {
         async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
             Ok(())
         }
+        async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+            Ok(None)
+        }
         async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
             Ok(())
         }

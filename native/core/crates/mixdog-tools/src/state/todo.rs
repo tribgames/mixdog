@@ -433,14 +433,11 @@ pub trait TodoStore: Send + Sync {
     /// An `ask_user` question left unanswered: the turn may end waiting on the user.
     fn note_user_wait(&self, thread: &ThreadId);
 
-    /// Whether the thread's current turn waits on the user (`userWaits.has`). A store that keeps
-    /// no wait answers no.
-    fn user_waiting(&self, _thread: &ThreadId) -> bool {
-        false
-    }
+    /// Whether the thread's current turn waits on the user (`userWaits.has`).
+    fn user_waiting(&self, thread: &ThreadId) -> bool;
 
     /// A turn of the thread starts: its wait on the user ends (`beginTodoTurn`).
-    fn turn_started(&self, _thread: &ThreadId) {}
+    fn turn_started(&self, thread: &ThreadId);
 }
 
 pub struct TodoTool {

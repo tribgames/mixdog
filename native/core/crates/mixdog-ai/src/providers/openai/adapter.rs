@@ -246,11 +246,6 @@ impl OpenAiAdapter {
         self
     }
 
-    /// The session ended: its parked sockets and transport state go.
-    pub fn release_session(&self, session: &str) {
-        self.pool.release_session(session);
-    }
-
     fn authorize(&self, mut wire: WireRequest, credential: &Credential) -> WireRequest {
         wire.headers
             .insert(0, ("Authorization".into(), format!("Bearer {}", credential.bearer)));
@@ -446,6 +441,11 @@ impl ProviderAdapter for OpenAiAdapter {
 
     fn models(&self) -> Option<&dyn ModelListing> {
         Some(&self.models)
+    }
+
+    /// The session ended: its parked sockets and transport state go.
+    fn release_session(&self, session_id: &str) {
+        self.pool.release_session(session_id);
     }
 
     /// One attempt. On a WebSocket codec in `auto` mode the attempt may move

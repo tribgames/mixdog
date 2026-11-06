@@ -210,6 +210,8 @@ pub struct AccountStore {
     on_selection_change: Option<SelectionHook>,
     /// The service clock: stored cooldowns and rotation waits read this one.
     clock: Arc<dyn Pace>,
+    /// A remote-mode server holds no model credentials: every credential file reads as absent.
+    remote_client: bool,
 }
 
 impl AccountStore {
@@ -219,7 +221,14 @@ impl AccountStore {
             io,
             on_selection_change: None,
             clock: Arc::new(SystemPace),
+            remote_client: false,
         }
+    }
+
+    /// The store of a server that holds no model credentials when `on`.
+    pub fn remote_client(mut self, on: bool) -> Self {
+        self.remote_client = on;
+        self
     }
 
     /// Replaces the system clock (a rotation built over a [`Pace`] installs its own).
@@ -265,7 +274,7 @@ impl AccountStore {
             None if provider == "anthropic-oauth" => self.dir.join("anthropic-oauth-credentials.json"),
             None => self.dir.join(format!("{provider}.json")),
         };
-        Ok(CredentialFile::new(path, self.io))
+        Ok(CredentialFile::new(path, self.io).remote_client(self.remote_client))
     }
 
     /// `provider`'s roster, normalized; empty when it has none.

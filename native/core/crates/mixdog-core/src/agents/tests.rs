@@ -244,8 +244,9 @@ async fn contact_ids_answer_nodes_contact_rule_from_the_definitions() {
         }),
     );
     let greeted = HashMap::from([("dan".to_owned(), true)]);
+    // The shipped roster is another folder: a user copy in the shipped folder reads as shipped.
     let agents = Arc::new(AgentDefinitions::new(
-        dir.path(),
+        dir.path().join("shipped"),
         dir.path(),
         tokens.interactive_io,
         AgentRoutes::new(config, dir.path()),
@@ -254,14 +255,38 @@ async fn contact_ids_answer_nodes_contact_rule_from_the_definitions() {
         dir.path().join("task"),
     ));
     let contacts = ContactIds::new(agents);
-    assert!(!contacts.is_contact_bot("ann"), "nothing is known before the first read");
-    contacts.refresh().await.unwrap();
-    let answers: Vec<_> = ["ann", " ANN ", "cat", "dan", "bob", "worker", "lead", "maintainer", "nobody", ""].iter().map(|id| contacts.is_contact_bot(id)).collect();
+    let mut answers = Vec::new();
+    for id in ["ann", " ANN ", "cat", "dan", "bob", "worker", "lead", "maintainer", "nobody", ""] {
+        answers.push(contacts.is_contact_bot(id).await);
+    }
     assert_eq!(answers, [true, true, true, true, false, false, false, false, false, false]);
+    // Every call reads the definition afresh: a change shows at once, with no refresh.
     std::fs::write(dir.path().join("agents/bob/AGENT.md"), "---\nkind: bot\n---\nBody\n").unwrap();
-    assert!(!contacts.is_contact_bot("bob"), "a change shows at the next refresh");
-    contacts.refresh().await.unwrap();
-    assert!(contacts.is_contact_bot("bob"));
+    assert!(contacts.is_contact_bot("bob").await);
+    std::fs::write(dir.path().join("agents/ann/AGENT.md"), "---\nkind: agent\n---\nBody\n").unwrap();
+    assert!(!contacts.is_contact_bot("ann").await);
+}
+
+/// `readAgentDefinitionKind` reads the front matter alone: a definition with `kind: bot` and no
+/// body is still a contact, though the loader skips an empty body.
+#[tokio::test]
+async fn a_kind_only_definition_with_no_body_is_a_contact() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    write_files(dir.path(), &json!({ "agents/eve/AGENT.md": "---\nkind: bot\n---\n" }));
+    let agents = Arc::new(AgentDefinitions::new(
+        dir.path().join("shipped"),
+        dir.path(),
+        tokens.interactive_io,
+        AgentRoutes::new(config, dir.path()),
+        Arc::new(Evidence { greeted: HashMap::new(), chatted: HashMap::new(), owns: false }),
+        Arc::new(|| Value::Null),
+        dir.path().join("task"),
+    ));
+    assert!(agents.load("eve").await.unwrap().is_none(), "the loader needs a body");
+    assert!(ContactIds::new(agents).is_contact_bot("eve").await);
 }
 
 struct NoEffects;

@@ -118,6 +118,7 @@ use crate::goal::js::Goal;
 use super::run::ModelContext;
 use super::user_facts::RowFacts;
 use super::run::RunPort;
+use super::run::DrainRequest;
 use super::run::DrainStage;
 use super::run::SteerInput;
 use super::run::within_priority;
@@ -220,6 +221,14 @@ pub(crate) enum JobDone {
     GoalArchived(String),
     /// `shouldRunGoalContinuation`'s reads for a dequeued Goal entry (`None`: the call failed).
     GoalEntryChecked { entry: Value, seen: Option<GoalCheck> },
+    /// A drain's reads for the Goal entries it would take: the drain goes on with them.
+    SteerGoalsChecked {
+        turn: TurnId,
+        request: DrainRequest,
+        reply: oneshot::Sender<Vec<SteerInput>>,
+        checked: std::collections::HashMap<String, bool>,
+        seen: Vec<(String, Value, Option<GoalCheck>)>,
+    },
     /// `goalControl`'s answer for the request that asked.
     GoalControlled { op: Option<OpId>, tx: Waiter, result: Result<Value, crate::goal::GoalError> },
     /// A run's committed row with its facts read.
@@ -231,6 +240,8 @@ pub(crate) enum JobDone {
     },
     /// A starting turn's input row with its facts read.
     InputFacts(Box<InputStart>),
+    /// The Goal the runtime shows, read for the pending reminder the starting turn carries.
+    ReminderGoal(Box<InputStart>, Option<Goal>),
     /// The quota-failed turn has nothing a resume could replay.
     QuotaUnresumable(TurnId),
 }
@@ -269,6 +280,8 @@ pub(crate) enum Init {
 
 struct RunSlot {
     turn: TurnId,
+    /// The pending Goal reminder's revision the turn carries.
+    goal_reminder: Option<u64>,
     /// The id of the run's input row.
     input_item: mixdog_core_api::ids::ItemId,
     /// An automatic Goal turn (`promptSource === 'goal-continuation'`).
@@ -763,13 +776,29 @@ impl SessionActor {
             }
             JobDone::GoalSeen(None) => {}
             JobDone::CommitFacts { turn, item, facts, ack } => self.commit_with_facts(turn, item, facts, ack),
-            JobDone::InputFacts(start) => self.start_run_read(*start),
+            JobDone::InputFacts(start) => {
+                // `snapshotPendingGoalReminder` reads the Goal at request preparation, after the
+                // earlier Goal calls of this thread.
+                let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+                self.goal_call(Box::pin(async move {
+                    let goal = goals.goal_status(&thread).await.ok().flatten();
+                    JobDone::ReminderGoal(start, goal)
+                }));
+            }
+            JobDone::ReminderGoal(start, goal) => self.start_run_read(*start, goal),
             JobDone::QuotaUnresumable(turn) => {
                 let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
                 self.show_live(turn, item, None);
             }
             JobDone::GoalDecision(decision) => self.goal_decision(decision),
             JobDone::GoalEntryChecked { entry, seen } => self.goal_entry_checked(entry, seen),
+            JobDone::SteerGoalsChecked { turn, request, reply, mut checked, seen } => {
+                for (qid, entry, read) in seen {
+                    let due = self.goal_due(&entry, read);
+                    checked.insert(qid, due);
+                }
+                self.take_steers(turn, request, reply, checked);
+            }
             JobDone::GoalControlled { op, tx, result } => self.goal_controlled(op, tx, result),
             JobDone::GoalArchived(id) => {
                 // `settle`: the mask lifts and the lane shows the record as it now is.
@@ -825,24 +854,27 @@ impl SessionActor {
             .filter(|q| super::goal_lane::is_goal_entry(&q.entry))
             .map(|q| (q.qid.clone(), q.entry.clone()))
             .collect();
-        let (mut removed, mut renewed) = (0, Vec::new());
+        let mut removed = 0;
         for (qid, entry) in queued {
             if let Some(text) = super::goal_lane::kept_closeout_text(&entry, keep) {
                 if entry.get("message").and_then(Value::as_str) != Some(text.as_str()) {
-                    // The queue holds no in-place edit of an entry: the closeout is queued again
-                    // with the new text.
+                    // `entry.content = goalDeadlineReached(..)`: the entry takes the text where
+                    // it stands.
                     let mut entry = entry;
                     entry["message"] = Value::String(text);
-                    renewed.push(entry);
-                    self.accept_record(dequeue(&qid), Class::Control, Display::None, Vec::new(), Vec::new());
+                    let record = Record::Queue(QueueRecord {
+                        qid: id(&qid),
+                        action: QueueAction::Update,
+                        reason: None,
+                        op: None,
+                        entry: Some(Slot::Inline(entry)),
+                    });
+                    self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
                 }
                 continue;
             }
             self.accept_record(dequeue(&qid), Class::Control, Display::None, Vec::new(), Vec::new());
             removed += 1;
-        }
-        for entry in renewed {
-            self.enqueue_goal_entry(entry);
         }
         removed
     }
@@ -1143,7 +1175,8 @@ impl SessionActor {
                         }
                     }
                 }
-                Record::Queue(_) => {
+                // An entry edited where it stands changes no row of the queue.
+                Record::Queue(queue) if queue.action != QueueAction::Update => {
                     let _ = queue_before;
                     notes.push(Note::new(
                         "thread/queue/changed",
@@ -1553,6 +1586,13 @@ impl SessionActor {
         // The next turn waits for the settlement, as Node's queue drains after `runTurn` returns.
         self.settling = true;
         self.goal_call(Box::pin(async move { JobDone::GoalSettled(goals.turn_settled(&thread, detail).await.ok()) }));
+        // `acknowledgePendingGoalReminder`: only an accepted turn clears the marker it carried.
+        if let (RunOutcome::Completed(_), Some(revision)) = (&outcome, slot.goal_reminder)
+            && let Some(change) = super::goal_reminder::acknowledge(&self.projected.header, revision, self.deps.clock.now_ms())
+        {
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
+            self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
+        }
         if !slot.start_failed {
             let (phase, detail) = match outcome {
                 RunOutcome::Completed(_) => (RunPhase::Completed, None),
@@ -2013,80 +2053,151 @@ impl SessionActor {
                 }
                 self.request_approval(turn, ask, reply);
             }
-            ProducerMsg::TakeSteers {
-                turn,
-                request,
-                reply,
-            } => {
-                if !self.active(&turn) {
-                    let _ = reply.send(Vec::new());
+            ProducerMsg::TakeSteers { turn, request, reply } => {
+                self.take_steers(turn, request, reply, std::collections::HashMap::new());
+            }
+        }
+    }
+
+    /// `drainPendingSteering` for a run's boundary. A queued Goal entry is delivered only while
+    /// its Goal still wants it (`canDeliverSteeringEntry`); the check reads the Goal runtime, so
+    /// the drain waits for it and comes back here with `checked` (a Goal entry's queue id -> due).
+    fn take_steers(
+        &mut self,
+        turn: TurnId,
+        request: DrainRequest,
+        reply: oneshot::Sender<Vec<SteerInput>>,
+        checked: std::collections::HashMap<String, bool>,
+    ) {
+        if !self.active(&turn) {
+            let _ = reply.send(Vec::new());
+            return;
+        }
+        let max_priority = request.max_priority;
+        let mut taken: Vec<QueuedId> = Vec::new();
+        let mut dropped: Vec<QueuedId> = Vec::new();
+        let mut out: Vec<SteerInput> = Vec::new();
+        for qid in &self.steer_marked {
+            if let Some(q) = self.acked.queue.iter().find(|q| {
+                q.qid == qid.as_str() && within_priority(&q.entry, max_priority)
+            }) {
+                taken.push(qid.clone());
+                out.push(pending::steered(qid.clone(), &q.entry));
+            }
+        }
+        self.steer_marked.retain(|qid| !taken.contains(qid));
+        // `if (turn.session?.heldRoute) return out;` (`ask-turn-steering-drain.mjs:48`).
+        if !self.route_held() {
+            // The rest of the queue: not steered, not claimed by a wake, within the
+            // drain's priority (entries beyond it wait for the turn to end).
+            let rest: Vec<&super::state::Queued> = self
+                .projected
+                .queue
+                .iter()
+                .filter(|q| {
+                    !taken.iter().any(|t| t.as_str() == q.qid)
+                        && !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
+                        && !self.wake_tail.contains(&q.qid)
+                        && within_priority(&q.entry, max_priority)
+                })
+                .collect();
+            // `stage === 'terminal' || pendingQueueHoldsOnlyNotifications(sessionId)`.
+            let only_notifications = !rest.is_empty()
+                && rest.iter().all(|q| completions::is_notification(&q.entry));
+            if request.stage == DrainStage::Terminal || only_notifications {
+                // Durable entries only: memory never runs ahead of disk.
+                let durable: Vec<(QueuedId, Value)> = rest
+                    .iter()
+                    .filter_map(|q| {
+                        self.acked.queue.iter().find(|a| a.qid == q.qid).map(|a| {
+                            (QueuedId::from(a.qid.as_str()), a.entry.clone())
+                        })
+                    })
+                    .collect();
+                let unchecked: Vec<(String, Value)> = durable
+                    .iter()
+                    .filter(|(qid, entry)| super::goal_lane::is_goal_entry(entry) && !checked.contains_key(qid.as_str()))
+                    .map(|(qid, entry)| (qid.as_str().to_owned(), entry.clone()))
+                    .collect();
+                if !unchecked.is_empty() {
+                    self.check_steer_goals(turn, request, reply, checked, unchecked);
                     return;
                 }
-                let max_priority = request.max_priority;
-                let mut taken: Vec<QueuedId> = Vec::new();
-                let mut out: Vec<SteerInput> = Vec::new();
-                for qid in &self.steer_marked {
-                    if let Some(q) = self.acked.queue.iter().find(|q| {
-                        q.qid == qid.as_str() && within_priority(&q.entry, max_priority)
-                    }) {
-                        taken.push(qid.clone());
-                        out.push(pending::steered(qid.clone(), &q.entry));
-                    }
+                // A Goal entry its Goal no longer wants is dequeued and never delivered.
+                let (deliver, gone): (Vec<_>, Vec<_>) = durable
+                    .into_iter()
+                    .partition(|(qid, entry)| !super::goal_lane::is_goal_entry(entry) || checked.get(qid.as_str()) == Some(&true));
+                dropped.extend(gone.into_iter().map(|(qid, _)| qid));
+                let groups = pending::groups(&deliver);
+                // Nothing that carries content is released back to the queue.
+                if !groups.is_empty() {
+                    taken.extend(deliver.into_iter().map(|(qid, _)| qid));
+                    out.extend(groups);
                 }
-                self.steer_marked.retain(|qid| !taken.contains(qid));
-                // `if (turn.session?.heldRoute) return out;` (`ask-turn-steering-drain.mjs:48`).
-                if !self.route_held() {
-                    // The rest of the queue: not steered, not claimed by a wake, within the
-                    // drain's priority (entries beyond it wait for the turn to end).
-                    let rest: Vec<&super::state::Queued> = self
-                        .projected
-                        .queue
-                        .iter()
-                        .filter(|q| {
-                            !taken.iter().any(|t| t.as_str() == q.qid)
-                                && !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
-                                && !self.wake_tail.contains(&q.qid)
-                                && within_priority(&q.entry, max_priority)
-                        })
-                        .collect();
-                    // `stage === 'terminal' || pendingQueueHoldsOnlyNotifications(sessionId)`.
-                    let only_notifications = !rest.is_empty()
-                        && rest.iter().all(|q| completions::is_notification(&q.entry));
-                    if request.stage == DrainStage::Terminal || only_notifications {
-                        // Durable entries only: memory never runs ahead of disk.
-                        let durable: Vec<(QueuedId, Value)> = rest
-                            .iter()
-                            .filter_map(|q| {
-                                self.acked.queue.iter().find(|a| a.qid == q.qid).map(|a| {
-                                    (QueuedId::from(a.qid.as_str()), a.entry.clone())
-                                })
-                            })
-                            .collect();
-                        let groups = pending::groups(&durable);
-                        // Nothing that carries content is released back to the queue.
-                        if !groups.is_empty() {
-                            taken.extend(durable.into_iter().map(|(qid, _)| qid));
-                            out.extend(groups);
-                        }
-                    }
+            }
+        }
+        for qid in &taken {
+            // A completion the listener already showed comes back as the turn's row
+            // with no row of its own (`suppressDisplay`); so does a notice the Goal lane queued
+            // for the model alone, which has no execution to name: its queue id stands for it.
+            if let Some(q) = self.acked.queue.iter().find(|q| q.qid == qid.as_str()) {
+                if let Some(execution) = suppressed_execution(&q.entry) {
+                    self.suppressed.insert(execution);
+                } else if q.entry.get("suppressDisplay") == Some(&Value::Bool(true)) {
+                    self.suppressed.insert(qid.as_str().to_owned());
                 }
-                for qid in &taken {
-                    // A completion the listener already showed comes back as the turn's row
-                    // with no row of its own (`suppressDisplay`).
-                    if let Some(q) = self.acked.queue.iter().find(|q| q.qid == qid.as_str())
-                        && let Some(execution) = suppressed_execution(&q.entry)
-                    {
-                        self.suppressed.insert(execution);
-                    }
-                    self.accept_record(
-                        dequeue(qid.as_str()),
-                        Class::Control,
-                        Display::None,
-                        Vec::new(),
-                        Vec::new(),
-                    );
-                }
-                let _ = reply.send(out);
+            }
+        }
+        for qid in taken.iter().chain(&dropped) {
+            self.accept_record(
+                dequeue(qid.as_str()),
+                Class::Control,
+                Display::None,
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+        let _ = reply.send(out);
+    }
+
+    /// `canDeliverSteeringEntry`'s reads for the Goal entries a drain would take: the runtime's
+    /// answer for each, then the drain goes on.
+    fn check_steer_goals(
+        &mut self,
+        turn: TurnId,
+        request: DrainRequest,
+        reply: oneshot::Sender<Vec<SteerInput>>,
+        checked: std::collections::HashMap<String, bool>,
+        entries: Vec<(String, Value)>,
+    ) {
+        let (deps, thread) = (self.deps.clone(), self.id.clone());
+        self.goal_call(Box::pin(async move {
+            let mut seen = Vec::new();
+            for (qid, entry) in entries {
+                let read = if super::goal_lane::is_closeout(&entry) {
+                    deps.goals.goal_status(&thread).await.ok().map(GoalCheck::Status)
+                } else {
+                    let input = super::goal_lane::continuation_input(&*deps.todos, &*deps.work, &deps.cycles, &thread).await;
+                    deps.goals.continuation(&thread, input).await.ok().map(GoalCheck::Decision)
+                };
+                seen.push((qid, entry, read));
+            }
+            JobDone::SteerGoalsChecked { turn, request, reply, checked, seen }
+        }));
+    }
+
+    /// The runtime's answer for a Goal entry: whether it is still due (`shouldRunGoalContinuation`).
+    /// The lane shows the Goal it read.
+    fn goal_due(&mut self, entry: &Value, seen: Option<GoalCheck>) -> bool {
+        match seen {
+            None => false,
+            Some(GoalCheck::Status(raw)) => {
+                let goal = self.publish_goal(raw);
+                super::goal_lane::closeout_still_due(entry, goal.as_ref())
+            }
+            Some(GoalCheck::Decision(decision)) => {
+                self.publish_goal(decision.goal.clone());
+                super::goal_lane::continuation_still_due(entry, &decision)
             }
         }
     }
@@ -2132,11 +2243,19 @@ impl SessionActor {
     /// The live display of a user row: the row of a completion the listener showed is durable
     /// but shows no row of its own.
     fn row_display(&mut self, role: Option<&str>, body: &Value) -> Display {
-        let execution = (role == Some("user")).then(|| body.pointer("/meta/execution/id").and_then(Value::as_str)).flatten();
-        match execution {
-            Some(execution) if self.suppressed.remove(execution) => Display::Suppressed,
-            _ => Display::None,
+        if role != Some("user") {
+            return Display::None;
         }
+        if let Some(execution) = body.pointer("/meta/execution/id").and_then(Value::as_str)
+            && self.suppressed.remove(execution)
+        {
+            return Display::Suppressed;
+        }
+        // The queue ids a steered row took in: it shows nothing when every one was queued for the
+        // model alone.
+        let ids: Vec<&str> = body.pointer("/meta/submissionIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+        let hidden = ids.iter().filter(|id| self.suppressed.remove(**id)).count();
+        if !ids.is_empty() && hidden == ids.len() { Display::Suppressed } else { Display::None }
     }
 
     /// The row of a run's commit. `facts`: the classification migration writes too, read from the
@@ -2331,6 +2450,14 @@ impl SessionActor {
                 JobDone::GoalControlled { op, tx, result }
             }));
             return Ok(());
+        }
+        // A conditional header patch (`expect`): the read-modify-write of a caller that computed
+        // its change from the header, decided here against the header as projected.
+        if req.method.as_str() == "thread/header/patch" {
+            if let Some(current) = self.header_conflict(&req.params) {
+                let _ = tx.send(Ok(Reply::Value(json!({ "conflict": current }))));
+                return Ok(());
+            }
         }
         let result = match req.method.as_str() {
             "turn/start" => self.turn_start(&req),
@@ -2632,6 +2759,18 @@ impl SessionActor {
         })
     }
 
+    /// The projected values of the keys a patch expects (`expect`: key to the value it was
+    /// computed from, `null` for absent) when any of them has moved; `None` when the patch
+    /// stands. A patch without `expect` always stands.
+    fn header_conflict(&self, params: &Value) -> Option<Value> {
+        let expect = params.get("expect")?.as_object()?;
+        let current: serde_json::Map<String, Value> = expect
+            .keys()
+            .map(|key| (key.clone(), self.projected.header.get(key).cloned().unwrap_or(Value::Null)))
+            .collect();
+        (current != *expect).then_some(Value::Object(current))
+    }
+
     /// `thread/header/patch {set, unset}`: the core's own header writes (held routes, worker
     /// rows), one `meta` record answered once durable. Internal callers only: a connection
     /// never writes header keys directly.
@@ -2917,13 +3056,23 @@ impl SessionActor {
     }
 
     /// [`Self::start_run_with`] once the input row's facts are read.
-    fn start_run_read(&mut self, start: InputStart) {
+    fn start_run_read(&mut self, start: InputStart, shown: Option<Goal>) {
         self.starting = false;
         // A delete closed the thread meanwhile: the turn never starts.
         if self.deleting {
             return;
         }
         let InputStart { input, mut body, facts, op_ref, reply, prompt, wake, agent } = start;
+        let (goal_reminder, change) = super::goal_reminder::snapshot(
+            &self.projected.header,
+            shown,
+            &crate::ports::todos::list_of(&self.projected.header),
+            self.deps.clock.now_ms(),
+        );
+        if !change.set.is_empty() || !change.unset.is_empty() {
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
+            self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
+        }
         let turn = TurnId::from(new_id());
         let mut op_ref = op_ref;
         let value = json!({ "kind": "started", "turnId": turn });
@@ -2992,6 +3141,7 @@ impl SessionActor {
             cancel: cancel.clone(),
             input: input_tx,
             start_failed: false,
+            goal_reminder: goal_reminder.as_ref().map(|reminder| reminder.revision),
             agent,
             _marks: marks,
         });
@@ -3033,6 +3183,7 @@ impl SessionActor {
         self.refresh_surface();
         let future = self.deps.runs.start(RunStart {
             agent_turn,
+            goal_reminder,
             thread: self.id.clone(),
             turn: turn.clone(),
             input,

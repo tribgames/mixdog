@@ -96,6 +96,7 @@ pub(crate) enum Effect {
     ApprovalRequested { aid: String, rid: String },
     ApprovalEnded(String),
     Enqueued(String),
+    Updated(String),
     Dequeued(String),
 }
 
@@ -263,6 +264,7 @@ impl Fold {
                 },
                 Record::Queue(q) => match q.action {
                     QueueAction::Enqueue => Effect::Enqueued(q.qid.as_str().to_owned()),
+                    QueueAction::Update => Effect::Updated(q.qid.as_str().to_owned()),
                     QueueAction::Dequeue => Effect::Dequeued(q.qid.as_str().to_owned()),
                 },
             };
@@ -313,7 +315,7 @@ impl Fold {
                 }
                 self.runs.retain(|r| r.started.ordinal < to);
                 self.approvals.retain(|a| a.requested.ordinal < to);
-                self.queue.retain(|q| q.enqueued.ordinal < to);
+                self.queue.retain(|q| q.enqueued.ordinal < to && q.updated.is_none_or(|u| u.ordinal < to));
             }
             Effect::Compacted => {
                 self.compactions.push(pos);
@@ -325,7 +327,12 @@ impl Fold {
                 self.approvals.push(PendingApproval { aid, rid, requested: pos })
             }
             Effect::ApprovalEnded(aid) => self.approvals.retain(|a| a.aid != aid),
-            Effect::Enqueued(qid) => self.queue.push(QueuedEntry { qid, enqueued: pos }),
+            Effect::Enqueued(qid) => self.queue.push(QueuedEntry { qid, enqueued: pos, updated: None }),
+            Effect::Updated(qid) => {
+                if let Some(entry) = self.queue.iter_mut().find(|q| q.qid == qid) {
+                    entry.updated = Some(pos);
+                }
+            }
             Effect::Dequeued(qid) => self.queue.retain(|q| q.qid != qid),
         }
         self.next_ordinal += 1;

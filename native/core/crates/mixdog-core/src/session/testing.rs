@@ -672,6 +672,12 @@ impl mixdog_tools::state::todo::TodoStore for TestTodos {
     }
 
     fn note_user_wait(&self, _: &ThreadId) {}
+
+    fn user_waiting(&self, _: &ThreadId) -> bool {
+        false
+    }
+
+    fn turn_started(&self, _: &ThreadId) {}
 }
 
 /// Whether a background task is running: every session waits on it while set.
@@ -685,10 +691,9 @@ impl crate::run_host::guards::RunningWork for TestWork {
     }
 }
 
-/// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`;
-/// the second field is the sidebar state the idle delete reads.
+/// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`.
 #[derive(Default)]
-pub(crate) struct Deletes(pub Mutex<Vec<String>>, pub Mutex<Option<super::delete::SidebarState>>);
+pub(crate) struct Deletes(pub Mutex<Vec<String>>);
 
 impl Deletes {
     fn note(&self, step: String) {
@@ -699,17 +704,15 @@ impl Deletes {
 struct Hook(&'static str, Arc<Deletes>);
 
 impl super::delete::PurgeHook for Hook {
-    fn purge(&self, session_id: &str, cwds: &[String]) {
+    fn purge(&self, session_id: &str, cwds: &[String]) -> futures::future::BoxFuture<'static, ()> {
         self.1.note(format!("{}:{session_id}:{}", self.0, cwds.join(",")));
+        Box::pin(std::future::ready(()))
     }
 }
 
 #[async_trait::async_trait]
 impl super::delete::DeleteSeams for Deletes {
-    fn forget_lead_session(&self, session_id: &str) {
-        self.note(format!("forgetLeadSession:{session_id}"));
-    }
-    fn release_session_work(&self, session_id: &str, reason: &str) {
+    async fn release_session_work(&self, session_id: &str, reason: &str) {
         self.note(format!("releaseSessionWork:{session_id}:{reason}"));
     }
     fn forget_session_search(&self, session_id: &str) {
@@ -721,9 +724,6 @@ impl super::delete::DeleteSeams for Deletes {
     fn thread_deleted(&self, thread: &ThreadId) {
         self.note(format!("thread/deleted:{thread}"));
     }
-    async fn sidebar_state(&self) -> Option<super::delete::SidebarState> {
-        lock(&self.1).clone()
-    }
 }
 
 impl Rig {
@@ -731,13 +731,10 @@ impl Rig {
         let hook = |name: &'static str| -> Arc<dyn super::delete::PurgeHook> { Arc::new(Hook(name, self.deletes.clone())) };
         super::delete::PurgeHooks {
             tool_result_offload: hook("toolResultOffload"),
-            usage_metrics: Some(hook("usageMetrics")),
-            browser_session: Some(hook("browserSession")),
             transcripts: hook("transcripts"),
             cache_warm: hook("cacheWarm"),
             read_cache: hook("readCache"),
-            compaction_capture: Some(hook("compactionCapture")),
-            provider_connections: Some(hook("providerConnections")),
+            provider_connections: hook("providerConnections"),
             connector_accounts: hook("connectorAccounts"),
             worker_turns: hook("workerTurns"),
             agent_status: hook("agentStatus"),

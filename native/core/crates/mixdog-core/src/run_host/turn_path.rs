@@ -26,7 +26,12 @@ use mixdog_tools::state::todo::TodoStore;
 
 use super::assemble::SkillParts;
 use super::boot::{build_directory, HostParts};
-use super::compactors::{CompactionWorld, SessionCompactors};
+use super::compaction_world::{CompactionServices, ProcessCompactionWorld};
+use super::compactors::SessionCompactors;
+use super::mcp_seams::{AllowAllActions, HostGateEnv};
+use super::unattended::{RunStamps, UnattendedRunRegistry};
+use crate::agents::{AgentDefinitions, ContactIds};
+use mixdog_mcp::McpHub;
 use super::guards::{RunningWork, UserCycles};
 use super::host_seams::{ConfigSeams, DirectoryParts, SeamParts};
 use super::hop_host::HopFactory;
@@ -61,7 +66,13 @@ pub struct TurnPathParts {
     pub policy: Arc<ToolPolicy>,
     pub connectors: Arc<dyn ConnectorPermissions>,
     pub resolver: Arc<dyn ToolResolver>,
-    pub gate_env: Arc<dyn GateEnv>,
+    /// The unattended runs' stamps (the session record's `run` object, WP-SESSION).
+    pub run_stamps: Arc<dyn RunStamps>,
+    /// The agent definitions the contact-bot rule reads.
+    pub agents: Arc<AgentDefinitions>,
+    pub allow_all: Arc<dyn AllowAllActions>,
+    /// The MCP hub, for the connector account of a call.
+    pub hub: Arc<McpHub>,
     pub blobs: Arc<dyn Blobs + Send + Sync>,
     /// Every registered tool, including `Skill`, `todo` and `load_tool`; the read/edit/patch tools carry the
     /// process's one `ReadState`.
@@ -87,7 +98,7 @@ pub struct TurnPathParts {
     pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps>,
     /// The session side of compaction (summary routes, fork source, media meters, cache tail); SessionCompactors is built
     /// over it (WP-COMPACTION-WORLD).
-    pub compaction: Arc<dyn CompactionWorld>,
+    pub compaction: CompactionServices,
     /// The route hop, built over the directory and the path's registry.
     pub hops: Box<dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory>,
 }
@@ -106,18 +117,25 @@ pub struct TurnPath {
     /// The table `ports::reactions::SessionReactions` records into.
     pub reaction_targets: Arc<ReactionTargets>,
     pub registry: Arc<ProviderRegistry>,
+    /// `markUnattendedRun`: schedule and webhook runs mark themselves here for the length of a run.
+    pub unattended: Arc<UnattendedRunRegistry>,
+    /// The contact-bot snapshot; call `refresh().await` at start and when the agents change.
+    pub contacts: Arc<ContactIds>,
 }
 
 impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
-            tokens, clock, paths, provider_builder, accounting, effort_judge, files, processes, policy, connectors, resolver, gate_env, blobs, tool_pool, mcp,
+            tokens, clock, paths, provider_builder, accounting, effort_judge, files, processes, policy, connectors, resolver, run_stamps, agents, allow_all, hub, blobs, tool_pool, mcp,
             skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compaction, hops,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let registry = Arc::new(ProviderRegistry::new(provider_builder).with_accounting(accounting));
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
         let reaction_targets: Arc<ReactionTargets> = Arc::default();
+        let unattended = UnattendedRunRegistry::new(run_stamps);
+        let contacts = Arc::new(ContactIds::new(agents));
+        let gate_env = Arc::new(HostGateEnv::new(unattended.clone(), contacts.clone(), allow_all, hub));
         let host = HostParts {
             registry: registry.clone(),
             clock: clock.clone(),
@@ -145,8 +163,8 @@ impl TurnPath {
             probes: Arc::new(StartupProbes::new(io, processes)),
             observed: Arc::new(StartupObservations::new(clock)),
         };
-        let compactors = Arc::new(SessionCompactors::new(compaction, host.clock.clone()));
+        let compactors = Arc::new(SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(compaction)), host.clock.clone()));
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
-        Ok(Self { directory, reaction_targets, registry })
+        Ok(Self { directory, reaction_targets, registry, unattended, contacts })
     }
 }

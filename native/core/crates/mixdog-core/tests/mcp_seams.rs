@@ -287,8 +287,9 @@ impl UnattendedRuns for Runs {
 }
 
 struct Contacts;
+#[async_trait::async_trait]
 impl ContactBots for Contacts {
-    fn is_contact_bot(&self, agent_id: &str) -> bool {
+    async fn is_contact_bot(&self, agent_id: &str) -> bool {
         agent_id == "ann"
     }
 }
@@ -349,7 +350,7 @@ async fn the_gate_env_binds_a_connector_call_to_the_hubs_account_choice() {
 
     assert_eq!(env.run_of(&ThreadId::from("sess_task")), Some(run));
     assert_eq!(env.run_of(&ThreadId::from("sess_a")), None);
-    assert!(env.is_contact_bot("ann") && !env.is_contact_bot("bob"));
+    assert!(env.is_contact_bot("ann").await && !env.is_contact_bot("bob").await);
     assert!(env.allow_all_actions());
 }
 

@@ -645,9 +645,11 @@ impl ThreadStore for StoreThreads {
         }
         let mut queue = Vec::new();
         for entry in &fold.queue {
-            let Record::Queue(mut record) = self.frame_at(lane, id, dir, entry.enqueued)? else {
+            let Record::Queue(mut record) = self.frame_at(lane, id, dir, entry.current())? else {
                 return Err(unexpected("queue"));
             };
+            // The window holds the entry as it stands, queued once at its place.
+            record.action = mixdog_store::schema::record::QueueAction::Enqueue;
             if let Some(slot) = &record.entry {
                 record.entry = Some(self.resolve(lane, slot)?);
             }

@@ -114,7 +114,10 @@ struct Session {
 
 #[async_trait]
 impl GateSession for Session {
-    fn facts(&self) -> SessionFacts {
+    fn connector_agent_id(&self) -> String {
+        "mailer".into()
+    }
+    async fn facts(&self) -> SessionFacts {
         SessionFacts {
             agent_id: "mailer".into(),
             acting_bot: Some("mailer".into()),

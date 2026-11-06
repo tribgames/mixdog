@@ -820,6 +820,10 @@ pub trait ProviderAdapter: Send + Sync {
     /// cancelled it. Called by the loop once per group, before any other send; a provider that
     /// accounts sends writes what the group held back. Nothing to do by default.
     async fn settle_send(&self, _group: &str, _end: SendEnd) {}
+    /// The session was deleted (`__mixdogCloseProviderConnectionsForSession(id,
+    /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
+    /// for a provider that keeps none.
+    fn release_session(&self, _session_id: &str) {}
 }
 
 /// How a logical send ended when it did not succeed.

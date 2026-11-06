@@ -633,7 +633,11 @@ pub struct BoundAccount {
 #[async_trait]
 pub trait GateSession: Send + Sync {
     /// Who is acting (agent, bot, run kind, life mark).
-    fn facts(&self) -> mixdog_tools::policy::SessionFacts;
+    /// Async because the acting bot is decided by a fresh read of the agent definition on every
+    /// call (`gate.mjs:131`).
+    async fn facts(&self) -> mixdog_tools::policy::SessionFacts;
+    /// `connectorPolicyAgentOf`: the one fact the pre-dispatch refusal needs, from the header alone.
+    fn connector_agent_id(&self) -> String;
     /// The session's tool surface (allowlist, denied tools, read-only, workflow, route
     /// exclusions); the per-tool connector flags are set by the gate.
     fn surface(&self) -> mixdog_tools::policy::SessionSurface;
@@ -739,8 +743,7 @@ impl PolicyGate {
     /// The session surface with the flags that depend on the called tool.
     fn surface_for(&self, name: &str) -> mixdog_tools::policy::SessionSurface {
         let mut surface = self.session.surface();
-        let facts = self.session.facts();
-        surface.connector_disabled = self.connectors.disabled(&facts.connector_agent_id, name);
+        surface.connector_disabled = self.connectors.disabled(&self.session.connector_agent_id(), name);
         surface.project_disabled = self.connectors.project_disabled(&self.thread_id, name);
         surface
     }
@@ -749,7 +752,7 @@ impl PolicyGate {
 #[async_trait]
 impl ToolGate for PolicyGate {
     async fn check_call(&self, call_id: &str, call: &GateCall) -> GateDecision {
-        let facts = self.session.facts();
+        let facts = self.session.facts().await;
         let surface = self.session.surface();
         // A connector call is bound to its account before any hook or card sees it, so an
         // approval approves that account, whatever is used last meanwhile (`tool-exec.mjs`).

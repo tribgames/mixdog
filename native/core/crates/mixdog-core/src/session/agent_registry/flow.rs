@@ -329,13 +329,14 @@ impl TurnSessions for SessionTurns {
             .collect()
     }
 
-    /// `notDoneReport(session)` over the session's todo list. The store reads asynchronously;
-    /// this waits for it on the calling worker thread (a multi-thread runtime).
+    /// `notDoneReport(session)` over the todo list of the loaded session's latest acked header
+    /// (Node reads the session object in memory); a session that is not loaded has none.
     fn not_done_report(&self, session_id: &str) -> String {
         let thread = ThreadId::from(clean_str(session_id).as_str());
-        let todos = self.directory.deps().todos.clone();
-        let list = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(todos.read(&thread)));
-        list.not_done_report()
+        self.directory
+            .handle(&thread)
+            .map(|handle| crate::ports::todos::list_of(&handle.live_header().header()).not_done_report())
+            .unwrap_or_default()
     }
 
     /// Starts the turn through the internal `turn/start` (the worker's input row carries
@@ -478,32 +479,31 @@ mod tests {
         }
     }
 
-    /// `notDoneReport(session)`: the unfinished items under `Not done:`, nothing when the list
-    /// is empty or every item is completed or dropped.
+    /// `notDoneReport(session)`: the unfinished items of the session's own list under `Not done:`,
+    /// nothing when the list is empty or every item is completed or dropped, or the session is not
+    /// loaded.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_not_done_report_names_the_unfinished_items() {
-        use mixdog_tools::state::todo::{TodoList, TodoPhase, TodoStatus, TodoTask};
-        let task = |content: &str, status| TodoTask { content: content.into(), status, note: None };
+        use crate::ports::todos::list_of;
+        let todo = |tasks: Value| match json!({ "todo": { "phases": [{ "name": "Tasks", "tasks": tasks }], "updatedAt": 1 } }) {
+            Value::Object(header) => header,
+            _ => unreachable!(),
+        };
 
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = crate::session::tests::start_thread(&directory).await;
         let turns = SessionTurns::new(directory, Arc::new(Released(Mutex::default())));
-        assert_eq!(turns.not_done_report("sess_x"), "");
-        *rig.todos.0.lock().unwrap() = TodoList {
-            phases: vec![TodoPhase {
-                name: "Tasks".into(),
-                tasks: vec![
-                    task("Measure the build", TodoStatus::Completed),
-                    task("Write the summary", TodoStatus::InProgress),
-                    task("Skipped", TodoStatus::Abandoned),
-                    task("Verify", TodoStatus::Pending),
-                ],
-            }],
-            updated_at_ms: 0,
-        };
-        assert_eq!(turns.not_done_report("sess_x"), "Not done:\n- Write the summary\n- Verify");
-        rig.todos.0.lock().unwrap().phases[0].tasks.retain(|t| t.status == TodoStatus::Completed);
-        assert_eq!(turns.not_done_report("sess_x"), "");
+        assert_eq!(turns.not_done_report("sess_unknown"), "");
+        assert_eq!(turns.not_done_report(handle.id.as_str()), "", "a loaded session with no list");
+        let mixed = todo(json!([
+            { "content": "Measure the build", "status": "completed" },
+            { "content": "Write the summary", "status": "in_progress" },
+            { "content": "Skipped", "status": "abandoned" },
+            { "content": "Verify", "status": "pending" },
+        ]));
+        assert_eq!(list_of(&mixed).not_done_report(), "Not done:\n- Write the summary\n- Verify");
+        assert_eq!(list_of(&todo(json!([{ "content": "Measure the build", "status": "completed" }]))).not_done_report(), "");
     }
 
     /// A worker's turn: the input row carries `handoffContent` and the submission, the run

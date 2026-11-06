@@ -374,6 +374,15 @@ impl ProviderRegistry {
         Some(adapter)
     }
 
+    /// `closeProviderConnections(id, 'session-deleted')`: every registered provider drops the
+    /// deleted session's connections and transport state.
+    pub fn release_session(&self, session_id: &str) {
+        let adapters: Vec<_> = self.state().providers.values().map(|e| Arc::clone(&e.adapter)).collect();
+        for adapter in adapters {
+            adapter.release_session(session_id);
+        }
+    }
+
     /// Live instances minus dev-gated providers whose option is off.
     pub fn all(&self) -> Vec<(String, Arc<dyn ProviderAdapter>)> {
         let state = self.state();
@@ -532,6 +541,80 @@ mod tests {
         gate.release.notify_one();
         assert!(!lookup.await.unwrap(), "a provider turned off mid-build is not handed out");
         assert!(r.registered("anthropic-oauth").is_none());
+    }
+
+    /// An adapter that notes each released session.
+    struct Releasing {
+        name: String,
+        inner: Arc<dyn ProviderAdapter>,
+        released: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for Releasing {
+        fn id(&self) -> &mixdog_protocol::ProviderId {
+            self.inner.id()
+        }
+        fn codec(&self) -> &dyn mixdog_core_api::domain::provider::WireCodec {
+            self.inner.codec()
+        }
+        fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
+            self.inner.retry_policy()
+        }
+        fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
+            self.inner.keepalive()
+        }
+        async fn attempt(
+            &self,
+            request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, mixdog_core_api::domain::provider::ProviderError> {
+            self.inner.attempt(request).await
+        }
+        fn release_session(&self, session_id: &str) {
+            self.released.lock().unwrap().push(format!("{}:{session_id}", self.name));
+        }
+    }
+
+    struct Releasers(Arc<Mutex<Vec<String>>>);
+
+    #[async_trait]
+    impl ProviderBuilder for Releasers {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            let inner = crate::registry::multiwire::tests::refusing(name, 400, "x");
+            Ok(Arc::new(Releasing { name: name.to_owned(), inner, released: self.0.clone() }))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> bool {
+            false
+        }
+    }
+
+    struct NoPrice;
+
+    impl crate::registry::accounting::UsagePricing for NoPrice {
+        fn price_usage(&self, _: &crate::catalog::UsageArgs) -> crate::catalog::PricedUsage {
+            unreachable!("nothing is sent")
+        }
+    }
+
+    /// A deleted session's connections go from every registered provider, through the
+    /// accounting wrapper.
+    #[tokio::test]
+    async fn a_released_session_reaches_every_registered_provider() {
+        let released: Arc<Mutex<Vec<String>>> = Arc::default();
+        let deps = crate::registry::accounted::AccountingDeps::new(Arc::new(NoPrice), Arc::new(|| None));
+        let r = ProviderRegistry::new(Arc::new(Releasers(released.clone()))).with_accounting(deps);
+        let cfg = json!({"anthropic": {"enabled": true}, "openai": {"enabled": true}});
+        r.init_providers(cfg.as_object().unwrap()).await.unwrap();
+        r.release_session("sess_gone");
+        let mut seen = released.lock().unwrap().clone();
+        seen.sort();
+        assert_eq!(seen, ["anthropic:sess_gone", "openai:sess_gone"]);
     }
 
     #[tokio::test]
