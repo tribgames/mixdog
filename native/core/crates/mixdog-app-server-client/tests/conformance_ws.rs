@@ -4,9 +4,6 @@
 //! "Nothing happened" assertions cannot be decided by yielding on a real socket; `settle` therefore waits a short real
 //! interval. Every positive wait (a frame, a connection) is event driven.
 
-// The test peer is single-waiter: each async mutex guards one receiver that one test task awaits at a time.
-#![allow(clippy::disallowed_types)]
-
 mod common;
 
 use std::{
@@ -27,7 +24,7 @@ use mixdog_app_server_client::{
 };
 use tokio::{
     net::TcpListener,
-    sync::{Mutex as AsyncMutex, mpsc},
+    sync::mpsc,
     task::JoinHandle,
 };
 use tokio_tungstenite::{
@@ -49,7 +46,8 @@ enum Out {
 }
 
 struct WsConn {
-    from_client: AsyncMutex<mpsc::UnboundedReceiver<String>>,
+    /// The test peer is single-waiter: a waiter takes the receiver for its await and puts it back.
+    from_client: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
     queued: Arc<AtomicUsize>,
     out: mpsc::UnboundedSender<Out>,
     client_close: Arc<Mutex<Option<u16>>>,
@@ -60,13 +58,9 @@ struct WsConn {
 #[async_trait]
 impl ServerConn for WsConn {
     async fn next_sent(&self) -> String {
-        let t = self
-            .from_client
-            .lock()
-            .await
-            .recv()
-            .await
-            .expect("client connection ended");
+        let mut from_client = self.from_client.lock().unwrap().take().expect("one waiter at a time");
+        let t = from_client.recv().await.expect("client connection ended");
+        *self.from_client.lock().unwrap() = Some(from_client);
         self.queued.fetch_sub(1, Ordering::SeqCst);
         t
     }
@@ -107,7 +101,8 @@ impl Drop for WsConn {
 
 struct WsNet {
     connector: Arc<WsConnector>,
-    accepted: AsyncMutex<mpsc::UnboundedReceiver<WsConn>>,
+    /// Single-waiter, as `WsConn::from_client`.
+    accepted: Mutex<Option<mpsc::UnboundedReceiver<WsConn>>>,
     fail: Arc<AtomicUsize>,
     listener_task: JoinHandle<()>,
 }
@@ -140,7 +135,7 @@ impl WsNet {
                 port,
                 token: "t".into(),
             })))),
-            accepted: AsyncMutex::new(accepted),
+            accepted: Mutex::new(Some(accepted)),
             fail,
             listener_task,
         }
@@ -203,7 +198,7 @@ impl WsConn {
             }
         });
         Self {
-            from_client: AsyncMutex::new(from_client),
+            from_client: Mutex::new(Some(from_client)),
             queued,
             out,
             client_close,
@@ -219,14 +214,10 @@ impl Net for WsNet {
         self.connector.clone()
     }
     async fn accept(&self) -> Box<dyn ServerConn> {
-        Box::new(
-            self.accepted
-                .lock()
-                .await
-                .recv()
-                .await
-                .expect("listener ended"),
-        )
+        let mut accepted = self.accepted.lock().unwrap().take().expect("one waiter at a time");
+        let conn = accepted.recv().await.expect("listener ended");
+        *self.accepted.lock().unwrap() = Some(accepted);
+        Box::new(conn)
     }
     fn fail_next(&self, n: usize) {
         self.fail.store(n, Ordering::SeqCst);

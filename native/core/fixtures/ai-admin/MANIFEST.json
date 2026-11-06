@@ -1,6 +1,6 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-quota-settlement.mjs --tree <tree>",
-  "fileCount": 10,
+  "fileCount": 11,
   "files": [
     {
       "bytes": 208976,
@@ -51,6 +51,11 @@
       "bytes": 1719738,
       "path": "route-service-twin.json",
       "sha256": "bb3647ebaac848aa095a8b05bb955f2286c1f6dd2ec2fd426945cae4c3c1329a"
+    },
+    {
+      "bytes": 131210,
+      "path": "usage-ledger-source-twin.json",
+      "sha256": "564f9e7bbf4ccfeb405b59af6b4ce37a30d08a3d4450bc5ff4cff76f86c994b1"
     }
   ],
   "product": {
@@ -71,5 +76,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-quota-settlement.mjs",
   "set": "ai-admin",
-  "totalBytes": 31294543
+  "totalBytes": 31425753
 }

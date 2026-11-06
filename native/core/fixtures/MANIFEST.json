@@ -588,12 +588,12 @@
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-setup-local-voice.mjs --tree <tree>",
-      "fileCount": 10,
+      "fileCount": 13,
       "manifest": "services/MANIFEST.json",
-      "manifestSha256": "d3583dd36f84cacbff95899e62e292ab39392d70d886f90043160f0507b68d8e",
+      "manifestSha256": "75a60a2c27805b9737c28c002afff2e9d90578eafd90a6f9764d62f55e14cf7d",
       "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
       "set": "services",
-      "totalBytes": 1750611
+      "totalBytes": 1988979
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-session-activity.mjs --tree <tree>",

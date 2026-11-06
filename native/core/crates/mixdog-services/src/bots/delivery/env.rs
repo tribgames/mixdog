@@ -82,17 +82,43 @@ pub trait HomeDirectory: Send + Sync {
 
 /// A room member's wake turn records, before it is submitted, the submission id it answers under.
 pub struct WakeFollow {
-    pub(super) queue: Arc<RoutineResultQueue>,
-    pub(super) home: String,
-    pub(super) batch_id: String,
+    record: Arc<dyn FollowRecord>,
 }
 
-impl WakeFollow {
-    /// The batch is answered by the turn submitted as `submission_id`.
-    pub async fn follow(&self, submission_id: &str) -> Result<(), String> {
+/// Where the id of the turn that answers a batch is recorded.
+#[async_trait]
+pub trait FollowRecord: Send + Sync {
+    async fn record(&self, submission_id: &str) -> Result<(), String>;
+}
+
+/// The batch's own record in the queue file.
+struct BatchRecord {
+    queue: Arc<RoutineResultQueue>,
+    home: String,
+    batch_id: String,
+}
+
+#[async_trait]
+impl FollowRecord for BatchRecord {
+    async fn record(&self, submission_id: &str) -> Result<(), String> {
         let mut fields = serde_json::Map::new();
         fields.insert("follows".into(), Value::from(submission_id));
         self.queue.mark_batch(&self.home, &self.batch_id, fields).await
+    }
+}
+
+impl WakeFollow {
+    pub fn new(record: Arc<dyn FollowRecord>) -> Self {
+        Self { record }
+    }
+
+    pub(super) fn of_batch(queue: Arc<RoutineResultQueue>, home: String, batch_id: String) -> Self {
+        Self::new(Arc::new(BatchRecord { queue, home, batch_id }))
+    }
+
+    /// The batch is answered by the turn submitted as `submission_id`.
+    pub async fn follow(&self, submission_id: &str) -> Result<(), String> {
+        self.record.record(submission_id).await
     }
 }
 

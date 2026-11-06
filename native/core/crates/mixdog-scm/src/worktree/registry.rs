@@ -9,7 +9,7 @@
 
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -51,7 +51,7 @@ pub struct WorktreeRecord {
 #[derive(Serialize, Deserialize)]
 struct Document {
     version: u64,
-    entries: BTreeMap<String, WorktreeRecord>,
+    entries: IndexMap<String, WorktreeRecord>,
 }
 
 pub struct Registry {
@@ -73,11 +73,12 @@ impl Registry {
         self.path.with_extension("json.bak")
     }
 
-    /// Every record; a damaged registry is set aside and the last good copy restored.
-    pub fn read(&self) -> Result<BTreeMap<String, WorktreeRecord>, ScmFailure> {
+    /// Every record in the order they were added, as Node's object keeps them (the lists show
+    /// that order); a damaged registry is set aside and the last good copy restored.
+    pub fn read(&self) -> Result<IndexMap<String, WorktreeRecord>, ScmFailure> {
         let bytes = match std::fs::read(&self.path) {
             Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(IndexMap::new()),
             Err(error) => return Err(error.into()),
         };
         if let Some(doc) = Self::parse(&bytes) {
@@ -93,11 +94,11 @@ impl Registry {
                 self.write(&doc.entries)?;
                 Ok(doc.entries)
             }
-            None => Ok(BTreeMap::new()),
+            None => Ok(IndexMap::new()),
         }
     }
 
-    fn write(&self, entries: &BTreeMap<String, WorktreeRecord>) -> Result<(), ScmFailure> {
+    fn write(&self, entries: &IndexMap<String, WorktreeRecord>) -> Result<(), ScmFailure> {
         let dir = self.path.parent().ok_or_else(|| ScmFailure::invalid("dataDir", "a directory"))?;
         std::fs::create_dir_all(dir)?;
         let doc = Document {
@@ -120,7 +121,7 @@ impl Registry {
     }
 
     pub fn get(&self, id: &str) -> Result<Option<WorktreeRecord>, ScmFailure> {
-        Ok(self.read()?.remove(id))
+        Ok(self.read()?.shift_remove(id))
     }
 
     pub fn put(&self, record: WorktreeRecord) -> Result<(), ScmFailure> {
@@ -142,7 +143,7 @@ impl Registry {
 
     pub fn delete(&self, id: &str) -> Result<(), ScmFailure> {
         let mut entries = self.read()?;
-        if entries.remove(id).is_some() {
+        if entries.shift_remove(id).is_some() {
             self.write(&entries)?;
         }
         Ok(())
@@ -177,9 +178,10 @@ mod tests {
         let mut first = record("one");
         first.extra.insert("projectSubdir".into(), Value::String("pkg".into()));
         registry.put(first.clone()).unwrap();
-        registry.put(record("two")).unwrap();
+        registry.put(record("abc")).unwrap();
         assert_eq!(registry.get("one").unwrap(), Some(first));
-        assert!(!registry.insert(record("two")).unwrap());
+        assert_eq!(registry.read().unwrap().keys().map(String::as_str).collect::<Vec<_>>(), ["one", "abc"]);
+        assert!(!registry.insert(record("abc")).unwrap());
         // A truncated file is set aside and the last good copy restored.
         std::fs::write(dir.path().join(STORE_DIR).join("registry.json"), b"{\"version\":1,\"entr").unwrap();
         let restored = registry.read().unwrap();

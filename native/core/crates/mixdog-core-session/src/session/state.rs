@@ -400,7 +400,12 @@ impl SessionState {
             Section::ShellJobs(value) => s.shell_jobs = Some(value),
             Section::Workflow(value) => s.workflow = Some(value),
             Section::Workspace(value) => s.workspace = value,
-            Section::Approvals(value) => s.approvals = Some(value),
+            // The decision result is the actor's; a producer of `handoffQuestions` publishes only those.
+            Section::Approvals(mut value) => {
+                let kept = s.approvals.take().and_then(|held| held.tool_approval_result);
+                value.tool_approval_result = value.tool_approval_result.or(kept);
+                s.approvals = Some(value);
+            }
             Section::PromptRestore(value) => s.prompt_restore = value,
             Section::ProviderAccount(value) => s.provider_account_change = Some(value),
             Section::Remote(value) => s.remote_enabled = Some(value),

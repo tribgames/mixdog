@@ -1,0 +1,1153 @@
+{
+  "accountProviders": [
+    "openai-oauth",
+    "anthropic-oauth",
+    "grok-oauth",
+    "muse-code-oauth",
+    "command-code-oauth",
+    "mimo-oauth",
+    "cursor-oauth",
+    "devin-oauth",
+    "antigravity-oauth",
+    "opencode-go-oauth"
+  ],
+  "defaultCreds": [
+    "openai-oauth",
+    "xai"
+  ],
+  "domain": "media-accounts-twin",
+  "files": [
+    "provider-accounts/grok-oauth/11111111-2222-3333-4444-555555555555.json"
+  ],
+  "providerOf": [
+    {
+      "lane": "grok-oauth",
+      "provider": "grok-oauth"
+    },
+    {
+      "lane": " xai ",
+      "provider": ""
+    },
+    {
+      "lane": "openai-oauth",
+      "provider": "openai-oauth"
+    },
+    {
+      "lane": "gemini",
+      "provider": ""
+    },
+    {
+      "lane": "antigravity-oauth",
+      "provider": "antigravity-oauth"
+    },
+    {
+      "lane": "openrouter",
+      "provider": ""
+    },
+    {
+      "lane": "nano-gpt",
+      "provider": ""
+    },
+    {
+      "lane": "bogus",
+      "provider": ""
+    },
+    {
+      "lane": "",
+      "provider": ""
+    },
+    {
+      "lane": null,
+      "provider": ""
+    },
+    {
+      "lane": null,
+      "provider": ""
+    },
+    {
+      "lane": 7,
+      "provider": ""
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-media-accounts.mjs",
+  "scopes": [
+    {
+      "chain": [],
+      "lanes": [
+        {
+          "id": "11111111-2222-3333-4444-555555555555",
+          "lane": "grok-oauth",
+          "path": "{data}\\provider-accounts\\grok-oauth\\11111111-2222-3333-4444-555555555555.json",
+          "provider": "grok-oauth"
+        },
+        {
+          "id": null,
+          "lane": "xai",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "openai-oauth",
+          "path": null,
+          "provider": "openai-oauth"
+        },
+        {
+          "id": null,
+          "lane": "gemini",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "antigravity-oauth",
+          "path": null,
+          "provider": "antigravity-oauth"
+        },
+        {
+          "id": null,
+          "lane": "openrouter",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": null,
+          "lane": "nano-gpt",
+          "path": null,
+          "provider": ""
+        }
+      ],
+      "listed": [
+        {
+          "authProvider": "grok-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "grok-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "xai",
+          "authType": "api-key",
+          "authenticated": true,
+          "id": "xai",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openai-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "openai-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "OpenAI Images",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "gemini",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "gemini",
+          "image": null,
+          "kinds": [],
+          "label": "Google Gemini",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "antigravity-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "antigravity-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Google Antigravity",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openrouter",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "openrouter",
+          "image": null,
+          "kinds": [],
+          "label": "OpenRouter",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "nano-gpt",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "nano-gpt",
+          "image": null,
+          "kinds": [],
+          "label": "NanoGPT",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        }
+      ]
+    },
+    {
+      "chain": [
+        [
+          "grok-oauth",
+          "11111111-2222-3333-4444-555555555555"
+        ]
+      ],
+      "lanes": [
+        {
+          "id": "11111111-2222-3333-4444-555555555555",
+          "lane": "grok-oauth",
+          "path": "{data}\\provider-accounts\\grok-oauth\\11111111-2222-3333-4444-555555555555.json",
+          "provider": "grok-oauth"
+        },
+        {
+          "id": null,
+          "lane": "xai",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "openai-oauth",
+          "path": null,
+          "provider": "openai-oauth"
+        },
+        {
+          "id": null,
+          "lane": "gemini",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "antigravity-oauth",
+          "path": null,
+          "provider": "antigravity-oauth"
+        },
+        {
+          "id": null,
+          "lane": "openrouter",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": null,
+          "lane": "nano-gpt",
+          "path": null,
+          "provider": ""
+        }
+      ],
+      "listed": [
+        {
+          "authProvider": "grok-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "grok-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "xai",
+          "authType": "api-key",
+          "authenticated": true,
+          "id": "xai",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openai-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "openai-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "OpenAI Images",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "gemini",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "gemini",
+          "image": null,
+          "kinds": [],
+          "label": "Google Gemini",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "antigravity-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "antigravity-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Google Antigravity",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openrouter",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "openrouter",
+          "image": null,
+          "kinds": [],
+          "label": "OpenRouter",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "nano-gpt",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "nano-gpt",
+          "image": null,
+          "kinds": [],
+          "label": "NanoGPT",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        }
+      ]
+    },
+    {
+      "chain": [
+        [
+          "grok-oauth",
+          "default"
+        ]
+      ],
+      "lanes": [
+        {
+          "id": "default",
+          "lane": "grok-oauth",
+          "path": null,
+          "provider": "grok-oauth"
+        },
+        {
+          "id": null,
+          "lane": "xai",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "openai-oauth",
+          "path": null,
+          "provider": "openai-oauth"
+        },
+        {
+          "id": null,
+          "lane": "gemini",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "antigravity-oauth",
+          "path": null,
+          "provider": "antigravity-oauth"
+        },
+        {
+          "id": null,
+          "lane": "openrouter",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": null,
+          "lane": "nano-gpt",
+          "path": null,
+          "provider": ""
+        }
+      ],
+      "listed": [
+        {
+          "authProvider": "grok-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "grok-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "xai",
+          "authType": "api-key",
+          "authenticated": true,
+          "id": "xai",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openai-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "openai-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "OpenAI Images",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "gemini",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "gemini",
+          "image": null,
+          "kinds": [],
+          "label": "Google Gemini",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "antigravity-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "antigravity-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Google Antigravity",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openrouter",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "openrouter",
+          "image": null,
+          "kinds": [],
+          "label": "OpenRouter",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "nano-gpt",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "nano-gpt",
+          "image": null,
+          "kinds": [],
+          "label": "NanoGPT",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        }
+      ]
+    },
+    {
+      "chain": [
+        [
+          "openai-oauth",
+          "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        ]
+      ],
+      "lanes": [
+        {
+          "id": "11111111-2222-3333-4444-555555555555",
+          "lane": "grok-oauth",
+          "path": "{data}\\provider-accounts\\grok-oauth\\11111111-2222-3333-4444-555555555555.json",
+          "provider": "grok-oauth"
+        },
+        {
+          "id": null,
+          "lane": "xai",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+          "lane": "openai-oauth",
+          "path": "{data}\\provider-accounts\\openai-oauth\\aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.json",
+          "provider": "openai-oauth"
+        },
+        {
+          "id": null,
+          "lane": "gemini",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "antigravity-oauth",
+          "path": null,
+          "provider": "antigravity-oauth"
+        },
+        {
+          "id": null,
+          "lane": "openrouter",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": null,
+          "lane": "nano-gpt",
+          "path": null,
+          "provider": ""
+        }
+      ],
+      "listed": [
+        {
+          "authProvider": "grok-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "grok-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "xai",
+          "authType": "api-key",
+          "authenticated": true,
+          "id": "xai",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openai-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "openai-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "OpenAI Images",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "gemini",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "gemini",
+          "image": null,
+          "kinds": [],
+          "label": "Google Gemini",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "antigravity-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "antigravity-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Google Antigravity",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openrouter",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "openrouter",
+          "image": null,
+          "kinds": [],
+          "label": "OpenRouter",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "nano-gpt",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "nano-gpt",
+          "image": null,
+          "kinds": [],
+          "label": "NanoGPT",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        }
+      ]
+    },
+    {
+      "chain": [
+        [
+          "openai-oauth",
+          "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        ],
+        [
+          "grok-oauth",
+          "11111111-2222-3333-4444-555555555555"
+        ]
+      ],
+      "lanes": [
+        {
+          "id": "11111111-2222-3333-4444-555555555555",
+          "lane": "grok-oauth",
+          "path": "{data}\\provider-accounts\\grok-oauth\\11111111-2222-3333-4444-555555555555.json",
+          "provider": "grok-oauth"
+        },
+        {
+          "id": null,
+          "lane": "xai",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+          "lane": "openai-oauth",
+          "path": "{data}\\provider-accounts\\openai-oauth\\aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.json",
+          "provider": "openai-oauth"
+        },
+        {
+          "id": null,
+          "lane": "gemini",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "antigravity-oauth",
+          "path": null,
+          "provider": "antigravity-oauth"
+        },
+        {
+          "id": null,
+          "lane": "openrouter",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": null,
+          "lane": "nano-gpt",
+          "path": null,
+          "provider": ""
+        }
+      ],
+      "listed": [
+        {
+          "authProvider": "grok-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "grok-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "xai",
+          "authType": "api-key",
+          "authenticated": true,
+          "id": "xai",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openai-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "openai-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "OpenAI Images",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "gemini",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "gemini",
+          "image": null,
+          "kinds": [],
+          "label": "Google Gemini",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "antigravity-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "antigravity-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Google Antigravity",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openrouter",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "openrouter",
+          "image": null,
+          "kinds": [],
+          "label": "OpenRouter",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "nano-gpt",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "nano-gpt",
+          "image": null,
+          "kinds": [],
+          "label": "NanoGPT",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        }
+      ]
+    },
+    {
+      "chain": [
+        [
+          "grok-oauth",
+          "11111111-2222-3333-4444-555555555555"
+        ],
+        [
+          "grok-oauth",
+          "default"
+        ]
+      ],
+      "lanes": [
+        {
+          "id": "default",
+          "lane": "grok-oauth",
+          "path": null,
+          "provider": "grok-oauth"
+        },
+        {
+          "id": null,
+          "lane": "xai",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "openai-oauth",
+          "path": null,
+          "provider": "openai-oauth"
+        },
+        {
+          "id": null,
+          "lane": "gemini",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "antigravity-oauth",
+          "path": null,
+          "provider": "antigravity-oauth"
+        },
+        {
+          "id": null,
+          "lane": "openrouter",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": null,
+          "lane": "nano-gpt",
+          "path": null,
+          "provider": ""
+        }
+      ],
+      "listed": [
+        {
+          "authProvider": "grok-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "grok-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "xai",
+          "authType": "api-key",
+          "authenticated": true,
+          "id": "xai",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openai-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "openai-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "OpenAI Images",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "gemini",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "gemini",
+          "image": null,
+          "kinds": [],
+          "label": "Google Gemini",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "antigravity-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "antigravity-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Google Antigravity",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openrouter",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "openrouter",
+          "image": null,
+          "kinds": [],
+          "label": "OpenRouter",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "nano-gpt",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "nano-gpt",
+          "image": null,
+          "kinds": [],
+          "label": "NanoGPT",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        }
+      ]
+    },
+    {
+      "chain": [
+        [
+          "gemini",
+          "default"
+        ]
+      ],
+      "error": "Unknown OAuth provider."
+    },
+    {
+      "chain": [
+        [
+          "grok-oauth",
+          "work"
+        ]
+      ],
+      "error": "Invalid provider account id."
+    },
+    {
+      "chain": [
+        [
+          "custom-nano",
+          "default"
+        ]
+      ],
+      "lanes": [
+        {
+          "id": "11111111-2222-3333-4444-555555555555",
+          "lane": "grok-oauth",
+          "path": "{data}\\provider-accounts\\grok-oauth\\11111111-2222-3333-4444-555555555555.json",
+          "provider": "grok-oauth"
+        },
+        {
+          "id": null,
+          "lane": "xai",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "openai-oauth",
+          "path": null,
+          "provider": "openai-oauth"
+        },
+        {
+          "id": null,
+          "lane": "gemini",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": "default",
+          "lane": "antigravity-oauth",
+          "path": null,
+          "provider": "antigravity-oauth"
+        },
+        {
+          "id": null,
+          "lane": "openrouter",
+          "path": null,
+          "provider": ""
+        },
+        {
+          "id": null,
+          "lane": "nano-gpt",
+          "path": null,
+          "provider": ""
+        }
+      ],
+      "listed": [
+        {
+          "authProvider": "grok-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "grok-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "xai",
+          "authType": "api-key",
+          "authenticated": true,
+          "id": "xai",
+          "image": null,
+          "kinds": [],
+          "label": "Grok Imagine",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openai-oauth",
+          "authType": "oauth",
+          "authenticated": true,
+          "id": "openai-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "OpenAI Images",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "gemini",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "gemini",
+          "image": null,
+          "kinds": [],
+          "label": "Google Gemini",
+          "supportedKinds": [
+            "image",
+            "video"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "antigravity-oauth",
+          "authType": "oauth",
+          "authenticated": false,
+          "id": "antigravity-oauth",
+          "image": null,
+          "kinds": [],
+          "label": "Google Antigravity",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "openrouter",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "openrouter",
+          "image": null,
+          "kinds": [],
+          "label": "OpenRouter",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        },
+        {
+          "authProvider": "nano-gpt",
+          "authType": "api-key",
+          "authenticated": false,
+          "id": "nano-gpt",
+          "image": null,
+          "kinds": [],
+          "label": "NanoGPT",
+          "supportedKinds": [
+            "image"
+          ],
+          "video": null
+        }
+      ]
+    },
+    {
+      "chain": [
+        [
+          "custom-",
+          "default"
+        ]
+      ],
+      "error": "Unknown OAuth provider."
+    }
+  ],
+  "selected": {
+    "anthropic-oauth": null,
+    "antigravity-oauth": null,
+    "command-code-oauth": null,
+    "cursor-oauth": null,
+    "devin-oauth": null,
+    "grok-oauth": "11111111-2222-3333-4444-555555555555",
+    "mimo-oauth": null,
+    "muse-code-oauth": null,
+    "openai-oauth": "default",
+    "opencode-go-oauth": null
+  }
+}

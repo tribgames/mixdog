@@ -19,6 +19,10 @@ pub mod service;
 pub mod sessions;
 pub mod store;
 pub mod supervisor;
+pub mod turn_post;
+pub mod turn_host;
+pub mod turn_answer;
+pub mod room_relay;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RoomError {

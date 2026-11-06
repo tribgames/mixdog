@@ -1,5 +1,6 @@
 //! Production implementations of the `DomainSeams` inputs of `compose_domains`.
 
+pub mod agent_effects;
 pub mod caches;
 pub mod doctor;
 pub mod feature_effects;

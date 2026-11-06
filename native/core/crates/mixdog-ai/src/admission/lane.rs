@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt;
 use std::sync::Arc;
@@ -11,6 +12,7 @@ use arc_swap::ArcSwap;
 use mixdog_protocol::ProviderId;
 use mixdog_rt::TaskClass;
 use tokio::sync::oneshot;
+use tokio::sync::watch;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -74,6 +76,10 @@ pub struct LaneSettings {
     /// The lane halves its limit on a 429 and recovers one slot per window of
     /// successes. A property the provider adapter declares, not a name list.
     pub adaptive: bool,
+    /// How long a permit whose run is unattended and has made no progress
+    /// keeps its slot (see [`RunLiveness`]); `None` never reclaims one. An
+    /// attended run's permit is never reclaimed (SPEC §4.9: no content timer).
+    pub unattended_lease: Option<Duration>,
 }
 
 impl Default for LaneSettings {
@@ -82,6 +88,94 @@ impl Default for LaneSettings {
             concurrency: None,
             max_queue: DEFAULT_MAX_QUEUE,
             adaptive: false,
+            unattended_lease: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Fact {
+    attended: bool,
+    last_progress: Instant,
+}
+
+impl Fact {
+    /// When an unattended run's owner lapses; an attended run's never does.
+    fn lapses_at(&self, lease: Duration) -> Option<Instant> {
+        (!self.attended).then(|| self.last_progress + lease)
+    }
+
+    fn owner_alive(&self, lease: Duration, now: Instant) -> bool {
+        self.lapses_at(lease).is_none_or(|at| now < at)
+    }
+}
+
+/// The run-level progress fact and its owner: whether a viewer or an abort
+/// source is attached, and when the run last made content progress. Pings, SSE
+/// comments and provider keepalives are not progress (SPEC §4.9).
+pub struct RunLiveness {
+    fact: watch::Sender<Fact>,
+}
+
+impl RunLiveness {
+    /// A run that starts now.
+    pub fn new(attended: bool) -> Arc<Self> {
+        let (fact, _) = watch::channel(Fact {
+            attended,
+            last_progress: Instant::now(),
+        });
+        Arc::new(Self { fact })
+    }
+
+    /// A viewer or abort source attached or went away.
+    pub fn set_attended(&self, attended: bool) {
+        self.fact.send_if_modified(|fact| {
+            let changed = fact.attended != attended;
+            fact.attended = attended;
+            changed
+        });
+    }
+
+    /// The run made progress: it was admitted, a request began, or content arrived.
+    pub fn progress(&self) {
+        self.fact.send_modify(|fact| fact.last_progress = Instant::now());
+    }
+
+    /// The owner-liveness predicate: an attended run has an owner; an
+    /// unattended one has it for `lease` after its last progress.
+    pub fn owner_alive(&self, lease: Duration, now: Instant) -> bool {
+        self.fact.borrow().owner_alive(lease, now)
+    }
+}
+
+/// Returns `permit` to the lane once its owner is no longer alive. The run
+/// keeps its cancellation token and is not ended here. Exits when the permit
+/// is released or dropped (`ended` closes).
+async fn watch_owner(
+    lane: Arc<Lane>,
+    permit: u64,
+    lease: Duration,
+    liveness: Arc<RunLiveness>,
+    mut ended: oneshot::Receiver<()>,
+) {
+    let mut facts = liveness.fact.subscribe();
+    loop {
+        let fact = *facts.borrow_and_update();
+        if !fact.owner_alive(lease, Instant::now()) {
+            lane.release(permit);
+            return;
+        }
+        let lapses_at = fact.lapses_at(lease);
+        tokio::select! {
+            _ = &mut ended => return,
+            // The sender lives in `liveness`, held here, so this never errs.
+            _ = facts.changed() => {}
+            () = async {
+                match lapses_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            } => {}
         }
     }
 }
@@ -117,6 +211,8 @@ pub struct AdmissionRequest {
     pub owner: Arc<str>,
     pub priority: Priority,
     pub on_cooldown_wait: Option<CooldownNotice>,
+    /// The run's progress fact; without one the permit is never reclaimed.
+    pub liveness: Option<Arc<RunLiveness>>,
 }
 
 /// What the request saw at admission.
@@ -169,6 +265,10 @@ struct Waiter {
 #[derive(Default)]
 struct State {
     active: usize,
+    /// Claimed permits that still hold a slot: a permit leaves it when it ends
+    /// or when its owner lapses, so its slot is given back once.
+    holding: HashSet<u64>,
+    next_permit: u64,
     limit: Option<usize>,
     queues: [VecDeque<Waiter>; Priority::COUNT],
     next_id: u64,
@@ -280,10 +380,52 @@ impl Lane {
         });
     }
 
-    fn release(self: &Arc<Self>) {
+    /// Gives `permit`'s slot back; a second call for it does nothing.
+    fn release(self: &Arc<Self>, permit: u64) {
         let mut st = locked(&self.state);
-        st.active -= 1;
-        self.drain(&mut st);
+        if st.holding.remove(&permit) {
+            st.active -= 1;
+            self.drain(&mut st);
+        }
+    }
+
+    /// Claims the slot a grant already counted for a new permit, and starts
+    /// watching its owner when the lane has a lease and the run a progress fact.
+    fn admit(
+        self: &Arc<Self>,
+        st: &mut State,
+        queue_wait: Duration,
+        liveness: Option<Arc<RunLiveness>>,
+    ) -> Permit {
+        let id = st.next_permit;
+        st.next_permit += 1;
+        st.holding.insert(id);
+        let mut lease_ended = None;
+        if let (Some(lease), Some(liveness)) = (self.settings.unattended_lease, &liveness) {
+            // The lease runs from admission.
+            liveness.progress();
+            let (ended, watching) = oneshot::channel();
+            lease_ended = Some(ended);
+            mixdog_rt::spawn(
+                "ai.admission.lease",
+                TaskClass::Control,
+                watch_owner(self.clone(), id, lease, liveness.clone(), watching),
+            );
+        }
+        Permit {
+            lane: self.clone(),
+            id,
+            metrics: AdmissionMetrics {
+                queue_wait,
+                active: st.active,
+                queued: st.queued(),
+                limit: st.limit,
+            },
+            rate_limit_reported: false,
+            released: false,
+            liveness,
+            _lease_ended: lease_ended,
+        }
     }
 
     /// Adaptive lanes only: a 429 halves the limit and parks the lane for the
@@ -335,14 +477,23 @@ impl Lane {
 /// feeds the lane's adaptive accounting.
 pub struct Permit {
     lane: Arc<Lane>,
+    id: u64,
     metrics: AdmissionMetrics,
     rate_limit_reported: bool,
     released: bool,
+    liveness: Option<Arc<RunLiveness>>,
+    /// Closes the owner watch when the permit ends.
+    _lease_ended: Option<oneshot::Sender<()>>,
 }
 
 impl Permit {
     pub fn metrics(&self) -> AdmissionMetrics {
         self.metrics
+    }
+
+    /// The run's progress fact, when it gave one.
+    pub fn liveness(&self) -> Option<&Arc<RunLiveness>> {
+        self.liveness.as_ref()
     }
 
     /// Records a 429 the request received (also one it retried through), so
@@ -365,14 +516,14 @@ impl Permit {
             _ => {}
         }
         self.released = true;
-        self.lane.release();
+        self.lane.release(self.id);
     }
 }
 
 impl Drop for Permit {
     fn drop(&mut self) {
         if !self.released {
-            self.lane.release();
+            self.lane.release(self.id);
         }
     }
 }
@@ -459,17 +610,7 @@ impl Admission {
             }
             if st.cooling(now).is_none() && st.has_room() && st.queued() == 0 {
                 st.active += 1;
-                return Ok(Permit {
-                    lane: lane.clone(),
-                    metrics: AdmissionMetrics {
-                        queue_wait: Duration::ZERO,
-                        active: st.active,
-                        queued: 0,
-                        limit: st.limit,
-                    },
-                    rate_limit_reported: false,
-                    released: false,
-                });
+                return Ok(lane.admit(&mut st, Duration::ZERO, request.liveness.clone()));
             }
             if st.queued() >= lane.settings.max_queue {
                 return Err(AdmissionError::QueueFull {
@@ -508,18 +649,8 @@ impl Admission {
                     return Err(AdmissionError::Closed);
                 }
                 queued.claimed = true;
-                let st = locked(&lane.state);
-                Ok(Permit {
-                    lane: lane.clone(),
-                    metrics: AdmissionMetrics {
-                        queue_wait: queued.queued_at.elapsed(),
-                        active: st.active,
-                        queued: st.queued(),
-                        limit: st.limit,
-                    },
-                    rate_limit_reported: false,
-                    released: false,
-                })
+                let mut st = locked(&lane.state);
+                Ok(lane.admit(&mut st, queued.queued_at.elapsed(), request.liveness.clone()))
             }
         }
     }

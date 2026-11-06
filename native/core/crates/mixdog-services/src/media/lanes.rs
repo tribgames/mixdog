@@ -103,6 +103,12 @@ fn lanes() -> Vec<LaneDef> {
     ]
 }
 
+/// `LANE_BY_ID.get(String(laneId || '').trim())?.auth.provider`.
+pub fn lane_auth_provider(lane_id: &str) -> Option<&'static str> {
+    let id = js_trim(lane_id);
+    lanes().into_iter().find(|lane| lane.id == id).map(|lane| lane.auth_provider)
+}
+
 impl LaneDef {
     fn spec(&self, kind: &str) -> Option<&Value> {
         if kind == "video" { self.video.as_ref() } else { self.image.as_ref() }

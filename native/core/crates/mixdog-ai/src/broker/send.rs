@@ -17,6 +17,7 @@ use crate::admission::AdmissionError;
 use crate::admission::AdmissionRequest;
 use crate::admission::Lane;
 use crate::admission::Outcome;
+use crate::admission::RunLiveness;
 use crate::retry::random_samples;
 
 /// Receives the events of the current attempt. `discard` tells it that the
@@ -90,10 +91,18 @@ impl ModelBroker {
         let mut request_state = RetryState::new(RetryClass::Request, model.clone());
         let mut midstream_state = RetryState::new(RetryClass::Midstream, model);
         let mut attempts = 0;
+        let liveness = permit.liveness().cloned();
         loop {
             attempts += 1;
+            // A request beginning is the run's doing: the lease measures the
+            // silence after it.
+            if let Some(liveness) = &liveness {
+                liveness.progress();
+            }
             let mut streamed = false;
-            let failure = match self.attempt(adapter, &send.request, sink, cancel, &mut streamed).await
+            let failure = match self
+                .attempt(adapter, &send.request, sink, cancel, &mut streamed, liveness.as_deref())
+                .await
             {
                 Ok(()) => {
                     permit.finish(Outcome::Success);
@@ -154,6 +163,7 @@ impl ModelBroker {
         sink: &mut dyn AttemptSink,
         cancel: &CancellationToken,
         streamed: &mut bool,
+        liveness: Option<&RunLiveness>,
     ) -> Result<(), Stop> {
         let mut reported: Option<Usage> = None;
         let mut stream = tokio::select! {
@@ -170,6 +180,12 @@ impl ModelBroker {
             match item {
                 Some(Ok(event)) => {
                     *streamed = true;
+                    // A provider keepalive is informational, never progress (SPEC §4.9).
+                    if let Some(liveness) = liveness
+                        && !matches!(event, StreamEvent::ProviderKeepalive)
+                    {
+                        liveness.progress();
+                    }
                     if let StreamEvent::Usage(usage) = &event {
                         reported = Some(usage.clone());
                     }

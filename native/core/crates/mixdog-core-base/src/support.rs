@@ -97,6 +97,8 @@ pub enum FsStep {
     RemoveDirectory(PathBuf),
     /// `statSync(path)`.
     Stat(PathBuf),
+    /// `copyFileSync(from, to)` / `fs.promises.copyFile`: `copyfile '<from>' -> '<to>'`.
+    CopyFile(PathBuf, PathBuf),
 }
 
 /// A file operation that failed, with the step Node would have failed at.
@@ -360,6 +362,7 @@ pub fn io_failure(domain: &'static str, failure: &FsFailure) -> CoreError {
         FsStep::Unlink(path) => format!("unlink '{}'", path.display()),
         FsStep::Rmdir(path) => format!("rmdir '{}'", path.display()),
         FsStep::Stat(path) => format!("stat '{}'", path.display()),
+        FsStep::CopyFile(from, to) => format!("copyfile '{}' -> '{}'", from.display(), to.display()),
         FsStep::RemoveDirectory(_) => unreachable!("answered above"),
     };
     coded(domain, code, format!("{code}: {description}, {call}"))

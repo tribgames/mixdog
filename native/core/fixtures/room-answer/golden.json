@@ -1,0 +1,1867 @@
+{
+  "emptyTurns": [
+    {
+      "answer": null,
+      "name": "no snapshot",
+      "snapshot": null,
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "busy",
+      "snapshot": {
+        "busy": true,
+        "items": [
+          {
+            "at": 9,
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "streaming tail",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ],
+        "streamingTail": "x"
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "no items",
+      "snapshot": {
+        "busy": false
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "no turndone",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "not done",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "id": 1,
+            "kind": "turndone",
+            "status": "failed"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "at not a number",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": "9",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "before the start",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 4,
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "done is not last",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "at": 10,
+            "kind": "tool",
+            "name": "x",
+            "result": "r"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": ""
+      },
+      "name": "no answer id: empty turn",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "at": 9,
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "answer with text",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "words"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": ""
+      },
+      "name": "answer blank",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "  "
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": ""
+      },
+      "name": "answer id on another kind",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "tool"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "answer text not a string",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": 7
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": ""
+      },
+      "name": "answer missing",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "finalAssistantId": "gone",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 2,
+        "status": "done",
+        "text": ""
+      },
+      "name": "the last of two turndones",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 6,
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "at": 9,
+            "id": 2,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 5,
+        "id": 1,
+        "status": "done",
+        "text": ""
+      },
+      "name": "at equals the start",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 5,
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    }
+  ],
+  "finalAnswers": [
+    {
+      "answer": null,
+      "name": "no snapshot",
+      "snapshot": null,
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "busy",
+      "snapshot": {
+        "busy": true,
+        "items": []
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "streaming tail",
+      "snapshot": {
+        "busy": false,
+        "items": [],
+        "streamingTail": "x"
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "start is not a number",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          }
+        ]
+      },
+      "startedAt": "x"
+    },
+    {
+      "answer": null,
+      "name": "no items",
+      "snapshot": {
+        "busy": false
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "no turndone",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "done without id",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "done before the start",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 4,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "done at without a number",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": "9",
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "a newer user prompt after",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "at": 10,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "a newer assistant after",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "id": "b",
+            "kind": "assistant",
+            "text": "more"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "ok"
+      },
+      "name": "a tool after is fine",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "at": 10,
+            "kind": "tool",
+            "name": "x",
+            "result": "r"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 2,
+        "status": "failed",
+        "text": ""
+      },
+      "name": "failed",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "id": 2,
+            "kind": "turndone",
+            "status": "failed"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "cancelled",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 2,
+            "kind": "turndone",
+            "status": "cancelled"
+          },
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 3,
+        "reacted": true,
+        "status": "done",
+        "text": ""
+      },
+      "name": "reacted alone",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "id": 3,
+            "kind": "turndone",
+            "reacted": true,
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 3,
+        "status": "done",
+        "text": "ok"
+      },
+      "name": "reacted with an answer id",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "reacted": true,
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "reacted false",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "id": 3,
+            "kind": "turndone",
+            "reacted": false,
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "done without a final id",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 9,
+            "id": 3,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "another status",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "status": "weird"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "answer missing",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "answer id on a non-assistant",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "tool",
+            "name": "x"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "a turndone between answer and done",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 8,
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "answer streaming",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "streaming": true,
+            "text": "ok"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "answer without text",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "answer text not a string",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": 7
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": null,
+      "name": "answer text blank",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "  \n"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 3,
+        "status": "done",
+        "text": " hello (pass) "
+      },
+      "name": "answer ok",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": " hello (pass) "
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "a",
+            "id": 3,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 8,
+        "status": "done",
+        "text": "ok"
+      },
+      "name": "numeric ids",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": 7,
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": 7,
+            "id": 8,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 2,
+        "status": "done",
+        "text": "new"
+      },
+      "name": "the last turndone is the one read",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "old"
+          },
+          {
+            "at": 6,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          },
+          {
+            "at": 7,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "id": "b",
+            "kind": "assistant",
+            "text": "new"
+          },
+          {
+            "at": 9,
+            "finalAssistantId": "b",
+            "id": 2,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": {
+        "at": 5,
+        "id": 1,
+        "status": "done",
+        "text": "ok"
+      },
+      "name": "at equals the start",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "text": "ok"
+          },
+          {
+            "at": 5,
+            "finalAssistantId": "a",
+            "id": 1,
+            "kind": "turndone",
+            "status": "done"
+          }
+        ]
+      },
+      "startedAt": 5
+    }
+  ],
+  "note": "what the real 1.4.5 desktop agent-room-turn.ts / session-final-answer.ts answer; `answer: null` is a turn not finished yet",
+  "spokenText": [
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "hello"
+      },
+      "spoken": "hello",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "hello"
+      },
+      "spoken": "hello",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "(pass)"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "(pass)"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "Thanks. (pass)"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "Thanks. (pass)"
+      },
+      "spoken": "Thanks.",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "hello (PASS)"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "hello (PASS)"
+      },
+      "spoken": "hello",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": " "
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": " "
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": ""
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": ""
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "(pass) trailing"
+      },
+      "spoken": "(pass) trailing",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "(pass) trailing"
+      },
+      "spoken": "(pass) trailing",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "a\n(pass)\n"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "done",
+        "text": "a\n(pass)\n"
+      },
+      "spoken": "a",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "hello"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "hello"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "(pass)"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "(pass)"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "Thanks. (pass)"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "Thanks. (pass)"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "hello (PASS)"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "hello (PASS)"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": " "
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": " "
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": ""
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": ""
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "(pass) trailing"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "(pass) trailing"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "a\n(pass)\n"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "failed",
+        "text": "a\n(pass)\n"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "hello"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "hello"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "(pass)"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "(pass)"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "Thanks. (pass)"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "Thanks. (pass)"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "hello (PASS)"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "hello (PASS)"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": " "
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": " "
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": ""
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": ""
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "(pass) trailing"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "(pass) trailing"
+      },
+      "spoken": "",
+      "waiting": true
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "a\n(pass)\n"
+      },
+      "spoken": "",
+      "waiting": false
+    },
+    {
+      "answer": {
+        "at": 9,
+        "id": 1,
+        "status": "cancelled",
+        "text": "a\n(pass)\n"
+      },
+      "spoken": "",
+      "waiting": true
+    }
+  ],
+  "toolSummaries": [
+    {
+      "answer": [],
+      "name": "no snapshot",
+      "snapshot": null,
+      "startedAt": 5
+    },
+    {
+      "answer": [],
+      "name": "no items",
+      "snapshot": {},
+      "startedAt": 5
+    },
+    {
+      "answer": [
+        {
+          "name": "a",
+          "summary": "r1"
+        },
+        {
+          "name": "b",
+          "summary": "r2"
+        }
+      ],
+      "name": "only the tools after the last user message",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 9,
+            "kind": "tool",
+            "name": "old",
+            "result": "r0"
+          },
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "a",
+            "result": "r1"
+          },
+          {
+            "id": "x",
+            "kind": "assistant",
+            "text": "text"
+          },
+          {
+            "at": 7,
+            "kind": "tool",
+            "name": "b",
+            "result": "r2"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": [
+        {
+          "name": "a",
+          "summary": "r1"
+        },
+        {
+          "name": "b",
+          "summary": "r2"
+        }
+      ],
+      "name": "no user message at all",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "a",
+            "result": "r1"
+          },
+          {
+            "at": 7,
+            "kind": "tool",
+            "name": "b",
+            "result": "r2"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": [],
+      "name": "the last item is the user message",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "a",
+            "result": "r1"
+          },
+          {
+            "at": 8,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": [
+        {
+          "name": "b",
+          "summary": "r"
+        },
+        {
+          "name": "c",
+          "summary": "r"
+        }
+      ],
+      "name": "older than the start are dropped",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "at": 4,
+            "kind": "tool",
+            "name": "a",
+            "result": "r"
+          },
+          {
+            "at": 5,
+            "kind": "tool",
+            "name": "b",
+            "result": "r"
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "c",
+            "result": "r"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": [
+        {
+          "name": "a",
+          "summary": "r"
+        },
+        {
+          "name": "b",
+          "summary": "r"
+        },
+        {
+          "name": "c",
+          "summary": "r"
+        },
+        {
+          "name": "d",
+          "summary": "r"
+        }
+      ],
+      "name": "no time counts as the start",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "kind": "tool",
+            "name": "a",
+            "result": "r"
+          },
+          {
+            "at": 0,
+            "kind": "tool",
+            "name": "b",
+            "result": "r"
+          },
+          {
+            "at": "x",
+            "kind": "tool",
+            "name": "c",
+            "result": "r"
+          },
+          {
+            "at": "7",
+            "kind": "tool",
+            "name": "d",
+            "result": "r"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": [
+        {
+          "name": "tool",
+          "summary": "r"
+        },
+        {
+          "name": "tool",
+          "summary": "r"
+        },
+        {
+          "name": "7",
+          "summary": "r"
+        }
+      ],
+      "name": "names",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "result": "r"
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "",
+            "result": "r"
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": 7,
+            "result": "r"
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": [
+        {
+          "name": "a",
+          "summary": "\"\""
+        },
+        {
+          "name": "b",
+          "summary": "\"\""
+        },
+        {
+          "name": "c",
+          "summary": "{\"a\":1,\"b\":[\"x\",2]}"
+        },
+        {
+          "name": "d",
+          "summary": "12"
+        },
+        {
+          "name": "e",
+          "summary": ""
+        },
+        {
+          "name": "f",
+          "summary": "false"
+        }
+      ],
+      "name": "results",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "a"
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "b",
+            "result": null
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "c",
+            "result": {
+              "a": 1,
+              "b": [
+                "x",
+                2
+              ]
+            }
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "d",
+            "result": 12
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "e",
+            "result": ""
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "f",
+            "result": false
+          }
+        ]
+      },
+      "startedAt": 5
+    },
+    {
+      "answer": [
+        {
+          "name": "a",
+          "summary": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        },
+        {
+          "name": "b",
+          "summary": "{\"text\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\ud83d"
+        }
+      ],
+      "name": "long results are cut at 400 UTF-16 units",
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user",
+            "text": "hi"
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "a",
+            "result": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+          },
+          {
+            "at": 6,
+            "kind": "tool",
+            "name": "b",
+            "result": {
+              "text": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+            }
+          }
+        ]
+      },
+      "startedAt": 5
+    }
+  ]
+}

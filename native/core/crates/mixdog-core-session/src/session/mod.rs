@@ -53,6 +53,7 @@ mod message_reactions;
 mod model_switch;
 pub mod home_threads;
 pub mod room_log;
+pub mod import_sessions;
 mod route_exclusions;
 pub mod route_session;
 pub mod secret_input;
@@ -75,6 +76,9 @@ pub mod quota_resume_scheduler;
 #[cfg(test)]
 mod quota_resume_scheduler_tests;
 pub mod run;
+pub mod delegated_host;
+pub mod handoff_questions;
+pub mod runtime_hooks;
 mod seams;
 mod state;
 mod store;
@@ -206,6 +210,8 @@ pub struct SessionDeps {
     pub clock: Arc<dyn Clock>,
     /// Told of every turn start (today's `onSessionTurnStart`).
     pub turn_starts: Arc<dyn TurnStarts>,
+    /// Told when a thread's actor starts and stops (the handed-off question copies follow it).
+    pub runtime_hooks: Arc<dyn runtime_hooks::RuntimeHooks>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
     pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
     /// The saved requests and the fork behind `thread/askSide` and `thread/cancelSide`.
