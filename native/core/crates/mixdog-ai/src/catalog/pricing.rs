@@ -40,6 +40,15 @@ impl CatalogService {
     }
 }
 
+/// priceUsage for a send whose catalog may still be cold: a model no table names is unpriced
+/// (model-not-found), as in Node. Ledger rows are written whether or not the tables are loaded.
+pub struct CatalogPricing(pub Arc<CatalogService>);
+
+impl crate::registry::accounting::UsagePricing for CatalogPricing {
+    fn price_usage(&self, args: &UsageArgs) -> PricedUsage {
+        PricingCatalog { service: self.0.clone() }.price_usage(args)
+    }
+}
 /// Media billed outside the text token slots (`args.media`).
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

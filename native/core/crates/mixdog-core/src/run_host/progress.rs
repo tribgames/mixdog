@@ -16,7 +16,41 @@ use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::agent_tool::progress::ToolSilence;
 use mixdog_agent::agent_tool::views::WorkerLive;
 use mixdog_agent::env::Clock;
+use mixdog_core_api::domain::tool::ToolProgress;
+use mixdog_protocol::ProcessHandle;
+use serde_json::Value;
+use serde_json::json;
 use tokio::sync::watch;
+
+/// `markSessionToolOutputTail`: the live output tail keeps this many trailing characters.
+const TOOL_TAIL_CHARS: usize = 4000;
+
+/// What the running tool reports about itself while it runs: the current output tail
+/// (`toolOutputTail`), the last progress text (`onProgress`) and the process it started. A new
+/// tool call invalidates all of it.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct ToolHint {
+    text: Option<String>,
+    process: Option<ProcessHandle>,
+    tail: String,
+}
+
+impl ToolHint {
+    /// The `progressHint` clients are shown, `None` while the tool has reported nothing.
+    pub fn to_value(&self) -> Option<Value> {
+        let mut hint = serde_json::Map::new();
+        if let Some(text) = &self.text {
+            hint.insert("text".to_owned(), json!(text));
+        }
+        if let Some(process) = &self.process {
+            hint.insert("processHandle".to_owned(), json!(process));
+        }
+        if !self.tail.is_empty() {
+            hint.insert("outputTail".to_owned(), json!(self.tail));
+        }
+        (!hint.is_empty()).then_some(Value::Object(hint))
+    }
+}
 
 /// `DEFAULT_ACTIVITY_HEARTBEAT_MS` (`stall-policy.mjs`): while a tool runs, its progress stamp
 /// advances on this cadence.
@@ -82,6 +116,7 @@ struct Entry {
     /// When the running tool's activity heartbeat began; it ticks every `ACTIVITY_HEARTBEAT_MS`
     /// from there until the stage leaves `tool_running` or a model event arrives.
     heartbeat_from: Option<i64>,
+    tool_hint: ToolHint,
 }
 
 impl Entry {
@@ -232,6 +267,32 @@ impl RunProgress {
         e.last_tool_protocol_at = now;
         e.last_progress_at = now;
         e.heartbeat_from = Some(now);
+        // A new tool call invalidates the previous call's live output.
+        e.tool_hint = ToolHint::default();
+    }
+
+    /// What the running tool reported (`onOutputTail`, `onProgress`); `Output` replaces the
+    /// tail, as the tool's own timer hands over its current one. A settled or unknown turn
+    /// ignores late writes and never gets an entry. Whether the hint changed.
+    pub fn tool_progress(&mut self, progress: ToolProgress) -> bool {
+        let Some(e) = self.entry.as_mut().filter(|e| e.live()) else { return false };
+        let before = e.tool_hint.clone();
+        match progress {
+            ToolProgress::Stage(text) => e.tool_hint.text = Some(text),
+            ToolProgress::ProcessStarted(handle) => e.tool_hint.process = Some(handle),
+            ToolProgress::Output(bytes) => {
+                let text = String::from_utf8_lossy(&bytes);
+                let skip = text.chars().count().saturating_sub(TOOL_TAIL_CHARS);
+                e.tool_hint.tail = text.chars().skip(skip).collect();
+            }
+        }
+        e.tool_hint != before
+    }
+
+    /// The running tool's hint. Only a turn in `tool_running` shows one: that is the only stage
+    /// Node's readers take the tail in.
+    pub fn tool_hint(&self) -> ToolHint {
+        self.entry.as_ref().filter(|e| e.stage == "tool_running").map(|e| e.tool_hint.clone()).unwrap_or_default()
     }
 
     /// `beginSessionApprovalWait` / its release: a counted wait on the user; each edge is

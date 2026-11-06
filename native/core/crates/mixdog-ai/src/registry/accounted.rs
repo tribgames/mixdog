@@ -50,8 +50,42 @@ pub struct RequestScope;
 
 impl SendScope for RequestScope {
     fn of(&self, _provider: &str, request: &ModelRequest) -> Scope {
-        let RequestOptions { session_id, request_kind, .. } = &request.options;
-        Scope { session_id: session_id.clone(), source_type: request_kind.clone().unwrap_or_default(), ..Scope::default() }
+        let RequestOptions { session_id, usage_session_id, request_kind, .. } = &request.options;
+        Scope { session_id: usage_session_id.clone().or_else(|| session_id.clone()), source_type: request_kind.clone().unwrap_or_default(), ..Scope::default() }
+    }
+}
+
+/// The route the send asks for: the primary route of a session on a route-fallback hop (kept at the
+/// first hop, however many hops the chain has taken) while it differs from the route sent to, else
+/// the route itself. The flag is `routeHop`.
+pub fn requested_route(primary: Option<(String, String)>, provider: &str, model: &str) -> (String, String, bool) {
+    match primary.filter(|(p, m)| p != provider || m != model) {
+        Some((p, m)) => (p, m, true),
+        None => (provider.to_owned(), model.to_owned(), false),
+    }
+}
+
+/// The account a send is bound to (`currentProviderAccountId`), read where the send starts.
+#[async_trait]
+pub trait AccountOf: Send + Sync {
+    async fn of(&self, provider: &str) -> String;
+}
+
+#[async_trait]
+impl AccountOf for crate::accounts::AccountStore {
+    /// An unreadable roster binds the send to none; Node's read would throw inside the row's write.
+    async fn of(&self, provider: &str) -> String {
+        self.current_provider_account_id(provider).await.unwrap_or_default()
+    }
+}
+
+/// No account roster: every send is bound to none.
+pub struct NoAccounts;
+
+#[async_trait]
+impl AccountOf for NoAccounts {
+    async fn of(&self, _provider: &str) -> String {
+        String::new()
     }
 }
 
@@ -63,7 +97,7 @@ pub struct AccountingDeps {
     pub ledger: Arc<dyn Fn() -> Option<Arc<dyn UsageSink>> + Send + Sync>,
     pub scope: Arc<dyn SendScope>,
     /// The account a send is bound to (account providers only; `""` otherwise).
-    pub account: Arc<dyn Fn(&str) -> String + Send + Sync>,
+    pub account: Arc<dyn AccountOf>,
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
     pub new_id: Arc<dyn Fn() -> String + Send + Sync>,
 }
@@ -74,7 +108,7 @@ impl AccountingDeps {
             pricing,
             ledger,
             scope: Arc::new(RequestScope),
-            account: Arc::new(|_| String::new()),
+            account: Arc::new(NoAccounts),
             now: Arc::new(|| {
                 std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
             }),
@@ -120,25 +154,23 @@ impl AccountedAdapter {
     }
 
     /// The accounting this attempt belongs to: its group's, while a group is open, else a new send's.
-    fn open(&self, request: &ModelRequest) -> SendAccounting {
+    async fn open(&self, request: &ModelRequest) -> SendAccounting {
         if let Some(group) = request.options.send_group.as_deref()
             && let Some(Held { mut accounting, failed }) = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group)
         {
             note_failed(&mut accounting, failed);
             return accounting;
         }
-        self.begin(request)
+        self.begin(request).await
     }
 
-    fn begin(&self, request: &ModelRequest) -> SendAccounting {
+    async fn begin(&self, request: &ModelRequest) -> SendAccounting {
         let deps = &self.deps;
         let provider = self.name.as_str();
         let scope = deps.scope.of(provider, request);
         let started_at = (deps.now)();
         let model = request.model.as_str();
-        let primary = scope.primary.filter(|(p, m)| p != provider || m != model);
-        let route_hop = primary.is_some();
-        let (requested_provider, requested_model) = primary.unwrap_or_else(|| (provider.to_owned(), model.to_owned()));
+        let (requested_provider, requested_model, route_hop) = requested_route(scope.primary, provider, model);
         let identity = SendIdentity {
             provider: provider.to_owned(),
             model: model.to_owned(),
@@ -150,7 +182,7 @@ impl AccountedAdapter {
             source_type: scope.source_type,
             input_tokens_inclusive: !input_excludes_cache(provider),
             request_service_tier: String::new(),
-            account: if ACCOUNT_PROVIDERS.contains(&provider) { (deps.account)(provider) } else { String::new() },
+            account: if ACCOUNT_PROVIDERS.contains(&provider) { deps.account.of(provider).await } else { String::new() },
             request_id: (deps.new_id)(),
             started_at,
         };
@@ -182,7 +214,7 @@ impl ProviderAdapter for AccountedAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let accounting = self.open(&request);
+        let accounting = self.open(&request).await;
         let group = request.options.send_group.clone().map(|id| (id, Arc::clone(&self.groups)));
         match self.inner.attempt(request).await {
             Ok(stream) => Ok(Box::new(AccountedStream {

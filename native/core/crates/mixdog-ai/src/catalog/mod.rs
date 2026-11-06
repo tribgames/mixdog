@@ -31,6 +31,7 @@ pub use modelsdev_source::LITELLM_CACHE_FILE;
 pub use modelsdev_source::MODELS_DEV_CACHE_FILE;
 pub use modelsdev_source::ModelsDevSource;
 pub use modelsdev_source::REFRESH_AFTER;
+pub use pricing::CatalogPricing;
 pub use pricing::ColdCatalog;
 pub use pricing::Media;
 pub use pricing::PricedUsage;

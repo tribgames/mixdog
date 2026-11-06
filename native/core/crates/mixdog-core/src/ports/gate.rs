@@ -10,6 +10,8 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use mixdog_agent::env::BoundAccount;
 use mixdog_agent::env::GateCall;
 use mixdog_agent::env::GateSession;
 use mixdog_core_api::ids::ThreadId;
@@ -40,6 +42,7 @@ pub trait LiveHeader: Send + Sync {
 }
 
 /// The state outside the session the gate reads.
+#[async_trait]
 pub trait GateEnv: Send + Sync {
     /// The unattended run that owns `thread`, if one does.
     fn run_of(&self, thread: &ThreadId) -> Option<GateRun>;
@@ -47,9 +50,9 @@ pub trait GateEnv: Send + Sync {
     fn is_contact_bot(&self, agent_id: &str) -> bool;
     /// `developerOptionEnabledStrict('allowAllActions')`: unreadable or malformed is `false`.
     fn allow_all_actions(&self) -> bool;
-    /// `resolveMcpToolAccount(name, args, { scopeId, conversation })`'s label; `None` when the
-    /// call is bound to no account or none can be resolved.
-    fn connector_account(&self, thread: &ThreadId, header: &Header, call: &GateCall) -> Option<String>;
+    /// `resolveMcpToolAccount(name, args, { scopeId, conversation })`: the account a connector call
+    /// is bound to, `Ok(None)` when its server holds none; `Err` is the refusal the model sees.
+    async fn connector_account(&self, thread: &ThreadId, header: &Header, call: &GateCall) -> Result<Option<BoundAccount>, String>;
 }
 
 pub struct SessionGate {
@@ -120,6 +123,7 @@ fn life_mark(header: &Header) -> Option<String> {
     ))
 }
 
+#[async_trait]
 impl GateSession for SessionGate {
     fn facts(&self) -> SessionFacts {
         let header = self.header.header();
@@ -143,11 +147,11 @@ impl GateSession for SessionGate {
         PolicySettings { allow_all_actions: self.env.allow_all_actions() }
     }
 
-    fn account(&self, call: &GateCall) -> Option<String> {
+    async fn account(&self, call: &GateCall) -> Result<Option<BoundAccount>, String> {
         if !call.name.starts_with("mcp__") {
-            return None;
+            return Ok(None);
         }
-        self.env.connector_account(&self.thread, &self.header.header(), call).filter(|label| !label.is_empty())
+        self.env.connector_account(&self.thread, &self.header.header(), call).await
     }
 }
 
@@ -170,6 +174,7 @@ mod tests {
         contacts: Vec<&'static str>,
         allow_all: bool,
     }
+    #[async_trait]
     impl GateEnv for Env {
         fn run_of(&self, _: &ThreadId) -> Option<GateRun> {
             self.run.clone()
@@ -180,8 +185,8 @@ mod tests {
         fn allow_all_actions(&self) -> bool {
             self.allow_all
         }
-        fn connector_account(&self, _: &ThreadId, _: &Header, call: &GateCall) -> Option<String> {
-            Some(format!("acct-of-{}", call.name))
+        async fn connector_account(&self, _: &ThreadId, _: &Header, call: &GateCall) -> Result<Option<BoundAccount>, String> {
+            Ok(Some(BoundAccount { name: format!("name-of-{}", call.name), label: format!("acct-of-{}", call.name) }))
         }
     }
 
@@ -244,10 +249,11 @@ mod tests {
         assert!(g.surface().readonly);
     }
 
-    #[test]
-    fn only_connector_calls_have_an_account() {
+    #[tokio::test]
+    async fn only_connector_calls_have_an_account() {
         let (g, _tx) = gate("sess_x", json!({}), Env::default());
-        assert_eq!(g.account(&GateCall::new("read", json!({}))), None);
-        assert_eq!(g.account(&GateCall::new("mcp__notion__search", json!({}))).as_deref(), Some("acct-of-mcp__notion__search"));
+        assert_eq!(g.account(&GateCall::new("read", json!({}))).await, Ok(None));
+        let bound = g.account(&GateCall::new("mcp__notion__search", json!({}))).await.unwrap().unwrap();
+        assert_eq!((bound.name.as_str(), bound.label.as_str()), ("name-of-mcp__notion__search", "acct-of-mcp__notion__search"));
     }
 }

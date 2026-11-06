@@ -281,6 +281,9 @@ pub struct RequestOptions {
     /// folds the attempts of one group into that row. The loop settles the group with
     /// [`ProviderAdapter::settle_send`] when the logical send ends without success.
     pub send_group: Option<String>,
+    /// Node `opts.usageSessionId`: a request isolated under its own provider session id (a
+    /// compaction's `:compact`) whose spend belongs to this session.
+    pub usage_session_id: Option<String>,
 }
 
 /// The session's saved provider-native state (Node `session.providerState`).

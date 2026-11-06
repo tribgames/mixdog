@@ -1,0 +1,423 @@
+{
+  "floor": [
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "claude-3-7-sonnet",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "claude-3-5-haiku",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": true,
+      "model": "claude-haiku-4-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": true,
+      "model": "claude-sonnet-4-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": true,
+      "model": "claude-opus-4-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "max": true,
+      "model": "claude-sonnet-4-6",
+      "supportsEffort": true,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-opus-4-7",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-opus-4-8",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-opus-4.8-20260101",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-opus-5",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-fable-5-1",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-nova",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "anthropic/claude-opus-4.8",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "gpt-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "deepseek-v3",
+      "supportsEffort": false,
+      "xhigh": false
+    }
+  ],
+  "ids": [
+    "claude-3-7-sonnet",
+    "claude-3-5-haiku",
+    "claude-haiku-4-5",
+    "claude-sonnet-4-5",
+    "claude-opus-4-5",
+    "claude-sonnet-4-6",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-opus-4.8-20260101",
+    "claude-opus-5",
+    "claude-fable-5-1",
+    "claude-nova",
+    "anthropic/claude-opus-4.8",
+    "gpt-5",
+    "deepseek-v3"
+  ],
+  "live": [
+    {
+      "id": "claude-sonnet-4-6",
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "claude-opus-4-8",
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "high"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "claude-opus-5-20260101",
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "high",
+            "xhigh",
+            "low",
+            "medium"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "deepseek-v3",
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "high"
+          ]
+        }
+      ]
+    }
+  ],
+  "withLive": [
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "claude-3-7-sonnet",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "claude-3-5-haiku",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": true,
+      "model": "claude-haiku-4-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": true,
+      "model": "claude-sonnet-4-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": true,
+      "model": "claude-opus-4-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "max": true,
+      "model": "claude-sonnet-4-6",
+      "supportsEffort": true,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-opus-4-7",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "max": false,
+      "model": "claude-opus-4-8",
+      "supportsEffort": true,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "max": false,
+      "model": "claude-opus-4.8-20260101",
+      "supportsEffort": true,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-opus-5",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-fable-5-1",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-nova",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "anthropic/claude-opus-4.8",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "gpt-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "deepseek-v3",
+      "supportsEffort": true,
+      "xhigh": false
+    }
+  ]
+}

@@ -1,6 +1,13 @@
 //! Real host-side implementations of the agent run loop's environment seams.
 
 pub mod admission;
+pub mod process;
+pub mod builder_env;
+pub mod accounting_scope;
+pub mod ladder_sources;
+pub mod hop_bindings;
+#[cfg(test)]
+mod process_tests;
 pub mod artifact;
 pub mod tool_exposure;
 pub mod tool_surface;
@@ -16,6 +23,7 @@ pub mod deferred_manifest;
 pub mod tool_migration;
 pub mod attachment_reference;
 pub mod cache;
+pub mod compactors;
 mod grep_args;
 pub mod guards;
 pub mod hop_host;
@@ -25,7 +33,10 @@ pub mod live_turn;
 pub mod media;
 pub mod model_display;
 pub mod progress;
+pub mod boot;
+pub mod host_seams;
 pub mod reactions;
+pub mod read_snapshots;
 pub mod result_reuse;
 pub mod retry;
 pub mod route_chain;
@@ -38,4 +49,5 @@ pub mod steer;
 pub mod step_judge;
 pub mod summary_routes;
 pub mod tail;
+pub mod tool_progress;
 pub mod thinking_binding;

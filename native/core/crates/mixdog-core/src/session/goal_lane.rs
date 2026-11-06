@@ -178,6 +178,24 @@ pub fn kept_closeout_text(entry: &Value, keep: Option<&Goal>) -> Option<String> 
     (is_closeout && crate::goal::js::clean(entry.get("goalId")) == id_of(keep)).then(|| crate::goal::text::goal_deadline_reached(keep))
 }
 
+/// A queued deadline closeout (`entry.mode === 'goal-closeout'`).
+pub fn is_closeout(entry: &Value) -> bool {
+    entry.get("mode").and_then(Value::as_str) == Some(CLOSEOUT_MODE)
+}
+
+/// `shouldRunGoalContinuation`'s closeout half: the closeout runs only while the lane's Goal
+/// (`refreshGoalState()`) is still at its duration and is the entry's.
+pub fn closeout_still_due(entry: &Value, goal: Option<&Goal>) -> bool {
+    goal.is_some_and(|goal| crate::goal::js::string(goal, "status") == "duration_reached" && crate::goal::js::clean(entry.get("goalId")) == id_of(goal))
+}
+
+/// `shouldRunGoalContinuation`'s continuation half: the runtime still decides to run, for the
+/// entry's Goal when the entry names one.
+pub fn continuation_still_due(entry: &Value, decision: &crate::goal::Continuation) -> bool {
+    let queued = crate::goal::js::clean(entry.get("goalId"));
+    decision.run && (queued.is_empty() || decision.goal.as_ref().is_some_and(|goal| id_of(goal) == queued))
+}
+
 /// `isGoalQueuedEntry`.
 pub fn is_goal_entry(entry: &Value) -> bool {
     matches!(entry.get("mode").and_then(Value::as_str), Some(CONTINUATION_MODE | CLOSEOUT_MODE))

@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-anthropic-caps.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8184,
+      "path": "golden.json",
+      "sha256": "4698e1c38e77a33c0de973c05b99536af85f93336c88bb9414c1612ae8f2deee"
+    }
+  ],
+  "product": {
+    "appsSha256": "1ba13ae4c6213282aa4baf8e39dd32a65446dfddf9d3fe560f802a85d7e64ec3",
+    "commit": "ee79f521cc8cff449335daee8f9a7a50c876bc43",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9240,
+    "refComparison": {
+      "closestCommit": "ee79f521cc8cff449335daee8f9a7a50c876bc43",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-anthropic-caps.mjs",
+  "set": "anthropic-caps",
+  "totalBytes": 8184
+}

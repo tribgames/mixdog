@@ -348,7 +348,7 @@ mod through_the_registry {
             let mut deps = AccountingDeps::new(Arc::new(Unpriced), Arc::new(move || Some(ledger.clone())));
             deps.now = Arc::new(move || started_at + if calls.fetch_add(1, Ordering::SeqCst) == 0 { 0 } else { stream_ms });
             deps.new_id = Arc::new(|| "<req>".into());
-            deps.account = Arc::new(|_| "default".into());
+            deps.account = Arc::new(DefaultAccount);
             let registry = ProviderRegistry::new(Arc::new(Builder(Mutex::new(vec![script])))).with_accounting(deps);
             let provider = case["provider"].as_str().unwrap();
             registry.init_providers(&crate::service::admin_route::ensure_provider_enabled(&Map::new(), provider)).await.unwrap();
@@ -387,6 +387,14 @@ mod through_the_registry {
         assert_eq!(replayed, 7);
     }
 
+    struct DefaultAccount;
+    #[async_trait]
+    impl crate::registry::accounted::AccountOf for DefaultAccount {
+        async fn of(&self, _: &str) -> String {
+            "default".into()
+        }
+    }
+
     /// The host's scope: the request's own, plus the session this one runs for.
     struct OwnerScope(Option<String>);
     impl crate::registry::accounted::SendScope for OwnerScope {
@@ -407,7 +415,7 @@ mod through_the_registry {
         let mut deps = AccountingDeps::new(Arc::new(Unpriced), Arc::new(move || Some(ledger.clone())));
         deps.now = Arc::new(move || started_at + if calls.fetch_add(1, Ordering::SeqCst) == 0 { 0 } else { stream_ms });
         deps.new_id = Arc::new(|| "<req>".into());
-        deps.account = Arc::new(|_| "default".into());
+        deps.account = Arc::new(DefaultAccount);
         deps.scope = Arc::new(OwnerScope(case.get("ownerSessionId").and_then(Value::as_str).map(str::to_owned)));
         let registry = ProviderRegistry::new(Arc::new(Builder(Mutex::new(scripts)))).with_accounting(deps);
         let provider = case["provider"].as_str().unwrap();

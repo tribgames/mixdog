@@ -151,7 +151,7 @@ impl FreshCompactor {
     /// compaction fails with "no context window is available".
     pub fn for_session(session: SessionCompactor) -> Option<Arc<Self>> {
         let policy = CompactPolicy::resolve(&CompactSettings { auto: true, ..session.settings })?;
-        let context_window = policy.context_window;
+        let context_window = policy.context_window.unwrap_or(policy.boundary_tokens);
         let max_budget_tokens = 1.max((context_window as f64 / policy.token_calibration).floor() as u64);
         let summary = PlannedHandoff {
             parts: session.parts.clone(),

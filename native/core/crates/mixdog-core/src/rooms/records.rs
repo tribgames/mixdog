@@ -1,16 +1,16 @@
 //! Room records (the catalog table `rooms(roomId, doc)`), written by the one `global("room")`
-//! writer: every mutation reads, changes and persists whole under one lock, on a copy that
+//! writer: every mutation reads, changes and persists whole on one serial chain, on a copy that
 //! replaces the live records only after the save succeeded.
 //!
 //! In-flight rounds are memory-only. A record still carrying `running` at start-up was cut off by
 //! a restart: `recover` clears it and names the rooms to mark interrupted. Nothing resumes.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use mixdog_rt::SerialChain;
 use serde::{Deserialize, Serialize};
-#[allow(clippy::disallowed_types, reason = "the one room writer: a mutation reads, changes and saves under it across the store's awaits on purpose")]
-use tokio::sync::Mutex;
 
 use super::RoomError;
 use super::config::{RoomConfig, RoomConfigInput, normalize_room_config};
@@ -105,40 +105,53 @@ fn remove_from_room(room: &mut RoomRecord, gone: &[String]) {
 
 pub struct Rooms<S: RoomStore> {
     store: S,
-    // The one room writer: reads of the live records also pass through it, briefly.
-    #[allow(clippy::disallowed_types, reason = "the one room writer: a mutation reads, changes and saves under it across the store's awaits on purpose")]
-    doc: Mutex<Option<RoomDoc>>,
+    // The one room writer: a mutation loads, changes and saves on this chain, in arrival order.
+    // Reads of the live records pass through it too, briefly.
+    writer: Arc<SerialChain>,
+    // The live records; locked only to swap or clone the handle, never across an await.
+    doc: Mutex<Option<Arc<RoomDoc>>>,
 }
 
 impl<S: RoomStore> Rooms<S> {
-    #[allow(clippy::disallowed_types, reason = "the one room writer: a mutation reads, changes and saves under it across the store's awaits on purpose")]
     pub fn new(store: S) -> Self {
-        Self { store, doc: Mutex::new(None) }
+        Self { store, writer: SerialChain::new(), doc: Mutex::new(None) }
+    }
+
+    fn live(&self) -> Option<Arc<RoomDoc>> {
+        self.doc.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn set_live(&self, doc: Arc<RoomDoc>) {
+        *self.doc.lock().unwrap_or_else(|e| e.into_inner()) = Some(doc);
+    }
+
+    /// The live records, loaded on first use. Called only while holding the writer's turn.
+    async fn loaded(&self) -> Result<Arc<RoomDoc>, RoomError> {
+        if let Some(live) = self.live() {
+            return Ok(live);
+        }
+        let doc = Arc::new(self.store.load().await?);
+        self.set_live(doc.clone());
+        Ok(doc)
     }
 
     /// Run `change` on a copy of the records and persist it; the copy replaces the live records
     /// only when the save succeeds. A `change` that leaves the records equal writes nothing.
     async fn write<T>(&self, change: impl FnOnce(&mut RoomDoc) -> Result<T, RoomError>) -> Result<T, RoomError> {
-        let mut guard = self.doc.lock().await;
-        if guard.is_none() {
-            *guard = Some(self.store.load().await?);
-        }
-        let live = guard.as_ref().expect("loaded above");
-        let mut next = live.clone();
+        let _turn = self.writer.acquire().await;
+        let live = self.loaded().await?;
+        let mut next = RoomDoc::clone(&live);
         let result = change(&mut next)?;
         if next != *live {
             self.store.save(&next).await?;
-            *guard = Some(next);
+            self.set_live(Arc::new(next));
         }
         Ok(result)
     }
 
     async fn read<T>(&self, view: impl FnOnce(&RoomDoc) -> T) -> Result<T, RoomError> {
-        let mut guard = self.doc.lock().await;
-        if guard.is_none() {
-            *guard = Some(self.store.load().await?);
-        }
-        Ok(view(guard.as_ref().expect("loaded above")))
+        let _turn = self.writer.acquire().await;
+        Ok(view(&*self.loaded().await?))
     }
 
     pub async fn list(&self) -> Result<Vec<RoomRecord>, RoomError> {

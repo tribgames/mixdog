@@ -218,6 +218,8 @@ pub(crate) enum JobDone {
     GoalDecision(Option<crate::goal::Continuation>),
     /// The user prompt's archive of a finished Goal landed (its id, masked meanwhile).
     GoalArchived(String),
+    /// `shouldRunGoalContinuation`'s reads for a dequeued Goal entry (`None`: the call failed).
+    GoalEntryChecked { entry: Value, seen: Option<GoalCheck> },
     /// `goalControl`'s answer for the request that asked.
     GoalControlled { op: Option<OpId>, tx: Waiter, result: Result<Value, crate::goal::GoalError> },
     /// A run's committed row with its facts read.
@@ -231,6 +233,14 @@ pub(crate) enum JobDone {
     InputFacts(Box<InputStart>),
     /// The quota-failed turn has nothing a resume could replay.
     QuotaUnresumable(TurnId),
+}
+
+/// What `shouldRunGoalContinuation` read for a Goal entry.
+pub(crate) enum GoalCheck {
+    /// A closeout: the runtime's Goal now (`refreshGoalState`).
+    Status(Option<Goal>),
+    /// A continuation: the runtime's decision now (`continuationDecision`).
+    Decision(crate::goal::Continuation),
 }
 
 /// A turn whose input row's facts are being read (`start_run_with`).
@@ -326,6 +336,10 @@ pub(crate) struct SessionActor {
     agent_done: Option<(oneshot::Sender<RunOutcome>, RunOutcome)>,
     /// A turn's input row facts are being read: it starts next, no other turn does.
     starting: bool,
+    /// A dequeued Goal entry waits on `shouldRunGoalContinuation`: no other turn starts.
+    goal_checking: bool,
+    /// A continuation was asked for while that check ran; it is decided once the check is back.
+    goal_deferred: bool,
     /// The last Goal runtime call: each waits for the one before.
     goal_tail: Option<tokio::task::JoinHandle<()>>,
     /// Answered once the deleted thread's turn ended.
@@ -426,6 +440,8 @@ impl SessionActor {
             settling: false,
             agent_done: None,
             starting: false,
+            goal_checking: false,
+            goal_deferred: false,
             goal_tail: None,
             delete_closed: None,
             delete_mark: None,
@@ -564,6 +580,7 @@ impl SessionActor {
             || self.deleting
             || self.settling
             || self.starting
+            || self.goal_checking
             || cell.subscribers.load(SeqCst) != 0
             || self.run.is_some()
             || !self.projected.queue.is_empty()
@@ -752,6 +769,7 @@ impl SessionActor {
                 self.show_live(turn, item, None);
             }
             JobDone::GoalDecision(decision) => self.goal_decision(decision),
+            JobDone::GoalEntryChecked { entry, seen } => self.goal_entry_checked(entry, seen),
             JobDone::GoalControlled { op, tx, result } => self.goal_controlled(op, tx, result),
             JobDone::GoalArchived(id) => {
                 // `settle`: the mask lifts and the lane shows the record as it now is.
@@ -864,7 +882,7 @@ impl SessionActor {
     fn deliver_goal_warning(&mut self, timed: Option<&Goal>) {
         let Some(text) = self.goal_watch.warning(timed) else { return };
         let Some(goal) = timed else { return };
-        if self.run.is_some() {
+        if self.ui_busy() {
             let entry = super::goal_lane::warning_entry(&text, goal, self.deps.clock.now_ms());
             self.enqueue_goal_entry(entry);
         } else {
@@ -900,7 +918,7 @@ impl SessionActor {
             return;
         }
         let Some(goal) = timed else { return };
-        let busy = self.run.is_some();
+        let busy = self.ui_busy();
         let queue: Vec<&Value> = self.projected.queue.iter().map(|q| &q.entry).collect();
         match super::goal_lane::closeout(goal, busy, &queue, self.deps.clock.now_ms()) {
             super::goal_lane::Closeout::Remind => self.mark_goal_reminder("deadline-reached"),
@@ -943,6 +961,11 @@ impl SessionActor {
     /// `scheduleGoalContinuation`: once the thread is idle with nothing queued, the runtime
     /// decides whether its Goal continues.
     fn schedule_goal_continuation(&mut self) {
+        // Node's `setImmediate` runs after the drain's synchronous check of a dequeued Goal entry.
+        if self.goal_checking {
+            self.goal_deferred = true;
+            return;
+        }
         if self.goal_scheduled || !self.goal_idle() {
             return;
         }
@@ -1710,10 +1733,10 @@ impl SessionActor {
             Vec::new(),
             Vec::new(),
         );
-        // An automatic Goal turn: its prompt is runtime-synthetic, shown as no user row.
+        // An automatic Goal turn runs only if `shouldRunGoalContinuation` still agrees; a dropped
+        // entry stays dropped (`drain.mjs`).
         if super::goal_lane::is_goal_entry(&next.entry) {
-            let input = TurnInput { prompt: PromptContent::Text(completions::text(&next.entry)), options: None };
-            self.start_run_with(input, super::goal_lane::input_row(&next.entry), None, None, None, false);
+            self.check_goal_entry(next.entry);
             return;
         }
         let input = TurnInput {
@@ -1787,9 +1810,68 @@ impl SessionActor {
         }
     }
 
-    /// A turn runs, is starting (its input row's facts being read) or is settling.
+    /// A turn runs, is starting (its input row's facts being read), is settling, or a dequeued
+    /// Goal entry is being checked.
     fn turn_busy(&self) -> bool {
-        self.run.is_some() || self.starting || self.settling
+        self.run.is_some() || self.starting || self.settling || self.goal_checking
+    }
+
+    /// Node's `state.busy`: set when `runTurn` begins, cleared when the turn closes, before its
+    /// Goal settlement (`publishTurnClose`).
+    fn ui_busy(&self) -> bool {
+        self.run.is_some() || self.starting
+    }
+
+    /// `shouldRunGoalContinuation(entry)` for a dequeued Goal entry: a closeout reads the
+    /// runtime's Goal, a continuation the runtime's decision; the answer comes back as a job.
+    fn check_goal_entry(&mut self, entry: Value) {
+        if self.deleting || self.cell.closed.load(SeqCst) {
+            return;
+        }
+        self.goal_checking = true;
+        let (deps, thread) = (self.deps.clone(), self.id.clone());
+        let closeout = super::goal_lane::is_closeout(&entry);
+        self.goal_call(Box::pin(async move {
+            let seen = if closeout {
+                deps.goals.goal_status(&thread).await.ok().map(GoalCheck::Status)
+            } else {
+                let input = super::goal_lane::continuation_input(&*deps.todos, &*deps.work, &deps.cycles, &thread).await;
+                deps.goals.continuation(&thread, input).await.ok().map(GoalCheck::Decision)
+            };
+            JobDone::GoalEntryChecked { entry, seen }
+        }));
+    }
+
+    /// The check is back: the lane shows the Goal it read; the entry runs as an automatic Goal
+    /// turn, or is dropped and the queue moves on.
+    fn goal_entry_checked(&mut self, entry: Value, seen: Option<GoalCheck>) {
+        self.goal_checking = false;
+        let deferred = std::mem::take(&mut self.goal_deferred);
+        if self.deleting || self.cell.closed.load(SeqCst) {
+            return;
+        }
+        let run = match seen {
+            None => false,
+            Some(GoalCheck::Status(raw)) => {
+                let goal = self.publish_goal(raw);
+                super::goal_lane::closeout_still_due(&entry, goal.as_ref())
+            }
+            Some(GoalCheck::Decision(decision)) => {
+                self.publish_goal(decision.goal.clone());
+                super::goal_lane::continuation_still_due(&entry, &decision)
+            }
+        };
+        if run {
+            // Its prompt is runtime-synthetic, shown as no user row.
+            let input = TurnInput { prompt: PromptContent::Text(completions::text(&entry)), options: None };
+            self.start_run_with(input, super::goal_lane::input_row(&entry), None, None, None, false);
+            return;
+        }
+        self.start_next_queued();
+        if deferred {
+            self.schedule_goal_continuation();
+        }
+        self.try_unload();
     }
 
     fn active(&self, turn: &TurnId) -> bool {

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use mixdog_agent::env::BoundAccount;
 use mixdog_agent::env::GateCall;
 use mixdog_agent::env::SkillSelector;
 use mixdog_agent::env::ToolGate;
@@ -18,6 +19,12 @@ use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolPart;
+use mixdog_ai::service::admin_models::developer_option_enabled;
+use mixdog_mcp::McpHub;
+use mixdog_mcp::skill_catalog::SkillCatalog;
+use mixdog_store::schema::record::Header;
+use mixdog_tools::policy::ToolResolver;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_mcp::hook_bus::HookBus;
 use mixdog_mcp::hook_bus::session::CommonOf;
 use mixdog_mcp::hook_bus::session::PostCall;
@@ -31,6 +38,10 @@ use mixdog_protocol::ToolCallId;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use super::session_tools::SkillsListed;
+use crate::config::Config;
+use crate::ports::gate::GateEnv;
+use crate::ports::gate::GateRun;
 use super::hooks::BatchDecision;
 use super::hooks::PostToolDispatch;
 use super::hooks::PostToolEvent;
@@ -186,6 +197,106 @@ impl SkillSelector for ExplicitSkillSelector {
                 format!("<system-reminder>\nExplicit skill selection result:\n{summary}\n</system-reminder>"),
             ));
             transcript.extend(follow_ups.into_iter().map(|m| AgentMessage::sourced(Source::Skill, m.text)));
+        }
+    }
+}
+
+/// `SkillsListed` over the skill catalog: whether any skill is visible at the folder
+/// (`collectPromptSkillsCached(cwd).length`). The catalog answers from the list it last collected
+/// (`SkillCatalog::any_visible_now`), so the host awaits `catalog.skills()` once at start.
+pub struct CatalogSkillsListed(pub Arc<SkillCatalog>);
+
+impl SkillsListed for CatalogSkillsListed {
+    fn any_for(&self, cwd: &Path) -> bool {
+        self.0.any_visible_now(cwd)
+    }
+}
+
+/// `ToolResolver` for the policy: a tool of the pool by name or alias, or an MCP tool by its
+/// qualified name (`mcp__<server>__<tool>`) on a ready server of the hub, which a pool alone
+/// cannot resolve. A name neither knows resolves to nothing.
+pub struct McpAwareResolver {
+    pool: Vec<Arc<dyn Tool>>,
+    hub: Arc<McpHub>,
+}
+
+impl McpAwareResolver {
+    /// `pool` is the same registry the session tool set is built from.
+    pub fn new(pool: Vec<Arc<dyn Tool>>, hub: Arc<McpHub>) -> Self {
+        Self { pool, hub }
+    }
+}
+
+impl ToolResolver for McpAwareResolver {
+    fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        let pooled = self.pool.iter().find(|tool| tool.spec().name == name || tool.spec().aliases.iter().any(|alias| alias == name));
+        pooled.cloned().or_else(|| self.hub.tool(name))
+    }
+}
+
+/// The unattended run that owns a session (`unattendedApprovalPort().runOf`,
+/// `session-runtime/held-requests.mjs` `unattendedRunOf`). Implemented by whoever tracks the
+/// schedule, webhook and room runs.
+pub trait UnattendedRuns: Send + Sync {
+    fn run_of(&self, thread: &ThreadId) -> Option<GateRun>;
+}
+
+/// `isContactAgentId(id, readAgentDefinitionKind(id))`, answered without waiting: the agent store
+/// owns the definitions.
+pub trait ContactBots: Send + Sync {
+    fn is_contact_bot(&self, agent_id: &str) -> bool;
+}
+
+/// The Developer option "Allow all actions" (`developerOptionEnabledStrict('allowAllActions')`).
+pub trait AllowAllActions: Send + Sync {
+    fn allow_all_actions(&self) -> bool;
+}
+
+/// [`AllowAllActions`] over the config document: on only when `agent.developer.allowAllActions`
+/// is `true`; absent or any other value is off.
+pub struct ConfigAllowAll(pub Config);
+
+impl AllowAllActions for ConfigAllowAll {
+    fn allow_all_actions(&self) -> bool {
+        developer_option_enabled("allowAllActions", self.0.agent().get("developer").unwrap_or(&JsonValue::Null))
+    }
+}
+
+/// The real `GateEnv`: the session's unattended run, contact bots and the "Allow all actions"
+/// option from their owners, and the connector account from the hub (`resolveMcpToolAccount`).
+pub struct HostGateEnv {
+    runs: Arc<dyn UnattendedRuns>,
+    contacts: Arc<dyn ContactBots>,
+    allow_all: Arc<dyn AllowAllActions>,
+    hub: Arc<McpHub>,
+}
+
+impl HostGateEnv {
+    pub fn new(runs: Arc<dyn UnattendedRuns>, contacts: Arc<dyn ContactBots>, allow_all: Arc<dyn AllowAllActions>, hub: Arc<McpHub>) -> Self {
+        Self { runs, contacts, allow_all, hub }
+    }
+}
+
+#[async_trait]
+impl GateEnv for HostGateEnv {
+    fn run_of(&self, thread: &ThreadId) -> Option<GateRun> {
+        self.runs.run_of(thread)
+    }
+
+    fn is_contact_bot(&self, agent_id: &str) -> bool {
+        self.contacts.is_contact_bot(agent_id)
+    }
+
+    fn allow_all_actions(&self) -> bool {
+        self.allow_all.allow_all_actions()
+    }
+
+    /// The account `args.account` names, else the one the conversation (the thread) used last;
+    /// the refusal when it cannot be used.
+    async fn connector_account(&self, thread: &ThreadId, _header: &Header, call: &GateCall) -> Result<Option<BoundAccount>, String> {
+        match self.hub.resolve_tool_account(&call.name, &call.args, thread.as_str()).await {
+            Ok(chosen) => Ok(chosen.map(|account| BoundAccount { name: account.name, label: account.label })),
+            Err(refusal) => Err(refusal.to_string()),
         }
     }
 }

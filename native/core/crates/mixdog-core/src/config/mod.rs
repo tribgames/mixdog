@@ -21,10 +21,12 @@ mod settings;
 mod desktop;
 mod notifications;
 mod output_style;
+mod run_seams;
 mod schema;
 mod seams;
 mod service;
 
+pub use run_seams::{ConfigRunSeams, EnvReader};
 pub use seams::ConfigFeatureGate;
 pub use service::ConfigService;
 pub(crate) use service::set_worktree_settings;

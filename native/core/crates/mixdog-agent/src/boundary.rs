@@ -94,7 +94,9 @@ pub struct CompactPolicy {
     pub target_tokens: u64,
     /// The reserve cannot leave any post-compact headroom: compact once only.
     pub single_shot: bool,
-    pub context_window: u64,
+    /// The session's window; `None` when it states none (Node's `policy.contextWindow` is null then,
+    /// and each consumer falls back to the boundary itself).
+    pub context_window: Option<u64>,
     pub token_calibration: f64,
 }
 
@@ -162,7 +164,7 @@ impl CompactPolicy {
             configured_reserve_tokens: configured,
             target_tokens: target,
             single_shot,
-            context_window: window.unwrap_or(boundary),
+            context_window: window,
             token_calibration: calibration,
         })
     }
@@ -431,7 +433,7 @@ impl Run {
                     stage: "pre_send",
                     provider,
                     model: self.model.clone(),
-                    context_window: Some(policy.context_window),
+                    context_window: policy.context_window,
                     budget_tokens: Some(budget),
                     reserve_tokens: Some(policy.reserve_tokens),
                     message_tokens_est: Some(pressure),

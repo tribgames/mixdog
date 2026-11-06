@@ -181,7 +181,7 @@ async fn a_hung_or_missing_server_never_blocks_another() {
         env: std::env::vars().collect(),
         cwd: None,
     };
-    hub.apply(vec![config("good", json!({"timeoutMs": 0})), config("busy", json!({"timeoutMs": 0})), missing]);
+    hub.apply(vec![config("good", json!({"timeoutMs": 0, "outbound": {"echo": "message"}})), config("busy", json!({"timeoutMs": 0})), missing]);
     for name in ["good", "busy", "missing"] {
         until(&hub.server(name).unwrap(), |s| !matches!(s, ServerState::Starting)).await;
     }
@@ -211,6 +211,13 @@ async fn a_hung_or_missing_server_never_blocks_another() {
     assert_eq!(target.server.name(), "good");
     assert!(target.entry.is_some());
     assert!(hub.tool_target("mcp__nowhere__echo").is_none());
+    // The policy asks the resolved tool what a call does outside the machine: `good` declares
+    // its `echo` a message, `busy` declares nothing and `echo` is read-only there.
+    let echo = hub.tool("mcp__good__echo").expect("a published tool resolves");
+    assert_eq!(echo.spec().name, "mcp__good__echo");
+    assert_eq!(echo.outbound_kind(&json!({})), Some(mixdog_core_api::domain::approval::ActionKind::Message));
+    assert_eq!(hub.tool("mcp__busy__echo").expect("resolves").outbound_kind(&json!({})), None);
+    assert!(hub.tool("mcp__good__nothing").is_none() && hub.tool("read").is_none());
     hub.close_all().await;
 }
 

@@ -21,7 +21,7 @@ use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::provider::RequestThread;
-use mixdog_core_api::domain::tool::{ProgressSink, SurfaceKind, Tool, ToolIo};
+use mixdog_core_api::domain::tool::{SurfaceKind, Tool, ToolIo};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::TurnError;
 use mixdog_protocol::message_class::user_text::Blobs;
@@ -62,11 +62,24 @@ pub struct RunSettings {
 }
 
 /// What the explicit skill selector is made of, besides the run's own gate, environment and token.
+#[derive(Clone)]
 pub struct SkillParts {
     /// The skill names available for a cwd (`SkillCatalog`).
     pub names: Arc<dyn mixdog_mcp::skill_select::SkillNames>,
     /// The session's `Skill` tool.
     pub tool: Arc<dyn Tool>,
+}
+
+/// The run's own parts a compactor reads its transcript through: the same values the run commits
+/// and archives with, so a pass sees exactly the rows the session stored.
+pub struct CompactorInput {
+    /// `RunSettings.compact` (`auto` is not read; see `FreshCompactor::for_session`).
+    pub settings: mixdog_agent::boundary::CompactSettings,
+    /// The run's stored bodies (`FreshParts.rows`).
+    pub rows: Arc<crate::session::StoredRows>,
+    /// Where a dropped execution is archived (`FreshParts.archive`).
+    pub archive: Arc<dyn mixdog_agent::offload::ArtifactStore>,
+    pub blobs: Arc<dyn Blobs + Send + Sync>,
 }
 
 /// What a turn needs and no crate supplies yet. Every method is a seam with its owner.
@@ -82,11 +95,10 @@ pub trait SessionSeams: Send + Sync + 'static {
     fn todo_view(&self, thread: &ThreadId, header: &Header) -> Arc<dyn TodoView>;
     /// PostToolUse / PostToolUseFailure / PostToolBatch dispatch. Owner: WP-MCP (hook bus).
     fn post_tool_dispatch(&self) -> Arc<dyn PostToolDispatch>;
-    /// The compaction pipeline for this session's route: `FreshCompactor` has no constructor, only
-    /// a struct literal over `FreshParts`, `TriggerSeams`, a handoff source and `CompactorConfig`.
-    /// Owner: WP-AGENT (`FreshCompactor::for_session`), with WP-AI-SVC's `RouteResolver` and
-    /// `SummarySender` and `run_host::summary_routes` for the summary route.
-    fn compactor(&self, thread: &ThreadId, header: &Header) -> Option<Arc<dyn Compactor>>;
+    /// The compaction pipeline for this session's route (`run_host::compactors::SessionCompactors`
+    /// over `FreshCompactor::for_session`). `input` is the run's: the settings it compacts by and
+    /// the stored rows, archive and blobs its transcript is read through.
+    fn compactor(&self, thread: &ThreadId, header: &Header, input: CompactorInput) -> Option<Arc<dyn Compactor>>;
     /// What the route hop reads and writes (`HopHost`). Owner: WP-AI-SVC (registry, wires) with
     /// WP-SESSION (the header write).
     fn hop_host(&self, thread: &ThreadId, header: &Header) -> Option<Arc<dyn HopHost>>;
@@ -121,7 +133,6 @@ pub struct HostServices {
     pub clock: Arc<dyn Clock>,
     pub files: Arc<dyn FileService>,
     pub processes: Arc<dyn ProcessManager>,
-    pub progress: Arc<dyn ProgressSink>,
     pub io: ToolIo,
     pub policy: Arc<ToolPolicy>,
     pub connectors: Arc<dyn ConnectorPermissions>,
@@ -134,8 +145,9 @@ pub struct HostServices {
     /// The session directory: each session's live header, grants and thread window. Boot builds it with
     /// `Arc::new_cyclic` since the directory owns the run factory that owns these services.
     pub directory: std::sync::Weak<crate::session::SessionDirectory>,
-    /// The shared effort-judge model; each run's judge is built over it with the run's ladder.
-    pub effort_judge: Arc<EffortJudgeModel>,
+    /// The shared effort-judge model, present when the install has the ONNX Runtime library; each run's judge is
+    /// built over it with the run's ladder.
+    pub effort_judge: Option<Arc<EffortJudgeModel>>,
     pub seams: Arc<dyn SessionSeams>,
     /// Runs the git and shell-tools probes of a composition (one per daemon process).
     pub probes: Arc<super::prewarm::StartupProbes>,
@@ -206,7 +218,7 @@ impl RunParts for HostRunParts {
             approvals: Arc::new(input.port.clone()),
             files: s.files.clone(),
             processes: s.processes.clone(),
-            progress: s.progress.clone(),
+            progress: input.progress.clone(),
             deadline_of: None,
             notify: input.notify.clone(),
         };
@@ -226,17 +238,23 @@ impl RunParts for HostRunParts {
         config.hidden_agent = hidden;
         config.agent_mode = settings.agent_mode;
         config.limits = settings.limits;
+        let compact_settings = settings.compact.clone();
         config.compact = settings.compact;
         config.escalated_max_output_tokens = settings.escalated_max_output_tokens;
         config.read_body_required = settings.read_body_required;
         config.effort = settings.effort;
         // The judge is built only when auto effort is on for the turn (`stepAutoEffort`), over the
         // shared model and the ladder of this run's route.
-        let step_judge = settings.step_auto_effort.as_ref().and_then(|auto| {
+        // Step judging needs a calibration made for steps (`calibration.json` `steps === 1`).
+        let step_auto_effort = match (settings.step_auto_effort, &s.effort_judge) {
+            (Some(auto), Some(model)) if model.supports_steps().await => Some(auto),
+            _ => None,
+        };
+        let step_judge = step_auto_effort.as_ref().and_then(|auto| {
             let ladder = super::step_judge::ladder_for(provider_id, auto, seams.step_ladder_facts(thread, header, auto)?)?;
-            Some(Arc::new(EffortJudge::new(s.effort_judge.clone(), ladder)) as Arc<dyn StepEffortJudge>)
+            Some(Arc::new(EffortJudge::new(s.effort_judge.clone()?, ladder)) as Arc<dyn StepEffortJudge>)
         });
-        config.step_auto_effort = settings.step_auto_effort;
+        config.step_auto_effort = step_auto_effort;
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;
         config.slot = input.slot;
@@ -268,6 +286,11 @@ impl RunParts for HostRunParts {
         let read_body = config.read_body_required;
         // The reaction facts are read off the stored bodies the run holds, as Node reads `meta`.
         let rows = Arc::new(crate::session::StoredRows::new());
+        let artifacts: Arc<dyn mixdog_agent::offload::ArtifactStore> = Arc::new(ToolResultArtifacts::new(s.io, &seams.data_dir(), session_id));
+        // No settings, no compaction policy: Node has no compactor for the session.
+        let compactor = compact_settings.and_then(|settings| {
+            seams.compactor(thread, header, CompactorInput { settings, rows: rows.clone(), archive: artifacts.clone(), blobs: s.blobs.clone() })
+        });
         Ok(Assembled {
             rows: rows.clone(),
             provider,
@@ -279,7 +302,7 @@ impl RunParts for HostRunParts {
             clock: s.clock.clone(),
             decider: Arc::new(StandardRetryDecider),
             guards,
-            compactor: seams.compactor(thread, header),
+            compactor,
             route: seams.hop_host(thread, header).map(|host| Arc::new(RouteHop::new(host)) as Arc<dyn RouteFallback>),
             skills: seams.skill_parts().map(|parts| {
                 let selection = input.skill_selection.clone();
@@ -293,7 +316,7 @@ impl RunParts for HostRunParts {
             reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
             tail: Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context: seams.tail_context(header) })),
             step_judge,
-            artifacts: Some(Arc::new(ToolResultArtifacts::new(s.io, &seams.data_dir(), session_id))),
+            artifacts: Some(artifacts),
             images: seams.image_compactor(),
             blobs: s.blobs.clone(),
             carry: RunCarry::default(),

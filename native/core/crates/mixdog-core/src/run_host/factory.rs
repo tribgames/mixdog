@@ -35,6 +35,7 @@ use super::message_row::{message_of, row_of};
 use super::progress::{ProgressPublisher, StreamKind};
 use super::retry::{RandomJitter, TimerWait};
 use super::steer::SteerQueue;
+use super::tool_progress::{RunToolProgress, ToolHints};
 use crate::session::turn_snapshot::ReviewGate;
 use crate::session::{ItemCommit, RunFactory, RunOutcome, RunPort, RunStart, StoredRows};
 
@@ -56,6 +57,9 @@ pub struct AssembleInput<'a> {
     /// The worker turn's own completion hook (`AgentTurn.hooks.notify`): `assemble` puts it on the
     /// `ToolEnv`, so it reaches every tool call. `None` for a turn no job owns.
     pub notify: Option<mixdog_core_api::domain::tool::ToolNotify>,
+    /// Where the run's tools report progress: `ToolEnv.progress` (the run's own sink, built by the
+    /// factory over the session cell's progress value).
+    pub progress: Arc<dyn mixdog_core_api::domain::tool::ProgressSink>,
 }
 
 /// What the policy gate needs from the run it gates, which exists only after assembly.
@@ -439,7 +443,9 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         None => (None, None, None, None),
     };
     let surface_now = surface.borrow().clone();
-    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, notify }).await {
+    let hints = ToolHints::start(progress.subscribe(), port.clone());
+    let tool_progress = RunToolProgress::new(progress.clone());
+    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, notify, progress: tool_progress }).await {
         Ok(assembled) => assembled,
         Err(error) => return RunOutcome::Failed(error),
     };
@@ -535,6 +541,8 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     };
     let result = Run::new(env, cancel.clone(), provider, tools, tool_env, config, messages, carry).run().await;
     closing.end_reasoning();
+    // No hint is published once the run's outcome is on its way: the run owns the runtime section.
+    hints.finish().await;
     match result {
         Ok(output) => {
             // The loop ends on the terminal answer without committing it (Node's turn commit does):
@@ -585,7 +593,7 @@ mod tests {
     use mixdog_agent::env::{AllowAll, NoGuards};
     use mixdog_core_api::call::CallContext;
     use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
-    use mixdog_core_api::domain::mock::{MockApprovalGate, MockCodec, MockFileService, MockProcessManager, MockProgress, MockRetryDecider};
+    use mixdog_core_api::domain::mock::{MockApprovalGate, MockCodec, MockFileService, MockProcessManager, MockRetryDecider};
     use mixdog_core_api::domain::provider::{DeliveryState, ModelRequest, ModelStream, ProviderError, StopReason, StreamEvent, ToolCall, WireCodec};
     use mixdog_core_api::domain::retry::RetryPolicy;
     use mixdog_core_api::domain::tool::{SurfaceKind, Tool, ToolAnnotations, ToolContext, ToolIo, ToolOutcome, ToolOutput, ToolPart, ToolSpec};
@@ -670,6 +678,8 @@ mod tests {
     struct Parts {
         provider: Arc<Scripted>,
         workspace: std::path::PathBuf,
+        /// Tools beside `echo`.
+        more: Vec<Arc<dyn Tool>>,
     }
 
     #[async_trait]
@@ -687,7 +697,7 @@ mod tests {
             let tokens = mixdog_rt::testing::tokens();
             Ok(Assembled {
                 provider: self.provider.clone(),
-                tools: ToolSet::new(vec![Arc::new(Echo(spec))]),
+                tools: ToolSet::new(std::iter::once(Arc::new(Echo(spec)) as Arc<dyn Tool>).chain(self.more.iter().cloned()).collect()),
                 tool_env: ToolEnv {
                     thread_id: input.thread.clone(),
                     turn_id: input.turn.clone(),
@@ -697,7 +707,7 @@ mod tests {
                     approvals: Arc::new(MockApprovalGate::default()),
                     files: Arc::new(MockFileService::default()),
                     processes: Arc::new(MockProcessManager::default()),
-                    progress: Arc::new(MockProgress::default()),
+                    progress: input.progress.clone(),
                     deadline_of: None,
                     notify: input.notify.clone(),
                 },
@@ -756,7 +766,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf() })));
+        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new() })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -799,5 +809,328 @@ mod tests {
         let second: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
         assert_eq!(second, [Role::User, Role::Assistant, Role::Tool]);
         let _ = AtomicI64::new(0);
+    }
+
+    /// A tool that reports its output through `ctx.progress`, then waits to be released.
+    struct Reporter {
+        spec: ToolSpec,
+        reported: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl Tool for Reporter {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        async fn call(&self, ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+            ctx.progress.progress(mixdog_core_api::domain::tool::ToolProgress::Output(b"compiling".to_vec()));
+            self.reported.notify_one();
+            self.release.notified().await;
+            Ok(ToolOutput { parts: vec![ToolPart::Text("built".into())], ..ToolOutput::default() })
+        }
+    }
+
+    /// A tool's progress reaches the thread's clients: the run's sink writes the cell's progress,
+    /// the hint is published as the runtime section while the tool runs, and it is withdrawn when
+    /// the turn moves on.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_running_tools_output_is_published_to_the_threads_clients_and_withdrawn_after() {
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([
+                vec![
+                    StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "report".into(), arguments: json!({}), native_type: None }),
+                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                ],
+                vec![StreamEvent::TextDelta("ok".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+            ])),
+            requests: Mutex::new(Vec::new()),
+        });
+        let (reported, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+        let reporter = Reporter {
+            spec: ToolSpec {
+                name: "report".into(),
+                aliases: Vec::new(),
+                description: "report".into(),
+                input_schema: json!({ "type": "object" }),
+                annotations: ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() },
+                parallel_safe: true,
+                exclusive_with: Vec::new(),
+            },
+            reported: reported.clone(),
+            release: release.clone(),
+        };
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)] })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle
+            .request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1"))
+            .await
+            .expect("turn/start");
+
+        let hints = || -> Vec<Value> {
+            rig.feeds
+                .frames(id.as_str())
+                .into_iter()
+                .filter(|(_, method, _)| method == "thread/runtime/updated")
+                .map(|(_, _, params)| params["value"]["progressHint"].clone())
+                .collect()
+        };
+        tokio::time::timeout(Duration::from_secs(10), reported.notified()).await.expect("the tool ran");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !hints().contains(&json!({ "outputTail": "compiling" })) {
+            assert!(tokio::time::Instant::now() < deadline, "the hint was not published: {:?}", hints());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        release.notify_one();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while hints().last() != Some(&Value::Null) {
+            assert!(tokio::time::Instant::now() < deadline, "the hint was not withdrawn: {:?}", hints());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    // ---- the real assembly -------------------------------------------------------------------------
+
+    struct OneProvider(Arc<Scripted>);
+
+    #[async_trait]
+    impl mixdog_ai::registry::providers::ProviderBuilder for OneProvider {
+        async fn build(&self, _name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            Ok(self.0.clone())
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> bool {
+            true
+        }
+    }
+
+    struct Config;
+    impl super::super::host_seams::ConfigSeams for Config {
+        fn hidden_agent(&self, _: Option<&str>) -> bool {
+            false
+        }
+        fn run_settings(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> super::super::assemble::RunSettings {
+            super::super::assemble::RunSettings {
+                hidden_agent: false,
+                agent_mode: false,
+                limits: None,
+                compact: None,
+                escalated_max_output_tokens: None,
+                read_body_required: false,
+                effort: None,
+                step_auto_effort: None,
+                text_only: None,
+                attachments: None,
+                model_max_output_tokens: None,
+            }
+        }
+        fn stored_instruction_files(&self) -> Option<Value> {
+            None
+        }
+        fn response_language(&self) -> Option<(String, String)> {
+            None
+        }
+    }
+
+    struct NoCompactors;
+    impl super::super::host_seams::CompactorSource for NoCompactors {
+        fn compactor(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, _: super::super::assemble::CompactorInput) -> Option<Arc<dyn mixdog_agent::env::Compactor>> {
+            None
+        }
+    }
+
+    struct NoMcp;
+    impl super::super::session_tools::SessionMcp for NoMcp {
+        fn tools(&self, _: &std::path::Path) -> Vec<Arc<dyn Tool>> {
+            Vec::new()
+        }
+    }
+
+    struct NoSkills;
+    impl super::super::session_tools::SkillsListed for NoSkills {
+        fn any_for(&self, _: &std::path::Path) -> bool {
+            false
+        }
+    }
+
+    struct NoPostTool;
+    #[async_trait]
+    impl super::super::hooks::PostToolDispatch for NoPostTool {
+        async fn post_tool(&self, _: &super::super::hooks::PostToolEvent) -> Option<JsonValue> {
+            None
+        }
+        async fn post_failure(&self, _: &super::super::hooks::PostToolEvent) {}
+        async fn post_batch(&self, _: &str, _: &str, _: usize) -> Option<super::super::hooks::BatchDecision> {
+            None
+        }
+    }
+
+    struct PoolResolver(Vec<Arc<dyn Tool>>);
+    impl mixdog_tools::policy::ToolResolver for PoolResolver {
+        fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>> {
+            self.0.iter().find(|t| t.spec().name == name).cloned()
+        }
+    }
+
+    struct Env;
+    #[async_trait::async_trait]
+    impl crate::ports::gate::GateEnv for Env {
+        fn run_of(&self, _: &ThreadId) -> Option<crate::ports::gate::GateRun> {
+            None
+        }
+        fn is_contact_bot(&self, _: &str) -> bool {
+            false
+        }
+        fn allow_all_actions(&self) -> bool {
+            false
+        }
+        async fn connector_account(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, _: &mixdog_agent::env::GateCall) -> Result<Option<mixdog_agent::env::BoundAccount>, String> {
+            Ok(None)
+        }
+    }
+
+    struct NoLadder;
+    impl super::super::step_judge::LadderSources for NoLadder {
+        fn cached_row(&self, _: &str, _: &str) -> Option<serde_json::Map<String, Value>> {
+            None
+        }
+        fn rejected(&self, _: &str, _: &str) -> Option<mixdog_ai::effort::RejectionEntry> {
+            None
+        }
+        fn custom_config(&self, _: &str) -> Option<(mixdog_ai::providers::custom::Protocol, String)> {
+            None
+        }
+        fn anthropic_levels(&self, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+    }
+
+    /// The same turn through the real `HostRunParts` (`build_directory`): the provider from the
+    /// registry, the surface's tools, the policy gate and the tool-result reuse, artifacts and hooks.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_runs_through_the_real_assembly() {
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([
+                vec![
+                    StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "list".into(), arguments: json!({ "path": "." }), native_type: None }),
+                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                ],
+                vec![StreamEvent::TextDelta("listed".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+            ])),
+            requests: Mutex::new(Vec::new()),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let tokens = mixdog_rt::testing::tokens();
+        let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+        let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(OneProvider(provider.clone()))));
+        registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
+        let spec = ToolSpec {
+            name: "list".into(),
+            aliases: Vec::new(),
+            description: "list".into(),
+            input_schema: json!({ "type": "object" }),
+            annotations: ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() },
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        };
+        let pool: Vec<Arc<dyn Tool>> = vec![Arc::new(Echo(spec))];
+        let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(MockProcessManager::default());
+        let clock: Arc<dyn Clock> = Arc::new(Fixed);
+        let connectors: Arc<dyn mixdog_tools::policy::ConnectorPermissions> = mixdog_mcp::permissions::ConnectorPolicy::new(
+            workspace.path().to_path_buf(),
+            mixdog_mcp::permissions::PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io },
+        );
+        let host = super::super::boot::HostParts {
+            registry,
+            clock: clock.clone(),
+            files: Arc::new(MockFileService::default()),
+            processes: processes.clone(),
+            io,
+            policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
+            connectors,
+            resolver: Arc::new(PoolResolver(pool.clone())),
+            gate_env: Arc::new(Env),
+            blobs: Arc::new(NoBlobs),
+            reaction_targets: Arc::default(),
+            effort_judge: None,
+            seams: super::super::host_seams::SeamParts {
+                tools: super::super::session_tools::SessionToolBuilder::new(pool, Arc::new(NoMcp), Arc::new(NoSkills)),
+                todos: crate::ports::todo_view::TodoViews::new(rig.todos.clone(), Arc::new(rig.goals.clone()), rig.work.clone(), Arc::default()),
+                post_tool: Arc::new(NoPostTool),
+                compactors: Arc::new(NoCompactors),
+                hops: None,
+                skills: None,
+                config: Arc::new(Config),
+                ladder: Arc::new(NoLadder),
+                images: None,
+                paths: mixdog_store::paths::Paths { plugin_root: workspace.path().join("plugin"), data_dir: workspace.path().join("data") },
+            },
+            probes: Arc::new(super::super::prewarm::StartupProbes::new(io, processes)),
+            observed: Arc::new(crate::prompt::probes::StartupObservations::new(clock)),
+        };
+        let directory = super::super::boot::build_directory(host, |runs| {
+            let mut deps = rig.deps_parts(rig.store.clone());
+            deps.runs = runs;
+            deps
+        });
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle
+            .request(CoreRequest {
+                method: Method("thread/header/patch"),
+                params: json!({ "threadId": id, "set": { "provider": "scripted", "model": "m" } }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            })
+            .await
+            .expect("route");
+        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        let Reply::Value(started) = started else { panic!("turn/start answers a value") };
+        assert_eq!(started["kind"], "started");
+        let roles = || -> Vec<String> {
+            rig.store
+                .records(&id)
+                .into_iter()
+                .filter_map(|(_, record)| match record {
+                    Record::Item(item) => match item.body {
+                        Slot::Inline(body) => body["role"].as_str().map(str::to_owned),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect()
+        };
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while roles().len() < 4 {
+            assert!(tokio::time::Instant::now() < deadline, "the turn did not settle: {:?}", roles());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(roles(), ["user", "assistant", "tool", "assistant"]);
+        let requests = lock(&provider.requests).clone();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool]);
     }
 }
