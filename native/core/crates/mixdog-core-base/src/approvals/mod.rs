@@ -486,4 +486,28 @@ mod tests {
         assert_eq!(frame["id"], json!("3"));
         assert_eq!(frame["method"], json!("item/tool/requestApproval"));
     }
+
+    /// A takeover card the core times out is announced to clients as `serverRequest/resolved`: that
+    /// frame is what ends the page the desktop handed over (`apps/desktop/src/main/takeover-feed.ts`),
+    /// and the request it answers is what started the takeover there.
+    #[test]
+    fn a_takeover_card_that_times_out_is_announced_resolved_to_the_clients() {
+        let thread = ThreadId::from("t");
+        let mut book = ApprovalBook::default();
+        let aid = ApprovalId(9);
+        let mut card = ask(Vec::new());
+        card.payload = json!({"kind": "takeover", "takeover": {"surface": "browser", "instructions": "sign in"}});
+        card.expires_after = Some(Duration::from_secs(15 * 60));
+        let request = ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), card, 1000);
+        let params = request_params(&request, &TurnId::from("r"));
+        assert_eq!((params["kind"].clone(), params["threadId"].clone()), (json!("takeover"), json!("t")));
+        assert_eq!(params["takeover"]["surface"], "browser");
+        assert!(params["expiresAt"].is_number(), "the card carries its own deadline");
+        book.insert(request, TurnId::from("r"), None);
+        assert!(book.expired(Instant::now() + Duration::from_secs(14 * 60)).is_empty(), "not before the deadline");
+        assert_eq!(book.expired(Instant::now() + Duration::from_secs(16 * 60)).len(), 1);
+        let frame: Value = serde_json::from_slice(&resolved_frame(&thread, aid, &ApprovalResolution::TimedOut { at: 5 })).unwrap();
+        assert_eq!(frame["method"], "serverRequest/resolved");
+        assert_eq!(frame["params"], json!({"threadId": "t", "requestId": aid.request_id().0, "resolution": {"kind": "timedOut", "at": 5}}));
+    }
 }

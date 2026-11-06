@@ -33,6 +33,8 @@ import {
 } from './notification-decision';
 import { notificationPreferencesPath, readPcNotificationView } from './notification-preferences';
 import { captureTakeoverOrDecline } from './takeover-capture';
+import { createTakeoverFeed } from './takeover-feed';
+import { createTakeoverStateHandler } from './takeover-state';
 import type { NotificationTestResult } from './notification-center';
 import { secretInputs } from './secret-input';
 import { remoteSessionConfigFromEnv } from './ssh/remote-session';
@@ -1181,32 +1183,14 @@ const takeoverCapture = {
     console.error(`[mixdog-takeover] ${event}`, details);
   },
 };
-unsubscribeTakeovers = localService.subscribeSessionStates((update) => {
-  const surface = takeoverGate.onSessionState(update);
-  const login = update?.snapshot ? loginTakeoverOf(update.snapshot) : null;
-  const approval = (
-    update?.snapshot as
-      | { toolApproval?: { id?: unknown; kind?: unknown; takeover?: { tab?: unknown } | null } | null }
-      | undefined
-  )?.toolApproval;
-  const id = String(approval?.id ?? 'takeover');
-  if (update?.sessionId && update.snapshot) {
-    browserLogin.sync(String(update.sessionId), login);
-    // A settled (or replaced) takeover forgets the page it handed over.
-    browserHost?.endTakeoverPage(String(update.sessionId), approval?.kind === 'takeover' ? id : '');
-  }
-  if (surface !== 'browser') return;
-  const sessionId = String(update.sessionId);
-  // The handed-over page is fixed as the takeover starts (login or not), so
-  // later tab moves never retarget the handoff or the post-login reload.
-  // A tab that cannot be handed over declines the takeover with the reason.
-  const tab = typeof approval?.takeover?.tab === 'string' ? approval.takeover.tab : '';
-  if (!captureTakeoverOrDecline(takeoverCapture, sessionId, id, tab)) return;
-  if (login) return;
-  void takeoverGate.ready(sessionId, id).then((ready) => {
-    if (ready) browserHost?.openForTakeover(sessionId, id);
-  });
+const onTakeoverState = createTakeoverStateHandler({
+  gate: takeoverGate,
+  login: browserLogin,
+  loginOf: loginTakeoverOf,
+  browser: () => browserHost,
+  capture: (sessionId, id, tab) => captureTakeoverOrDecline(takeoverCapture, sessionId, id, tab),
 });
+unsubscribeTakeovers = localService.subscribeSessionStates(onTakeoverState);
 unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value }) => {
   // Only this PC's daemon connection drives the peer window.
   if (name === REMOTE_TRANSPORT_PEER_COMMAND_EVENT) {
@@ -1429,6 +1413,9 @@ const sendToMainWindow = (channel: string, request: unknown): void => {
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
   mainWindow.webContents.send(channel, request);
 };
+// The core owns a takeover card as a server request: it starts the takeover here, and its resolution - an answer, or the
+// card's own 15-minute expiry - ends it and the page it handed over.
+localProtocol.onEvent(createTakeoverFeed((update) => onTakeoverState(update)));
 localProtocol.onEvent(
   createOpenRequestedHandler({
     browser: (request) => sendToMainWindow(DESKTOP_IPC.browserOpenRequested, request),
