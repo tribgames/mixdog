@@ -1952,6 +1952,45 @@ async fn an_item_cursor_into_rewound_or_cleared_history_is_invalidated() {
     assert!(matches!(list(&shown[0]).await, Err(CoreError::CursorInvalidated { .. })));
 }
 
+/// `thread/clear` with `rebuildPrompt` (Node's `clear({ rebuildPrompt })`): the emptied thread's surface is composed again and the
+/// answer says whether that applied; without it nothing is rebuilt; a running turn refuses it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clear_with_rebuild_prompt_reseeds_the_emptied_thread_and_answers_whether_it_applied() {
+    struct Reseeds(Arc<Mutex<Vec<ThreadId>>>, bool);
+    #[async_trait::async_trait]
+    impl super::EmptyToolSurface for Reseeds {
+        async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
+            self.0.lock().expect("calls").push(thread.clone());
+            Ok(self.1)
+        }
+    }
+    for applied in [true, false] {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = real_store(data.path()).await;
+        let rig = Rig::new();
+        rig.set_script(echo());
+        let calls: Arc<Mutex<Vec<ThreadId>>> = Arc::default();
+        let mut deps = rig.deps_parts(store);
+        deps.empty_surface = Arc::new(Reseeds(calls.clone(), applied));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "one", "op-1").await;
+        eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+        let Reply::Value(plain) = handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-2" }), "op-2")).await.expect("clear") else { panic!("a value") };
+        assert_eq!(plain, json!({}), "without rebuildPrompt the answer is the clear's own");
+        assert!(calls.lock().expect("calls").is_empty(), "nothing is rebuilt without it");
+        let Reply::Value(rebuilt) = handle
+            .request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-3", "rebuildPrompt": true }), "op-3"))
+            .await
+            .expect("clear")
+        else {
+            panic!("a value")
+        };
+        assert_eq!(rebuilt, json!({ "promptRebuilt": applied }));
+        assert_eq!(*calls.lock().expect("calls"), [handle.id.clone()]);
+    }
+}
+
 /// The run publishes its progress into the session cell; the registry's `runtime_stage` and the
 /// worker views' `live` read that one value, and a thread this process does not host has none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

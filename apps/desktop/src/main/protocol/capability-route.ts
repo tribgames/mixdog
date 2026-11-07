@@ -87,6 +87,12 @@ const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
     };
   },
   setModel: ([model], { threadId }) => ({ method: 'route/set', params: defined({ route: { model } }, threadId) }),
+  // Node's `clear(options)` rebuilds the prompt of the emptied session only for `rebuildPrompt === true`; its other options
+  // (`archiveAs`, `recoverAgent`) are the TUI's.
+  clear: ([options], { threadId }) => ({
+    method: 'thread/clear',
+    params: defined({ rebuildPrompt: (options as { rebuildPrompt?: unknown } | null | undefined)?.rebuildPrompt === true ? true : undefined }, threadId),
+  }),
 };
 
 /** The core request for `capability(...args)` issued by the surface that paints `sessionId` (none = control session).
@@ -243,6 +249,17 @@ export function createCapabilityLane({
     // `retryFailedTurn(sessionId, turnKey)` names its thread as its first argument; left out, it is the one addressed.
     const named = capability === 'retryFailedTurn' && !args[0] ? [thread, ...args.slice(1)] : args;
     const { method, params } = routeCapability(capability, named, thread);
+    // `inheritFrom` answers as Node's does (`lifecycle/inheritance.mjs`): the heir, its source, the messages carried and its route.
+    if (capability === 'inheritFrom') {
+      const forked = (await request(method, params)) as { thread: { id: string }; messages: number; provider: unknown; model: unknown };
+      return {
+        sessionId: forked.thread.id,
+        sourceSessionId: args[0],
+        messages: forked.messages,
+        provider: forked.provider,
+        model: forked.model,
+      };
+    }
     if (!ADDRESSED_SESSION_CAPABILITIES.has(capability)) return request(method, params);
     return request(method, params).catch((error: unknown) => {
       throw isThreadNotFound(error) ? new Error('session is not the active session') : error;

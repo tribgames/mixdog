@@ -201,6 +201,7 @@ pub use self::seams::CommitRecord;
 pub use self::seams::EncodedRecord;
 pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;
+pub use self::seams::EmptyToolSurface;
 pub use self::seams::NewThreadRoute;
 pub use self::seams::NewThreadTools;
 pub use self::seams::NewThreadPlace;
@@ -250,6 +251,8 @@ pub struct SessionDeps {
     pub new_tools: Arc<dyn NewThreadTools>,
     /// The route a `thread/start` thread begins on (its draft's pick, else the config's default).
     pub new_route: Arc<dyn NewThreadRoute>,
+    /// The tool surface and prompt an emptied thread (`thread/clear` with `rebuildPrompt`) are composed again with.
+    pub empty_surface: Arc<dyn EmptyToolSurface>,
     /// The folder a `thread/start` of `kind: task` begins in.
     pub task_workspace: Arc<dyn TaskWorkspace>,
     /// The registered Projects and the draft's worktree step for the threads the desktop starts and forks.

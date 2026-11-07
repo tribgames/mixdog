@@ -566,6 +566,16 @@ pub struct ThreadForkParams {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadClearParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rebuild_prompt: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct ThreadContinueInModelParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
@@ -715,6 +725,7 @@ pub struct TurnRetryFailedParams {
 has_op_id!(
     ThreadStartParams,
     ThreadOpParams,
+    ThreadClearParams,
     ThreadReadStateUpdateParams,
     ThreadNameSetParams,
     ThreadMetadataUpdateParams,

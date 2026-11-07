@@ -317,7 +317,7 @@ crate::client_request_definitions! {
     },
     /// Clear history.
     ThreadClear => "thread/clear" {
-        params: v2::thread::ThreadOpParams,
+        params: v2::thread::ThreadClearParams,
         result: JsonValue,
         scope: thread(thread_id),
         class: C2,
