@@ -4,7 +4,7 @@
 //! - `target` = `activeWorkflowContext(configForSession(config, id, mode), dir)` with
 //!   `leadPartsFor(session, leadPromptParts)`;
 //! - `live_denied_tools` = `liveDeniedTools(session, summary)` over the live feature gates;
-//! - `standalone_tools` = `modelStandaloneTools()` as the session's workflow gates it;
+//! - `internal_tools` =`modelStandaloneTools()` as the session's workflow gates it;
 //! - `orchestration_instructions` = `orchestrationInstructions(mode)`.
 
 use std::collections::HashSet;

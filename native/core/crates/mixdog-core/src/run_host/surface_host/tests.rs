@@ -1214,9 +1214,9 @@ async fn the_provider_tool_array_follows_node_for_every_recorded_session() {
     }
 }
 
-/// `standalone_tools` lists the pool's standalone tools as `collectStandaloneToolDefs` does, whatever order the pool was registered in.
+/// `internal_tools` lists the pool's standalone tools as `collectStandaloneToolDefs` does, whatever order the pool was registered in.
 #[test]
-fn the_standalone_tools_are_in_nodes_order_whatever_the_pool_order() {
+fn the_internal_tools_are_in_nodes_order_whatever_the_pool_order() {
     let r = recording();
     let pool = recorded_pool(&r);
     let ours: Vec<String> = internal_tools(&pool).iter().map(|tool| tool.spec().name.clone()).collect();
