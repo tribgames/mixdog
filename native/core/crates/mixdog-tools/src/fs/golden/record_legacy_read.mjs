@@ -433,13 +433,14 @@ const MESSAGES = [
   `stat '${wsText}/'`,
   `stat '${wsText}/..'`,
   `stat '${wsText}/a/../..//ws/d'`,
+  // `redact` turns every `\` into `/` before `relative()`, on any host.
+  `stat '${wsText}\\sub\\.\\..\\\\a.txt'`,
   `a "C:\\Users\\nobody\\f" and 'D:/other/g'`,
 ];
-// A Windows host compares drives and paths without case, and writes `\` for `/`.
+// A Windows host compares drives and paths without case.
 const WINDOWS_MESSAGES = [
   `stat '${TOKENS['<WSDRIVELOWER>']}/a.txt'`,
   `stat '${TOKENS['<WSDRIVELOWER>']}/a//../b'`,
-  `stat '${ws}\\\\sub\\.\\..\\\\a.txt'`,
 ];
 const untoken = (s) => tokenize(s, (v) => v);
 const messages = [];
