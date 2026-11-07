@@ -8,34 +8,37 @@ use std::sync::Arc;
 
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::SecretChanges;
+use mixdog_protocol::config::desktop_files;
 use mixdog_protocol::config::keys;
 use mixdog_rt::TaskClass;
 use serde_json::json;
 use tokio::sync::watch;
 
-/// What the desktop keeps in its own files in Node (`agent-greetings.json`, `remote-activated.json`, and the `desktop` section's
-/// siblings of the same kind) and the Rust config holds as keys (`desktop_profile/plan.rs` destinations). The Node daemon's stored
-/// settings root never contains them, so writing one is no settings change there.
-const DESKTOP_OWNED: [&str; 4] = [keys::DESKTOP, keys::NOTIFICATIONS, keys::AGENTS_GREETED, keys::REMOTE_ACTIVATED_AT];
-
-fn remove_path(root: &mut serde_json::Map<String, serde_json::Value>, path: &str) {
+/// Removes the key at `path` (dotted) and reports whether there was one. A parent the removal leaves empty goes with it: the Node
+/// daemon's root never had the key, so it never had the parent that only held it (Node's signature is `JSON.stringify` of the root, which
+/// tells `{}` from an absent key, so a parent that was already empty stays as it was).
+fn remove_path(root: &mut serde_json::Map<String, serde_json::Value>, path: &str) -> bool {
     match path.split_once('.') {
-        None => {
-            root.remove(path);
-        }
+        None => root.remove(path).is_some(),
         Some((head, rest)) => {
-            if let Some(child) = root.get_mut(head).and_then(serde_json::Value::as_object_mut) {
-                remove_path(child, rest);
+            let Some(child) = root.get_mut(head).and_then(serde_json::Value::as_object_mut) else { return false };
+            let removed = remove_path(child, rest);
+            if removed && child.is_empty() {
+                root.remove(head);
             }
+            removed
         }
     }
 }
 
-/// `configChangeSnapshot(...).settings`.
+/// `configChangeSnapshot(...).settings`. The `desktop` section has its own owners in Node, and so do the keys the desktop's files were
+/// migrated into (`desktop_files::ALL`, the list the migration plans from): the Node daemon's stored settings never held them, so
+/// writing one is no settings change there.
 fn settings_signature(config: &Config, secrets: &SecretChanges) -> String {
     let mut root = (*config.full()).clone();
-    for path in DESKTOP_OWNED {
-        remove_path(&mut root, path);
+    remove_path(&mut root, keys::DESKTOP);
+    for owned in desktop_files::ALL {
+        remove_path(&mut root, owned.key);
     }
     json!([root, secrets.tokens()]).to_string()
 }
@@ -137,6 +140,19 @@ mod tests {
             .await
             .expect("the agent section");
         assert_ne!(settings_signature(&config, &secrets), applied, "the agent section is");
+    }
+
+    /// A parent the removal empties goes with its key; one that was already empty, or still holds something, stays.
+    #[test]
+    fn removing_a_key_prunes_only_the_parent_it_empties() {
+        let removed = |mut root: Value, path: &str| {
+            let reported = remove_path(root.as_object_mut().expect("an object"), path);
+            (root, reported)
+        };
+        assert_eq!(removed(serde_json::json!({ "agents": { "greeted": [] } }), "agents.greeted"), (serde_json::json!({}), true));
+        assert_eq!(removed(serde_json::json!({ "agents": { "greeted": [], "other": 1 } }), "agents.greeted"), (serde_json::json!({ "agents": { "other": 1 } }), true));
+        assert_eq!(removed(serde_json::json!({ "agents": {} }), "agents.greeted"), (serde_json::json!({ "agents": {} }), false));
+        assert_eq!(removed(serde_json::json!({ "notifications": { "migratedAt": 1 } }), "notifications"), (serde_json::json!({}), true));
     }
 
     /// The route a draft carries, adopted: the save `route/set` makes (`save_agent_config`, here `Config::update` of the same `agent`
