@@ -6,6 +6,7 @@ use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ProviderId;
 
+use super::oauth_cache::OauthModelCache;
 use super::record::Capability;
 use super::record::MetadataSource;
 use super::record::ModelRecord;
@@ -20,6 +21,8 @@ pub struct ModelSource {
     listing: Arc<dyn ModelListing>,
     /// What the provider answers in place of a listing that failed (Node's offline floor); only a registry adapter has one.
     floor: Option<Floor>,
+    /// The Anthropic OAuth route's 24 h roster cache, read before the fetch and written after it.
+    cache: Option<OauthModelCache>,
 }
 
 /// The offline floors of Node's providers (`listModels` answering its static list), generated from Node's own lists by
@@ -84,7 +87,13 @@ impl Floor {
 
 impl ModelSource {
     pub fn new(provider: ProviderId, listing: Arc<dyn ModelListing>) -> Self {
-        Self { provider, listing, floor: None }
+        Self { provider, listing, floor: None, cache: None }
+    }
+
+    /// Gives the `anthropic-oauth` source its disk cache (`anthropic-oauth-models.json`); any other provider has none.
+    pub fn with_oauth_cache(mut self, cache: OauthModelCache) -> Self {
+        self.cache = (self.provider.as_str() == "anthropic-oauth").then_some(cache);
+        self
     }
 
     /// The registry-to-catalog bridge: `adapter`'s listing, or `None` for an
@@ -102,9 +111,22 @@ impl ModelSource {
     /// One fetch: the adapter's records, as the catalog stores them.
     pub async fn list(&self) -> Result<Vec<ModelRecord>, ProviderError> {
         let env = |name: &str| std::env::var(name).ok();
+        // A fresh cache answers without a fetch and is not written again (`listModels`: `if (cached) return cached`).
+        if let Some(cached) = match &self.cache {
+            Some(cache) => cache.load().await,
+            None => None,
+        } {
+            return Ok(cached.into_iter().map(|record| catalog_record(&self.provider, record)).collect());
+        }
         let listed = match (self.listing.list_models().await, self.floor) {
             (Ok(listed), Some(floor)) if listed.is_empty() && floor.covers_empty() => return Ok(floor.rows(&self.provider, &env)),
-            (Ok(listed), _) => listed,
+            (Ok(listed), _) => {
+                // `normalizeAndSaveCatalog`: every successful fetch is persisted, an empty list too.
+                if let Some(cache) = &self.cache {
+                    cache.save(&listed).await;
+                }
+                listed
+            }
             (Err(error), Some(floor)) => {
                 // Node writes the failure to stderr and answers its floor; the catalog sees a listing that worked.
                 tracing::warn!(provider = self.provider.as_str(), kind = ?error.kind, "[provider] listModels failed; answering the offline floor");
