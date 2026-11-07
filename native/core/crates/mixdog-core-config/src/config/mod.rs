@@ -393,6 +393,20 @@ impl Config {
         desktop::activity_rail_pins(self.shared.doc.load().get("desktop")?.get("activityRailPins"))
     }
 
+    /// Boot: Node's notification store, on its first load with no document, writes one stamped `migratedAt: now`
+    /// (`notification-preferences.ts:228`). Without it nothing reads the stamp as anything but 0, and every
+    /// paired phone app would start from bot chats only. Run once after `open`, like `separate_defaults`: the
+    /// golden-tested `open` itself writes nothing. An existing subtree is left as it is.
+    pub async fn stamp_notifications(&self, now_ms: i64) -> Result<Applied, ConfigError> {
+        self.update(move |doc| {
+            if get_in(doc, &["notifications"]).is_none() {
+                set_in(doc, &["notifications", "migratedAt"], Value::from(now_ms));
+            }
+            Ok(())
+        })
+        .await
+    }
+
     /// `config/value/write`.
     pub async fn write(
         &self,

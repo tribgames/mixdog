@@ -11,6 +11,7 @@
 //! `decisions.md` (D-list-*).
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::thread::SortDirection;
@@ -26,6 +27,7 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
+use mixdog_core_api::state::CatalogObserver;
 use mixdog_core_base::support::coded;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
@@ -160,11 +162,24 @@ pub struct ThreadListService {
     store: Arc<SqliteStore>,
     overlay: Arc<dyn ListOverlay>,
     rooms: Arc<dyn ListRooms>,
+    /// Told of every row this service shows (see [`CatalogObserver`]).
+    observer: OnceLock<Arc<dyn CatalogObserver>>,
 }
 
 impl ThreadListService {
     pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>) -> Self {
-        Self { store, overlay, rooms }
+        Self { store, overlay, rooms, observer: OnceLock::new() }
+    }
+
+    /// Connects the observer of the published catalog. Set once.
+    pub fn observe(&self, observer: Arc<dyn CatalogObserver>) {
+        let _ = self.observer.set(observer);
+    }
+
+    fn published(&self, ids: &[&str]) {
+        if let Some(observer) = self.observer.get() {
+            observer.published(ids);
+        }
     }
 
     fn row_of(&self, id: &ThreadId, listed: &LeadRow) -> ThreadSummary {
@@ -181,7 +196,11 @@ impl ThreadListService {
     pub async fn summary(&self, id: &ThreadId) -> Result<Option<ThreadSummary>, CoreError> {
         let listed = self.store.lead_row(id.as_str()).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let Some(listed) = listed else { return Ok(None) };
-        Ok(self.with_rooms(vec![self.row_of(id, &listed)]).await?.pop())
+        let row = self.with_rooms(vec![self.row_of(id, &listed)]).await?.pop();
+        if let Some(row) = &row {
+            self.published(&[row.id.as_str()]);
+        }
+        Ok(row)
     }
 
     async fn list(&self, params: ThreadListParams) -> Result<ThreadListResponse, CoreError> {
@@ -212,6 +231,7 @@ impl ThreadListService {
             })
             .collect();
         let data = self.with_rooms(rows).await?;
+        self.published(&data.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(ThreadListResponse { data, next_cursor, backwards_cursor: None })
     }
 }

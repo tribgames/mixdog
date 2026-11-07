@@ -4037,9 +4037,13 @@ pub struct ProjectFsListDirParams {
 /// Params of `projectFs/readText`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ProjectFsReadTextParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 /// Params of `projectFs/writeText`.
@@ -4080,9 +4084,13 @@ impl crate::common::HasOpId for ProjectFsWriteTextBatchParams {
 /// Params of `projectFs/stat`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ProjectFsStatParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 /// Params of `projectFs/create`.

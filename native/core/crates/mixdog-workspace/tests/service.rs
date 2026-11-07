@@ -134,6 +134,19 @@ async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing
     assert_eq!(began["size"], 3);
     let range = call(&env, "transfer/readRange", json!({ "transferId": began["transferId"], "offset": 0, "length": 3 })).await.unwrap();
     assert_eq!(range["data"], "aGkK");
+    // The editor calls over the same grant answer as they do for a project file (Node's `readProjectTextFileAuthorized` and
+    // `statProjectFileIn` over `remoteFileTarget`): the phone sends `(projectPath, relPath, accessToken)` as `root`, `rel`, `accessToken`.
+    let text = call(&env, "projectFs/readText", json!({ "root": outside.to_string_lossy(), "rel": "note.txt", "accessToken": token })).await.unwrap();
+    let project_file = call(&env, "projectFs/readText", json!({ "root": env.root.to_string_lossy(), "rel": "a.txt" })).await.unwrap();
+    let keys = |value: &Value| value.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(keys(&text), keys(&project_file), "the same reply shape as a project file's");
+    assert_eq!((text["content"].clone(), text["binary"].clone(), text["tooLarge"].clone()), (json!("hi\n"), json!(false), json!(false)));
+    let stat = call(&env, "projectFs/stat", json!({ "root": outside.to_string_lossy(), "rel": "note.txt", "accessToken": token })).await.unwrap();
+    assert_eq!((stat["size"].clone(), stat["directory"].clone()), (json!(3), json!(false)));
+    let wrong = call(&env, "projectFs/readText", json!({ "root": outside.to_string_lossy(), "rel": "other.txt", "accessToken": token })).await;
+    assert!(format!("{wrong:?}").contains("The selected-file permission does not match this path."), "{wrong:?}");
+    let missing = call(&env, "projectFs/stat", json!({ "root": outside.to_string_lossy(), "rel": "note.txt", "accessToken": "not-a-token" })).await;
+    assert!(format!("{missing:?}").contains("SELECTED_FILE_GRANT_UNAVAILABLE"), "{missing:?}");
     // The grant names one exact file, and a token that was never issued opens nothing.
     let other = call(&env, "transfer/beginRead", source("other.txt", &token)).await;
     assert!(format!("{other:?}").contains("The selected-file permission does not match this path."), "{other:?}");

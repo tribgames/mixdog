@@ -8653,6 +8653,12 @@
     "ProjectFsReadTextParams": {
       "description": "Params of `projectFs/readText`.",
       "properties": {
+        "accessToken": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },
@@ -8785,6 +8791,12 @@
     "ProjectFsStatParams": {
       "description": "Params of `projectFs/stat`.",
       "properties": {
+        "accessToken": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },

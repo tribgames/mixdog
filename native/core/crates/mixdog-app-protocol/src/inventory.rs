@@ -1828,7 +1828,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "resolveLocalPaths",
-        Target::Method("projectFs/statLocal"),
+        Target::Methods(&["projectFs/statLocal", "transfer/grant/mint"]),
     ),
     (
         InventoryList::Remote,
@@ -2003,7 +2003,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "attachmentOpen",
-        Target::Method("transfer/beginRead"),
+        Target::Methods(&["transfer/beginRead", "transfer/grant/mint"]),
     ),
     (
         InventoryList::Remote,

@@ -161,6 +161,22 @@ fn a_device_patch_merges_onto_its_stored_or_default_record() {
     assert!(config.write("desktop.keepAwake", json!({}), ConfigWriteMode::MergePatch).is_err());
 }
 
+/// The boot stamp (`notification-preferences.ts:228`): written once into an unwritten subtree, left alone in a written one.
+#[test]
+fn boot_stamps_migrated_at_into_an_unwritten_notification_subtree_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    assert!(on_disk(&dir).get("notifications").is_none(), "open writes nothing");
+    block_on(config.stamp_notifications(4_242)).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"], json!({ "migratedAt": 4_242 }));
+    block_on(config.stamp_notifications(9_999)).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"]["migratedAt"], 4_242, "once");
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, Some(json!({ "notifications": { "devices": {} } })));
+    block_on(config.stamp_notifications(4_242)).unwrap();
+    assert!(on_disk(&dir)["notifications"].get("migratedAt").is_none(), "a written subtree keeps reading 0");
+}
+
 /// Node's store stamps `migratedAt: now` when it first loads with no document (`notification-preferences.ts:228`); an
 /// existing document keeps the stamp it has (`:120` reads a missing or invalid one as 0).
 #[test]
