@@ -38,7 +38,7 @@ use mixdog_core_session::session::StoredRows;
 use mixdog_core_session::session::route_session::ContextStatusCache;
 use mixdog_core_session::session::run::{Compaction, Dropped};
 use mixdog_core_session::session::thread_context::{ContextSnapshot, ContextWorld};
-use mixdog_core_session::session::turn_ops::{CompactionCommit, CompactionHeader, ManualCompaction};
+use mixdog_core_session::session::turn_ops::{Books, CompactionCommit, CompactionHeader, ManualCompaction};
 use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Value, json};
@@ -372,6 +372,12 @@ impl ManualCompaction for HostManualCompaction {
 
     fn invalidate_context_status(&self, thread: &ThreadId) {
         self.parts.gauge.invalidate(thread);
+    }
+
+    fn books(&self, thread: &ThreadId, header: &Header) -> Option<Books> {
+        let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default();
+        let (media, images) = self.parts.world.lowering(thread, provider);
+        Some(Books { media, images, native: native_request_tools(&Value::Object(header.clone())), agent_mode: super::session_cache_opts::is_agent_mode_session(header) })
     }
 }
 

@@ -462,6 +462,9 @@ enum Shown {
     Notice(String, mixdog_agent::env::Tone),
     Usage(mixdog_core_session::session::UsageReport),
     Compact(mixdog_agent::env::CompactEvent),
+    Check(mixdog_core_session::session::run::SendCheck),
+    /// Answered once every report before it has reached the port.
+    Barrier(tokio::sync::oneshot::Sender<()>),
 }
 
 /// `RunObserver` over progress and the port: stage and stream marks feed the progress cell, shown
@@ -473,9 +476,18 @@ struct PortObserver {
     /// The Reasoning item the thinking text streams into, until the model moves on to text,
     /// tool calls or its usage report.
     reasoning: Mutex<Option<(ItemId, String)>>,
+    /// The tools of the latest request (`result.lastSendTools`).
+    last_send_tools: Mutex<Vec<mixdog_core_api::domain::provider::ToolDefinition>>,
 }
 
 impl PortObserver {
+    /// Resolves once every report sent so far has been handed to the port.
+    fn barrier(&self) -> tokio::sync::oneshot::Receiver<()> {
+        let (done, reached) = tokio::sync::oneshot::channel();
+        let _ = self.out.send(Shown::Barrier(done));
+        reached
+    }
+
     fn reasoning(&self, text: String) {
         let id = {
             let mut open = lock(&self.reasoning);
@@ -543,6 +555,7 @@ impl RunObserver for PortObserver {
             }
             RunEvent::Usage { iteration, usage, delta } => {
                 self.end_reasoning();
+                *lock(&self.last_send_tools) = delta.send_tools.clone();
                 let _ = self.out.send(Shown::Usage(mixdog_core_session::session::UsageReport::from_event(iteration, usage, delta)));
             }
             RunEvent::Compact(event) => {
@@ -550,6 +563,10 @@ impl RunObserver for PortObserver {
             }
             // The context section is the route's window choice (`runtime.contextPercent`, exact `contextTokens` only for a
             // non-default window), never the usage reading: usage reaches clients as `thread/tokenUsage/updated`.
+            // A send that compacts nothing records its check (`compactTelemetry(ctx, 'pre_send_check')`).
+            RunEvent::ContextPressure { will_compact: false, messages, tools, reactive, .. } => {
+                let _ = self.out.send(Shown::Check(mixdog_core_session::session::run::SendCheck { messages, tools, reactive }));
+            }
             RunEvent::Stage(Stage::ModelFallback { model }) => {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
@@ -731,10 +748,15 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
                 Shown::Notice(text, tone) => shown_port.notice(text, tone).await,
                 Shown::Usage(report) => shown_port.usage(report).await,
                 Shown::Compact(event) => shown_port.compact_event(event).await,
+                Shown::Check(check) => shown_port.send_check(check).await,
+                Shown::Barrier(done) => {
+                    let _ = done.send(());
+                    Ok(())
+                }
             };
         }
     }));
-    let observer = Arc::new(PortObserver { progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None) });
+    let observer = Arc::new(PortObserver { progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()) });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -796,6 +818,7 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
             if let Some(segment) = &output.response.history_content {
                 terminal.content.clone_from(segment);
             }
+            let mut transcript = output.transcript.clone();
             if let Some(mut message) = mixdog_agent::response::intermediate_message(&terminal) {
                 message.message_id = Some(sink.message_id());
                 *lock(&sink.terminal) = Some((output.iterations, output.tool_calls_total));
@@ -805,8 +828,20 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
                     progress.error();
                     return failed(error.to_string(), Value::Null);
                 }
+                transcript.push(message);
             }
             sink.flush().await;
+            // `settleAskTurn`: the ask's usage and transcript reach the header once every call's report
+            // has (the port's lane keeps their order).
+            let _ = closing.barrier().await;
+            let settled = mixdog_core_session::session::run::Settled {
+                transcript,
+                usage: output.usage.clone(),
+                last_turn_usage: output.last_turn_usage.clone(),
+                tool_calls_total: output.tool_calls_total,
+                send_tools: lock(&closing.last_send_tools).clone(),
+            };
+            let _ = port.settled(settled).await;
             sink.live.clear();
             progress.done(output.response.content.trim().is_empty());
             if let Some(state) = output.provider_state.clone() {

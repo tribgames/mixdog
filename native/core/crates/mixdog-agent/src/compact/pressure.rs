@@ -27,8 +27,26 @@ use crate::message::AgentMessage;
 
 mod rows;
 mod status;
+mod ask_usage;
+mod usage_metrics;
 
+pub use ask_usage::Books;
+pub use ask_usage::Settled;
+pub use ask_usage::check_change;
+pub use ask_usage::compacted_change;
+pub use ask_usage::settled_change;
+pub use ask_usage::turn_started;
+pub use ask_usage::usage_change;
 pub use rows::AttachmentBytes;
+pub use status::pre_send_check;
+pub use status::provider_token_calibration;
+pub use usage_metrics::TerminalUsage;
+pub use usage_metrics::bump_epoch;
+pub use usage_metrics::bump_turn_id;
+pub use usage_metrics::fold_usage_readout;
+pub use usage_metrics::iteration_metrics;
+pub use usage_metrics::terminal_usage;
+pub use usage_metrics::uncached_input_tokens;
 pub use status::After;
 pub use status::Archived;
 pub use status::COMPACTION_CONFIG_KEYS;

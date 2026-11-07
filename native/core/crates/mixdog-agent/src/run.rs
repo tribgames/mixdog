@@ -674,6 +674,7 @@ impl Run {
             send_tools: self.last_request.as_ref().map(|r| r.tools.clone()).unwrap_or_default(),
             reasoning_tokens,
             reasoning_tokens_complete,
+            outgoing: self.messages.clone(),
         };
         self.emit(RunEvent::Usage {
             iteration: self.iterations,

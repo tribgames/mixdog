@@ -131,6 +131,22 @@ pub trait ManualCompaction: Send + Sync {
     fn recover_workers(&self, thread: &ThreadId);
     /// `invalidateContextStatusCache()`.
     fn invalidate_context_status(&self, thread: &ThreadId);
+    /// The meters the thread's context pressure is recorded with (`recordProviderContextBaseline`,
+    /// `rememberCompactTelemetry`) for the thread whose header is `header`; `None` when the host has no
+    /// meters for it, which records no pressure.
+    fn books(&self, thread: &ThreadId, header: &mixdog_store::schema::record::Header) -> Option<Books>;
+}
+
+/// What a thread's transcript is priced and signed with on its provider (the compaction's own
+/// meters), and the request facts the header alone does not hold.
+pub struct Books {
+    /// The priced media and the image identities of the thread (`MediaLowering`).
+    pub media: std::sync::Arc<dyn mixdog_agent::compact::estimate::MediaMeter>,
+    pub images: std::sync::Arc<dyn mixdog_agent::compact::pressure::ImageIdentities>,
+    /// The provider-native tools its requests carry first (`getNativeTools`).
+    pub native: Vec<Value>,
+    /// `isAgentModeSession(session)`.
+    pub agent_mode: bool,
 }
 
 /// `compact(options)` of the session ops: the PreCompact trigger and whether a reduction is required.

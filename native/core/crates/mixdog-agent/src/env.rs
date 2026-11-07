@@ -254,6 +254,9 @@ pub struct UsageDelta {
     /// `reasoningUsage(usage)`: `None` when the provider reported none (missing is not zero).
     pub reasoning_tokens: Option<u64>,
     pub reasoning_tokens_complete: bool,
+    /// `outgoing`: the transcript the request carried, which the provider's reading is aligned to
+    /// (`recordProviderContextBaseline`).
+    pub outgoing: Vec<AgentMessage>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -272,6 +275,11 @@ pub enum RunEvent {
         trigger_tokens: u64,
         boundary_tokens: u64,
         will_compact: bool,
+        /// The request about to go out, for the check's telemetry (`compactTelemetry`): its
+        /// transcript, its tools, and whether a context-overflow retry is pending.
+        messages: Vec<AgentMessage>,
+        tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+        reactive: bool,
     },
     Compact(CompactEvent),
 }

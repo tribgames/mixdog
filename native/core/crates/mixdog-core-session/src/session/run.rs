@@ -249,6 +249,34 @@ pub(crate) enum RunShown {
     Reasoning(ThreadItem),
     /// The compact marker (`applyCompactEvent`).
     Compact(mixdog_agent::env::CompactEvent),
+    /// The pre-send check of a request (`compactTelemetry(ctx, 'pre_send_check')`).
+    Check(SendCheck),
+    /// The ask's end (`applyAskTerminalUsageTotals`, `recordProviderContextBaseline`).
+    Settled(Settled),
+}
+
+/// The request the loop is about to send, as its pre-send check judged it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SendCheck {
+    pub messages: Vec<mixdog_agent::message::AgentMessage>,
+    pub tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    /// A context-overflow retry is pending (`reactivePending`).
+    pub reactive: bool,
+}
+
+/// What the ask's settlement reads of a finished run (`result` of `settleAskTurn`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Settled {
+    /// `session.messages` after the terminal assistant message was appended.
+    pub transcript: Vec<mixdog_agent::message::AgentMessage>,
+    /// `result.usage`: the ask's aggregate.
+    pub usage: mixdog_core_api::domain::provider::Usage,
+    /// `result.lastTurnUsage`.
+    pub last_turn_usage: mixdog_core_api::domain::provider::Usage,
+    /// `result.toolCallsTotal`.
+    pub tool_calls_total: u64,
+    /// `result.lastSendTools`: the tools of the last request.
+    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
 }
 
 /// Everything Node's `usageDeltaEvent` carries about one model call (`onUsageDelta`).
@@ -271,6 +299,8 @@ pub struct UsageReport {
     /// `reasoningUsage(usage)`: `None` when the provider reported none.
     pub reasoning_tokens: Option<u64>,
     pub reasoning_tokens_complete: bool,
+    /// `outgoing`: the transcript the request carried.
+    pub outgoing: Vec<mixdog_agent::message::AgentMessage>,
 }
 
 impl UsageReport {
@@ -287,6 +317,7 @@ impl UsageReport {
             send_tools: delta.send_tools,
             reasoning_tokens: delta.reasoning_tokens,
             reasoning_tokens_complete: delta.reasoning_tokens_complete,
+            outgoing: delta.outgoing,
         }
     }
 }
@@ -449,6 +480,16 @@ impl RunPort {
     /// context puts it before the turn's input row, where the restored divider stands.
     pub async fn compact_event(&self, event: mixdog_agent::env::CompactEvent) -> Result<(), RunError> {
         self.shown(RunShown::Compact(event)).await
+    }
+
+    /// The pre-send check of the request the loop is about to send.
+    pub async fn send_check(&self, check: SendCheck) -> Result<(), RunError> {
+        self.shown(RunShown::Check(check)).await
+    }
+
+    /// The ask's end: its usage and transcript, before the run's outcome is reported.
+    pub async fn settled(&self, settled: Settled) -> Result<(), RunError> {
+        self.shown(RunShown::Settled(settled)).await
     }
 
     async fn shown(&self, shown: RunShown) -> Result<(), RunError> {

@@ -112,6 +112,9 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     fn invalidate_context_status(&self, _: &ThreadId) {
         lock(&self.calls).push("invalidate".into());
     }
+    fn books(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> Option<super::turn_ops::Books> {
+        None
+    }
 }
 
 /// The heir-route policy: `basis` answers every measurement (the targets and message counts it

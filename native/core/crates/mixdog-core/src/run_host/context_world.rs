@@ -221,6 +221,10 @@ impl ContextWorld for LiveContextWorld {
             header,
         }))
     }
+
+    fn lowering(&self, thread: &ThreadId, provider: &str) -> (Arc<dyn MediaMeter>, Arc<dyn ImageIdentities>) {
+        (self.lowering)(thread, provider)
+    }
 }
 
 #[cfg(test)]

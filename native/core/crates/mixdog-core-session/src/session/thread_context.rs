@@ -114,6 +114,9 @@ pub struct ContextSnapshot {
 pub trait ContextWorld: Send + Sync {
     /// The snapshot of `thread` (`None` = the current session); `None` when no such session is loaded.
     async fn snapshot(&self, thread: Option<&ThreadId>) -> Result<Option<ContextSnapshot>, CoreError>;
+
+    /// The media meter and the image identities of `thread` on `provider` (the ones its snapshot carries).
+    fn lowering(&self, thread: &ThreadId, provider: &str) -> (Arc<dyn MediaMeter>, Arc<dyn ImageIdentities>);
 }
 
 /// [`ContextStatusHost`] over the live world: `context_status` (the compaction meter and pressure
@@ -256,6 +259,12 @@ mod tests {
                 rows: Arc::new(TextOnly),
                 replay_owner: ProviderId::from(case["route"]["provider"].as_str().expect("provider")),
             }))
+        }
+
+        fn lowering(&self, _: &ThreadId, _: &str) -> (Arc<dyn MediaMeter>, Arc<dyn ImageIdentities>) {
+            let media: Arc<dyn MediaMeter> = Arc::new(TextOnly);
+            let images: Arc<dyn ImageIdentities> = Arc::new(TextOnly);
+            (media, images)
         }
     }
 

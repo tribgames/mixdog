@@ -1,6 +1,6 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
-  "fileCount": 76,
+  "fileCount": 78,
   "files": [
     {
       "bytes": 47880,
@@ -53,6 +53,11 @@
       "sha256": "a3b99b253ca9c0284f06de9c3facf1c7853f07eb201c0512b97d6deb72cbe2cd"
     },
     {
+      "bytes": 257244,
+      "path": "compact/golden/usage.json",
+      "sha256": "2ceaa1c250729359403fd940818c0eb8aa0351852931837de08687d559be5481"
+    },
+    {
       "bytes": 20467,
       "path": "compact/record.mjs",
       "sha256": "d0676c635a29cd4ab1baf6b11a8a26a7879b2d2df9bcaf286b893674ae023182"
@@ -71,6 +76,11 @@
       "bytes": 10556,
       "path": "compact/record_settings.mjs",
       "sha256": "217304c5f70827657253bc6a1dd3b57ab187c7158962dead7f179cf4a72ccc31"
+    },
+    {
+      "bytes": 21174,
+      "path": "compact/record_usage.mjs",
+      "sha256": "1f747572b84d7c48d577f9f4aa10784b7fa30df1c4f6f26739ed4411a79b7a3e"
     },
     {
       "bytes": 3313,
@@ -384,22 +394,22 @@
     }
   ],
   "product": {
-    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
-    "commit": null,
+    "appsSha256": "9bd8fb856b7e00e551f02099c8aa5ad3f6450f5e03419b97b2dc9be008094ac1",
+    "commit": "ba7e0a23d94a4e8d0280eb043c830ea34ad09217",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9248,
+    "files": 9249,
     "refComparison": {
-      "closestCommit": "54123fa320be64c7742dc5ab14b5a223a855c6c9",
+      "closestCommit": "ba7e0a23d94a4e8d0280eb043c830ea34ad09217",
       "commitFilesMissingFromTree": 0,
-      "exact": false,
-      "filesDifferingFromCommit": 9248
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
-    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 2353551
+  "totalBytes": 2631969
 }
