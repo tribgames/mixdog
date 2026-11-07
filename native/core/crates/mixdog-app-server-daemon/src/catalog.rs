@@ -58,7 +58,9 @@ pub async fn build_catalog(
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let metadata = ModelsDevSource::new(Arc::new(link), data_dir.to_path_buf(), io);
     let initial = read_snapshot(tokens, data_dir.join("catalogs").join("snapshot.json")).await;
-    let service = Arc::new(CatalogService::cold_start(initial, sources, metadata).await);
+    // The live-roster files the providers' listings persist (`provider-catalog-cache.mjs`), read now and after every refresh,
+    // so a route's cached windows (`cachedRouteWindows`) are known from the first session.
+    let service = Arc::new(CatalogService::cold_start(initial, sources, metadata).await.with_rosters(data_dir.to_path_buf(), io).await);
     let armed = Arc::new(Mutex::new(None));
     arm(service.clone(), armed.clone());
     Ok(CatalogHost { service, armed })
@@ -91,4 +93,44 @@ async fn read_snapshot(tokens: &LaneTokens, path: PathBuf) -> CatalogSnapshot {
         .and_then(Result::ok)
         .and_then(|bytes| CatalogSnapshot::from_json(&bytes))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_ai::service::admin_route::resolve_route_context_state;
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    /// A data directory holding the roster file Node's OAuth listing left (recorded by
+    /// `benchmarks/rust-core/recorders/oauth-model-cache`): the cold-started catalog already sizes routes as Node does.
+    #[tokio::test]
+    async fn the_composed_catalog_reads_the_roster_files_of_the_data_dir_at_start() {
+        let node: Value = serde_json::from_str(include_str!("../../../fixtures/oauth-model-cache/node-oauth-model-cache.json")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let path = dir.path().join("anthropic-oauth-models.json");
+        let text = node["cold"]["cacheFile"].to_string();
+        let job = tokens
+            .durability_io
+            .submit(&CancellationToken::new(), move |lane| {
+                mixdog_statefile::write_file(lane, &path, text.as_bytes(), &mixdog_statefile::Opts::default()).map(drop).map_err(std::io::Error::other)
+            })
+            .unwrap();
+        job.await.unwrap().unwrap();
+
+        let host = build_catalog(&tokens, dir.path(), Vec::new()).await.unwrap();
+        for entry in node["cold"]["routeStates"].as_array().unwrap() {
+            let (provider, model) = (entry["route"]["provider"].as_str().unwrap(), entry["route"]["model"].as_str().unwrap());
+            let meta = host.service().cached_windows(provider, model).map(|w| json!({ "contextWindow": w.context_window, "maxContextWindow": w.max_context_window }));
+            let state = resolve_route_context_state(entry["route"].as_object().unwrap(), meta.as_ref());
+            let expected = &entry["state"];
+            assert_eq!(
+                (state.context_percent, state.context_default_percent, state.selected_context_window),
+                (expected["contextPercent"].as_f64(), expected["contextDefaultPercent"].as_f64(), expected["selectedContextWindow"].as_f64()),
+                "{provider} {model}"
+            );
+        }
+        host.stop();
+    }
 }

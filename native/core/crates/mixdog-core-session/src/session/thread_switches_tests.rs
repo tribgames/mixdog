@@ -525,7 +525,7 @@ async fn the_session_left_is_closed_as_node_closes_it() {
     switch.switch_context("sess_used", None, Some(json!({ "id": "d1" })), false).await.expect("switched");
     let kept = world.stored("sess_used").await;
     assert!(kept.get("closed").is_none(), "a conversation stays resumable: {kept:?}");
-    assert_eq!(kept.get("detachedReason"), Some(&json!(CONTEXT_SWITCH_REASON)), "but it is detached, as Node's closeSession(.., { tombstone: false }) does: {kept:?}");
+    assert_eq!(kept.get("detachedReason"), Some(&json!(CONTEXT_SWITCH_REASON)), "but it is detached, as Node's closeSession(.., {{ tombstone: false }}) does: {kept:?}");
     assert!(kept.get("generation").and_then(Value::as_f64).is_some_and(|generation| generation >= 1.0), "which moves its generation on: {kept:?}");
     eventually(|| handle.cell.run.load().is_none().then_some(())).await;
     eventually(|| lock(&world.rig.closes.seen).iter().any(|(id, _)| id.as_str() == "sess_used").then_some(())).await;
