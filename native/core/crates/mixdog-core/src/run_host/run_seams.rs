@@ -63,6 +63,13 @@ impl ConfigRunSeams {
         self
     }
 
+    /// The loaded config's `compaction` section. Node's full config always has one (`config.mjs:367`, `compaction: {}`
+    /// by default), so a stored agent section without it is the empty one, whose normalization seeds the session
+    /// (`onModelChange`, `summaryMode`) and clears the resolved buffer keys.
+    fn saved_compaction(&self) -> Value {
+        self.config.agent().get("compaction").filter(|c| c.is_object()).cloned().unwrap_or_else(|| Value::Object(Default::default()))
+    }
+
     /// `session.compaction` after `syncSessionCompaction(session, config)`: the header's own
     /// fields stay, the config-owned ones follow the saved section (when the config has one).
     fn session_compaction(&self, header: &Header) -> Doc {
@@ -254,8 +261,7 @@ impl ConfigSeams for ConfigRunSeams {
         if install && self.injected_config {
             return None;
         }
-        let saved = self.config.agent().get("compaction").filter(|c| c.is_object())?.clone();
-        super::compaction_follow::sync_change(header, &saved).set.remove("compaction")
+        super::compaction_follow::sync_change(header, &self.saved_compaction()).set.remove("compaction")
     }
 
     fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {

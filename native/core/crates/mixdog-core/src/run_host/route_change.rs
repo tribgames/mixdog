@@ -142,11 +142,16 @@ impl RunHostRouteChange {
         let opts = self.facts.cache_opts(provider, text(header.get("id")), agent, header);
         set(change, "providerCacheOpts", opts.unwrap_or(Value::Null));
         set(change, "providerCacheOptsOverride", json!(false));
-        for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens"] {
-            set(change, key, json!(0));
+        // A thread's first route is its creation: Node builds that record with the route (`buildSessionRecord`) and
+        // calls no `resetSessionForRouteChange`, so a record that never ran a request carries no reading at all. The
+        // previous route's readings are reset only when there was a previous route.
+        if previous.contains_key("model") {
+            for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens"] {
+                set(change, key, json!(0));
+            }
+            set(change, "lastContextTokensUpdatedAt", json!(self.clock.now_ms()));
+            set(change, "lastContextTokensStaleAfterCompact", json!(false));
         }
-        set(change, "lastContextTokensUpdatedAt", json!(self.clock.now_ms()));
-        set(change, "lastContextTokensStaleAfterCompact", json!(false));
         unset(change, "providerState");
         // The previous route's prefix snapshot measured another prompt; the new chain baselines on
         // its first send.
@@ -296,6 +301,19 @@ mod tests {
         assert_eq!(reset.unset, expected.unset);
         assert_eq!(reset.set.get("promptEnv"), Some(&json!("tail")));
         assert_eq!(reset.set.get("sessionStartMetaInjected"), Some(&json!(false)));
+    }
+
+    /// A thread's first route (no previous model) leaves no usage reading behind: Node's `buildSessionRecord` stores none, so
+    /// a cancelled first turn's header has none (`stored-header` of the `cancel` scenario).
+    #[tokio::test]
+    async fn the_first_route_of_a_thread_writes_no_usage_reading() {
+        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
+        let route: Route = [("provider", "openai"), ("model", "gpt-5")].iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect();
+        let header: Header = json!({ "id": "sess_new", "provider": "openai", "model": "gpt-5" }).as_object().unwrap().clone().into_iter().collect();
+        let result = change.route_change(&header, &route, &Route::new(), false).await;
+        for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens", "lastContextTokensUpdatedAt", "lastContextTokensStaleAfterCompact"] {
+            assert!(!result.set.contains_key(key), "{key}");
+        }
     }
 
     #[test]
