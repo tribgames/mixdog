@@ -2593,7 +2593,11 @@ export type ProjectFsReadLocalParams = { path: string, };
 /**
  * Params of `projectFs/readText`.
  */
-export type ProjectFsReadTextParams = { root: string, rel: string, accessToken?: string, };
+export type ProjectFsReadTextParams = { root: string, rel: string, 
+/**
+ * A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.
+ */
+accessToken?: string, };
 
 /**
  * Params of `projectFs/recovery`.
@@ -2623,7 +2627,11 @@ export type ProjectFsStatLocalParams = { paths: Array<string>, };
 /**
  * Params of `projectFs/stat`.
  */
-export type ProjectFsStatParams = { root: string, rel: string, accessToken?: string, };
+export type ProjectFsStatParams = { root: string, rel: string, 
+/**
+ * A paired device's one-file grant, as on `projectFs/readText`.
+ */
+accessToken?: string, };
 
 /**
  * Params of `projectFs/trash`.
@@ -3523,7 +3531,7 @@ export type ThreadContinueInModelParams = { threadId: ThreadId, opId: OpId, rout
 
 export type ThreadDeleteParams = { threadId: ThreadId, opId: OpId, 
 /**
- * Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → `preconditionFailed`.
+ * Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → the reply `{deleted: false, reason}`, never an error.
  */
 ifIdle?: JsonValue, };
 
@@ -5270,24 +5278,6 @@ export const methodTable = {
       ],
       "params": "v1::InitializeParams",
       "result": "v1::InitializeResponse",
-      "scope": {
-        "kind": "none"
-      }
-    },
-    {
-      "class": "C1",
-      "method": "transfer/grant/mint",
-      "mutation": {
-        "kind": "none"
-      },
-      "opScope": {
-        "kind": "none"
-      },
-      "origins": [
-        "relay"
-      ],
-      "params": "TransferGrantMintParams",
-      "result": "JsonValue",
       "scope": {
         "kind": "none"
       }
@@ -13346,6 +13336,24 @@ export const methodTable = {
         "ssh"
       ],
       "params": "TransferTrashEntryParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/grant/mint",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "TransferGrantMintParams",
       "result": "JsonValue",
       "scope": {
         "kind": "none"
