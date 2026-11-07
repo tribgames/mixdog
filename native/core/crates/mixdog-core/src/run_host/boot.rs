@@ -58,6 +58,8 @@ pub struct HostParts {
     pub turn_settings: Arc<super::turn_settings::LateTurnSettings>,
     /// The runtime liveness map the runs write (TurnLiveness); TurnPath::liveness hands the same Arc to its readers.
     pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
+    /// The registry the runs register their turn in and the hosted web search reports its spend to (`SenderDeps.sinks`: the same Arc).
+    pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
 }
 
 /// The session directory over `deps`, whose `runs` is the real run factory.
@@ -65,7 +67,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
     let mut bound = None;
     let registry = host.registry.clone();
     let directory = Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
-        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, reuses, effort_judge, side, next, seams, settings, probes, observed, shells, exclusions, turn_settings, liveness } = host;
+        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, reuses, effort_judge, side, next, seams, settings, probes, observed, shells, exclusions, turn_settings, liveness, search_usage } = host;
         let services = HostServices {
             registry,
             clock,
@@ -92,7 +94,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
         };
         let parts = Arc::new(HostRunParts::new(services));
         next.bind(directory.clone(), parts.clone());
-        let runs: Arc<dyn RunFactory> = Arc::new(RunHostFactory::new(liveness, parts));
+        let runs: Arc<dyn RunFactory> = Arc::new(RunHostFactory::new(liveness, search_usage, parts));
         SessionDirectory::new(Arc::new(deps(runs)))
     });
     if let Some(seams) = bound {

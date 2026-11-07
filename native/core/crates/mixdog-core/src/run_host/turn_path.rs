@@ -112,6 +112,8 @@ pub struct TurnPathParts {
     pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
     /// The runtime liveness map the runs write, made by the composition: the code-graph prewarm's busy probe (inside deps) and the path's readers hold the same Arc.
     pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
+    /// The hosted web search's usage registry, made by the composition: `SenderDeps.sinks` reports into the same Arc the runs register their turn in.
+    pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -151,7 +153,7 @@ impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
             tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
-            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness,
+            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
@@ -193,6 +195,7 @@ impl TurnPath {
             exclusions: exclusions.clone(),
             turn_settings: turn_settings.clone(),
             liveness: liveness.clone(),
+            search_usage,
         };
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
         Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions, turn_settings, liveness })

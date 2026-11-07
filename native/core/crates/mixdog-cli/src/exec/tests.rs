@@ -387,6 +387,32 @@ async fn one_implicit_session_answers_writes_usage_and_removes_its_root() {
     assert_eq!(env["MIXDOG_DATA_DIR"].as_deref(), Some(captured.as_ref().unwrap().root.join("data").to_str().unwrap()));
 }
 
+/// `headless-exec.mjs` folds a search's spend into the run's totals and observed models through
+/// `onNativeWebSearchUsage`; the totals are what Node's accumulator held (`tests/record_search_usage.mjs`).
+#[tokio::test]
+async fn a_web_searchs_spend_joins_the_totals_as_node_folds_it() {
+    let golden: Value = serde_json::from_str(include_str!("../../tests/goldens/exec_search_usage.json")).unwrap();
+    let frame = |delta: &Value| notif("thread/tokenUsage/updated", json!({ "threadId": "t", "usage": delta }));
+    assert!(matches!(super::feed::observe(&frame(&golden["main"])).as_slice(), [super::feed::Obs::Usage(_)]));
+    assert!(matches!(super::feed::observe(&frame(&golden["search"][0])).as_slice(), [super::feed::Obs::SearchUsage(_)]));
+
+    let dir = tempfile::tempdir().unwrap();
+    let launcher = FakeLauncher::new("sess_exec_test", vec![Turn::Events(vec![frame(&golden["main"]), frame(&golden["search"][0]), assistant("done"), completed()])]);
+    let (code, _) = run_with(options(dir.path()), &launcher, dir.path(), never()).await;
+    assert_eq!(code, 0);
+    let document: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("usage.json")).unwrap()).unwrap();
+    let stats = &golden["stats"];
+    let totals = json!({
+        "inputTokens": stats["inputTokens"],
+        "cacheTokens": stats["cachedTokens"],
+        "cacheWriteTokens": stats["cacheWriteTokens"],
+        "outputTokens": stats["outputTokens"],
+        "toolCallCountApprox": 0,
+    });
+    assert_eq!(document["totals"], totals);
+    assert_eq!(document["sessions"][0]["models"], golden["models"]);
+}
+
 #[tokio::test]
 async fn a_failed_service_stop_preserves_the_root_and_fails_the_run() {
     let dir = tempfile::tempdir().unwrap();
