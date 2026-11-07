@@ -303,8 +303,15 @@ fn locale_order(a: &str, b: &str) -> std::cmp::Ordering {
     a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| b.cmp(a))
 }
 
-/// `mergePendingDeferredToolDelta(session, { added, removed })`.
+/// `mergePendingDeferredToolDelta(session, { added, removed })` with removals that name no server.
 pub fn merge_deferred_delta(session: &mut Header, added: &[(String, String)], removed: &[String], now: i64) {
+    let removed: Vec<(String, String)> = removed.iter().map(|name| (name.clone(), String::new())).collect();
+    merge_deferred_delta_with_servers(session, added, &removed, now);
+}
+
+/// `mergePendingDeferredToolDelta(session, { added, removed })` where each removal is `(name, server)`
+/// (`{ name, server }`); an empty server records none.
+pub fn merge_deferred_delta_with_servers(session: &mut Header, added: &[(String, String)], removed: &[(String, String)], now: i64) {
     let source = session.get("pendingDeferredToolDelta").filter(|delta| delta.is_object()).cloned().unwrap_or(Value::Null);
     let mut by_name: Vec<(String, String)> = Vec::new();
     for entry in array(source.get("added")) {
@@ -354,7 +361,7 @@ pub fn merge_deferred_delta(session: &mut Header, added: &[(String, String)], re
         by_name.retain(|(known, _)| *known != name);
         by_name.push((name, compact_description(Some(&json!(description)))));
     }
-    for name in removed {
+    for (name, server) in removed {
         let name = mixdog_js::js_trim(name).to_owned();
         if name.is_empty() {
             continue;
@@ -364,7 +371,11 @@ pub fn merge_deferred_delta(session: &mut Header, added: &[(String, String)], re
             continue;
         }
         if !gone.contains(&name) {
-            gone.push(name);
+            gone.push(name.clone());
+        }
+        let server = mixdog_js::js_trim(server);
+        if !server.is_empty() {
+            servers.insert(name, server.to_owned());
         }
     }
     by_name.sort_by(|a, b| locale_order(&a.0, &b.0));

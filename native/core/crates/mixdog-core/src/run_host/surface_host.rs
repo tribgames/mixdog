@@ -432,6 +432,8 @@ impl LeadSurfaceHost {
             // `applyInitialDeferredToolManifestToBp2(session, pool, { rebuild: true })`.
             let pool = surface.pool_tool_names(&session);
             apply_initial_manifest(&mut session, &pool, true, s.clock.as_ref());
+            // The first-turn MCP fold may rebuild the prompt in place too (an empty thread reopened from disk was never marked).
+            session["deferredInitialRefreshPending"] = json!(true);
             land_prompt(&mut session, composed, &model)?;
         }
         let map = session.as_object_mut().expect("session object");
@@ -578,12 +580,73 @@ impl TurnSettings for LeadSurfaceHost {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described)?;
             if header.get("promptIdentity").is_some_and(Value::is_object) {
                 self.settle_empty(thread).await.map_err(described)?;
-                return s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described);
+                return self.fold_mcp_surface(thread).await.map_err(described);
             }
         }
-        let staged = self.stage(thread, !unchanged).await.map_err(described)?;
+        self.stage(thread, !unchanged).await.map_err(described)?;
         self.note_gates(thread, gates);
-        Ok(staged.header)
+        self.fold_mcp_surface(thread).await.map_err(described)
+    }
+}
+
+impl LeadSurfaceHost {
+    /// The header after Node's `foldMcpSurface` (`turn-prepare.mjs`), which follows `reconcileTurnSettings` at a turn
+    /// start, and the request boundary's `refreshDeferredMcpToolCatalog` that runs at the turn's first model request.
+    ///
+    /// * First turn of a fresh thread (`deferredInitialRefreshPending`): the flag is cleared and the live MCP tools are
+    ///   folded into the initial surface (`refreshInitialDeferredMcpSurface`); the boundary then reconciles the late
+    ///   pool against the same registry, which no turn-start step can have moved.
+    /// * Any later turn: the late pool, connected names and pending delta follow the live registry
+    ///   (`reconcileDeferredMcpToolCatalog`).
+    ///
+    /// Not carried: the grace Node waits for a reconnect in flight (`awaitMcpGrace`, and the agent runtime's wait for
+    /// its initial connect), since the hub offers no readiness wait; and the reconciles at the turn's later requests and
+    /// MCP tool calls, which no turn-start step can make.
+    async fn fold_mcp_surface(&self, thread: &ThreadId) -> Result<Header, CoreError> {
+        let s = &self.sources;
+        loop {
+            let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
+            let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
+            let live: Vec<Value> = s.mcp.tools(&cwd).iter().map(tool_doc).collect();
+            let next = self.folded_surface(&header, &live).map_err(|message| failed("tools", message))?;
+            let change = header_diff(&header, &next);
+            if change.set.is_empty() && change.unset.is_empty() {
+                return Ok(header);
+            }
+            let expect: Map<String, Value> = change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
+            // A header that moved meanwhile is read and decided again.
+            if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
+                return Ok(next);
+            }
+        }
+    }
+
+    /// `header` with the MCP fold applied over the system prompt as the session holds it (`messages`), the blocks
+    /// written back only where the fold changed them.
+    fn folded_surface(&self, header: &Header, live: &[Value]) -> Result<Header, String> {
+        let s = &self.sources;
+        let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
+        let before = SystemBlocks::from_header(header);
+        let mut session = Value::Object(header.clone());
+        session["messages"] = Value::Array(before.node_messages());
+        if truthy(header.get("deferredInitialRefreshPending")) {
+            // One-shot: cleared before the fold, so the fold never runs twice.
+            session["deferredInitialRefreshPending"] = json!(false);
+            surface.refresh_initial_mcp_surface(&mut session, live);
+            if truthy(session.get("deferredProviderMode")) {
+                surface.reconcile_mcp_catalog(&mut session, live);
+            }
+        } else {
+            surface.reconcile_mcp_catalog(&mut session, live);
+        }
+        let mut next = session.as_object().cloned().ok_or_else(|| "the folded session is not an object".to_owned())?;
+        let messages = next.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
+        let mut after = SystemBlocks::from_node_messages(&messages).map_err(|error| format!("{error:?}"))?;
+        after.combined = before.combined;
+        if after != before {
+            after.write(&mut next);
+        }
+        Ok(next)
     }
 }
 
@@ -605,6 +668,14 @@ impl NewThreadTools for LeadSurfaceHost {
         // `sessionDeny`: the caller's denials, `agent` where the workflow delegates to no one, and
         // `react` outside a bot's own chat.
         let mut denied = strings(header.get("disallowedTools"));
+        // `createSession`'s `disallowedTools: [...callerDisallowedTools, ...featureDisallowedTools()]`: the gates as they
+        // stand now, so a tool a setting switches off is in neither the schema, the deferred pool nor the announced set.
+        let feature_denied = s.feature_denied.denied().await?;
+        for name in &feature_denied {
+            if !denied.contains(name) {
+                denied.push(name.clone());
+            }
+        }
         if workflow_disallows_agent_tool(&target.summary, session_mode_of(header) == "agent") {
             denied.push("agent".to_owned());
         }
@@ -632,7 +703,6 @@ impl NewThreadTools for LeadSurfaceHost {
         session["workflow"] = workflow_meta(&target.summary);
         session["orchestrationMode"] = json!(target.orchestration_mode);
         session["sessionMode"] = json!(session_mode_of(header));
-        let feature_denied = s.feature_denied.denied().await?;
         let standalone = internal_tools(&s.pool);
         let mut extra: Vec<Value> = {
             let inputs = SurfaceInputs {
@@ -666,6 +736,9 @@ impl NewThreadTools for LeadSurfaceHost {
         let mode = if header.get("toolSpec") == Some(&tool_spec_for_mode("readonly")) { "readonly" } else { "lead" };
         let options = ApplyOptions { provider: Some(provider), model: Some(model.clone()), disallowed: Vec::new() };
         ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() }.apply(&mut session, mode, &extra, &options);
+        // `seedToolSurface`: a fresh session (never a resumed one) is eligible for the first turn's MCP fold, which
+        // re-folds a server that finished its handshake between creation and that turn.
+        session["deferredInitialRefreshPending"] = json!(true);
         // `noteToolAvailability`: built from the settings as they stand, its first turn need not rebuild it.
         let settings = composed.prompt_settings.get("revision").and_then(Value::as_str).unwrap_or_default().to_owned();
         self.note_applied(thread, Applied { gates: self.gates(&feature_denied), settings });

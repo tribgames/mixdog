@@ -24,6 +24,7 @@ mod process_tests;
 mod process_services_tests;
 pub mod tool_exposure;
 pub mod tool_surface;
+pub mod mcp_fold;
 pub mod rearm;
 pub mod manual_compaction;
 pub mod route_surface;
