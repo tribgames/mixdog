@@ -20,6 +20,10 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_core_base::state::change_of;
+use mixdog_core_config::section_watch::FolderTrigger;
+use mixdog_core_config::section_watch::Watched;
+use tokio::sync::Notify;
+use tokio::sync::watch;
 use mixdog_ledger::quota::QuotaHistoryOptions;
 use mixdog_protocol::SectionName;
 use serde_json::Value;
@@ -42,6 +46,35 @@ use mixdog_core_base::support::wrong_method;
 
 const DOMAIN: &str = "account";
 
+/// What wakes the `providerSetup` and `providerAccounts` sections besides this service's own
+/// methods: a change of the config (`Config::changes`), and of the credential files in the data
+/// folder, whoever wrote them.
+pub struct SectionWake {
+    pub config: watch::Receiver<u64>,
+    pub files: Watched,
+}
+
+/// What each pushed section holds, so a section is published only when its value changed.
+pub struct SectionPush {
+    publisher: Arc<dyn StatePublisher>,
+    pushed: Mutex<HashMap<(SectionName, Option<String>), Value>>,
+}
+
+impl SectionPush {
+    pub fn new(publisher: Arc<dyn StatePublisher>) -> Self {
+        Self { publisher, pushed: Mutex::new(HashMap::new()) }
+    }
+
+    /// Publishes alue as (section, key) unless that is what was published last.
+    pub fn push(&self, section: SectionName, key: Option<String>, value: Value) {
+        let mut pushed = self.pushed.lock().unwrap_or_else(PoisonError::into_inner);
+        if pushed.get(&(section, key.clone())) != Some(&value) {
+            self.publisher.publish(section, key.clone(), change_of(&value));
+            pushed.insert((section, key), value);
+        }
+    }
+}
+
 pub struct AccountService {
     admin: Arc<ProviderAdmin>,
     flows: OAuthFlows,
@@ -52,9 +85,7 @@ pub struct AccountService {
     dashboards: Arc<Dashboards>,
     sources: Arc<dyn UsageSources>,
     ops: OpScopes,
-    publisher: Arc<dyn StatePublisher>,
-    /// What each pushed section holds, so a section is published only when its value changed.
-    pushed: Mutex<HashMap<(SectionName, Option<String>), Value>>,
+    pushed: SectionPush,
 }
 
 /// The methods that read or probe only; every other `account/` method may change credentials,
@@ -98,20 +129,27 @@ impl AccountService {
         sources: Arc<dyn UsageSources>,
         ops: OpScopes,
         publisher: Arc<dyn StatePublisher>,
-    ) -> Arc<Self> {
-        let service = Arc::new(Self { admin, flows, ledger, custom, web_search, setup, dashboards, sources, ops, publisher, pushed: Mutex::new(HashMap::new()) });
-        // The sections hold a value from the start; a change pushes the next one.
-        let first = service.clone();
-        mixdog_rt::spawn("account-sections", mixdog_rt::TaskClass::Work, async move { first.publish_sections().await });
-        service
-    }
-
-    fn push(&self, section: SectionName, key: Option<String>, value: Value) {
-        let mut pushed = self.pushed.lock().unwrap_or_else(PoisonError::into_inner);
-        if pushed.get(&(section, key.clone())) != Some(&value) {
-            self.publisher.publish(section, key.clone(), change_of(&value));
-            pushed.insert((section, key), value);
-        }
+        wake: SectionWake,
+    ) -> Result<Arc<Self>, String> {
+        let files_changed = Arc::new(Notify::new());
+        let trigger = FolderTrigger::start("account-files", wake.files, files_changed.clone()).map_err(|error| error.to_string())?;
+        let service = Arc::new(Self { admin, flows, ledger, custom, web_search, setup, dashboards, sources, ops, pushed: SectionPush::new(publisher) });
+        // The sections hold a value from the start; a change of the config or of an account file
+        // (another process's included: Node reads them on every call) pushes the next one.
+        let task = service.clone();
+        let mut config = wake.config;
+        mixdog_rt::spawn("account-sections", mixdog_rt::TaskClass::Work, async move {
+            // The file watch lives as long as the task.
+            let _trigger = trigger;
+            loop {
+                task.publish_sections().await;
+                tokio::select! {
+                    changed = config.changed() => if changed.is_err() { return },
+                    () = files_changed.notified() => {}
+                }
+            }
+        });
+        Ok(service)
     }
 
     /// The `providerSetup` section (`getProviderSetup()`) and a `providerAccounts` entry per
@@ -119,11 +157,11 @@ impl AccountService {
     /// the last one pushed.
     async fn publish_sections(&self) {
         if let Ok(setup) = self.setup.get(false, false, false, false).await {
-            self.push(SectionName::ProviderSetup, None, setup);
+            self.pushed.push(SectionName::ProviderSetup, None, setup);
         }
         for provider in ACCOUNT_PROVIDERS {
             if let Ok(accounts) = self.admin.list_provider_accounts(provider).await {
-                self.push(SectionName::ProviderAccounts, Some((*provider).to_owned()), accounts);
+                self.pushed.push(SectionName::ProviderAccounts, Some((*provider).to_owned()), accounts);
             }
         }
     }
@@ -363,5 +401,48 @@ impl DomainService for AccountService {
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod section_tests {
+    use mixdog_core_api::mock::MockStatePublisher;
+    use mixdog_core_api::state::SectionChange;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_section_is_pushed_only_when_its_value_changed() {
+        let publisher = Arc::new(MockStatePublisher::default());
+        let pushed = SectionPush::new(publisher.clone());
+        pushed.push(SectionName::ProviderSetup, None, json!({ "providers": [] }));
+        pushed.push(SectionName::ProviderSetup, None, json!({ "providers": [] }));
+        pushed.push(SectionName::ProviderAccounts, Some("openai-oauth".into()), json!({ "accounts": [] }));
+        pushed.push(SectionName::ProviderAccounts, Some("anthropic-oauth".into()), json!({ "accounts": [] }));
+        pushed.push(SectionName::ProviderSetup, None, json!({ "providers": [1] }));
+        let published = publisher.published();
+        let seen: Vec<(SectionName, Option<String>)> = published.iter().map(|(section, key, _)| (*section, key.clone())).collect();
+        assert_eq!(
+            seen,
+            [
+                (SectionName::ProviderSetup, None),
+                (SectionName::ProviderAccounts, Some("openai-oauth".into())),
+                (SectionName::ProviderAccounts, Some("anthropic-oauth".into())),
+                (SectionName::ProviderSetup, None),
+            ]
+        );
+        let SectionChange::Set(bytes) = &published[3].2 else { panic!("a small value is carried whole") };
+        assert_eq!(serde_json::from_slice::<Value>(bytes).unwrap(), json!({ "providers": [1] }));
+    }
+
+    #[test]
+    fn only_reads_and_probes_leave_the_sections_alone() {
+        for method in ["account/getQuotaHistory", "account/beginOAuthProviderLogin", "account/testCustomProvider"] {
+            assert!(leaves_sections(method), "{method}");
+        }
+        for method in ["account/authenticateProvider", "account/updateProviderAccounts", "account/refreshProviderSetup", "account/forgetProviderAuth", "account/completeOAuthProviderLogin"] {
+            assert!(!leaves_sections(method), "{method}");
+        }
     }
 }

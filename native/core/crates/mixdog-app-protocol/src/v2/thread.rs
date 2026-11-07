@@ -599,6 +599,7 @@ pub struct ThreadCompactStartParams {
 pub struct ThreadQueueDeleteParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
+    /// Absent with `restore`: every queued entry is handed back (today's `restoreQueued` with no id).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_id: Option<QueuedId>,
     /// Today's `restoreQueued` submission identity.

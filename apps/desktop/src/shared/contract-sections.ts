@@ -63,6 +63,8 @@ export const RENDERER_PROTOCOL_METHODS = [
 export type RendererProtocolMethod = (typeof RENDERER_PROTOCOL_METHODS)[number];
 
 export const SECTIONS_IPC = {
+  /** Whether this window's connection has a core endpoint (the per-connection source of the replaced session capabilities). */
+  core: 'mixdog:sections:core',
   snapshot: 'mixdog:sections:snapshot',
   push: 'mixdog:sections:push',
   call: 'mixdog:protocol:call',
@@ -73,6 +75,8 @@ export const SECTIONS_IPC = {
 } as const;
 
 export interface DesktopSectionsApi {
+  /** True when this window's connection has a core endpoint; false on a Node-hosted connection. */
+  core(): Promise<boolean>;
   snapshot(): Promise<DesktopSectionsSnapshot>;
   subscribe(listener: (push: DesktopSectionsPush) => void): () => void;
   call(method: RendererProtocolMethod, params: unknown): Promise<unknown>;

@@ -597,6 +597,19 @@ impl ThreadHandle for SessionHandle {
                 let messages: Vec<serde_json::Value> = context.read().await?.into_iter().map(|(_, message)| message).collect();
                 Ok(Reply::Value(json!({ "messages": messages })))
             }
+            // `restoreQueued` gives the entries' attachments back with their bytes: the actor answers the
+            // references, read here on the interactive lane (the actor never touches the store).
+            "thread/queue/delete" if req.params.get("restore") == Some(&serde_json::Value::Bool(true)) => {
+                let Reply::Value(raw) = self.to_actor(req).await? else {
+                    return Err(CoreError::InvalidParams { path: "reply".into(), expected: "a value".into() });
+                };
+                let store = self.deps.attachments.clone();
+                let hydrated = mixdog_core_base::support::on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
+                    super::restore_hydrate::hydrate(&store, lane, raw)
+                })
+                .await??;
+                Ok(Reply::Value(hydrated))
+            }
             _ => self.to_actor(req).await,
         }
     }

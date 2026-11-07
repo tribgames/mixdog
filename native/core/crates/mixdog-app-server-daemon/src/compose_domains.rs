@@ -342,7 +342,8 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
     );
     let workflow_config_concrete = workflow_config.clone();
     // `presets`, `webSearch` and `workflows`: the pushed form of `listPresets`, `getWebSearchRoute` and `listWorkflows`.
-    mixdog_core_config::workflow::sections::spawn_sections(workflow_config.clone(), state.publisher.clone(), inputs.cancel.clone());
+    mixdog_core_config::workflow::sections::spawn_sections(workflow_config.clone(), state.publisher.clone(), inputs.cancel.clone())
+        .map_err(|error| ComposeDomainsError::Watch(mixdog_core_config::config::ConfigError::Io(std::io::Error::other(error.to_string()))))?;
     let workflow: Arc<dyn DomainService> = workflow_config.clone();
     services.push(workflow.clone());
     services.push(Arc::new(BrowserService::new(inputs.host.clone())));

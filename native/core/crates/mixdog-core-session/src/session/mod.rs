@@ -20,6 +20,7 @@
 //! directory's sharded map, whose shard locks guard O(1) work only.
 
 mod actor;
+mod restore_hydrate;
 mod agent_host;
 pub mod agent_registry;
 pub mod approval_surfaces;

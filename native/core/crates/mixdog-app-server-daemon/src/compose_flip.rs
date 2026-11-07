@@ -652,13 +652,20 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             },
         },
     );
+    let agent_listed: Arc<std::sync::OnceLock<mixdog_core_agents::agents::section::ListedHook>> = Arc::new(std::sync::OnceLock::new());
     mixdog_core_agents::agents::section::spawn_agents_section(
         agents.clone(),
         config.changes(),
-        agent_list_changed,
+        agent_list_changed.clone(),
+        mixdog_core_config::section_watch::Watched {
+            roots: vec![b.package_root.join("src").join("agents"), b.data_dir.join("agents")],
+            files: Vec::new(),
+        },
+        agent_listed.clone(),
         state.publisher.clone(),
         b.cancel.clone(),
-    );
+    )
+    .map_err(|error| ComposeError::ComposeDomains(crate::compose_domains::ComposeDomainsError::Watch(mixdog_core_config::config::ConfigError::Io(std::io::Error::other(error)))))?;
     let config_hosts = compose_parts::config_hosts(ConfigHostsIn {
         config: config.clone(),
         headers: late_headers.clone(),
@@ -2529,11 +2536,17 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         home_rooms,
     )));
     let agent_greetings = mixdog_core_agents::agents::AgentGreetings::new(Arc::new(crate::agent_lifecycle::SessionGreetingDeps::new(config.clone(), mcp.agents.clone(), agent_homes.clone(), directory.clone())));
+    // Node ran the agent-home retire and the greeting reconcile whenever `listAgents` was read; the pushed `agents`
+    // section calls `listed` after each catalog build, and builds once more now that the hook exists.
+    let agent_lifecycle = mixdog_core_agents::agents::AgentLifecycle::new(agent_homes.clone(), agent_greetings);
+    let listed_lifecycle = agent_lifecycle.clone();
+    assert!(agent_listed.set(Arc::new(move |agents| listed_lifecycle.listed(agents))).is_ok(), "the list hook is bound once");
+    agent_list_changed.notify_one();
     builder.register(Arc::new(mixdog_core_agents::agents::AgentService::new(
         mcp.agents.clone(),
         mixdog_core_agents::agents::AgentConnectors::new(mcp.agents.clone(), connector_catalog.clone()),
         mixdog_core_agents::agents::AgentPermissions::new(grants.clone()),
-        mixdog_core_agents::agents::AgentLifecycle::new(agent_homes.clone(), agent_greetings),
+        agent_lifecycle,
     )))?;
     builder.register(Arc::new(mixdog_core_agents::agents::DesktopLeadStatus::new(
         mixdog_core_agents::agents::LeadService::new(
@@ -2593,7 +2606,24 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         usage_sources.clone(),
         domain_inputs.scopes.scopes("account").map_err(ComposeError::ComposeDomains)?,
         state.publisher.clone(), // `providerSetup` and `providerAccounts`
-    ))?;
+        mixdog_core_domains::domains::ai_account::account::SectionWake {
+            config: config.changes(),
+            // The credential files Node reads on every call, and the stored-secret marker.
+            files: mixdog_core_config::section_watch::Watched {
+                roots: vec![b.data_dir.join("provider-accounts")],
+                files: [mixdog_ai::accounts::ACCOUNT_PROVIDERS.iter().map(|provider| format!("{provider}.json")).collect::<Vec<_>>(), vec![
+                    "provider-accounts.json".to_owned(),
+                    "anthropic-oauth-credentials.json".to_owned(),
+                    mixdog_core_config::config::secret_changes::SecretChanges::marker_name().to_owned(),
+                ]]
+                .concat()
+                .into_iter()
+                .map(|name| (b.data_dir.clone(), std::ffi::OsString::from(name)))
+                .collect(),
+            },
+        },
+    )
+    .map_err(|error| ComposeError::ComposeDomains(crate::compose_domains::ComposeDomainsError::Watch(mixdog_core_config::config::ConfigError::Io(std::io::Error::other(error)))))?)?;
     builder.register(mixdog_core_domains::domains::ai_account::usage::UsageService::new(ledger_source.clone(), directory.clone(), usage_sources.clone(), account_store.clone(), dashboards.clone()))?;
     // modelProxy/run, modelProxy/cancel (and the `modelProxy/run/event` notifications): the PC end of the model proxy (model-proxy-1). They are in the method and notification tables at 51e73b496, so the
     // unclaimed check asks for them. Every input is an instance held above: the registry, the one broker, the one account store and OAuth usage, the config, the registry's builder, key store and env.

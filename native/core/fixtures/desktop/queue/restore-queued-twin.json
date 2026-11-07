@@ -1,0 +1,475 @@
+{
+  "domain": "queue",
+  "recorder": "benchmarks/rust-core/recorders/record-restore-queued.mjs",
+  "blobs": {
+    "7eaad9a25d623184b179dd75228e837176143e14375392974e6767b5c0343b92": "UE5HQllURVMtb25l",
+    "132c8b72accd68344d199108e4e462035aa0abf4902ef89b828796e20845eebc": "UE5HQllURVMtdHdv",
+    "ebd60a26efc599545ae915eb0005f3ebd67657cc64dd60688ec252783a78656e": "cGFzdGVkIGJvZHkKbGluZSB0d28=",
+    "98aa765a672bcf35483a98591538c5a7cacbf9370cbec06647c8010955b1180d": "JVBERi0xLjcgYnl0ZXM="
+  },
+  "cases": [
+    {
+      "name": "one entry by id",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "hello"
+        },
+        {
+          "id": "q2",
+          "text": "other"
+        }
+      ],
+      "currentText": "",
+      "selectedId": "q1",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "text": "hello",
+        "pastedImages": null,
+        "pastedTexts": null
+      },
+      "left": [
+        "q2"
+      ]
+    },
+    {
+      "name": "the composer text follows",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "hello"
+        }
+      ],
+      "currentText": "draft",
+      "selectedId": "q1",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "text": "hello\ndraft",
+        "pastedImages": null,
+        "pastedTexts": null
+      },
+      "left": []
+    },
+    {
+      "name": "a blank entry and a blank composer",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "  "
+        }
+      ],
+      "currentText": " ",
+      "selectedId": "q1",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "text": "",
+        "pastedImages": null,
+        "pastedTexts": null
+      },
+      "left": []
+    },
+    {
+      "name": "no id restores every entry in order",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "one"
+        },
+        {
+          "id": "q2",
+          "text": "two"
+        }
+      ],
+      "currentText": "draft",
+      "selectedId": "",
+      "reply": {
+        "count": 2,
+        "ids": [
+          "q1",
+          "q2"
+        ],
+        "text": "one\ntwo\ndraft",
+        "pastedImages": null,
+        "pastedTexts": null
+      },
+      "left": []
+    },
+    {
+      "name": "an id that is not queued",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "hello"
+        }
+      ],
+      "currentText": "draft",
+      "selectedId": "zz",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "text": "draft",
+        "pastedImages": null,
+        "pastedTexts": null
+      },
+      "left": [
+        "q1"
+      ]
+    },
+    {
+      "name": "nothing queued, no id",
+      "entries": [],
+      "currentText": "draft",
+      "selectedId": "",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "text": "draft",
+        "pastedImages": null,
+        "pastedTexts": null
+      },
+      "left": []
+    },
+    {
+      "name": "inline pasted buffers come back as they were",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "see [Image #1]",
+          "pastedImages": {
+            "1": {
+              "data": "AAAA",
+              "mimeType": "image/png"
+            }
+          },
+          "pastedTexts": {
+            "1": {
+              "text": "inline text"
+            }
+          }
+        }
+      ],
+      "currentText": "",
+      "selectedId": "q1",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "text": "see [Image #1]",
+        "pastedImages": {
+          "1": {
+            "data": "AAAA",
+            "mimeType": "image/png"
+          }
+        },
+        "pastedTexts": {
+          "1": {
+            "text": "inline text"
+          }
+        }
+      },
+      "left": []
+    },
+    {
+      "name": "referenced pasted buffers are read from the store",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "a [Image #1] b",
+          "pastedImages": {
+            "1": {
+              "attachmentRef": "7eaad9a25d623184b179dd75228e837176143e14375392974e6767b5c0343b92",
+              "mimeType": "image/png",
+              "filename": "p.png"
+            }
+          },
+          "pastedTexts": {
+            "1": {
+              "attachmentRef": "ebd60a26efc599545ae915eb0005f3ebd67657cc64dd60688ec252783a78656e",
+              "filename": "n.txt"
+            }
+          }
+        }
+      ],
+      "currentText": "",
+      "selectedId": "q1",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "text": "a [Image #1] b",
+        "pastedImages": {
+          "1": {
+            "attachmentRef": "7eaad9a25d623184b179dd75228e837176143e14375392974e6767b5c0343b92",
+            "mimeType": "image/png",
+            "filename": "p.png",
+            "content": "UE5HQllURVMtb25l"
+          }
+        },
+        "pastedTexts": {
+          "1": {
+            "attachmentRef": "ebd60a26efc599545ae915eb0005f3ebd67657cc64dd60688ec252783a78656e",
+            "filename": "n.txt",
+            "text": "pasted body\nline two"
+          }
+        }
+      },
+      "left": []
+    },
+    {
+      "name": "two entries merge their buffers, a falsy one skipped",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "x",
+          "pastedImages": {
+            "1": {
+              "attachmentRef": "7eaad9a25d623184b179dd75228e837176143e14375392974e6767b5c0343b92",
+              "mimeType": "image/png",
+              "filename": "p.png"
+            },
+            "2": null
+          }
+        },
+        {
+          "id": "q2",
+          "text": "y",
+          "pastedImages": {
+            "3": {
+              "attachmentRef": "132c8b72accd68344d199108e4e462035aa0abf4902ef89b828796e20845eebc",
+              "mimeType": "image/png",
+              "filename": "p.png"
+            }
+          },
+          "pastedTexts": {
+            "1": {
+              "attachmentRef": "ebd60a26efc599545ae915eb0005f3ebd67657cc64dd60688ec252783a78656e"
+            }
+          }
+        }
+      ],
+      "currentText": "",
+      "selectedId": "",
+      "reply": {
+        "count": 2,
+        "ids": [
+          "q1",
+          "q2"
+        ],
+        "text": "x\ny",
+        "pastedImages": {
+          "1": {
+            "attachmentRef": "7eaad9a25d623184b179dd75228e837176143e14375392974e6767b5c0343b92",
+            "mimeType": "image/png",
+            "filename": "p.png",
+            "content": "UE5HQllURVMtb25l"
+          },
+          "3": {
+            "attachmentRef": "132c8b72accd68344d199108e4e462035aa0abf4902ef89b828796e20845eebc",
+            "mimeType": "image/png",
+            "filename": "p.png",
+            "content": "UE5HQllURVMtdHdv"
+          }
+        },
+        "pastedTexts": {
+          "1": {
+            "attachmentRef": "ebd60a26efc599545ae915eb0005f3ebd67657cc64dd60688ec252783a78656e",
+            "text": "pasted body\nline two"
+          }
+        }
+      },
+      "left": []
+    },
+    {
+      "name": "one unreadable image is dropped alone and reported",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "keep",
+          "pastedImages": {
+            "1": {
+              "attachmentRef": "26c71a1f3d4b014070171209163fd7c8fb21c410e16a6349ec747470f1e88b26",
+              "mimeType": "image/png",
+              "filename": "p.png"
+            },
+            "2": {
+              "attachmentRef": "7eaad9a25d623184b179dd75228e837176143e14375392974e6767b5c0343b92",
+              "mimeType": "image/png",
+              "filename": "p.png"
+            }
+          }
+        }
+      ],
+      "currentText": "",
+      "selectedId": "q1",
+      "reply": {
+        "notice": "1 attachment was no longer available and dropped.",
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "text": "keep",
+        "pastedImages": {
+          "2": {
+            "attachmentRef": "7eaad9a25d623184b179dd75228e837176143e14375392974e6767b5c0343b92",
+            "mimeType": "image/png",
+            "filename": "p.png",
+            "content": "UE5HQllURVMtb25l"
+          }
+        },
+        "pastedTexts": null
+      },
+      "left": []
+    },
+    {
+      "name": "two unreadable attachments are reported together",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "keep",
+          "pastedImages": {
+            "1": {
+              "attachmentRef": "da5dc2dd663384023eaf9d8d1b85730ae522d3073016216aa8bd8daacf478416",
+              "mimeType": "image/png",
+              "filename": "p.png"
+            }
+          },
+          "pastedTexts": {
+            "1": {
+              "attachmentRef": "e4a626a9402d1fc01a96c9a0951ef241be88608ec3e876d335686ff4ae18fff2"
+            }
+          }
+        }
+      ],
+      "currentText": "",
+      "selectedId": "q1",
+      "reply": {
+        "notice": "2 attachments were no longer available and dropped.",
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "text": "keep",
+        "pastedImages": {},
+        "pastedTexts": {}
+      },
+      "left": []
+    },
+    {
+      "name": "file parts are given back with their bytes",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "read this",
+          "content": [
+            {
+              "type": "text",
+              "text": "read this"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "98aa765a672bcf35483a98591538c5a7cacbf9370cbec06647c8010955b1180d",
+              "mimeType": "application/pdf",
+              "filename": "a.pdf"
+            },
+            {
+              "type": "file",
+              "data": "QUJD",
+              "mimeType": "application/pdf",
+              "filename": "inline.pdf"
+            },
+            {
+              "type": "file",
+              "mimeType": "application/pdf",
+              "filename": "empty.pdf"
+            }
+          ]
+        }
+      ],
+      "currentText": "",
+      "selectedId": "q1",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "text": "read this",
+        "pastedImages": null,
+        "pastedTexts": null,
+        "content": [
+          {
+            "type": "file",
+            "data": "JVBERi0xLjcgYnl0ZXM=",
+            "mimeType": "application/pdf",
+            "filename": "a.pdf"
+          },
+          {
+            "type": "file",
+            "data": "QUJD",
+            "mimeType": "application/pdf",
+            "filename": "inline.pdf"
+          }
+        ]
+      },
+      "left": []
+    },
+    {
+      "name": "an unreadable file part is dropped and reported",
+      "entries": [
+        {
+          "id": "q1",
+          "text": "read",
+          "content": [
+            {
+              "type": "text",
+              "text": "read"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "93deed1268c2dba0bf5d111bfee3682cffb89c090f54e782feb5fff7d6d8d5e5",
+              "mimeType": "application/pdf",
+              "filename": "gone.pdf"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "98aa765a672bcf35483a98591538c5a7cacbf9370cbec06647c8010955b1180d",
+              "mimeType": "application/pdf",
+              "filename": "a.pdf"
+            }
+          ]
+        }
+      ],
+      "currentText": "",
+      "selectedId": "q1",
+      "reply": {
+        "notice": "1 attachment was no longer available and dropped.",
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "text": "read",
+        "pastedImages": null,
+        "pastedTexts": null,
+        "content": [
+          {
+            "type": "file",
+            "data": "JVBERi0xLjcgYnl0ZXM=",
+            "mimeType": "application/pdf",
+            "filename": "a.pdf"
+          }
+        ]
+      },
+      "left": []
+    }
+  ]
+}
