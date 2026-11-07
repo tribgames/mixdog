@@ -176,7 +176,7 @@ impl Outgoing {
         }
     }
 
-    /// A desktop's app feed went live (Node's `desktop.ready`: after `desktop.init` and the first state resync).
+    /// A desktop's `app/subscribe` was answered and its app feed is live (Node's `desktop.ready`; spec-v2 `protocol.md` §12.2).
     pub(crate) fn desktop_ready(&self) {
         if let Some(hook) = self.client_hook.get() {
             hook.desktop_ready();

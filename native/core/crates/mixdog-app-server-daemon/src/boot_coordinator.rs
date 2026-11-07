@@ -4,8 +4,11 @@
 //! (`startQuotaResume`, `daemon.mjs:1132`).
 //!
 //! The lane opens at the first of: a non-desktop client completing its `initialize` (Node: its
-//! registration, the ready boundary of a client with no further handshake), or a desktop's app feed
-//! going live (Node: `desktop.ready`, after `desktop.init` and the first state resync). A desktop's
+//! registration, the ready boundary of a client with no further handshake), or a desktop's
+//! `app/subscribe` (Node: `desktop.ready`, which the desktop sends right after `desktop.init` and
+//! its state resync, `session-transport.ts` attach; the desktop's core connection sends
+//! `app/subscribe` right after `initialize`, `protocol/connection.ts` `start()`; spec-v2
+//! `protocol.md` §12.2 maps `desktop.ready` to `app/subscribe`). A desktop's
 //! registration alone opens nothing (Node warms the keychain on it, a step Rust has no counterpart
 //! of: its secrets are read where they are used). The lane runs once however many clients arrive.
 //! A recovery that fails ends the lane without starting the quota clock, as Node's rejected
