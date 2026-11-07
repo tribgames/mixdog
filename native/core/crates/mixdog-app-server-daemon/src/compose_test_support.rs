@@ -51,6 +51,31 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
+/// What a user's settings hold once a provider is signed in and a model is chosen: the provider in `mixdog-config.json`, its listed model in the catalog cache the core cold-starts
+/// from (`catalogs/snapshot.json`), and the preset `default` names. The provider needs no key (`auth: none`) and its address is never called by a test that starts no turn.
+#[allow(clippy::disallowed_methods, reason = "test fixture: the settings files a user's setup would have written")]
+pub fn seed_default_model(data: &Path) {
+    const PROVIDER: &str = "custom-test";
+    const MODEL: &str = "test-model";
+    let config = serde_json::json!({ "agent": {
+        "providers": { PROVIDER: {
+            "type": "custom", "schemaVersion": 2, "name": "test", "protocol": "openai-chat",
+            "baseURL": "http://127.0.0.1:9", "auth": "none", "enabled": true,
+            "modelOverrides": { MODEL: { "manual": true } },
+        } },
+        "default": "main",
+        "presets": [{ "id": "main", "name": "main", "provider": PROVIDER, "model": MODEL }],
+    } });
+    std::fs::write(data.join("mixdog-config.json"), config.to_string()).expect("the settings file");
+    let snapshot = serde_json::json!({ "generation": 1, "models": { PROVIDER: [{
+        "id": MODEL, "provider": PROVIDER, "displayName": null, "rates": {}, "vision": "unknown",
+        "functionCalling": "unknown", "reasoning": "unknown", "fastMode": "unknown",
+        "reasoningEfforts": [], "source": "native", "manual": true,
+    }] } });
+    std::fs::create_dir_all(data.join("catalogs")).expect("the catalog directory");
+    std::fs::write(data.join("catalogs").join("snapshot.json"), snapshot.to_string()).expect("the catalog cache");
+}
+
 /// Held for the whole test: the cluster in `data_dir` is started by one core at a time.
 pub async fn exclusive() -> tokio::sync::MutexGuard<'static, ()> {
     ONE_AT_A_TIME.lock().await
