@@ -1,6 +1,6 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-setup-local-voice.mjs --tree <tree>",
-  "fileCount": 13,
+  "fileCount": 30,
   "files": [
     {
       "bytes": 78554,
@@ -28,9 +28,34 @@
       "sha256": "e2ee92068540f47174ae769b64a8c213e5480dfea690a4bd1f0fdb3a88a1f631"
     },
     {
-      "bytes": 26913,
+      "bytes": 53759,
       "path": "media-accounts-twin.json",
-      "sha256": "02608397e275281e845ca750a3a5b44364b8bf92cb60fc9344a7f893ea9f9007"
+      "sha256": "b91c97215dc7075ffcdb958d3850e90067bc554f44d9569854fbdd529b95a24d"
+    },
+    {
+      "bytes": 34734,
+      "path": "media-antigravity-image-twin.json",
+      "sha256": "9b33c3b55148596943f10837df44680a610b9973f9288134c52692b505cad331"
+    },
+    {
+      "bytes": 18250,
+      "path": "media-catalog-fetch-twin.json",
+      "sha256": "2a71ba96bf5eefacb340259aa54db0cce008aa8a4f21e9fd3a33f11b916d5a33"
+    },
+    {
+      "bytes": 10810,
+      "path": "media-catalog-keys-twin.json",
+      "sha256": "c909aab566b7a65d1571eb1e14e08c3ba650b90a3c73bdf3fc1bfcb7dc29afa8"
+    },
+    {
+      "bytes": 128806,
+      "path": "media-codex-image-twin.json",
+      "sha256": "5945965f9fa8f482b2f0dbf6126eed2e72a92cb5af1fb01d9679012268c029eb"
+    },
+    {
+      "bytes": 44256,
+      "path": "media-download-public-twin.json",
+      "sha256": "ebede795d9568038ab2b86f1832d3ff32aee3d01e4e347d9253d323e7d7abd0e"
     },
     {
       "bytes": 15152,
@@ -38,14 +63,64 @@
       "sha256": "0a24a0b2b21ea82682d8ff73ece73bc462b7fad46f3688cafde4ec00529caeb9"
     },
     {
+      "bytes": 36767,
+      "path": "media-gemini-image-twin.json",
+      "sha256": "e6f8d5fbd8bc4895c0e67cd1938a5d73fd9a72a45bae5235d03356dc8f222703"
+    },
+    {
+      "bytes": 101447,
+      "path": "media-gemini-video-twin.json",
+      "sha256": "f5e783e12e88e4e4f8bf896e441f904327d3b23d17dcc36f81a55e3e85be0845"
+    },
+    {
+      "bytes": 36393,
+      "path": "media-image-api-twin.json",
+      "sha256": "a5f13f3330648278b25d650339f11abb3aed32f19dc312625365fb7e15c3fb90"
+    },
+    {
       "bytes": 282903,
       "path": "media-lanes-twin.json",
       "sha256": "9ca47844cfb8e383361c0864327b1080af3b5d2a18a97dd05266ecd139e5963b"
     },
     {
+      "bytes": 447726,
+      "path": "media-ledger-twin.json",
+      "sha256": "978bf449d11e3866cf94e8ad6643c69a87bb672a493f181a3175aa7bda2d6036"
+    },
+    {
+      "bytes": 25819,
+      "path": "media-loader-twin.json",
+      "sha256": "dda10202a82795fc1f54749d57e94762b2198290447a40c8df3240c1819372a8"
+    },
+    {
+      "bytes": 35630,
+      "path": "media-probes-twin.json",
+      "sha256": "d51a928af8889114d3e6743708e3e42049eb4f81efc09eb420d17ac5ef0a481d"
+    },
+    {
+      "bytes": 13000,
+      "path": "media-status-twin.json",
+      "sha256": "f7475330cdd2f4f2fd960573b0c566d9d1a88fdf704da87dac79bca81c526506"
+    },
+    {
       "bytes": 148906,
       "path": "media-tool-twin.json",
       "sha256": "ad447dc2d9bb5af4b6cf69f3f6a9049c85a6fa8998153cd9dae1b572341c45a1"
+    },
+    {
+      "bytes": 156234,
+      "path": "media-upstream-twin.json",
+      "sha256": "4289dbab6e3ed360a5553197fb6da2aa4fdaf1ab324920c4c9c7dfd6d85607e3"
+    },
+    {
+      "bytes": 59448,
+      "path": "media-usage-twin.json",
+      "sha256": "f2da52ebc3de901e162bf70c01dd1a7aab40fd16ca4d60a63569d7ce4c38000c"
+    },
+    {
+      "bytes": 134268,
+      "path": "media-xai-twin.json",
+      "sha256": "9c6d5b8e3822abe9a43772267120369a46eaecf873c2d0a4c8361604059c25d9"
     },
     {
       "bytes": 33713,
@@ -58,9 +133,19 @@
       "sha256": "3eb053ab7c6f68635c75ba38a72b2a8597a4949089e76d0d1523545d7206f7a1"
     },
     {
+      "bytes": 62549,
+      "path": "voice-installer-twin.json",
+      "sha256": "46f1493de2671be6dde821bd6c603c287d4b67a298628ed0df2662c999bd1d29"
+    },
+    {
       "bytes": 2876,
       "path": "voice-language-twin.json",
       "sha256": "afd665e6685e113eaf2ea9b25417d1f4e4ea1e6e7d09ec195be946e1d4a87650"
+    },
+    {
+      "bytes": 14524,
+      "path": "voice-progress-twin.json",
+      "sha256": "979aeff493847c2b8b6a9a0b0667750adeb4379cb8a7bd00b09827437ea15f0d"
     },
     {
       "bytes": 16698,
@@ -69,15 +154,15 @@
     }
   ],
   "product": {
-    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
-    "commit": "dcbdc55a33af5229ea9a8c050220305d64c4cf06",
+    "appsSha256": "1facc8bfdb98c5a49136a8474c0f9bd6b10874f9a9f8f8147afe15e60f7d0fcd",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9248,
     "refComparison": {
-      "closestCommit": "dcbdc55a33af5229ea9a8c050220305d64c4cf06",
+      "closestCommit": "642b397e5d8d2e25ad197956f6b5ca11cc28ed72",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 3
     },
     "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
     "tree": "product tree loaded by the recorder",
@@ -86,5 +171,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
   "set": "services",
-  "totalBytes": 1932149
+  "totalBytes": 3319656
 }

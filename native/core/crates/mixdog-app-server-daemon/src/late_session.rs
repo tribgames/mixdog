@@ -101,6 +101,21 @@ impl Bound for LateReadinessHook {
         self.0.invalidation_bound()
     }
 }
+
+/// The media account probe of `mixdog_services::media::ProviderLayer`, bound once the probe that holds
+/// the layer is built. A Codex image session reads it at `auth()`; startup verifies it is bound.
+pub struct LateMediaProbe(pub Arc<mixdog_services::media::provider_layer::ProviderLayer>);
+
+impl Bound for LateMediaProbe {
+    fn cell(&self) -> &'static str {
+        mixdog_services::media::provider_layer::PROBE_CELL
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.probe_attached()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};

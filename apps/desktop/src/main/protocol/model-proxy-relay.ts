@@ -8,6 +8,7 @@ import type {
   ModelProxyCancelParams,
   ModelProxyEventParams,
   ModelProxyExecuteParams,
+  ModelProxyHeartbeatParams,
   ModelProxyResult,
   ModelProxyRunCancelParams,
   ModelProxyRunEventParams,
@@ -21,6 +22,10 @@ const CANCEL = 'model/proxy/cancel';
 const RUN = 'modelProxy/run';
 const RUN_EVENT = 'modelProxy/run/event';
 const RUN_CANCEL = 'modelProxy/cancel';
+const HEARTBEAT = 'model/proxy/heartbeat';
+/** Node's `MODEL_PROXY_HEARTBEAT_MS`: well inside the server's 20 s lease; the first beat of a request is its claim,
+ *  which the server waits 10 s for. */
+export const MODEL_PROXY_HEARTBEAT_MS = 5_000;
 
 type RequestId = string | number;
 
@@ -44,10 +49,23 @@ export function relayModelProxy(
   // The server has failed these calls once its link is gone (the lease of Node's host, replaced by connection
   // liveness, §12.4): finishing them would only spend for nothing. Stopped, forgotten and left unanswered, as
   // `abandonAll` does (model-proxy-host.ts:803-809, :814-822).
+  // The calls still run, for the server's lease (model-proxy-host.ts heartbeat): every running request, on one timer
+  // that lives while any runs.
+  let beat: ReturnType<typeof setInterval> | undefined;
+  const heartbeat = (): void => {
+    if (requests.size === 0) return;
+    server.notify(HEARTBEAT, { requestIds: [...requests.values()] } satisfies ModelProxyHeartbeatParams);
+  };
+  const stopBeating = (): void => {
+    if (beat !== undefined) clearInterval(beat);
+    beat = undefined;
+  };
+
   const abandonAll = (): void => {
     const abandoned = [...runs.values()];
     runs.clear();
     requests.clear();
+    stopBeating();
     for (const runId of abandoned) local.notify(RUN_CANCEL, { runId } satisfies ModelProxyRunCancelParams);
   };
 
@@ -81,6 +99,10 @@ export function relayModelProxy(
     const runId = `proxy${runCount++}`;
     runs.set(key, runId);
     requests.set(runId, id);
+    // The claim: the server gives a request nobody claimed up after 10 s.
+    server.notify(HEARTBEAT, { requestIds: [id] } satisfies ModelProxyHeartbeatParams);
+    beat ??= setInterval(heartbeat, MODEL_PROXY_HEARTBEAT_MS);
+    beat.unref?.();
     // An abandoned run is no longer in `runs`: its answer is not sent.
     const live = (): boolean => runs.get(key) === runId;
     local
@@ -108,6 +130,7 @@ export function relayModelProxy(
         if (!live()) return;
         runs.delete(key);
         requests.delete(runId);
+        if (requests.size === 0) stopBeating();
       });
   }
 

@@ -93,6 +93,9 @@ pub struct RunnerResult {
     pub changed_files: Vec<String>,
     pub stderr_tail: String,
     pub error: Option<String>,
+    /// The runner threw (Node: an exception out of `runner.check` / `runner.fix`, e.g. a cleanup in a `finally`):
+    /// the engine reports it as the engine's error alone, with nothing checked (`run-engines.mjs:134-142`).
+    pub thrown: bool,
     pub truncated: bool,
     pub counts: Option<Value>,
     pub note: Option<String>,

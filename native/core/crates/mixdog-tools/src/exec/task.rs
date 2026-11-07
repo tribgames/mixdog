@@ -12,7 +12,6 @@ use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
-use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
@@ -29,6 +28,7 @@ use super::jobs::JobStatus;
 use super::jobs::ReadOptions;
 use super::jobs::label_of;
 use super::wake::WakeReason;
+use crate::orch::util::spec_from_def;
 
 const WAIT_DEFAULT_MS: u64 = 300_000;
 const WAIT_DEFAULT_AGENT_MS: u64 = 240_000;
@@ -37,38 +37,18 @@ const WAIT_MAX_MS: u64 = 3_600_000;
 
 pub struct TaskTool {
     spec: ToolSpec,
+    /// What a delegated agent's session is sent: the same tool with the agent's wait default.
+    agent_spec: ToolSpec,
     runtime: Arc<ExecRuntime>,
 }
 
 impl TaskTool {
     pub fn new(runtime: Arc<ExecRuntime>) -> Self {
-        let spec = ToolSpec {
-            name: "task".into(),
-            aliases: Vec::new(),
-            description: "List, read, wait for or cancel background tasks.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "task_id": {"type": "string"},
-                    "action": {"type": "string", "enum": ["list", "read", "wait", "cancel"]},
-                    "timeout_ms": {"type": "integer", "minimum": 0},
-                    "output": {"type": "string", "enum": ["new", "tail"]}
-                },
-                "required": ["action"],
-                "additionalProperties": false
-            }),
-            annotations: ToolAnnotations {
-                title: Some("Task".into()),
-                read_only_hint: Some(false),
-                destructive_hint: Some(false),
-                idempotent_hint: Some(false),
-                open_world_hint: Some(false),
-                ..ToolAnnotations::default()
-            },
-            parallel_safe: true,
-            exclusive_with: Vec::new(),
-        };
-        Self { spec, runtime }
+        Self {
+            spec: spec_from_def(include_str!("specs/task.json"), true, &[]),
+            agent_spec: spec_from_def(include_str!("specs/task.agent.json"), true, &[]),
+            runtime,
+        }
     }
 }
 
@@ -275,6 +255,10 @@ fn cancel_unconfirmed(id: &str) -> String {
 impl Tool for TaskTool {
     fn spec(&self) -> &ToolSpec {
         &self.spec
+    }
+
+    fn agent_spec(&self) -> Option<&ToolSpec> {
+        Some(&self.agent_spec)
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {

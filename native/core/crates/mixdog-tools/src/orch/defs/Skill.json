@@ -1,5 +1,6 @@
 {
   "name": "Skill",
+  "title": "Skill",
   "description": "Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update.",
   "annotations": {
     "title": "Skill",

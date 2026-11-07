@@ -168,7 +168,7 @@ pub(crate) fn wanted_workflow_id(id: &str) -> String {
 }
 
 /// `activeWorkflowId(config)`.
-pub(crate) fn active_workflow_id(config: &Doc) -> String {
+pub fn active_workflow_id(config: &Doc) -> String {
     let active = config.get("workflow").and_then(|workflow| workflow.get("active"));
     wanted_workflow_id(&match active {
         Some(value) if truthy(Some(value)) => value_to_string(value),
@@ -185,7 +185,7 @@ fn normalize_mode(value: Option<&Value>, fallback: &str) -> String {
 }
 
 /// `configuredOrchestrationMode(config)`: the stored mode, `balanced` when there is none.
-pub(crate) fn configured_orchestration_mode(config: &Doc) -> String {
+pub fn configured_orchestration_mode(config: &Doc) -> String {
     match config.get("orchestrationMode") {
         Some(value) => normalize_mode(Some(value), DEFAULT_ORCHESTRATION_MODE),
         None => DEFAULT_ORCHESTRATION_MODE.to_owned(),

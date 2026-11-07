@@ -1,0 +1,305 @@
+{
+  "scenarios": [
+    {
+      "text": "{\"access_token\":\"abc123\",\"token_type\":\"Bearer\",\"expires_in\":3600}",
+      "secrets": [],
+      "scrubbed": "{\"access_token\":\"[REDACTED]\",\"token_type\":\"Bearer\",\"expires_in\":3600}"
+    },
+    {
+      "text": "{\"error\":\"invalid_grant\",\"error_description\":\"Token has been expired or revoked.\"}",
+      "secrets": [],
+      "scrubbed": "{\"error\":\"invalid_grant\",\"error_description\":\"Token has been expired or revoked.\"}"
+    },
+    {
+      "text": "{\"refreshToken\":\"r-1\",\"accessToken\":\"a-1\",\"idToken\":\"i-1\",\"client_secret\":\"cs\",\"code\":\"ok\"}",
+      "secrets": [],
+      "scrubbed": "{\"refreshToken\":\"[REDACTED]\",\"accessToken\":\"[REDACTED]\",\"idToken\":\"[REDACTED]\",\"client_secret\":\"[REDACTED]\",\"code\":\"ok\"}"
+    },
+    {
+      "text": "{\"nested\":{\"api_key\":\"k\",\"list\":[{\"password\":\"p\"},{\"keep\":\"v\"}]},\"n\":1.50,\"big\":12345678901234567890,\"e\":1E5,\"neg\":-0}",
+      "secrets": [],
+      "scrubbed": "{\"nested\":{\"api_key\":\"[REDACTED]\",\"list\":[{\"password\":\"[REDACTED]\"},{\"keep\":\"v\"}]},\"n\":1.50,\"big\":12345678901234567890,\"e\":1E5,\"neg\":-0}"
+    },
+    {
+      "text": "{\"message\":\"visit https://x.test/cb?code_verifier=abc&state=s now\"}",
+      "secrets": [],
+      "scrubbed": "{\"message\":\"visit https://x.test/cb?code_verifier=[REDACTED]&state=s now\"}"
+    },
+    {
+      "text": "{\"detail\":\"{\\\"access_token\\\":\\\"inner\\\"}\"}",
+      "secrets": [],
+      "scrubbed": "{\"detail\":\"{\\\"access_token\\\":\\\"[REDACTED]\\\"}\"}"
+    },
+    {
+      "text": "{\"client\\u005fsecret\":\"escaped\",\"ok\":true,\"nothing\":null}",
+      "secrets": [],
+      "scrubbed": "{\"client_secret\":\"[REDACTED]\",\"ok\":true,\"nothing\":null}"
+    },
+    {
+      "text": "{\"a\":\"x\",\"a\":\"y\",\"access_token\":\"first\",\"access_token\":\"second\"}",
+      "secrets": [],
+      "scrubbed": "{\"a\":\"y\",\"access_token\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"10\":\"ten\",\"2\":\"two\",\"b\":\"bee\",\"1\":\"one\"}",
+      "secrets": [],
+      "scrubbed": "{\"10\":\"ten\",\"2\":\"two\",\"b\":\"bee\",\"1\":\"one\"}"
+    },
+    {
+      "text": "{\"10\":\"Bearer abcdef\",\"2\":\"two\"}",
+      "secrets": [],
+      "scrubbed": "{\"2\":\"two\",\"10\":\"Bearer [REDACTED]\"}"
+    },
+    {
+      "text": "{\"éclair\":\"é\\u00e9 \\/ \\\" \\\\ \\n \\t\",\"emoji\":\"😀 \\ud83d\\ude00 Bearer tok\"}",
+      "secrets": [],
+      "scrubbed": "{\"éclair\":\"éé / \\\" \\\\ \\n \\t\",\"emoji\":\"😀 😀 Bearer [REDACTED]\"}"
+    },
+    {
+      "text": "{\"msg\":\"Bearer abc.def-ghi\"}",
+      "secrets": [],
+      "scrubbed": "{\"msg\":\"Bearer [REDACTED]\"}"
+    },
+    {
+      "text": "{\"msg\":\"sk-ant-oat01-abc\"}",
+      "secrets": [],
+      "scrubbed": "{\"msg\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"msg\":\"eyJhbGci.eyJzdWIiOiJ1MSJ9.sig-part\"}",
+      "secrets": [],
+      "scrubbed": "{\"msg\":\"eyJhbGci.[REDACTED]\"}"
+    },
+    {
+      "text": "{\"msg\":\"the secret-value is here\"}",
+      "secrets": [
+        "secret-value"
+      ],
+      "scrubbed": "{\"msg\":\"the [REDACTED] is here\"}"
+    },
+    {
+      "text": "{\"key\":123,\"token\":true,\"secret\":null,\"password\":[\"a\"]}",
+      "secrets": [],
+      "scrubbed": "{\"key\":123,\"token\":true,\"secret\":null,\"password\":[\"a\"]}"
+    },
+    {
+      "text": "{\"key\":{\"a\":1},\"token\":\"t\"}",
+      "secrets": [],
+      "scrubbed": "{\"key\":{\"a\":1},\"token\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "  {  \"access_token\" : \"spaced\" , \"x\" : [ 1 , 2 ]  }  ",
+      "secrets": [],
+      "scrubbed": "{\"access_token\":\"[REDACTED]\",\"x\":[1,2]}"
+    },
+    {
+      "text": "{\"plain\":\"nothing secret\",\"n\":1.0,\"arr\":[1,2,3]}",
+      "secrets": [],
+      "scrubbed": "{\"plain\":\"nothing secret\",\"n\":1.0,\"arr\":[1,2,3]}"
+    },
+    {
+      "text": "[{\"access_token\":\"in-array\"},\"Bearer zzz\",3,null,true]",
+      "secrets": [],
+      "scrubbed": "[{\"access_token\":\"[REDACTED]\"},\"Bearer [REDACTED]\",3,null,true]"
+    },
+    {
+      "text": "[]",
+      "secrets": [],
+      "scrubbed": "[]"
+    },
+    {
+      "text": "{}",
+      "secrets": [],
+      "scrubbed": "{}"
+    },
+    {
+      "text": "{\"\":\"empty key\",\"access_token\":\"\"}",
+      "secrets": [],
+      "scrubbed": "{\"\":\"empty key\",\"access_token\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"KEY\":\"upper\",\"Token\":\"mixed\",\"API_KEY\":\"snake\"}",
+      "secrets": [],
+      "scrubbed": "{\"KEY\":\"[REDACTED]\",\"Token\":\"[REDACTED]\",\"API_KEY\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"apikey\":\"a\",\"api-key\":\"b\",\"device_code\":\"d\",\"codeVerifier\":\"v\",\"code_challenge\":\"c\",\"assertion\":\"x\"}",
+      "secrets": [],
+      "scrubbed": "{\"apikey\":\"[REDACTED]\",\"api-key\":\"b\",\"device_code\":\"[REDACTED]\",\"codeVerifier\":\"[REDACTED]\",\"code_challenge\":\"[REDACTED]\",\"assertion\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "\"just a string with Bearer abc.def\"",
+      "secrets": [],
+      "scrubbed": "\"just a string with Bearer [REDACTED]\""
+    },
+    {
+      "text": "\"access_token=abc\"",
+      "secrets": [],
+      "scrubbed": "\"access_token=[REDACTED]\""
+    },
+    {
+      "text": "12345",
+      "secrets": [],
+      "scrubbed": "12345"
+    },
+    {
+      "text": "true",
+      "secrets": [],
+      "scrubbed": "true"
+    },
+    {
+      "text": "null",
+      "secrets": [],
+      "scrubbed": "null"
+    },
+    {
+      "text": "",
+      "secrets": [],
+      "scrubbed": ""
+    },
+    {
+      "text": "plain text with no secret",
+      "secrets": [],
+      "scrubbed": "plain text with no secret"
+    },
+    {
+      "text": "{\"access_token\":\"abc",
+      "secrets": [],
+      "scrubbed": "{\"access_token\":\"[REDACTED]\""
+    },
+    {
+      "text": "{\"access_token\":\"abc\",\"refresh_token\":\"def\"",
+      "secrets": [],
+      "scrubbed": "{\"access_token\":\"[REDACTED]\",\"refresh_token\":\"[REDACTED]\""
+    },
+    {
+      "text": "{\"access_token\": abc-bare, \"x\": 1}",
+      "secrets": [],
+      "scrubbed": "{\"access_token\":\"[REDACTED]\", \"x\": 1}"
+    },
+    {
+      "text": "{\"access_token\": 123, \"other\": \"v\"",
+      "secrets": [],
+      "scrubbed": "{\"access_token\": 123, \"other\": \"v\""
+    },
+    {
+      "text": "{\"access_token\": true, \"k\": null,",
+      "secrets": [],
+      "scrubbed": "{\"access_token\": true, \"k\": null,"
+    },
+    {
+      "text": "{\"id_token\":\"a\\\"b\",\"x\":\"y\"} trailing",
+      "secrets": [],
+      "scrubbed": "{\"id_token\":\"[REDACTED]\",\"x\":\"y\"} trailing"
+    },
+    {
+      "text": "<html><body>{\"access_token\":\"in-html\"}</body></html>",
+      "secrets": [],
+      "scrubbed": "<html><body>{\"access_token\":\"[REDACTED]\"}</body></html>"
+    },
+    {
+      "text": "{\"api_key\":\"k1\"} {\"api_key\":\"k2\"}",
+      "secrets": [],
+      "scrubbed": "{\"api_key\":\"[REDACTED]\"} {\"api_key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "grant_type=refresh_token&refresh_token=r-tok&client_id=cid&client_secret=cs",
+      "secrets": [],
+      "scrubbed": "grant_type=refresh_token&refresh_token=[REDACTED]&client_id=cid&client_secret=[REDACTED]"
+    },
+    {
+      "text": "access_token=abc&token_type=bearer",
+      "secrets": [],
+      "scrubbed": "access_token=[REDACTED]&token_type=bearer"
+    },
+    {
+      "text": "?code_verifier=xyz&state=1",
+      "secrets": [],
+      "scrubbed": "?code_verifier=[REDACTED]&state=1"
+    },
+    {
+      "text": "x-token=notakey",
+      "secrets": [],
+      "scrubbed": "x-token=[REDACTED]"
+    },
+    {
+      "text": "my_key=1 key=2 \"key=3\"",
+      "secrets": [],
+      "scrubbed": "my_key=1 key=[REDACTED] \"key=[REDACTED]\""
+    },
+    {
+      "text": "Error: request to https://a.test/token?code=authcode&client_secret=s failed",
+      "secrets": [],
+      "scrubbed": "Error: request to https://a.test/token?code=authcode&client_secret=[REDACTED] failed"
+    },
+    {
+      "text": "Authorization: Bearer abc.DEF-ghi_123 rejected",
+      "secrets": [],
+      "scrubbed": "Authorization: Bearer [REDACTED] rejected"
+    },
+    {
+      "text": "bearer lowercase.token",
+      "secrets": [],
+      "scrubbed": "Bearer [REDACTED]"
+    },
+    {
+      "text": "upstream said sk-ant-api03-AAAA and eyJhbGci.eyJzdWIiOiJ1MSJ9.sig-part ok",
+      "secrets": [],
+      "scrubbed": "upstream said [REDACTED] and eyJhbGci.[REDACTED] ok"
+    },
+    {
+      "text": "jwt without third part eyJhbGci.eyJzdWIiOiJ1MSJ9 end",
+      "secrets": [],
+      "scrubbed": "jwt without third part eyJhbGci.eyJzdWIiOiJ1MSJ9 end"
+    },
+    {
+      "text": "not a jwt eyJshort.eyJshort",
+      "secrets": [],
+      "scrubbed": "not a jwt eyJshort.eyJshort"
+    },
+    {
+      "text": "the code authcode-1 was used, authcode-1 twice",
+      "secrets": [
+        "authcode-1"
+      ],
+      "scrubbed": "the code [REDACTED] was used, [REDACTED] twice"
+    },
+    {
+      "text": "values a b and ab",
+      "secrets": [
+        "a",
+        "b",
+        ""
+      ],
+      "scrubbed": "v[REDACTED]lues [REDACTED] [REDACTED] [REDACTED]nd [REDACTED][REDACTED]"
+    },
+    {
+      "text": "nothing to hide",
+      "secrets": [
+        "absent"
+      ],
+      "scrubbed": "nothing to hide"
+    },
+    {
+      "text": "{\"msg\":\"authcode-2 inside\"}",
+      "secrets": [
+        "authcode-2"
+      ],
+      "scrubbed": "{\"msg\":\"[REDACTED] inside\"}"
+    },
+    {
+      "text": "{\"authcode-3\":\"as a key\"}",
+      "secrets": [
+        "authcode-3"
+      ],
+      "scrubbed": "{\"[REDACTED]\":\"as a key\"}"
+    },
+    {
+      "text": "first=1 refresh_token=also-secret-value",
+      "secrets": [
+        "also-secret-value"
+      ],
+      "scrubbed": "first=1 refresh_token=[REDACTED]"
+    }
+  ]
+}

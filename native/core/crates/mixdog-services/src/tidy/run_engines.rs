@@ -92,6 +92,12 @@ fn request(engine: &Resolved, files: Vec<String>, o: &SuiteOptions) -> RunReques
     req
 }
 
+/// What the per-engine wrapper reports for a runner that threw (`run-engines.mjs:134-142`): the engine's id and
+/// source (not its version), nothing checked, and the error's message.
+fn thrown(engine: &Resolved, error: &str) -> Value {
+    json!({"id": engine.id, "source": engine.source, "filesChecked": 0, "filesChanged": [], "diagnostics": [], "error": error})
+}
+
 async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Value {
     let mut base = json!({"id": engine.id, "source": engine.source});
     if !engine.version.is_empty() {
@@ -110,6 +116,9 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Value {
         return with(json!({"filesChecked": 0, "filesChanged": [], "diagnostics": []}));
     }
     let check = runner.check(&request(engine, scope.clone(), o)).await;
+    if check.thrown {
+        return thrown(engine, check.error.as_deref().unwrap_or_default());
+    }
     let mut result = with(json!({
         "filesChecked": scope.len(), "filesChanged": check.changed_files,
         "diagnostics": check.diagnostics.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
@@ -331,5 +340,41 @@ mod tests {
         let again = diagnostic(DiagnosticInit { file: "a.ts", fixable: true, ..Default::default() });
         let result = RunnerResult { changed_files: vec!["a.ts".into()], diagnostics: vec![fixable, manual, again], ..Default::default() };
         assert_eq!(fix_candidates(&result), ["a.ts", "b.ts"]);
+    }
+
+    /// A fake `dotnet`: writes the empty report it was asked for.
+    struct FakeDotnet;
+
+    #[async_trait]
+    impl Spawn for FakeDotnet {
+        async fn run(&self, _: &str, args: &[String], _: &Path, _: Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+            let at = args.iter().position(|a| a == "--report").expect("a report path");
+            std::fs::write(&args[at + 1], "[]").unwrap();
+            ProcessResult::default()
+        }
+    }
+
+    fn recorded_engine() -> Resolved {
+        Resolved { id: "dotnet-format".into(), source: "recorded".into(), command: "dotnet".into(), languages: vec!["csharp".into()], ..Default::default() }
+    }
+
+    fn cleanup_golden() -> Value {
+        serde_json::from_str(include_str!("../../../../fixtures/dotnet-format-cleanup/golden.json")).unwrap()
+    }
+
+    /// Node's real engine suite over its real dotnet-format runner (`record-dotnet-format-cleanup.mjs`): a clean
+    /// check, and a runner that threw out of its `finally`: no files checked, only the error.
+    #[tokio::test]
+    async fn a_runner_that_threw_is_the_engines_error_alone_as_nodes_wrapper_reports_it() {
+        let golden = cleanup_golden();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.cs"), "class A {}\n").unwrap();
+        let mut o = SuiteOptions::new(dir.path(), vec!["a.cs".into()], &Processes::for_tests());
+        o.spawn = Arc::new(FakeDotnet);
+        let engine = recorded_engine();
+        let out = run_engine_suite(&[&engine], &o).await;
+        assert_eq!(out[0], golden["withoutFailure"]["result"]);
+        let message = golden["failedCleanup"]["error"]["message"].as_str().unwrap();
+        assert_eq!(thrown(&engine, message), golden["failedCleanup"]["result"]);
     }
 }

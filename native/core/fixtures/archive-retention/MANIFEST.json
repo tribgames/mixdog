@@ -1,12 +1,12 @@
 {
-  "cases": 5,
+  "cases": 8,
   "command": "node benchmarks/rust-core/recorders/record-archive-retention.mjs --tree <tree>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3673,
+      "bytes": 5616,
       "path": "golden.json",
-      "sha256": "f4c35e03e2a159edde25983df2f85420dd6a8225e988e672b1c03d29538494dc"
+      "sha256": "4f3d994c7b521867ee4f816b4439274d6aa610fe43c670a93deb9b1b9637df73"
     }
   ],
   "product": {
@@ -15,7 +15,7 @@
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9248,
     "refComparison": {
-      "closestCommit": "f5508cea19523bb18d78e4ed3c57ac52c65c00bc",
+      "closestCommit": "28d5652fba5f2fad0fd4b248b0289cf23e170128",
       "commitFilesMissingFromTree": 0,
       "exact": false,
       "filesDifferingFromCommit": 9248
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-archive-retention.mjs",
   "set": "archive-retention",
-  "totalBytes": 3673
+  "totalBytes": 5616
 }

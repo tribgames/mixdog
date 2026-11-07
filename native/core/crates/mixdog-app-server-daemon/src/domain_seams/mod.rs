@@ -15,6 +15,7 @@ pub mod plugin_announce;
 pub mod profile_changes;
 pub mod remote;
 pub mod settings_effects;
+pub mod thread_progress_hints;
 
 /// The recorded Node goldens of the seams (`record-domain-seams.mjs`).
 #[cfg(test)]

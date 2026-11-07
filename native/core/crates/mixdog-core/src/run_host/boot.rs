@@ -54,6 +54,8 @@ pub struct HostParts {
     /// The session's provider tool exclusions: the turns record into it, and the session catalog's
     /// tool surfaces (`SessionCatalog::new`'s `exclusions`) read the same value.
     pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
+    /// The settings reconcile each turn starts with, bound by the composition once the surface host exists.
+    pub turn_settings: Arc<super::turn_settings::LateTurnSettings>,
 }
 
 /// The session directory over `deps`, whose `runs` is the real run factory.
@@ -61,7 +63,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
     let mut bound = None;
     let registry = host.registry.clone();
     let directory = Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
-        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, reuses, effort_judge, side, next, seams, settings, probes, observed, shells, exclusions } = host;
+        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, reuses, effort_judge, side, next, seams, settings, probes, observed, shells, exclusions, turn_settings } = host;
         let services = HostServices {
             registry,
             clock,
@@ -84,6 +86,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
             observed,
             shells,
             exclusions,
+            turn_settings,
         };
         let parts = Arc::new(HostRunParts::new(services));
         next.bind(directory.clone(), parts.clone());

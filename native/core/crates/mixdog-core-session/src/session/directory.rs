@@ -1078,13 +1078,17 @@ impl ThreadDirectory for SessionDirectory {
                 if let Some(path) = &params.project_path {
                     header.insert("cwd".into(), json!(path));
                 }
-                if let Some(options) = &params.session {
-                    super::session_options::write_header(options, &mut header);
-                }
+                // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
+                super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
+                // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
+                let id = ThreadId::from(new_id());
+                let header = self.inner.deps.new_tools.seed(&id, &header).await.map_err(|message| {
+                    mixdog_core_base::support::failed("session", format!("session: tools: {message}"))
+                })?;
                 let handle = self
                     .inner
                     .create(CreateSpec {
-                        id: None,
+                        id: Some(id),
                         header,
                         base: None,
                         op: req.op.clone(),

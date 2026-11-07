@@ -236,6 +236,19 @@ impl RoomSummaries {
         tokio::spawn(async move { this.publish().await });
     }
 
+    /// `deps.republish(roomSessionId)`: the room view of one room changed (a member started or
+    /// stopped speaking, the speaking member's approval came or went). Its log row goes out
+    /// again, carrying the room summary as it stands (`running`, `lastSpeaker`, ...), on the same
+    /// serialized path as [`Self::publish`].
+    pub async fn publish_room(&self, room_thread: &ThreadId) {
+        let _pass = self.pass.lock().await;
+        match self.list.summary(room_thread).await {
+            Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(?error, thread = room_thread.as_str(), "room summaries: the row could not be read"),
+        }
+    }
+
     /// One pass: every room's log row, published.
     pub async fn publish(&self) {
         let _pass = self.pass.lock().await;

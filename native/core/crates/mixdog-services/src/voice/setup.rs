@@ -1,13 +1,16 @@
 //! Voice status and the on/off toggle. Turning voice on installs only the missing runtime
 //! components, then persists `voice.enabled`; turning it off never waits for an install.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use tokio::time::Instant;
 
 use super::pipeline::VoicePipeline;
+use crate::model_install::{Progress, ProgressSink};
 
 /// Which managed components an install must fetch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,7 +23,57 @@ pub struct Missing {
 /// Fetches and verifies runtime components. Installing nothing that is already present.
 #[async_trait]
 pub trait VoiceInstaller: Send + Sync {
-    async fn install(&self, missing: Missing) -> Result<(), String>;
+    /// `progress` is the byte progress of each download (`label`: `runtime`, `extra`, `model`,
+    /// `ffmpeg`); `None` when the caller shows none.
+    async fn install(&self, missing: Missing, progress: Option<ProgressSink>) -> Result<(), String>;
+}
+
+/// The input hint line of the client that asked (Node's `setProgressHint`).
+#[async_trait]
+pub trait ProgressHint: Send + Sync {
+    /// `setProgressHint(text, 'info', percent)`: a sticky hint that replaces the one before.
+    fn show(&self, text: String, percent: Option<u8>);
+    /// `setProgressHint('')`: removes the hint; resolves once the removal is published.
+    async fn clear(&self);
+}
+
+const HINT_INTERVAL: Duration = Duration::from_millis(500);
+const BAR_CELLS: usize = 6;
+
+fn phase_label(phase: &str) -> &'static str {
+    match phase {
+        "model" => "model",
+        "ffmpeg" => "ffmpeg",
+        "extra" => "extra data",
+        _ => "whisper runtime",
+    }
+}
+
+/// `renderProgressBarText` and the percent `setProgressHint` gets (`voice-setup.mjs`).
+fn render_hint(progress: &Progress) -> (String, Option<u8>) {
+    let label = phase_label(&progress.label);
+    if progress.total == 0 {
+        return (format!("⬇ Voice {label} …"), None);
+    }
+    let ratio = (progress.downloaded as f64 / progress.total as f64).clamp(0.0, 1.0);
+    let filled = (ratio * BAR_CELLS as f64).round() as usize;
+    let percent = (ratio * 100.0).round() as u8;
+    (format!("⬇ Voice {label} {}{} {percent}%", "▓".repeat(filled), "░".repeat(BAR_CELLS - filled)), Some(percent))
+}
+
+/// `makeThrottledProgressNotice`: at most one hint per 500 ms, the first one at once.
+pub(super) fn throttled_hint(hint: Arc<dyn ProgressHint>) -> ProgressSink {
+    let last: Mutex<Option<Instant>> = Mutex::new(None);
+    Arc::new(move |progress: Progress| {
+        let now = Instant::now();
+        let mut last = last.lock().unwrap_or_else(PoisonError::into_inner);
+        if last.is_some_and(|at| now.duration_since(at) < HINT_INTERVAL) {
+            return;
+        }
+        *last = Some(now);
+        let (text, percent) = render_hint(&progress);
+        hint.show(text, percent);
+    })
 }
 
 /// Persists `voice.enabled` under the config lock.
@@ -109,8 +162,18 @@ impl VoiceSetup {
         })
     }
 
-    /// `enabled: None` flips the current state.
+    /// `enabled: None` flips the current state. Shows no install progress (the setup path).
     pub async fn toggle(&self, enabled: Option<bool>) -> ToggleResult {
+        self.run_toggle(enabled, None).await
+    }
+
+    /// The toggle of a client that shows the install's progress on its hint line, cleared when the
+    /// install ends, whatever its outcome.
+    pub async fn toggle_with_hint(&self, enabled: Option<bool>, hint: Arc<dyn ProgressHint>) -> ToggleResult {
+        self.run_toggle(enabled, Some(hint)).await
+    }
+
+    async fn run_toggle(&self, enabled: Option<bool>, hint: Option<Arc<dyn ProgressHint>>) -> ToggleResult {
         let requested_at = self.off_generation.load(Ordering::SeqCst);
         let current = self.pipeline.settings().enabled;
         let target = enabled.unwrap_or(!current);
@@ -138,22 +201,30 @@ impl VoiceSetup {
             model: !runtime.model,
             ffmpeg: !runtime.ffmpeg,
         };
-        if !runtime.installed || runtime.stale {
-            if let Err(error) = self.installer.install(missing).await {
-                return ToggleResult::Failed(format!("Voice setup failed: {error}"));
+        let progress = hint.clone().map(throttled_hint);
+        let result = async {
+            if !runtime.installed || runtime.stale {
+                if let Err(error) = self.installer.install(missing, progress).await {
+                    return ToggleResult::Failed(format!("Voice setup failed: {error}"));
+                }
+                if !self.pipeline.runtime().await.is_ok_and(|runtime| runtime.installed) {
+                    return ToggleResult::Failed(
+                        "Voice setup failed: voice runtime install did not complete (still missing a required component)".into(),
+                    );
+                }
             }
-            if !self.pipeline.runtime().await.is_ok_and(|runtime| runtime.installed) {
-                return ToggleResult::Failed(
-                    "Voice setup failed: voice runtime install did not complete (still missing a required component)".into(),
-                );
+            let generation = self.off_generation.clone();
+            let proceed = move || generation.load(Ordering::SeqCst) == requested_at;
+            match self.store.write_enabled(true, &proceed).await {
+                Ok(wrote) => ToggleResult::Enabled(wrote),
+                Err(error) => ToggleResult::Failed(format!("Voice setup failed: {error}")),
             }
         }
-        let generation = self.off_generation.clone();
-        let proceed = move || generation.load(Ordering::SeqCst) == requested_at;
-        match self.store.write_enabled(true, &proceed).await {
-            Ok(wrote) => ToggleResult::Enabled(wrote),
-            Err(error) => ToggleResult::Failed(format!("Voice setup failed: {error}")),
+        .await;
+        if let Some(hint) = &hint {
+            hint.clear().await;
         }
+        result
     }
 }
 
@@ -185,7 +256,7 @@ mod tests {
 
     #[async_trait]
     impl VoiceInstaller for Installer {
-        async fn install(&self, missing: Missing) -> Result<(), String> {
+        async fn install(&self, missing: Missing, _: Option<ProgressSink>) -> Result<(), String> {
             self.seen.lock().unwrap().push(missing);
             install(&self.dir);
             if let Some(slot) = &self.off_during {

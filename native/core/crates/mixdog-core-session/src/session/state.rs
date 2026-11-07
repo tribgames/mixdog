@@ -391,6 +391,7 @@ impl SessionState {
         let s = &mut self.sections;
         match section {
             Section::Runtime(value) => s.runtime = Some(value),
+            Section::ProgressHint(hint) => s.runtime.get_or_insert_with(ThreadRuntime::default).progress_hint = hint,
             Section::Route(value) => s.route = Some(value),
             Section::Context(value) => s.context = Some(value),
             Section::Todo(value) => s.todo = value,
@@ -489,4 +490,27 @@ pub(crate) fn approval_result(aid: &str, resolution: &ApprovalResolution) -> Too
         ApprovalResolution::Unavailable { at } => result.at = *at,
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// A hint is the runtime section's `progressHint` only: publishing one must not reset what else
+    /// the section holds (the whole-section `Runtime` replaces it).
+    #[test]
+    fn a_progress_hint_changes_only_the_hint_of_the_runtime_section() {
+        let mut state = SessionState::new(10);
+        let held = ThreadRuntime { busy: true, command_busy: true, spinner: Some(json!("working")), ..ThreadRuntime::default() };
+        state.apply(&Change::Section(Section::Runtime(held.clone())), None);
+
+        state.apply(&Change::Section(Section::ProgressHint(Some(json!({ "text": "downloading" })))), None);
+        let shown = state.sections.runtime.clone().unwrap();
+        assert_eq!(shown, ThreadRuntime { progress_hint: Some(json!({ "text": "downloading" })), ..held.clone() });
+
+        state.apply(&Change::Section(Section::ProgressHint(None)), None);
+        assert_eq!(state.sections.runtime, Some(held));
+    }
 }

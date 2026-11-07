@@ -320,6 +320,16 @@ async fn a_refusal_keeps_its_classification() {
     assert!(matches!(error, SendError::Provider(e) if e.status == Some(401)));
 }
 
+/// Node's `ModelProxyUnavailableError` (model-proxy-channel.mjs `request` with no client): the text a
+/// send with no PC behind it reports, and a transient failure that sent nothing.
+#[test]
+fn a_send_with_no_pc_reads_as_nodes_model_proxy_unavailable_error() {
+    let text = "model proxy unavailable: no desktop client is connected to run model calls";
+    let SendError::Provider(error) = execution_error(ProxyError::Unavailable(text.into())) else { panic!("not a provider error") };
+    assert_eq!(error.message, text);
+    assert_eq!((error.kind, error.delivery), (p::ErrorKind::Transient, p::DeliveryState::NotSent));
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_provider_the_pc_lacks_is_refused_by_name() {
     let pc = loopback([]).await;

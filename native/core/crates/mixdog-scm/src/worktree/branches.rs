@@ -551,7 +551,10 @@ impl Worktrees {
             Self::assert_not_shared(&record, record.owner_session_id.as_deref())?;
             self.assert_removable(&record, cancel).await?;
             drop(_lock);
-            return self.remove(&record.id, false, None, cancel).await;
+            // `removeManagedWorktree({ entryId, safeOnly: true })`: the branch-row removal keeps
+            // the branch.
+            let request = crate::worktree::removal::RemoveRequest { entry_id: record.id.clone(), safe_only: true, ..Default::default() };
+            return self.remove_managed(request, cancel).await;
         }
         let Some(target) = request.target.clone().filter(|t| *t != request.branch) else {
             return Err(errors::target_mismatch_text("Select a different source branch.".to_owned(), None, None, None, None));

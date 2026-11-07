@@ -29,7 +29,8 @@ const auth = await importFrom(tree, 'src/runtime/media/auth.mjs');
 const binding = await importFrom(tree, 'src/runtime/shared/provider-auth-binding.mjs');
 
 const b64url = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
-const jwt = (payload, pad = false) => `${b64url({ alg: 'none' })}.${pad ? Buffer.from(JSON.stringify(payload)).toString('base64') : b64url(payload)}.sig`;
+// `h.<claims>.s`: the recorders' JWT-shaped placeholder (record-ai-account.mjs); the probes read only the claims, and an `eyJ` header would trip the fixture secret scan.
+const jwt = (payload, pad = false) => `h.${pad ? Buffer.from(JSON.stringify(payload)).toString('base64') : b64url(payload)}.s`;
 const SEC = Math.floor((T0 + 3_600_000) / 1000);
 const PAST = Math.floor((T0 - 3_600_000) / 1000);
 

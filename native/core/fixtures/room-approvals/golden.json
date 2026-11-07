@@ -1,0 +1,1489 @@
+{
+  "note": "per approval kind: the hook request the 1.4.5 caller puts to the queue, the toolApproval normalizeToolApprovalRequest presents (clock fixed at requestedAt, no default wait limit), and the room view decorateRoomSnapshot makes of it; plus decoration-only cases",
+  "session": "sess_rmem_room01_gh_bot",
+  "toolCallId": "call_1",
+  "cases": [
+    {
+      "name": "ask_user question",
+      "input": {
+        "name": "ask_user",
+        "kind": "question",
+        "args": {
+          "questions": [
+            {
+              "question": "Which branch should I merge?",
+              "header": "Branch",
+              "options": [
+                {
+                  "label": "main",
+                  "description": "The default branch."
+                },
+                {
+                  "label": "dev",
+                  "description": "The work branch."
+                }
+              ]
+            }
+          ]
+        },
+        "reason": "",
+        "timeoutMs": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1"
+      },
+      "id": "1",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "1",
+        "name": "ask_user",
+        "kind": "question",
+        "args": {
+          "questions": [
+            {
+              "question": "Which branch should I merge?",
+              "header": "Branch",
+              "options": [
+                {
+                  "label": "main",
+                  "description": "The default branch."
+                },
+                {
+                  "label": "dev",
+                  "description": "The work branch."
+                }
+              ]
+            }
+          ]
+        },
+        "cwd": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "approval requested by hook",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "1",
+          "name": "ask_user",
+          "kind": "question",
+          "args": {
+            "questions": [
+              {
+                "question": "Which branch should I merge?",
+                "header": "Branch",
+                "options": [
+                  {
+                    "label": "main",
+                    "description": "The default branch."
+                  },
+                  {
+                    "label": "dev",
+                    "description": "The work branch."
+                  }
+                ]
+              }
+            ]
+          },
+          "cwd": null,
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "approval requested by hook",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null
+        }
+      }
+    },
+    {
+      "name": "handoff_user browser secret",
+      "input": {
+        "name": "handoff_user",
+        "kind": "secret",
+        "secret": {
+          "requestId": "secret_84e77125-22e8-4b73-a77d-c0a2172f6b57",
+          "surface": "browser",
+          "target": "example.com sign-in",
+          "field": "Password",
+          "origin": "https://login.example.com",
+          "form": "login"
+        },
+        "reason": "",
+        "timeoutMs": 120000,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1"
+      },
+      "id": "2",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "2",
+        "name": "handoff_user",
+        "kind": "secret",
+        "args": {
+          "surface": "browser",
+          "target": "example.com sign-in",
+          "field": "Password"
+        },
+        "cwd": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "approval requested by hook",
+        "requestedAt": 1700000000000,
+        "timeoutMs": 120000,
+        "expiresAt": 1700000120000,
+        "remember": [
+          "once"
+        ],
+        "secret": {
+          "requestId": "secret_84e77125-22e8-4b73-a77d-c0a2172f6b57",
+          "surface": "browser",
+          "target": "example.com sign-in",
+          "field": "Password",
+          "origin": "https://login.example.com",
+          "form": "login"
+        }
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "2",
+          "name": "handoff_user",
+          "kind": "secret",
+          "args": {
+            "surface": "browser",
+            "target": "example.com sign-in",
+            "field": "Password"
+          },
+          "cwd": null,
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "approval requested by hook",
+          "requestedAt": 1700000000000,
+          "timeoutMs": 120000,
+          "expiresAt": 1700000120000,
+          "remember": [
+            "once"
+          ],
+          "secret": {
+            "requestId": "secret_84e77125-22e8-4b73-a77d-c0a2172f6b57",
+            "surface": "browser",
+            "target": "example.com sign-in",
+            "field": "Password",
+            "origin": "https://login.example.com",
+            "form": "login"
+          }
+        }
+      }
+    },
+    {
+      "name": "handoff_user computer secret",
+      "input": {
+        "name": "handoff_user",
+        "kind": "secret",
+        "secret": {
+          "requestId": "secret_5a6fea6a-61f0-4d1c-a4fc-8abef06770a2",
+          "surface": "computer",
+          "target": "Mail app",
+          "field": "Passcode"
+        },
+        "reason": "",
+        "timeoutMs": 120000,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1"
+      },
+      "id": "3",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "3",
+        "name": "handoff_user",
+        "kind": "secret",
+        "args": {
+          "surface": "computer",
+          "target": "Mail app",
+          "field": "Passcode"
+        },
+        "cwd": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "approval requested by hook",
+        "requestedAt": 1700000000000,
+        "timeoutMs": 120000,
+        "expiresAt": 1700000120000,
+        "remember": [
+          "once"
+        ],
+        "secret": {
+          "requestId": "secret_5a6fea6a-61f0-4d1c-a4fc-8abef06770a2",
+          "surface": "computer",
+          "target": "Mail app",
+          "field": "Passcode"
+        }
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "3",
+          "name": "handoff_user",
+          "kind": "secret",
+          "args": {
+            "surface": "computer",
+            "target": "Mail app",
+            "field": "Passcode"
+          },
+          "cwd": null,
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "approval requested by hook",
+          "requestedAt": 1700000000000,
+          "timeoutMs": 120000,
+          "expiresAt": 1700000120000,
+          "remember": [
+            "once"
+          ],
+          "secret": {
+            "requestId": "secret_5a6fea6a-61f0-4d1c-a4fc-8abef06770a2",
+            "surface": "computer",
+            "target": "Mail app",
+            "field": "Passcode"
+          }
+        }
+      }
+    },
+    {
+      "name": "handoff_user browser takeover",
+      "input": {
+        "name": "handoff_user",
+        "kind": "takeover",
+        "takeover": {
+          "surface": "browser",
+          "instructions": "Solve the captcha, then say done.",
+          "target": "example.com",
+          "tab": "p1"
+        },
+        "args": {
+          "surface": "browser",
+          "instructions": "Solve the captcha, then say done."
+        },
+        "reason": "",
+        "timeoutMs": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1"
+      },
+      "id": "4",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "4",
+        "name": "handoff_user",
+        "kind": "takeover",
+        "args": {
+          "surface": "browser",
+          "instructions": "Solve the captcha, then say done."
+        },
+        "cwd": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "approval requested by hook",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null,
+        "remember": [
+          "once"
+        ],
+        "takeover": {
+          "surface": "browser",
+          "instructions": "Solve the captcha, then say done.",
+          "target": "example.com",
+          "tab": "p1"
+        }
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "4",
+          "name": "handoff_user",
+          "kind": "takeover",
+          "args": {
+            "surface": "browser",
+            "instructions": "Solve the captcha, then say done."
+          },
+          "cwd": null,
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "approval requested by hook",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null,
+          "remember": [
+            "once"
+          ],
+          "takeover": {
+            "surface": "browser",
+            "instructions": "Solve the captcha, then say done.",
+            "target": "example.com",
+            "tab": "p1"
+          }
+        }
+      }
+    },
+    {
+      "name": "handoff_user login takeover",
+      "input": {
+        "name": "handoff_user",
+        "kind": "takeover",
+        "takeover": {
+          "surface": "browser",
+          "instructions": "Sign in, then say done.",
+          "target": "",
+          "purpose": "login",
+          "url": "https://login.example.com/signin",
+          "accounts": [
+            {
+              "id": "acct-1",
+              "label": "a***@example.com"
+            }
+          ],
+          "fillId": "secret_9bfcb97e-e66f-4d9a-a806-b3c12f87fbe9"
+        },
+        "args": {
+          "surface": "browser",
+          "instructions": "Sign in, then say done."
+        },
+        "reason": "",
+        "timeoutMs": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1"
+      },
+      "id": "5",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "5",
+        "name": "handoff_user",
+        "kind": "takeover",
+        "args": {
+          "surface": "browser",
+          "instructions": "Sign in, then say done."
+        },
+        "cwd": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "approval requested by hook",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null,
+        "remember": [
+          "once"
+        ],
+        "takeover": {
+          "surface": "browser",
+          "instructions": "Sign in, then say done.",
+          "purpose": "login",
+          "url": "https://login.example.com/signin",
+          "origin": "https://login.example.com",
+          "accounts": [
+            {
+              "id": "acct-1",
+              "label": "a***@example.com"
+            }
+          ],
+          "fillId": "secret_9bfcb97e-e66f-4d9a-a806-b3c12f87fbe9"
+        }
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "5",
+          "name": "handoff_user",
+          "kind": "takeover",
+          "args": {
+            "surface": "browser",
+            "instructions": "Sign in, then say done."
+          },
+          "cwd": null,
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "approval requested by hook",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null,
+          "remember": [
+            "once"
+          ],
+          "takeover": {
+            "surface": "browser",
+            "instructions": "Sign in, then say done.",
+            "purpose": "login",
+            "url": "https://login.example.com/signin",
+            "origin": "https://login.example.com",
+            "accounts": [
+              {
+                "id": "acct-1",
+                "label": "a***@example.com"
+              }
+            ],
+            "fillId": "secret_9bfcb97e-e66f-4d9a-a806-b3c12f87fbe9"
+          }
+        }
+      }
+    },
+    {
+      "name": "handoff_user computer takeover",
+      "input": {
+        "name": "handoff_user",
+        "kind": "takeover",
+        "takeover": {
+          "surface": "computer",
+          "instructions": "Approve the prompt.",
+          "target": "Mail app",
+          "windowId": "w-7",
+          "app": "Mail"
+        },
+        "args": {
+          "surface": "computer",
+          "instructions": "Approve the prompt."
+        },
+        "reason": "",
+        "timeoutMs": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1"
+      },
+      "id": "6",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "6",
+        "name": "handoff_user",
+        "kind": "takeover",
+        "args": {
+          "surface": "computer",
+          "instructions": "Approve the prompt."
+        },
+        "cwd": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "approval requested by hook",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null,
+        "remember": [
+          "once"
+        ],
+        "takeover": {
+          "surface": "computer",
+          "instructions": "Approve the prompt.",
+          "target": "Mail app",
+          "windowId": "w-7",
+          "app": "Mail"
+        }
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "6",
+          "name": "handoff_user",
+          "kind": "takeover",
+          "args": {
+            "surface": "computer",
+            "instructions": "Approve the prompt."
+          },
+          "cwd": null,
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "approval requested by hook",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null,
+          "remember": [
+            "once"
+          ],
+          "takeover": {
+            "surface": "computer",
+            "instructions": "Approve the prompt.",
+            "target": "Mail app",
+            "windowId": "w-7",
+            "app": "Mail"
+          }
+        }
+      }
+    },
+    {
+      "name": "shell approval",
+      "input": {
+        "kind": "approval",
+        "agentId": "gh.bot",
+        "grantAction": "tool:shell",
+        "remember": [
+          "once",
+          "session",
+          "agent",
+          "always"
+        ],
+        "name": "shell",
+        "args": {
+          "command": "npm test"
+        },
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "  Runs a command.  "
+      },
+      "id": "7",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "7",
+        "name": "shell",
+        "kind": "approval",
+        "args": {
+          "command": "npm test"
+        },
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Runs a command.",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null,
+        "remember": [
+          "once",
+          "session",
+          "agent",
+          "always"
+        ],
+        "agentId": "gh.bot",
+        "grantAction": "tool:shell"
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "7",
+          "name": "shell",
+          "kind": "approval",
+          "args": {
+            "command": "npm test"
+          },
+          "cwd": "C:\\work",
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "Runs a command.",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null,
+          "remember": [
+            "once",
+            "session",
+            "agent",
+            "always"
+          ],
+          "agentId": "gh.bot",
+          "grantAction": "tool:shell"
+        }
+      }
+    },
+    {
+      "name": "edit approval with an unremembered tool key",
+      "input": {
+        "kind": "approval",
+        "agentId": "gh.bot",
+        "grantAction": "tool:ask_user",
+        "remember": [
+          "once",
+          "session",
+          "agent"
+        ],
+        "name": "apply_patch",
+        "args": {
+          "patch": "*** Begin Patch"
+        },
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Writes a file."
+      },
+      "id": "8",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "8",
+        "name": "apply_patch",
+        "kind": "approval",
+        "args": {
+          "patch": "*** Begin Patch"
+        },
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Writes a file.",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null,
+        "remember": [
+          "once"
+        ],
+        "agentId": "gh.bot"
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "8",
+          "name": "apply_patch",
+          "kind": "approval",
+          "args": {
+            "patch": "*** Begin Patch"
+          },
+          "cwd": "C:\\work",
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "Writes a file.",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null,
+          "remember": [
+            "once"
+          ],
+          "agentId": "gh.bot"
+        }
+      }
+    },
+    {
+      "name": "bare hook ask",
+      "input": {
+        "name": "mcp__github__create_issue",
+        "args": {
+          "title": "x"
+        },
+        "cwd": "",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": ""
+      },
+      "id": "9",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "9",
+        "name": "mcp__github__create_issue",
+        "kind": "",
+        "args": {
+          "title": "x"
+        },
+        "cwd": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "approval requested by hook",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "9",
+          "name": "mcp__github__create_issue",
+          "kind": "",
+          "args": {
+            "title": "x"
+          },
+          "cwd": null,
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "approval requested by hook",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null
+        }
+      }
+    },
+    {
+      "name": "outbound email",
+      "input": {
+        "kind": "outbound",
+        "agentId": "gh.bot",
+        "remember": [
+          "once",
+          "session",
+          "always"
+        ],
+        "account": "work",
+        "outbound": {
+          "category": "email",
+          "target": "boss@example.com",
+          "account": "me@example.com",
+          "payload": "Hello",
+          "editable": [
+            "body",
+            3
+          ],
+          "details": {
+            "to": " boss@example.com ",
+            "subject": "Status",
+            "amount": "",
+            "junk": "x"
+          }
+        },
+        "name": "mcp__gmail__send",
+        "args": {
+          "to": "boss@example.com"
+        },
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Sends an email."
+      },
+      "id": "10",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "10",
+        "name": "mcp__gmail__send",
+        "kind": "outbound",
+        "args": {
+          "to": "boss@example.com"
+        },
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Sends an email.",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null,
+        "account": "work",
+        "remember": [
+          "once",
+          "session",
+          "always"
+        ],
+        "agentId": "gh.bot",
+        "outbound": {
+          "category": "email",
+          "target": "boss@example.com",
+          "account": "me@example.com",
+          "payload": "Hello",
+          "editable": [
+            "body"
+          ],
+          "details": {
+            "to": "boss@example.com",
+            "subject": "Status"
+          }
+        }
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "10",
+          "name": "mcp__gmail__send",
+          "kind": "outbound",
+          "args": {
+            "to": "boss@example.com"
+          },
+          "cwd": "C:\\work",
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "Sends an email.",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null,
+          "account": "work",
+          "remember": [
+            "once",
+            "session",
+            "always"
+          ],
+          "agentId": "gh.bot",
+          "outbound": {
+            "category": "email",
+            "target": "boss@example.com",
+            "account": "me@example.com",
+            "payload": "Hello",
+            "editable": [
+              "body"
+            ],
+            "details": {
+              "to": "boss@example.com",
+              "subject": "Status"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "outbound payment",
+      "input": {
+        "kind": "outbound",
+        "agentId": "gh.bot",
+        "remember": [
+          "once",
+          "session",
+          "agent",
+          "always"
+        ],
+        "outbound": {
+          "category": "payment",
+          "target": "shop",
+          "account": "",
+          "payload": "Pay 10",
+          "editable": [],
+          "details": {
+            "merchant": "Shop",
+            "amount": "10",
+            "currency": "USD"
+          }
+        },
+        "name": "mcp__pay__charge",
+        "args": {},
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Pays."
+      },
+      "id": "11",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "11",
+        "name": "mcp__pay__charge",
+        "kind": "outbound",
+        "args": {},
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Pays.",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null,
+        "remember": [
+          "once"
+        ],
+        "agentId": "gh.bot",
+        "outbound": {
+          "category": "payment",
+          "target": "shop",
+          "account": "",
+          "payload": "Pay 10",
+          "editable": [],
+          "details": {
+            "merchant": "Shop",
+            "amount": "10",
+            "currency": "USD"
+          }
+        }
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "11",
+          "name": "mcp__pay__charge",
+          "kind": "outbound",
+          "args": {},
+          "cwd": "C:\\work",
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "Pays.",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null,
+          "remember": [
+            "once"
+          ],
+          "agentId": "gh.bot",
+          "outbound": {
+            "category": "payment",
+            "target": "shop",
+            "account": "",
+            "payload": "Pay 10",
+            "editable": [],
+            "details": {
+              "merchant": "Shop",
+              "amount": "10",
+              "currency": "USD"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "connector widen",
+      "input": {
+        "name": "setup",
+        "kind": "connector",
+        "agentId": "gh.bot",
+        "connector": {
+          "server": "github",
+          "tool": "create_issue",
+          "from": "disabled",
+          "requested": "auto",
+          "choices": [
+            "needs_approval",
+            "auto",
+            "bogus"
+          ]
+        },
+        "args": {
+          "action": "connector",
+          "agent": "gh.bot",
+          "name": "github",
+          "tool": "create_issue",
+          "permission": "auto"
+        },
+        "reason": "Wants to create issues.",
+        "remember": [
+          "once",
+          "agent"
+        ],
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1"
+      },
+      "id": "12",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "12",
+        "name": "setup",
+        "kind": "connector",
+        "args": {
+          "action": "connector",
+          "agent": "gh.bot",
+          "name": "github",
+          "tool": "create_issue",
+          "permission": "auto"
+        },
+        "cwd": null,
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Wants to create issues.",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null,
+        "remember": [
+          "once"
+        ],
+        "agentId": "gh.bot",
+        "connector": {
+          "server": "github",
+          "tool": "create_issue",
+          "from": "disabled",
+          "requested": "auto",
+          "choices": [
+            "needs_approval",
+            "auto"
+          ]
+        }
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "12",
+          "name": "setup",
+          "kind": "connector",
+          "args": {
+            "action": "connector",
+            "agent": "gh.bot",
+            "name": "github",
+            "tool": "create_issue",
+            "permission": "auto"
+          },
+          "cwd": null,
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "Wants to create issues.",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null,
+          "remember": [
+            "once"
+          ],
+          "agentId": "gh.bot",
+          "connector": {
+            "server": "github",
+            "tool": "create_issue",
+            "from": "disabled",
+            "requested": "auto",
+            "choices": [
+              "needs_approval",
+              "auto"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "permission",
+      "input": {
+        "kind": "permission",
+        "agentId": "gh.bot",
+        "remember": [
+          "once"
+        ],
+        "permission": {
+          "scopes": [
+            {
+              "id": "allow_once",
+              "label": "Allow once",
+              "kind": "allow_once"
+            },
+            {
+              "id": "reject",
+              "label": ""
+            },
+            {
+              "label": "no id"
+            }
+          ]
+        },
+        "name": "acp_permission",
+        "args": {},
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Asks."
+      },
+      "id": "13",
+      "requestedAt": 1700000000000,
+      "toolApproval": {
+        "id": "13",
+        "name": "acp_permission",
+        "kind": "permission",
+        "args": {},
+        "cwd": "C:\\work",
+        "sessionId": "sess_rmem_room01_gh_bot",
+        "toolCallId": "call_1",
+        "reason": "Asks.",
+        "requestedAt": 1700000000000,
+        "timeoutMs": null,
+        "expiresAt": null,
+        "remember": [
+          "once"
+        ],
+        "agentId": "gh.bot",
+        "permission": {
+          "scopes": [
+            {
+              "id": "allow_once",
+              "label": "Allow once",
+              "kind": "allow_once"
+            },
+            {
+              "id": "reject",
+              "label": "reject"
+            }
+          ]
+        }
+      },
+      "roomView": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true,
+        "toolApproval": {
+          "id": "13",
+          "name": "acp_permission",
+          "kind": "permission",
+          "args": {},
+          "cwd": "C:\\work",
+          "sessionId": "sess_rmem_room01_gh_bot",
+          "toolCallId": "call_1",
+          "reason": "Asks.",
+          "requestedAt": 1700000000000,
+          "timeoutMs": null,
+          "expiresAt": null,
+          "remember": [
+            "once"
+          ],
+          "agentId": "gh.bot",
+          "permission": {
+            "scopes": [
+              {
+                "id": "allow_once",
+                "label": "Allow once",
+                "kind": "allow_once"
+              },
+              {
+                "id": "reject",
+                "label": "reject"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "decorations": [
+    {
+      "name": "no state, no questions",
+      "state": null,
+      "handoffQuestions": [],
+      "snapshot": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          }
+        ],
+        "busy": false
+      },
+      "view": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          }
+        ],
+        "busy": false
+      }
+    },
+    {
+      "name": "no state, handed-off questions",
+      "state": null,
+      "handoffQuestions": [
+        {
+          "id": "q1",
+          "roomMember": "gh.bot",
+          "memberSessionId": "sess_rmem_room01_gh_bot",
+          "text": "Which one?"
+        }
+      ],
+      "snapshot": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          }
+        ],
+        "busy": false
+      },
+      "view": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          }
+        ],
+        "busy": false,
+        "handoffQuestions": [
+          {
+            "id": "q1",
+            "roomMember": "gh.bot",
+            "memberSessionId": "sess_rmem_room01_gh_bot",
+            "text": "Which one?"
+          }
+        ]
+      }
+    },
+    {
+      "name": "speaking, no approval",
+      "state": {
+        "speaking": "gh.bot",
+        "speakingName": "Git Hub",
+        "typingId": "room-typing-n1",
+        "approval": null
+      },
+      "handoffQuestions": [],
+      "snapshot": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          }
+        ],
+        "busy": false
+      },
+      "view": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          },
+          {
+            "kind": "notice",
+            "id": "room-typing-n1",
+            "tone": "info",
+            "text": "Git Hub…",
+            "room": {
+              "kind": "typing",
+              "speaker": "gh.bot",
+              "name": "Git Hub"
+            }
+          }
+        ],
+        "busy": true
+      }
+    },
+    {
+      "name": "between speakers",
+      "state": {
+        "speaking": "",
+        "speakingName": "",
+        "typingId": "",
+        "approval": null
+      },
+      "handoffQuestions": [
+        {
+          "id": "q1",
+          "roomMember": "gh.bot",
+          "memberSessionId": "sess_rmem_room01_gh_bot",
+          "text": "Which one?"
+        }
+      ],
+      "snapshot": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          }
+        ],
+        "busy": false
+      },
+      "view": {
+        "items": [
+          {
+            "kind": "notice",
+            "id": "n1",
+            "text": "hi"
+          }
+        ],
+        "busy": true,
+        "handoffQuestions": [
+          {
+            "id": "q1",
+            "roomMember": "gh.bot",
+            "memberSessionId": "sess_rmem_room01_gh_bot",
+            "text": "Which one?"
+          }
+        ]
+      }
+    }
+  ]
+}

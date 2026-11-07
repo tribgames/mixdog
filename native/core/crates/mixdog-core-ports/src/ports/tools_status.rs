@@ -19,10 +19,10 @@ use super::threads::ThreadState;
 /// What the surface needs besides the thread's own header.
 #[async_trait]
 pub trait SurfaceHost: Send + Sync {
-    /// The runtime mode (`rt.mode`).
-    fn mode(&self) -> String;
+    /// The tool mode (`rt.mode`): the thread's own, from its header, or the runtime's with none.
+    fn mode(&self, header: Option<&Header>) -> String;
     /// The surface before any session exists (the preview surface).
-    fn preview(&self) -> StatusSurface;
+    async fn preview(&self) -> Result<StatusSurface, CoreError>;
     /// Brings an empty thread to the current settings (the turn-start reconcile); a thread
     /// with a conversation or a running turn is left alone.
     async fn reconcile_empty(&self, thread: &ThreadId) -> Result<(), CoreError>;
@@ -98,11 +98,11 @@ fn listed_names(header: &Header) -> Vec<String> {
 impl ToolSurfaceStatus for SessionToolStatus {
     async fn surface(&self, thread: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
         let Some(thread) = thread else {
-            return Ok(self.host.preview());
+            return self.host.preview().await;
         };
         self.host.reconcile_empty(thread).await?;
         let header = self.threads.header(thread).await.map_err(|_| CoreError::ThreadNotFound { thread_id: thread.clone() })?;
-        Ok(surface_of_header(self.host.mode(), &header))
+        Ok(surface_of_header(self.host.mode(Some(&header)), &header))
     }
 }
 
@@ -139,11 +139,11 @@ mod tests {
 
     #[async_trait]
     impl SurfaceHost for Host {
-        fn mode(&self) -> String {
+        fn mode(&self, _: Option<&Header>) -> String {
             "lead".into()
         }
-        fn preview(&self) -> StatusSurface {
-            StatusSurface { mode: "lead".into(), ..StatusSurface::default() }
+        async fn preview(&self) -> Result<StatusSurface, CoreError> {
+            Ok(StatusSurface { mode: "lead".into(), ..StatusSurface::default() })
         }
         async fn reconcile_empty(&self, thread: &ThreadId) -> Result<(), CoreError> {
             self.0.lock().unwrap().push(thread.as_str().to_owned());

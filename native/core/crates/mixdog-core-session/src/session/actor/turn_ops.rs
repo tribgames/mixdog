@@ -218,8 +218,22 @@ impl SessionActor {
         }
         let (goals, id, key, goal_id) = (self.deps.quota.goals.clone(), self.id.as_str().to_owned(), key.to_owned(), goal_id.to_owned());
         self.quota.call(async move {
-            let _ = goals.finish_resume(&id, &key, &goal_id, generation).await;
+            if let Err(error) = goals.finish_resume(&id, &key, &goal_id, generation).await {
+                tracing::warn!("a quota resume was not finished: {error:?}");
+            }
         });
+    }
+
+    /// A cancel of the quota resume (`cancelFor`, `cancelQuotaResume`: new user input, a clear, the explicit
+    /// cancel) takes effect at once, in memory, as Node's synchronous cancel does: the settlement's epoch
+    /// rises (a Goal resume that checks it is no longer current) and the queued entry reads as answered
+    /// (`quota_entry`), so a fire that comes before the store write lands, or after it failed, finds nothing
+    /// and no auto-resume runs. The store write follows and a failure of it is logged.
+    pub(super) fn quota_cancel_now(&mut self) {
+        self.quota.settlement.raise_epoch();
+        if let Some(entry) = self.deps.quota.goals.entry(self.id.as_str()) {
+            self.quota_answered = Some(entry.generation);
+        }
     }
 
     /// The queued entry `fireQuotaResume` reads (`quotaResumeEntry(id)`): one this session already

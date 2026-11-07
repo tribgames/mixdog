@@ -1,0 +1,45 @@
+{
+  "name": "shell",
+  "title": "Shell",
+  "annotations": {
+    "title": "Shell",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "compressible": true
+  },
+  "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: cat/head/tail/less→read; ls/tree→list; find→glob/find; grep/rg/ag→grep; file authoring via sed/awk/echo >/tee/heredoc→edit/apply_patch; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Commands run in the foreground until completion.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "string",
+        "description": "Command. Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers."
+      },
+      "cwd": {
+        "type": "string",
+        "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+      },
+      "wait_ms": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 600000,
+        "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+      },
+      "background": {
+        "type": "boolean",
+        "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+      }
+    },
+    "required": [
+      "command"
+    ],
+    "additionalProperties": false
+  }
+}

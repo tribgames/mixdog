@@ -66,6 +66,8 @@ pub struct WorkflowTarget {
     /// `parts.orchestrationContext` / `parts.agentCatalogContext` for the session's mode and agent.
     pub orchestration_context: String,
     pub agent_catalog_context: String,
+    /// `parts.contactCatalogContext`: the bots the Lead may hand work to (agent mode only).
+    pub contact_catalog_context: String,
 }
 
 /// A surface answer that could not be given: a lane read that could not run, or a session record
@@ -200,7 +202,7 @@ fn prompt_workflow(session: &Header) -> Value {
 }
 
 /// `toSessionWorkflowMeta(summary)`.
-fn workflow_meta(summary: &Value) -> Value {
+pub fn workflow_meta(summary: &Value) -> Value {
     let id = trimmed(summary.get("id"));
     if !summary.is_object() || id.is_empty() {
         return Value::Null;

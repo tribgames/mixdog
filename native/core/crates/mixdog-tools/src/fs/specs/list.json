@@ -1,41 +1,41 @@
 {
- "src": "builtin-tools",
- "name": "list",
- "annotations": {
+  "name": "list",
   "title": "List Directory",
-  "readOnlyHint": true,
-  "destructiveHint": false,
-  "idempotentHint": true,
-  "openWorldHint": false,
-  "compressible": true
- },
- "schema": {
-  "type": "object",
-  "properties": {
-   "path": {
-    "type": "string",
-    "description": "Known directory; defaults to the current Project."
-   },
-   "hidden": {
-    "type": "boolean",
-    "description": "Include dotfiles."
-   },
-   "meta": {
-    "type": "boolean",
-    "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
-   },
-   "limit": {
-    "type": "integer",
-    "minimum": 0,
-    "maximum": 100,
-    "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
-   },
-   "offset": {
-    "type": "integer",
-    "minimum": 0
-   }
+  "annotations": {
+    "title": "List Directory",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "compressible": true
   },
-  "additionalProperties": false
- },
- "descLen": 175
+  "description": "Return a known directory's immediate entries (path + type); no wildcard. Only when those entries or metadata are needed, not to re-confirm a known listing or before read/glob.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Known directory; defaults to the current Project."
+      },
+      "hidden": {
+        "type": "boolean",
+        "description": "Include dotfiles."
+      },
+      "meta": {
+        "type": "boolean",
+        "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "additionalProperties": false
+  }
 }

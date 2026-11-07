@@ -1,4 +1,4 @@
-//! Shared pieces of the file tools: spec loading, path resolution and display,
+//! Shared pieces of the file tools: path resolution and display,
 //! text decoding, output markers, cancellation/deadline guards.
 
 use std::cmp::Ordering;
@@ -14,14 +14,11 @@ use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::fs::FsError;
 use mixdog_core_api::domain::fs::FsErrorKind;
-use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
-use mixdog_core_api::domain::tool::ToolGroup;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
-use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 use mixdog_rt::LaneToken;
 
@@ -48,38 +45,6 @@ pub(crate) const NOISE_DIRS: &[&str] = &[
     ".pytest_cache",
     ".gradle",
 ];
-
-/// Builds a [`ToolSpec`] from a published `tool-schemas` entry.
-pub(crate) fn spec(
-    raw: &str,
-    description: &str,
-    parallel_safe: bool,
-    exclusive_group: Option<&str>,
-) -> ToolSpec {
-    let entry: JsonValue = serde_json::from_str(raw).expect("embedded tool spec is valid JSON");
-    let ann = &entry["annotations"];
-    let flag = |key: &str| ann.get(key).and_then(JsonValue::as_bool);
-    ToolSpec {
-        name: entry["name"].as_str().expect("spec name").to_owned(),
-        aliases: Vec::new(),
-        description: description.to_owned(),
-        input_schema: entry["schema"].clone(),
-        annotations: ToolAnnotations {
-            title: ann.get("title").and_then(JsonValue::as_str).map(str::to_owned),
-            read_only_hint: flag("readOnlyHint"),
-            destructive_hint: flag("destructiveHint"),
-            idempotent_hint: flag("idempotentHint"),
-            open_world_hint: flag("openWorldHint"),
-            compressible: flag("compressible"),
-            compressible_lossless: flag("compressibleLossless"),
-            agent_hidden: false,
-        },
-        parallel_safe,
-        exclusive_with: exclusive_group
-            .map(|g| vec![ToolGroup(g.to_owned())])
-            .unwrap_or_default(),
-    }
-}
 
 pub(crate) fn text_output(text: impl Into<String>) -> ToolOutput {
     ToolOutput {

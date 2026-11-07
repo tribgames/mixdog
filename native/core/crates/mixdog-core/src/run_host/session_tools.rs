@@ -21,6 +21,7 @@ use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
 
 use super::assemble::SessionTools;
+use super::agent_variants::{check_pool, VariantError};
 use super::tool_surface::{filter_model_edit_tool_names, ROUTE_TOOL_ORDER};
 
 type Tools = Vec<Arc<dyn Tool>>;
@@ -34,7 +35,7 @@ const FILESYSTEM: [&str; 8] = ["code_graph", "find", "glob", "list", "grep", "re
 const TODO: &str = "todo";
 const SKILL: &str = "Skill";
 /// The bridge exposure's own tools: appended to a bridge surface whatever the policy lets through.
-const BRIDGE: [&str; 2] = ["load_tool", "call_tool"];
+pub(super) const BRIDGE: [&str; 2] = ["load_tool", "call_tool"];
 /// Rank of a tool the route order does not name.
 const UNRANKED: usize = 10_000;
 
@@ -43,9 +44,12 @@ fn name(tool: &Arc<dyn Tool>) -> &str {
 }
 
 /// `SESSION_ROUTE_TOOL_RANK`: the route order, then the web tools.
-fn rank(tool: &Arc<dyn Tool>) -> usize {
-    let name = name(tool);
+pub(super) fn route_rank(name: &str) -> usize {
     ROUTE_TOOL_ORDER.iter().chain(&["web_search", "web_fetch"]).position(|n| *n == name).unwrap_or(UNRANKED)
+}
+
+fn rank(tool: &Arc<dyn Tool>) -> usize {
+    route_rank(name(tool))
 }
 
 /// `orderSessionTools`: stable by route rank.
@@ -93,6 +97,13 @@ fn all_builtin(pool: &[Arc<dyn Tool>]) -> Tools {
     ordered(dedup(named(pool, &BUILTIN).into_iter().chain(named(pool, &[PATCH])).chain(named(pool, &[CODE_GRAPH]))))
 }
 
+/// The internal tools of the pool (`standaloneTools`): every registered tool that is neither a
+/// built-in nor the step list or the bridge's `call_tool`, which the resolved set adds itself.
+/// A `public:false` tool never enters any model-visible schema, so it is left out here.
+pub fn internal_tools(pool: &[Arc<dyn Tool>]) -> Tools {
+    pool.iter().filter(|t| t.spec().public && !is_builtin(name(t)) && ![TODO, "call_tool"].contains(&name(t))).cloned().collect()
+}
+
 /// The tools a session's spec resolves to, in the order they are sent. `mcp` are the connected
 /// servers' tools.
 pub fn resolve(pool: &[Arc<dyn Tool>], mcp: Tools, request: &Resolve<'_>) -> Tools {
@@ -100,7 +111,7 @@ pub fn resolve(pool: &[Arc<dyn Tool>], mcp: Tools, request: &Resolve<'_>) -> Too
     let builtin = all_builtin(pool);
     // `_getMcpTools`: the MCP tools and the internal ones, sorted by code point (UTF-8 byte order).
     let mut merged = mcp;
-    merged.extend(pool.iter().filter(|t| !is_builtin(name(t)) && ![TODO, "call_tool"].contains(&name(t))).cloned());
+    merged.extend(internal_tools(pool));
     merged.sort_by(|a, b| name(a).cmp(name(b)));
     let skill_tools: Tools = if request.agent_owned || request.skills_listed { named(pool, &[SKILL]) } else { Vec::new() };
     let readonly = readonly_filesystem_tools(pool);
@@ -199,8 +210,11 @@ pub struct SessionToolBuilder {
 }
 
 impl SessionToolBuilder {
-    pub fn new(pool: Tools, mcp: Arc<dyn SessionMcp>, skills: Arc<dyn SkillsListed>) -> Self {
-        Self { pool, mcp, skills }
+    /// The pool must give a delegated agent its `git` and `task` definitions (`check_pool`): a pool
+    /// without them is refused here, not at an agent's first turn.
+    pub fn new(pool: Tools, mcp: Arc<dyn SessionMcp>, skills: Arc<dyn SkillsListed>) -> Result<Self, VariantError> {
+        check_pool(&pool)?;
+        Ok(Self { pool, mcp, skills })
     }
 
     /// The tools the session sends: its spec's resolved set, in the order of the surface's active
@@ -230,7 +244,10 @@ impl SessionToolBuilder {
             .filter_map(|active| resolved.iter().chain(&bridge).find(|t| name(t) == active).cloned())
             .collect();
         let builtins = tools.iter().map(|t| name(t)).filter(|n| is_builtin(n)).map(str::to_owned).collect();
-        Ok(SessionTools { tools, builtins })
+        // A `public: false` tool is in no list a model is sent, but a call the runtime rewrites onto it
+        // (`web_fetch` to `local_fetch` / `image_fetch`) is dispatched by name, whatever the session.
+        let unlisted = self.pool.iter().filter(|t| !t.spec().public).cloned();
+        Ok(SessionTools { tools: tools.into_iter().chain(unlisted).collect(), builtins, agent: surface.agent_owned })
     }
 }
 
@@ -254,20 +271,56 @@ mod tests {
         }
     }
 
-    fn stub(name: &str) -> Arc<dyn Tool> {
-        Arc::new(Stub(ToolSpec {
+    /// A tool that has a definition for delegated agents (its own, here: only that it has one counts).
+    struct Agented(ToolSpec);
+
+    #[async_trait]
+    impl Tool for Agented {
+        fn spec(&self) -> &ToolSpec {
+            &self.0
+        }
+        fn agent_spec(&self) -> Option<&ToolSpec> {
+            Some(&self.0)
+        }
+        async fn call(&self, _: &ToolContext, _: Value) -> ToolOutcome {
+            Ok(ToolOutput::default())
+        }
+    }
+
+    fn spec_of(name: &str) -> ToolSpec {
+        ToolSpec {
             name: name.into(),
+            title: None,
+            trigger: None,
+            public: true,
             aliases: Vec::new(),
             description: String::new(),
             input_schema: json!({}),
             annotations: ToolAnnotations::default(),
             parallel_safe: true,
             exclusive_with: Vec::new(),
-        }))
+        }
+    }
+
+    fn stub(name: &str) -> Arc<dyn Tool> {
+        // `git` and `task` have the definition delegated agents are sent, as the real ones do.
+        if matches!(name, "git" | "task") { Arc::new(Agented(spec_of(name))) } else { Arc::new(Stub(spec_of(name))) }
     }
 
     fn names(tools: &[Arc<dyn Tool>]) -> Vec<String> {
         tools.iter().map(|t| name(t).to_owned()).collect()
+    }
+
+    /// `public: false` tools (`local_fetch`, `image_fetch`) are in no resolved tool list, whatever the
+    /// spec form; the builder adds them to the executable set only.
+    #[test]
+    fn an_unlisted_tool_is_in_no_session_list() {
+        let unlisted: Arc<dyn Tool> = Arc::new(Stub(ToolSpec { public: false, ..stub("local_fetch").spec().clone() }));
+        let pool = vec![stub("read"), stub("web_fetch"), unlisted];
+        for spec in [None, Some(json!("full")), Some(json!("mcp")), Some(json!("readonly"))] {
+            let request = Resolve { tool_spec: spec.as_ref(), model: "", skills_listed: false, agent_owned: false, schema_allowed: None, disallowed: &[] };
+            assert!(!names(&resolve(&pool, Vec::new(), &request)).contains(&"local_fetch".to_owned()), "{spec:?}");
+        }
     }
 
     fn golden() -> Value {
@@ -336,7 +389,7 @@ mod tests {
     fn builder() -> SessionToolBuilder {
         let g = golden();
         let (pool, mcp) = pool(&g);
-        SessionToolBuilder::new(pool, Arc::new(Fixed(mcp)), Arc::new(Listed(false)))
+        SessionToolBuilder::new(pool, Arc::new(Fixed(mcp)), Arc::new(Listed(false))).expect("a pool whose git and task have their agent definitions")
     }
 
     fn header(value: Value) -> Header {
@@ -380,5 +433,16 @@ mod tests {
         };
         let got = builder().tools(&header(json!({"cwd": "/work", "model": "claude-sonnet-4"})), &surface).await.unwrap();
         assert_eq!(names(&got.tools), ["goal"]);
+    }
+
+    /// The builder refuses a pool whose `task` has no definition for delegated agents.
+    #[test]
+    fn a_pool_without_the_agent_definition_of_task_is_refused_by_the_builder() {
+        let g = golden();
+        let (mut pool, mcp) = pool(&g);
+        let at = pool.iter().position(|tool| name(tool) == "task").expect("task");
+        pool[at] = Arc::new(Stub(spec_of("task")));
+        let error = SessionToolBuilder::new(pool, Arc::new(Fixed(mcp)), Arc::new(Listed(false))).err().expect("refused");
+        assert_eq!(error, VariantError { tool: "task" });
     }
 }

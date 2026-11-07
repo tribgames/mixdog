@@ -44,7 +44,7 @@ const MEASURED_TOOL_USAGE: [(&str, u64); 15] = [
 
 const DEFAULT_FULL_TOOLS: [&str; 12] = ["find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "web_search", "todo", "Skill", "load_tool"];
 const DEFAULT_READONLY_TOOLS: [&str; 10] = ["find", "glob", "list", "grep", "code_graph", "read", "web_search", "todo", "Skill", "load_tool"];
-const DEFAULT_LEAD_TOOLS: [&str; 19] = [
+pub(crate) const DEFAULT_LEAD_TOOLS: [&str; 19] = [
     "explore", "find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "git", "shell", "task", "agent", "ask_user", "react", "web_search", "todo", "Skill",
     "load_tool",
 ];

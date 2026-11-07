@@ -217,6 +217,9 @@ impl Tool for Named {
 fn named(name: &str) -> Arc<dyn Tool> {
     Arc::new(Named(ToolSpec {
         name: name.into(),
+        title: None,
+        trigger: None,
+        public: true,
         aliases: Vec::new(),
         description: String::new(),
         input_schema: json!({}),

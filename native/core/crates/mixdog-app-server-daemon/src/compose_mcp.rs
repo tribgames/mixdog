@@ -695,8 +695,8 @@ mod tests {
             Ok(())
         }
         fn push(&self, _: &crate::held_requests::HeldPush) {}
-        fn agent_name(&self, id: &str) -> String {
-            id.to_owned()
+        async fn agent_name(&self, id: &str) -> Result<String, String> {
+            Ok(id.to_owned())
         }
         fn new_id(&self) -> String {
             "1".into()

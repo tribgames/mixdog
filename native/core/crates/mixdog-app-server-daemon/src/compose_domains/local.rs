@@ -5,7 +5,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use mixdog_core_api::DomainService;
-use mixdog_core_base::support::on_lane;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLocalProviderSettings;
 use mixdog_core_config::config::ConfigVoiceEnabled;
@@ -17,12 +16,6 @@ use crate::domain_seams::media_status::MediaStatus;
 use mixdog_exthost::ExtImageCodec;
 use mixdog_rt::TaskClass;
 use mixdog_services::effort_judge::install::Manifest;
-use mixdog_services::import::Discovery;
-use mixdog_services::import::Env;
-use mixdog_services::import::ImportJobs;
-use mixdog_services::import::ImportService;
-use mixdog_services::import::ImportSessions;
-use mixdog_services::import::Limits;
 use mixdog_services::local_provider::LocalProvider;
 use mixdog_services::local_provider::LocalProviderService;
 use mixdog_services::local_provider::Parts;
@@ -43,6 +36,7 @@ use mixdog_services::tidy::InstallJob;
 use mixdog_services::tidy::TidyService;
 use mixdog_services::tidy::core_install::SystemEngineResolver;
 use mixdog_services::voice::ProcessAudioTools;
+use mixdog_services::voice::ProgressHints;
 use mixdog_services::voice::RuntimeManifest;
 use mixdog_services::voice::VoiceInstaller;
 use mixdog_services::voice::VoicePipeline;
@@ -62,12 +56,12 @@ use super::adapters::CatalogRefresh;
 
 /// Owed by other work packages: each is a service that has no real implementation yet.
 pub struct LocalSeams {
-    /// The session layer's import of a converted conversation (WP-SESSION).
-    pub import_sessions: Arc<dyn ImportSessions>,
     /// Media generation by lane: xai, codex, image-api, antigravity, gemini (WP-SVC-MISC).
     pub media_generator: Arc<dyn MediaGenerator>,
     /// Where each generation is billed: one usage row per generation (WP-SVC-MISC QueuedLedger over the usage queue and the pricing catalog).
     pub media_ledger: Arc<dyn MediaUsageLedger>,
+    /// Each thread's hint line, for the voice install's progress (`ThreadProgressHints`).
+    pub voice_progress: Arc<dyn ProgressHints>,
     /// The voice runtime download: whisper, model, ffmpeg (WP-SVC-MISC).
     pub voice_installer: Arc<dyn VoiceInstaller>,
 }
@@ -86,7 +80,7 @@ impl SetupVoice for VoiceToggle {
 pub(super) struct Local {
     /// The media domain of the setup tool's status: compose_domains registers it with the status readers.
     pub media_status: Arc<MediaStatus>,
-    /// The voice toggle the setup tool drives: the root passes VoiceToggle(local.voice_setup) as its SetupVoice.
+    /// The voice toggle the setup tool drives: the root passes `VoiceToggle(local.voice_setup)` as its `SetupVoice`.
     pub voice_setup: Arc<VoiceSetup>,
     pub services: Vec<Arc<dyn DomainService>>,
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
@@ -120,16 +114,8 @@ fn idle_ttl(config: &Config) -> Result<Option<u64>, ComposeDomainsError> {
 
 /// The bundled voice manifest for this host (`voice-runtime-manifest.json`, platform key
 /// `<os>-<arch>`, model `standard`).
-#[allow(clippy::disallowed_methods, reason = "runs as an interactive-io lane job")]
-async fn voice_manifest(inputs: &DomainInputs) -> Result<RuntimeManifest, ComposeDomainsError> {
-    let path = inputs.paths.package_root.join("src").join("runtime").join("channels").join("data").join("voice-runtime-manifest.json");
-    let shown = path.display().to_string();
-    let text = on_lane(inputs.tokens.interactive_io, &CancellationToken::new(), move |_lane| std::fs::read_to_string(path))
-        .await
-        .map_err(|error| ComposeDomainsError::Build(format!("reading {shown}: {error:?}")))?
-        .map_err(|error| ComposeDomainsError::Build(format!("reading {shown}: {error}")))?;
-    let manifest: Value =
-        serde_json::from_str(&text).map_err(|error| ComposeDomainsError::Build(format!("{shown} is not valid: {error}")))?;
+fn voice_manifest(inputs: &DomainInputs) -> Result<RuntimeManifest, ComposeDomainsError> {
+    let manifest: &Value = &inputs.voice_manifest;
     let os = if cfg!(windows) {
         "win32"
     } else if cfg!(target_os = "macos") {
@@ -138,8 +124,8 @@ async fn voice_manifest(inputs: &DomainInputs) -> Result<RuntimeManifest, Compos
         "linux"
     };
     let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" };
-    RuntimeManifest::from_json(&manifest, &format!("{os}-{arch}"), "standard")
-        .ok_or_else(|| ComposeDomainsError::Build(format!("{shown} names no voice runtime")))
+    RuntimeManifest::from_json(manifest, &format!("{os}-{arch}"), "standard")
+        .ok_or_else(|| ComposeDomainsError::Build("voice-runtime-manifest.json names no voice runtime".to_owned()))
 }
 
 /// The process's one managed local provider. It needs only the data folder, the process manager, the
@@ -224,11 +210,8 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let media_status = Arc::new(MediaStatus::new(store.clone()));
     transfer_sources.push(Arc::new(MediaAssetSource::new(store)));
 
-    let discovery = Discovery::new(Env::from_process(), tokens.maintenance_io);
-    let jobs = ImportJobs::new(discovery.clone(), seams.import_sessions.clone(), Limits::default());
-    services.push(Arc::new(ImportService::new(discovery, jobs, Limits::default())));
 
-    let manifest = voice_manifest(inputs).await?;
+    let manifest = voice_manifest(inputs)?;
     let pipeline = Arc::new(VoicePipeline::new(
         data_dir.to_owned(),
         manifest,
@@ -238,7 +221,7 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
         tokens.durability_io,
     ));
     let setup = Arc::new(VoiceSetup::new(pipeline.clone(), Arc::new(ConfigVoiceEnabled::new(config.clone())), seams.voice_installer.clone()));
-    services.push(Arc::new(VoiceService::new(pipeline, setup.clone())));
+    services.push(Arc::new(VoiceService::new(pipeline, setup.clone(), seams.voice_progress.clone())));
 
     Ok(Local { media_status, voice_setup: setup, services, transfer_sources, tool_modules_host, service: local_service })
 }

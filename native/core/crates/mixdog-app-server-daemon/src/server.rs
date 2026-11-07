@@ -237,6 +237,8 @@ impl Shutdown {
     async fn run_with(&self, budgets: ReleaseBudgets) {
         self.refusing.store(true, Ordering::Release);
         self.hub.close_all();
+        // The in-process server has no daemon stop path in Node (`daemon.mjs` is the process); its reason is its own.
+        self.core.set_stop_reason("in-process shutdown");
         let core = self.core.clone();
         supervise_async("closeExtHost", budgets.close_ext_host, async move { core.close_ext_host().await }).await;
         let core = self.core.clone();

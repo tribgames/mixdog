@@ -29,6 +29,7 @@ use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use crate::orch::util::spec_from_def;
 use super::read_batch::*;
 use super::read_state::*;
 use super::search::glob_files;
@@ -77,12 +78,7 @@ impl ReadTool {
 
     pub fn new(ext: Option<Arc<dyn ExtPool>>, images: Option<Arc<dyn ImageResizer>>) -> Self {
         Self {
-            spec: spec(
-                READ_SPEC,
-                "Read files: line windows, several files at once, images, PDF and Office documents.",
-                true,
-                None,
-            ),
+            spec: spec_from_def(READ_SPEC, true, &[]),
             ext,
             images,
             state: None,

@@ -1,5 +1,6 @@
 {
   "name": "media",
+  "title": "Mixdog Media Studio",
   "description": "Generate an image or a video through the Media Studio lanes the user signed in to, and write it to a file. Load the image skill before the first image call and the video skill before the first video call. generate needs kind, prompt, and path. Returns final results in this call.",
   "annotations": {},
   "inputSchema": {

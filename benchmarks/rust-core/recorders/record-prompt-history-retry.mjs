@@ -5,6 +5,7 @@
 // attempt is stamped where it reaches `mkdir` (the first call of `writeEntriesAsync`).
 //   A: one append, six failed flushes, then the directory becomes writable: the gaps between attempts.
 //   B: a second append arrives during the second backoff wait: when the next attempt comes.
+//   C: appends with a writable directory: when the flush happens for 4 appends and for 5 (FLUSH_CAP).
 // Also `writeRetryDelayMs(0..12)`. Rust `session::prompt_history` (`AppendQueue`, `write_retry_delay`)
 // must match.
 //   node benchmarks/rust-core/recorders/record-prompt-history-retry.mjs [--tree <dir>]
@@ -97,6 +98,18 @@ const thirdAttemptAfterArrivalMs = stamps[2] - Date.now() + 0;
 const scenarioB = { secondAttemptAtMs: secondAttemptAt - startB, arrivedAfterSecondAttemptMs: 100, thirdAttemptAfterSecondAttemptMs: stamps[2] - secondAttemptAt, backoffWouldHaveBeenMs: store.writeRetryDelayMs(2) };
 await run(300_000, () => stamps.length >= 5);
 await run(100_000);
+// C: the flush is at the window for 4 appends and at once for 5.
+const flushAfter = async (count) => {
+  stamps.length = 0;
+  const fresh = await load('c' + count);
+  const cwdC = join(root, 'proj-c' + count);
+  const began = Date.now();
+  for (let i = 0; i < count; i += 1) fresh.appendPromptHistory(cwdC, 'prompt ' + i);
+  await run(5_000, () => stamps.length >= 1);
+  return { appends: count, firstAttemptAtMs: stamps[0] - began };
+};
+onAttempt = () => {};
+const scenarioC = [await flushAfter(4), await flushAfter(5)];
 mock.timers.reset();
 
 const golden = {
@@ -104,6 +117,7 @@ const golden = {
   windowMs: 250,
   scenarioA,
   scenarioB,
+  scenarioC,
 };
 writeJson(join(stage, 'golden.json'), golden);
 writeSetManifest(stage, { set: 'prompt-history-retry', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });

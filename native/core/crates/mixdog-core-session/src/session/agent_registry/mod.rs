@@ -26,6 +26,8 @@ mod lead_row;
 mod sessions;
 mod workers;
 mod worker_view;
+pub mod restart;
+pub mod signals;
 pub mod status_rows;
 #[cfg(test)]
 mod tests;
@@ -1047,6 +1049,8 @@ pub struct StoreWorkers {
     threads: Arc<dyn ThreadState>,
     writes: mpsc::UnboundedSender<(String, Option<Row>)>,
     io: InteractiveIo,
+    /// `registry.onWorkerRowsChange` (`agent-tool.mjs`), bound once by the composition.
+    signals: std::sync::OnceLock<Arc<dyn signals::StatusSignals>>,
 }
 
 /// Whether `path` names a directory.
@@ -1075,7 +1079,7 @@ impl StoreWorkers {
                 };
             }
         }));
-        Self { index, threads, writes, io }
+        Self { index, threads, writes, io, signals: std::sync::OnceLock::new() }
     }
 }
 
@@ -1107,6 +1111,17 @@ impl WorkerStore for StoreWorkers {
 
     fn write(&self, session: &str, worker: Option<Row>) {
         let _ = self.writes.send((session.to_owned(), worker));
+        // Node's registry announces a row change where it makes it, not when the file settles.
+        if let Some(signals) = self.signals.get() {
+            signals.worker_rows(session);
+        }
+    }
+}
+
+impl StoreWorkers {
+    /// Binds the status signals; a second bind is refused.
+    pub fn bind_signals(&self, signals: Arc<dyn signals::StatusSignals>) -> Result<(), Arc<dyn signals::StatusSignals>> {
+        self.signals.set(signals)
     }
 }
 

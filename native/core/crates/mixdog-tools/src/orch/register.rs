@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use mixdog_core_api::domain::computer::ComputerBackend;
+use mixdog_core_api::domain::computer::ComputerSessions;
 use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_core_api::domain::tool::Tool;
 
@@ -70,7 +70,7 @@ pub struct Services {
     pub terminals: Arc<dyn TerminalPort>,
     pub command_policy: Arc<dyn CommandPolicy>,
     /// `None` where the OS has no computer-use backend.
-    pub computer: Option<Arc<dyn ComputerBackend>>,
+    pub computer: Option<Arc<dyn ComputerSessions>>,
 }
 
 /// All tools, in the order the catalog lists them.
@@ -96,8 +96,8 @@ pub fn tools(s: Services) -> Vec<Arc<dyn Tool>> {
         Arc::new(VisualizeTool::new(s.host, s.pending)),
         Arc::new(TerminalTool::new(s.terminals, s.command_policy)),
     ];
-    if let Some(backend) = s.computer {
-        all.push(Arc::new(ComputerTool::new(backend)));
+    if let Some(sessions) = s.computer {
+        all.push(Arc::new(ComputerTool::new(sessions)));
     }
     all
 }

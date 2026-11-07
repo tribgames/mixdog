@@ -151,6 +151,11 @@ pub trait RunParts: Send + Sync + 'static {
     /// The turn's host parts; a refusal fails the turn with its error.
     async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError>;
 
+    /// `reconcileTurnSettings`: the header the turn is built from, once the thread's settings follow the
+    /// live ones (`conversation`: the thread already holds one, so it keeps its prefix; `header` is what
+    /// the turn started with).
+    async fn reconcile_turn(&self, thread: &ThreadId, header: mixdog_store::schema::record::Header, conversation: bool) -> Result<mixdog_store::schema::record::Header, TurnError>;
+
     /// `getHiddenAgent(agent).stallCap.idleSeconds`: an internal agent's own idle budget, which
     /// the progress watchdog honours.
     fn stall_cap_idle_seconds(&self, _agent: Option<&str>) -> Option<i64> {
@@ -517,7 +522,6 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         }
         None => (None, routine_selection, None, None),
     };
-    let surface_now = surface.borrow().clone();
     parts.reset_turn_shells(&thread);
     let hints = ToolHints::start(progress.subscribe(), port.clone());
     let watched = progress.subscribe();
@@ -543,6 +547,13 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     }
     let prior: Vec<Value> = stored.iter().map(|(_, body)| body.clone()).collect();
     let injected = input_body.pointer("/meta/source").is_some_and(Value::is_string);
+    // Node's `await reconcileTurnSettings()` of the turn preparation: a gate that moved since the last turn
+    // reaches this one through the header, before the request is assembled.
+    let header = match parts.reconcile_turn(&thread, header, mixdog_core_session::session::thread_settings::has_conversation_messages(&prior)).await {
+        Ok(header) => header,
+        Err(error) => return RunOutcome::Failed(error),
+    };
+    let surface_now = surface.borrow().clone();
     let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, request: &request, injected, notify, progress: tool_progress }).await {
         Ok(assembled) => assembled,
         Err(error) => return RunOutcome::Failed(error),
@@ -824,13 +835,33 @@ mod tests {
         workspace: std::path::PathBuf,
         /// Tools beside `echo`.
         more: Vec<Arc<dyn Tool>>,
+        /// A key the settings reconcile adds to the header, and the headers the turns were assembled from.
+        settle: Option<Arc<Settle>>,
+    }
+
+    struct Settle {
+        add: (&'static str, Value),
+        seen: Mutex<Vec<mixdog_store::schema::record::Header>>,
     }
 
     #[async_trait]
     impl RunParts for Parts {
+        async fn reconcile_turn(&self, _: &ThreadId, mut header: mixdog_store::schema::record::Header, _: bool) -> Result<mixdog_store::schema::record::Header, TurnError> {
+            if let Some(settle) = &self.settle {
+                header.insert(settle.add.0.to_owned(), settle.add.1.clone());
+            }
+            Ok(header)
+        }
+
         async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
+            if let Some(settle) = &self.settle {
+                lock(&settle.seen).push(input.header.clone());
+            }
             let spec = ToolSpec {
                 name: "echo".into(),
+                title: None,
+                trigger: None,
+                public: true,
                 aliases: Vec::new(),
                 description: "echo".into(),
                 input_schema: json!({ "type": "object" }),
@@ -912,7 +943,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new() })));
+        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -963,6 +994,44 @@ mod tests {
         let _ = AtomicI64::new(0);
     }
 
+    /// A turn is assembled from the header the settings reconcile returns, not the one it started
+    /// with: a gate that moved since the last turn reaches the request (`await reconcileTurnSettings()`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_is_assembled_from_the_reconciled_header() {
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![StreamEvent::TextDelta("ok".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let settle = Arc::new(Settle { add: ("featureDeniedTools", json!(["web_search"])), seen: Mutex::default() });
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()) })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        loop {
+            let stepped = handle.stepped().notified();
+            tokio::pin!(stepped);
+            stepped.as_mut().enable();
+            let answered = rig.store.records(&id).into_iter().any(|(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["role"] == "assistant")));
+            if answered {
+                break;
+            }
+            stepped.await;
+        }
+        let seen = lock(&settle.seen).clone();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0]["featureDeniedTools"], json!(["web_search"]));
+    }
     /// A failed turn's retry removes the stale copy of its prompt from the model context for good
     /// (`prepareAskTurn`): the retry's own request and the next turn's both carry the prompt once,
     /// while the transcript keeps every row it showed.
@@ -981,7 +1050,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new() })));
+        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1085,6 +1154,9 @@ mod tests {
         let reporter = Reporter {
             spec: ToolSpec {
                 name: "report".into(),
+                title: None,
+                trigger: None,
+                public: true,
                 aliases: Vec::new(),
                 description: "report".into(),
                 input_schema: json!({ "type": "object" }),
@@ -1098,7 +1170,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)] })));
+        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1358,6 +1430,9 @@ mod tests {
     fn named(name: &str) -> Arc<dyn Tool> {
         let spec = ToolSpec {
             name: name.into(),
+            title: None,
+            trigger: None,
+            public: true,
             aliases: Vec::new(),
             description: name.into(),
             input_schema: json!({ "type": "object" }),
@@ -1490,6 +1565,15 @@ mod tests {
         let path = super::super::turn_path::TurnPath::new(parts).expect("turn path");
         path.registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
         let directory = path.directory.clone();
+        // The settings host the composition binds: here one that leaves the thread's header as it is.
+        struct AsIs(Arc<SessionDirectory>);
+        #[async_trait]
+        impl super::super::turn_settings::TurnSettings for AsIs {
+            async fn reconcile(&self, thread: &ThreadId, _: bool) -> Result<mixdog_store::schema::record::Header, String> {
+                mixdog_core_ports::ports::threads::ThreadState::header(&mixdog_core_session::session::thread_state::SessionThreads::new(self.0.clone()), thread).await.map_err(|error| format!("{error:?}"))
+            }
+        }
+        assert!(path.turn_settings.bind(Arc::new(AsIs(directory.clone()))).is_ok());
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));

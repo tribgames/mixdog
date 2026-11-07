@@ -50,10 +50,16 @@ impl SessionDirectory {
     /// A member's session as the turn wait reads it: `{ items, busy }`, `items` the transcript
     /// rows (`kind`, `id`, `at`, and the turn end's `status` / `finalAssistantId` / `reacted`,
     /// an answer's `text` / `streaming`, a tool's `name` / `result`). `busy`: a turn runs or input
-    /// is queued. A thread with no stored record fails (`ThreadNotFound`).
+    /// is queued. `toolApproval`: the approval the session shows now, as its room reads it
+    /// (`agent-room-turn.ts:278`, `room_approval::tool_approval`); absent when it waits on none.
+    /// A thread with no stored record fails (`ThreadNotFound`).
     pub async fn member_snapshot(&self, thread: &ThreadId) -> Result<Value, CoreError> {
         let items = history_items(self.deps(), thread).await?;
-        Ok(json!({ "items": items.iter().map(snapshot_row).collect::<Vec<_>>(), "busy": self.thread_busy(thread) }))
+        let mut snapshot = json!({ "items": items.iter().map(snapshot_row).collect::<Vec<_>>(), "busy": self.thread_busy(thread) });
+        if let Some(approval) = self.member_approval(thread) {
+            snapshot["toolApproval"] = approval;
+        }
+        Ok(snapshot)
     }
 }
 

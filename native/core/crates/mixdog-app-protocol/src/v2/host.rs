@@ -721,6 +721,13 @@ pub struct ModelProxyEventParams {
     pub event: crate::v2::model_proxy::ProxyEvent,
 }
 
+/// Electron → server core: these `model/proxy/execute` requests are still being run; the first beat of a request claims it, each renews its lease.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelProxyHeartbeatParams {
+    pub request_ids: Vec<RequestId>,
+}
+
 /// Electron → its local core: execute a proxied call.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]

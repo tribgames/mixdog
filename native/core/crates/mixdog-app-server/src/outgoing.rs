@@ -31,6 +31,8 @@ use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
 use mixdog_core_api::ServerRequestSink;
+use mixdog_core_api::host::LEASE_LAPSED;
+use mixdog_core_api::host::NOT_CLAIMED;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::FeedId;
 use mixdog_core_api::ids::HostId;
@@ -488,21 +490,36 @@ impl HostChannel for Outgoing {
             .map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
         // Only a call the connection runs for us can be told to stop; a closed connection needs no word.
         let mut cancel = (capability == HostCapability::ModelProxy).then(|| CancelOnDrop { conn: Arc::clone(&claimant), id: request_id, answered: false });
+        // The claimant vouches for the request or it is given up: the claim window until its first
+        // sign of life, the lease after each one (a heartbeat or an event). Dropping the request
+        // then sends the claimant `model/proxy/cancel`, as Node's expiry unpublishes the call.
+        let lease = capability.lease();
+        let mut claimed = false;
         loop {
-            match stream.recv().await {
-                Some(Streamed::Event(event)) => on_event(event),
-                Some(Streamed::Done(reply)) => {
+            let window = lease.map(|lease| if claimed { lease.renew } else { lease.claim });
+            match Scope::new().deadline(window.map(|window| Instant::now() + window)).run(stream.recv()).await {
+                Scoped::Done(Some(Streamed::Event(event))) => {
+                    claimed = true;
+                    on_event(event);
+                }
+                Scoped::Done(Some(Streamed::Alive)) => claimed = true,
+                Scoped::Done(Some(Streamed::Done(reply))) => {
                     if let Some(cancel) = cancel.as_mut() {
                         cancel.answered = true;
                     }
                     return reply;
                 }
-                None => {
+                Scoped::Done(None) => {
                     if let Some(cancel) = cancel.as_mut() {
                         cancel.answered = true;
                     }
                     return Err(desktop_host_unavailable("claimantClosed").into());
                 }
+                Scoped::DeadlineExceeded => {
+                    return Err(desktop_host_unavailable(if claimed { LEASE_LAPSED } else { NOT_CLAIMED }).into());
+                }
+                // The scope has no token.
+                Scoped::Cancelled => return Err(desktop_host_unavailable("cancelled").into()),
             }
         }
     }
@@ -513,6 +530,13 @@ impl HostChannel for Outgoing {
         };
         self.connection(from)
             .is_some_and(|conn| conn.host_stream_event(&id, event))
+    }
+
+    fn stream_alive(&self, from: ConnectionId, request: &Value) -> bool {
+        let Ok(id) = serde_json::from_value::<RequestId>(request.clone()) else {
+            return false;
+        };
+        self.connection(from).is_some_and(|conn| conn.host_stream_alive(&id))
     }
 }
 

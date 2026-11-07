@@ -3,6 +3,7 @@
 
 pub mod audience;
 pub mod decision;
+pub mod desktop_notice;
 pub mod engine;
 pub mod held;
 pub mod presence;

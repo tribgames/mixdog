@@ -99,7 +99,7 @@ fn clean(value: Option<&Value>) -> &str {
 
 /// `connectorPolicyAgentOf`: a coding Lead shares Mixy's runtime id but is not her, so it has
 /// no connector policy of its own.
-fn connector_policy_agent(header: &Header) -> String {
+pub fn connector_policy_agent(header: &Header) -> String {
     let agent = clean(header.get("agent"));
     if agent == MIXY_AGENT_ID && session_mode_of(header) != "agent" { String::new() } else { agent.to_owned() }
 }

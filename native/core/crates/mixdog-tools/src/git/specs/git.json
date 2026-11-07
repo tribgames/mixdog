@@ -1,118 +1,118 @@
 {
- "src": "builtin-tools",
- "name": "git",
- "annotations": {
+  "name": "git",
   "title": "Git",
-  "readOnlyHint": false,
-  "destructiveHint": true,
-  "idempotentHint": false,
-  "openWorldHint": true,
-  "compressible": true
- },
- "schema": {
-  "type": "object",
-  "properties": {
-   "action": {
-    "type": "string",
-    "enum": [
-     "command",
-     "stage",
-     "worktree"
-    ],
-    "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
-   },
-   "command": {
-    "anyOf": [
-     {
-      "type": "string"
-     },
-     {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "minItems": 1,
-      "maxItems": 10
-     }
-    ],
-    "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
-   },
-   "output_limit": {
-    "type": "integer",
-    "minimum": 1,
-    "maximum": 1000,
-    "description": "Body line cap, max 1000; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
-   },
-   "include_stage_ids": {
-    "type": "boolean",
-    "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
-   },
-   "diff_id": {
-    "type": "string",
-    "description": "stage: exact diff_id from git diff with include_stage_ids:true."
-   },
-   "change_ids": {
-    "anyOf": [
-     {
-      "type": "string"
-     },
-     {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "minItems": 1,
-      "maxItems": 50
-     }
-    ],
-    "description": "stage: exact change ID or IDs to stage, including new files."
-   },
-   "worktree_action": {
-    "type": "string",
-    "enum": [
-     "enter",
-     "return",
-     "merge",
-     "remove",
-     "list",
-     "prune"
-    ],
-    "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
-   },
-   "session_id": {
-    "type": "string",
-    "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
-   },
-   "name": {
-    "type": "string",
-    "description": "enter: the new worktree name (branch <prefix><name>)."
-   },
-   "branch": {
-    "type": "string",
-    "description": "enter: use the worktree of this branch instead."
-   },
-   "create": {
-    "type": "boolean",
-    "description": "enter with branch: create that branch."
-   },
-   "carry": {
-    "type": "string",
-    "enum": [
-     "leave",
-     "carry"
-    ],
-    "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
-   },
-   "confirm_large": {
-    "type": "boolean",
-    "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
-   },
-   "force": {
-    "type": "boolean",
-    "description": "remove: discard dirty/unmerged work; only on explicit user request."
-   }
+  "annotations": {
+    "title": "Git",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "compressible": true
   },
-  "additionalProperties": false
- },
- "description": "Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts. Worktrees are managed only: action:worktree (Lead only) moves a session into/out of its managed worktree, merges, removes, lists, prunes; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks; carry and large-size answers come from the user; force only on explicit request."
+  "description": "Run Git here, never through shell. An array runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts. Worktrees are managed only: action:worktree; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends, and is the one add a delegated worker may run; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "command",
+          "stage",
+          "worktree"
+        ],
+        "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+      },
+      "command": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 10
+          }
+        ],
+        "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+      },
+      "output_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+      },
+      "include_stage_ids": {
+        "type": "boolean",
+        "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+      },
+      "diff_id": {
+        "type": "string",
+        "description": "stage: exact diff_id from git diff."
+      },
+      "change_ids": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        ],
+        "description": "stage: exact change ID or IDs to stage, including new files."
+      },
+      "worktree_action": {
+        "type": "string",
+        "enum": [
+          "enter",
+          "return",
+          "merge",
+          "remove",
+          "list",
+          "prune"
+        ],
+        "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+      },
+      "session_id": {
+        "type": "string",
+        "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+      },
+      "name": {
+        "type": "string",
+        "description": "enter: the new worktree name (branch <prefix><name>)."
+      },
+      "branch": {
+        "type": "string",
+        "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+      },
+      "create": {
+        "type": "boolean",
+        "description": "enter with branch: create that branch."
+      },
+      "carry": {
+        "type": "string",
+        "enum": [
+          "leave",
+          "carry"
+        ],
+        "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+      },
+      "confirm_large": {
+        "type": "boolean",
+        "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+      },
+      "force": {
+        "type": "boolean",
+        "description": "remove: discard dirty/unmerged work; only on explicit user request."
+      }
+    },
+    "additionalProperties": false
+  }
 }

@@ -7,6 +7,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use mixdog_core_config::config::Config;
 use serde_json::{Value, json};
 
 use super::provider_status::{ProviderRoster, ProvidersStatus, QuotaAutoResumeSetting};
@@ -102,5 +103,28 @@ fn the_recorded_rosters_are_what_the_account_check_reads() {
                 assert!(!entry["proxy"].as_bool().unwrap() || accounts.is_empty(), "{entry}");
             }
         }
+    }
+}
+
+#[tokio::test]
+async fn the_quota_switch_is_on_unless_the_config_says_false() {
+    use mixdog_core_api::mock::MockStatePublisher;
+    use mixdog_core_config::config::ConfigLanes;
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    // Node: `config.quotaResume?.autoResume !== false`.
+    for (agent, want) in [
+        (json!({}), true),
+        (json!({ "quotaResume": {} }), true),
+        (json!({ "quotaResume": { "autoResume": true } }), true),
+        (json!({ "quotaResume": { "autoResume": null } }), true),
+        (json!({ "quotaResume": { "autoResume": 0 } }), true),
+        (json!({ "quotaResume": { "autoResume": false } }), false),
+    ] {
+        let path = dir.path().join("mixdog-config.json");
+        std::fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap()).unwrap();
+        let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        assert_eq!(QuotaAutoResumeSetting::enabled(&config), want, "{agent}");
     }
 }

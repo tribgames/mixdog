@@ -394,6 +394,19 @@ pub fn remove_file_forced(path: &Path) -> Result<(), FsFailure> {
     }
 }
 
+/// `rmSync(path, { recursive: true, force: true })`: an absent path is fine, any other failure is
+/// the error.
+#[allow(clippy::disallowed_methods, reason = "file-system body of the lane jobs that call it")]
+pub fn remove_dir_all_forced(path: &Path) -> Result<(), FsFailure> {
+    match std::fs::remove_dir_all(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(FsFailure {
+            error,
+            step: FsStep::Rmdir(path.to_owned()),
+        }),
+        _ => Ok(()),
+    }
+}
+
 /// Runs `job` on `lane`. A full queue answers `queueFull` at once; a cancelled caller drops
 /// a job that has not started.
 pub async fn on_lane<L, R, F>(
@@ -756,5 +769,24 @@ pub mod testing {
             Reply::Value(value) => Ok(value),
             Reply::Subscribe(_) => panic!("never subscribes"),
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup")]
+mod forced_removal_tests {
+    use super::*;
+
+    #[test]
+    fn a_forced_removal_ignores_an_absent_path_and_reports_anything_else() {
+        let dir = std::env::temp_dir().join(format!("mixdog-forced-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("inner")).unwrap();
+        remove_file_forced(&dir.join("absent")).unwrap();
+        remove_dir_all_forced(&dir.join("absent")).unwrap();
+        // `rmSync(dir, { force: true })` without `recursive` throws for a directory.
+        assert!(matches!(remove_file_forced(&dir).unwrap_err().step, FsStep::RemoveDirectory(_)));
+        remove_dir_all_forced(&dir).unwrap();
+        assert!(!dir.exists());
     }
 }

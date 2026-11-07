@@ -189,6 +189,111 @@
           }
         }
       ]
+    },
+    {
+      "name": "a forget drops a restore and leaves the rest",
+      "initial": null,
+      "steps": [
+        {
+          "session": "s1",
+          "archived": false,
+          "at": 1000
+        },
+        {
+          "session": "s2",
+          "archived": false,
+          "at": 1100
+        },
+        {
+          "session": "s1",
+          "forget": true,
+          "at": 1200
+        },
+        {
+          "session": "s1",
+          "forget": true,
+          "at": 1300
+        },
+        {
+          "session": "s9",
+          "forget": true,
+          "at": 1400
+        }
+      ],
+      "after": [
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s1": 1000
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s1": 1000,
+            "s2": 1100
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s2": 1100
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s2": 1100
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s2": 1100
+          }
+        }
+      ]
+    },
+    {
+      "name": "a forget with no record yet still creates the record",
+      "initial": null,
+      "steps": [
+        {
+          "session": "s1",
+          "forget": true,
+          "at": 1000
+        }
+      ],
+      "after": [
+        {
+          "enabledAt": 1000,
+          "restored": {}
+        }
+      ]
+    },
+    {
+      "name": "a forget normalizes a record with no enabledAt",
+      "initial": {
+        "restored": {
+          "a": 0,
+          "d": 7
+        }
+      },
+      "steps": [
+        {
+          "session": "zz",
+          "forget": true,
+          "at": 1000
+        }
+      ],
+      "after": [
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "d": 7
+          }
+        }
+      ]
     }
   ]
 }

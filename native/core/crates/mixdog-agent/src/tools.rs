@@ -82,6 +82,8 @@ pub struct ToolSet {
     /// Names typo aliases, case variants and did-you-mean suggestions are
     /// drawn from (the builtin tools; other tools match exactly only).
     builtin: Arc<Vec<String>>,
+    /// The set is a delegated agent's: a tool with an agent text (`Tool::agent_spec`) shows that.
+    agent: bool,
 }
 
 impl ToolSet {
@@ -103,7 +105,15 @@ impl ToolSet {
             tools: Arc::new(tools),
             index: Arc::new(index),
             builtin: Arc::new(builtin),
+            agent: false,
         }
+    }
+
+    /// The set a delegated agent's session is sent (`bindAgentOwner`).
+    #[must_use]
+    pub fn for_agent(mut self, agent: bool) -> Self {
+        self.agent = agent;
+        self
     }
 
     pub fn get(&self, name: &str) -> Option<&Arc<dyn Tool>> {
@@ -127,11 +137,21 @@ impl ToolSet {
             .is_some_and(|t| t.spec().annotations.read_only_hint == Some(true))
     }
 
+    /// The definition of `tool` on this set's surface: a delegated agent's own text and schema where
+    /// the tool has them (`bindAgentOwner`), the Lead's otherwise. The model is sent it, and a call's
+    /// arguments are coerced to it.
+    pub(crate) fn spec_of<'a>(&self, tool: &'a Arc<dyn Tool>) -> &'a ToolSpec {
+        if self.agent { tool.agent_spec().unwrap_or_else(|| tool.spec()) } else { tool.spec() }
+    }
+
+    /// What the model is sent. A `public: false` tool stays in the set (a rewritten call reaches it by
+    /// name) but is never listed.
     pub fn definitions(&self) -> Vec<ToolDefinition> {
         self.tools
             .iter()
+            .filter(|tool| tool.spec().public)
             .map(|tool| {
-                let spec = tool.spec();
+                let spec = self.spec_of(tool);
                 ToolDefinition {
                     name: spec.name.clone(),
                     description: spec.description.clone(),
@@ -142,14 +162,11 @@ impl ToolSet {
             .collect()
     }
 
-    /// A read-only result may stand in for an identical call in the same turn.
-    /// Read-only is necessary but not sufficient: a tool that changes session
-    /// state on every call declares `idempotent_hint = false`.
+    /// A read-only result may stand in for an identical call in the same turn
+    /// (`isToolCallDedupEligible`): the tool declares `readOnlyHint`, and the
+    /// loaders (`load_tool`, `tool_search`) are read-only but must run to report state.
     pub(crate) fn dedup_eligible(&self, name: &str) -> bool {
-        self.get(name).is_some_and(|tool| {
-            let a = &tool.spec().annotations;
-            a.read_only_hint == Some(true) && a.idempotent_hint != Some(false)
-        })
+        !matches!(name, "load_tool" | "tool_search") && self.get(name).is_some_and(|tool| tool.spec().annotations.read_only_hint == Some(true))
     }
 }
 
@@ -606,7 +623,8 @@ pub async fn run_nested(
     let Some(tool) = tools.resolve(&target.name) else {
         return Err(refused(crate::text::unknown_tool_message(&target.name, &[])));
     };
-    let spec = tool.spec();
+    // A nested call from a delegated agent is judged against the agent's definition, as its own calls are.
+    let spec = if ctx.surface == mixdog_core_api::domain::tool::SurfaceKind::Agent { tool.agent_spec().unwrap_or_else(|| tool.spec()) } else { tool.spec() };
     let nested = ToolContext {
         call_id: ctx.call_id.clone(),
         thread_id: ctx.thread_id.clone(),
@@ -713,7 +731,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         let names = env.tools.builtin_names();
         return Executed::error(&call.id, crate::text::unknown_tool_message(&target.name, &names));
     };
-    let spec = tool.spec();
+    let spec = env.tools.spec_of(&tool);
     let timeout = env.tool_env.deadline_of.as_ref().and_then(|f| f(spec));
     let ctx = ToolContext {
         call_id: ToolCallId::from(call.id.as_str()),
@@ -927,6 +945,64 @@ mod tests {
         dropped: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     }
 
+    struct Plain {
+        spec: ToolSpec,
+        agent: Option<ToolSpec>,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for Plain {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        fn agent_spec(&self) -> Option<&ToolSpec> {
+            self.agent.as_ref()
+        }
+        async fn call(&self, _: &ToolContext, _: JsonValue) -> ToolOutcome {
+            Ok(ToolOutput::default())
+        }
+    }
+
+    fn plain(name: &str, description: &str, public: bool, agent: Option<&str>) -> Arc<dyn Tool> {
+        let spec = ToolSpec {
+            name: name.into(),
+            title: None,
+            trigger: None,
+            public,
+            aliases: Vec::new(),
+            description: description.into(),
+            input_schema: serde_json::json!({"type": "object"}),
+            annotations: Default::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        };
+        let agent = agent.map(|text| ToolSpec { description: text.into(), ..spec.clone() });
+        Arc::new(Plain { spec, agent })
+    }
+
+    /// A `public: false` tool is in the set (a rewritten call finds it by name) but never in what the
+    /// model is sent; a delegated agent is sent a tool's agent text.
+    #[test]
+    fn definitions_leave_out_unlisted_tools_and_follow_the_agent_text() {
+        let set = ToolSet::new(vec![plain("web_fetch", "fetch", true, None), plain("local_fetch", "loopback", false, None), plain("task", "lead text", true, Some("agent text"))]);
+        let sent = |set: &ToolSet| set.definitions().into_iter().map(|d| (d.name, d.description)).collect::<Vec<_>>();
+        assert!(set.get("local_fetch").is_some());
+        assert_eq!(sent(&set), [("web_fetch".to_owned(), "fetch".to_owned()), ("task".to_owned(), "lead text".to_owned())]);
+        assert_eq!(sent(&set.clone().for_agent(true)), [("web_fetch".to_owned(), "fetch".to_owned()), ("task".to_owned(), "agent text".to_owned())]);
+    }
+
+    /// A delegated agent's call is coerced to and timed by the agent's definition (Node's `git` and
+    /// `task` differ for it in schema and text), the Lead's by the Lead's.
+    #[test]
+    fn a_call_is_judged_by_the_definition_of_its_surface() {
+        let task = plain("task", "lead text", true, Some("agent text"));
+        let set = ToolSet::new(vec![task.clone()]);
+        assert_eq!(set.spec_of(&task).description, "lead text");
+        assert_eq!(set.clone().for_agent(true).spec_of(&task).description, "agent text");
+        let git = plain("git", "same", true, None);
+        assert_eq!(set.for_agent(true).spec_of(&git).description, "same");
+    }
+
     struct OnDrop(Option<tokio::sync::oneshot::Sender<()>>);
     impl Drop for OnDrop {
         fn drop(&mut self) {
@@ -963,6 +1039,9 @@ mod tests {
             honours,
             spec: ToolSpec {
                 name: "stuck".into(),
+                title: None,
+                trigger: None,
+                public: true,
                 aliases: Vec::new(),
                 description: "stuck".into(),
                 input_schema: serde_json::json!({"type": "object"}),

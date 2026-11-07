@@ -1,0 +1,18 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-restart-settlement.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 40329,
+      "path": "golden.json",
+      "sha256": "1114ea6d8fe6210d3f3af8f5683249b02b36124b839d9c99902c622a3f091573"
+    }
+  ],
+  "product": {
+    "tree": "product tree loaded by the recorder",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-restart-settlement.mjs",
+  "set": "restart-settlement",
+  "totalBytes": 40329
+}

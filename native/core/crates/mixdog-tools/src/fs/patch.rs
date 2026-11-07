@@ -28,6 +28,7 @@ use mixdog_js::js_trim;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use crate::orch::util::spec_from_def;
 use super::patch_guard::Quarantine;
 use super::patch_guard::Snapshot;
 use super::patch_guard::capture;
@@ -98,7 +99,7 @@ pub struct ApplyPatchTool {
 impl ApplyPatchTool {
     pub fn new() -> Self {
         Self {
-            spec: spec(PATCH_SPEC, "Apply a V4A patch to one or more files.", false, Some("fs-write")),
+            spec: spec_from_def(PATCH_SPEC, false, &["fs-write"]),
             seen: Mutex::new(Vec::new()),
             state: None,
         }

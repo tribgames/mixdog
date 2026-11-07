@@ -346,6 +346,68 @@ async fn a_model_proxy_call_given_up_is_cancelled_on_the_connection_and_an_answe
     assert!(pc.drain().is_empty());
 }
 
+/// Node's claim window and lease (model-proxy-channel.mjs `CLAIM_TIMEOUT_MS`, `MODEL_PROXY_LEASE_MS`).
+#[tokio::test(start_paused = true)]
+async fn a_model_proxy_call_nobody_claims_is_given_up_at_the_claim_window_and_the_pc_told() {
+    use std::time::Duration;
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await
+    });
+    let request = pc.frames(1).await.remove(0).body;
+    tokio::time::advance(Duration::from_secs(9)).await;
+    tokio::task::yield_now().await;
+    assert!(!call.is_finished(), "inside the claim window");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    assert_eq!(call.await.unwrap(), Err(unavailable("notClaimed")));
+    let cancel = pc.frames(1).await.remove(0).body;
+    assert_eq!((&cancel["method"], &cancel["params"]), (&json!("model/proxy/cancel"), &json!({ "requestId": request["id"] })));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_claimed_model_proxy_call_lives_on_heartbeats_and_events_and_lapses_when_the_pc_goes_silent() {
+    use mixdog_core_api::ids::ConnectionId;
+    use std::time::Duration;
+    let rig = Rig::new();
+    let pc = rig.ready(1, json!({ "modelProxy": true }));
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        let mut seen = 0;
+        let result = outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| seen += 1).await;
+        (result, seen)
+    });
+    let request = pc.frames(1).await.remove(0).body;
+    let id = &request["id"];
+    // A beat for a request that is not pending, or from another connection, vouches for nothing.
+    assert!(!rig.outgoing.stream_alive(ConnectionId(1), &json!("host-none")));
+    assert!(!rig.outgoing.stream_alive(ConnectionId(2), id));
+    let silent = |seconds: u64| async move {
+        tokio::time::advance(Duration::from_secs(seconds)).await;
+        tokio::task::yield_now().await;
+    };
+    // The first beat claims; each beat and each event renews the 20 s lease. The waiting task
+    // reads a sign of life before the clock moves on.
+    silent(9).await;
+    assert!(rig.outgoing.stream_alive(ConnectionId(1), id));
+    silent(0).await;
+    silent(19).await;
+    assert!(!call.is_finished());
+    assert!(rig.outgoing.stream_alive(ConnectionId(1), id));
+    silent(0).await;
+    silent(19).await;
+    assert!(!call.is_finished());
+    assert!(rig.outgoing.stream_event(ConnectionId(1), id, json!({ "n": 1 })));
+    silent(0).await;
+    silent(19).await;
+    assert!(!call.is_finished());
+    silent(2).await;
+    let (result, seen) = call.await.unwrap();
+    assert_eq!((result, seen), (Err(unavailable("leaseLapsed")), 1));
+    assert_eq!(pc.frames(1).await.remove(0).body["method"], json!("model/proxy/cancel"));
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_cancelled_caller_releases_a_host_request_the_claimant_never_answers() {
     let rig = Rig::new();

@@ -224,15 +224,22 @@ async fn file_len(lane: DurabilityIo, path: &Path) -> Result<i64, AssetError> {
 }
 
 #[allow(clippy::disallowed_methods, reason = "the call is a durability-lane job")]
-async fn remove_file(lane: DurabilityIo, path: &Path) {
+async fn remove_file(lane: DurabilityIo, path: &Path) -> Result<(), AssetError> {
     let path = path.to_owned();
-    let _ = settled(lane, move || Ok(drop(fs::remove_file(path)))).await;
+    settled(lane, move || remove_forced(&path, false)).await
+}
+
+/// `rmSync(path, { force: true })` (`{ recursive: true, force: true }` for a directory), as
+/// `asset-installer.mjs` lets it throw: the shared forced removals of `mixdog-core-base`.
+fn remove_forced(path: &Path, directory: bool) -> std::io::Result<()> {
+    use mixdog_core_base::support::{remove_dir_all_forced, remove_file_forced};
+    if directory { remove_dir_all_forced(path) } else { remove_file_forced(path) }.map_err(|failure| failure.error)
 }
 
 #[allow(clippy::disallowed_methods, reason = "the call is a durability-lane job")]
-async fn remove_dir_all(lane: DurabilityIo, path: &Path) {
+async fn remove_dir_all(lane: DurabilityIo, path: &Path) -> Result<(), AssetError> {
     let path = path.to_owned();
-    let _ = settled(lane, move || Ok(drop(fs::remove_dir_all(path)))).await;
+    settled(lane, move || remove_forced(&path, true)).await
 }
 
 #[allow(clippy::disallowed_methods, reason = "the call is a durability-lane job")]
@@ -344,7 +351,7 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
     }
     let mut received = file_len(lane, &partial).await?;
     if received > size {
-        remove_file(lane, &partial).await;
+        remove_file(lane, &partial).await?;
         received = 0;
     }
     if received == size {
@@ -353,7 +360,7 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
             report(&options.on_progress, None, size, size, 100);
             return Ok(destination.to_owned());
         }
-        remove_file(lane, &partial).await;
+        remove_file(lane, &partial).await?;
         received = 0;
     }
     check_disk(lane, options.check_disk, dir, size - received).await?;
@@ -369,7 +376,7 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
     }
     let resumed = received > 0 && response.status == 206;
     if received > 0 && !resumed {
-        remove_file(lane, &partial).await;
+        remove_file(lane, &partial).await?;
         received = 0;
         check_disk(lane, options.check_disk, dir, size).await?;
     }
@@ -436,7 +443,7 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
     }
     report(&options.on_progress, Some("verifying"), total, size, 99);
     if sha256_file(lane, &partial, &deadline).await? != sha256 {
-        remove_file(lane, &partial).await;
+        remove_file(lane, &partial).await?;
         return Err(AssetError::DigestMismatch(name));
     }
     if deadline.is_cancelled() {
@@ -518,7 +525,7 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, proc
     check_disk(durability, true, &catalog.runtime_root(), total_bytes).await?;
     let staging = catalog.runtime_root().join(format!(".staging-{}", std::process::id()));
     let downloads = catalog.runtime_root().join(".downloads");
-    remove_dir_all(durability, &staging).await;
+    remove_dir_all(durability, &staging).await?;
     create_dir_all(durability, &staging).await?;
     let result = async {
         let mut completed = 0i64;
@@ -552,14 +559,15 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, proc
         if cancel.is_cancelled() {
             return Err(AssetError::Aborted);
         }
-        remove_dir_all(durability, &target).await;
+        remove_dir_all(durability, &target).await?;
         rename(durability, &staging, &target).await?;
-        remove_dir_all(durability, &downloads).await;
+        remove_dir_all(durability, &downloads).await?;
         catalog.status(Some(platform_key)).await
     }
     .await;
     if result.is_err() {
-        remove_dir_all(durability, &staging).await;
+        // `asset-installer.mjs:247-249`: the removal in the `catch` throws in place of the error.
+        remove_dir_all(durability, &staging).await?;
     }
     result
 }
@@ -650,13 +658,14 @@ fn discard_blocking(catalog: &Catalog, phase: &str, model_id: Option<&str>) -> R
         "runtime" => {
             for asset in catalog.runtime_platform_entry(super::hardware::host_platform_key()).and_then(|e| e["assets"].as_array().cloned()).unwrap_or_default() {
                 let path = catalog.runtime_root().join(".downloads").join(asset["name"].as_str().unwrap_or(""));
-                let _ = fs::remove_file(&path);
-                let _ = fs::remove_file(part_path(&path));
+                // `resumable-installations.mjs:67-68, :73`: bare `rmSync(.., { force: true })`.
+                remove_forced(&path, false).map_err(|e| DiscardError::Lane(e.to_string()))?;
+                remove_forced(&part_path(&path), false).map_err(|e| DiscardError::Lane(e.to_string()))?;
             }
         }
         "model" | "repair" => {
             let entry = model_id.and_then(|id| catalog.model_entry(id)).ok_or(DiscardError::UnknownModel)?;
-            let _ = fs::remove_file(part_path(&catalog.model_path(&entry)));
+            remove_forced(&part_path(&catalog.model_path(&entry)), false).map_err(|e| DiscardError::Lane(e.to_string()))?;
         }
         "verify" => {}
         _ => return Err(DiscardError::BadPhase),

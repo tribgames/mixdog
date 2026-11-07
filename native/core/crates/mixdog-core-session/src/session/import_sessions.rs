@@ -68,8 +68,8 @@ impl DirectoryImportSessions {
     async fn remove(&self, id: &ThreadId) {
         let Some(stored) = self.directory.stored_header(id).await else { return };
         let activity = activity_at(&stored);
-        // Rust's own cleanup (Node leaves a session it could not finish importing to its own save/delete
-        // paths and reports `importFailed`): a failure to delete is logged, not lost.
+        // Rust's own cleanup, with no Node counterpart (decisions.md D-import-cleanup-log-1): a failure to
+        // delete is logged, not lost.
         if let Err(error) = self.directory.delete_stored(id.as_str(), activity, &[], &CancellationToken::new()).await {
             tracing::warn!(session = %id, "a half-imported session was not deleted: {error:?}");
         }

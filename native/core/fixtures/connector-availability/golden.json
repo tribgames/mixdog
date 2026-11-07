@@ -1,0 +1,5335 @@
+{
+  "now": 1700000000000,
+  "cases": [
+    {
+      "name": "the first call records the baseline, an unchanged set is silent",
+      "start": {
+        "id": "sess_a",
+        "agent": "worker",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__gamma__get",
+            "description": "mcp__gamma__get tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ]
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "an agent policy switches a connector off and on again",
+      "start": {
+        "id": "sess_a",
+        "agent": "worker",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__gamma__get",
+            "description": "mcp__gamma__get tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ]
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [
+            "mcp__alpha__list",
+            "mcp__alpha__send"
+          ],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          },
+          "result": {
+            "added": [],
+            "removed": [
+              "mcp__alpha__list",
+              "mcp__alpha__send"
+            ]
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__alpha__list",
+                "mcp__alpha__send"
+              ]
+            },
+            "updatedAt": 1700000000000
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [
+            "mcp__alpha__list",
+            "mcp__alpha__send"
+          ],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__alpha__list",
+                "mcp__alpha__send"
+              ]
+            },
+            "updatedAt": 1700000000000
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__alpha__list",
+                "mcp__alpha__send"
+              ]
+            },
+            "updatedAt": 1700000000000
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__alpha__list",
+                "mcp__alpha__send"
+              ]
+            },
+            "updatedAt": 1700000000000
+          },
+          "result": {
+            "added": [
+              "mcp__alpha__list",
+              "mcp__alpha__send"
+            ],
+            "removed": []
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 2,
+            "updatedAt": 1700000000000
+          }
+        }
+      ]
+    },
+    {
+      "name": "a per-tool override disables one tool",
+      "start": {
+        "id": "sess_a",
+        "agent": "worker",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__gamma__get",
+            "description": "mcp__gamma__get tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ]
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [
+            "mcp__alpha__send"
+          ],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          },
+          "result": {
+            "added": [],
+            "removed": [
+              "mcp__alpha__send"
+            ]
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__alpha__send"
+              ]
+            },
+            "updatedAt": 1700000000000
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__alpha__send"
+              ]
+            },
+            "updatedAt": 1700000000000
+          },
+          "result": {
+            "added": [
+              "mcp__alpha__send"
+            ],
+            "removed": []
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 2,
+            "updatedAt": 1700000000000
+          }
+        }
+      ]
+    },
+    {
+      "name": "a project switches a connector off",
+      "start": {
+        "id": "sess_a",
+        "agent": "worker",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__gamma__get",
+            "description": "mcp__gamma__get tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ]
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [
+            "mcp__beta__ping"
+          ],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          },
+          "result": {
+            "added": [],
+            "removed": [
+              "mcp__beta__ping"
+            ]
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__beta__ping"
+              ]
+            },
+            "updatedAt": 1700000000000
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__beta__ping"
+              ]
+            },
+            "updatedAt": 1700000000000
+          },
+          "result": {
+            "added": [
+              "mcp__beta__ping"
+            ],
+            "removed": []
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 2,
+            "updatedAt": 1700000000000
+          }
+        }
+      ]
+    },
+    {
+      "name": "both policies move in one call",
+      "start": {
+        "id": "sess_a",
+        "agent": "worker",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__gamma__get",
+            "description": "mcp__gamma__get tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ]
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [
+            "mcp__alpha__list",
+            "mcp__alpha__send"
+          ],
+          "projectDisabled": [
+            "mcp__gamma__get"
+          ],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          },
+          "result": {
+            "added": [],
+            "removed": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__gamma__get"
+            ]
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__beta__ping"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__alpha__list",
+                "mcp__alpha__send",
+                "mcp__gamma__get"
+              ]
+            },
+            "updatedAt": 1700000000000
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__beta__ping"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__alpha__list",
+                "mcp__alpha__send",
+                "mcp__gamma__get"
+              ]
+            },
+            "updatedAt": 1700000000000
+          },
+          "result": {
+            "added": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__gamma__get"
+            ],
+            "removed": []
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 2,
+            "updatedAt": 1700000000000
+          }
+        }
+      ]
+    },
+    {
+      "name": "a tool the session gains appears in the next call, with its description",
+      "start": {
+        "id": "sess_a",
+        "agent": "worker",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__gamma__get",
+            "description": "mcp__gamma__get tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ]
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        },
+        {
+          "gain": [
+            {
+              "name": "mcp__delta__new",
+              "description": "a late connector tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {}
+            }
+          ],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__delta__new",
+                "description": "a late connector tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          },
+          "result": {
+            "added": [
+              "mcp__delta__new"
+            ],
+            "removed": []
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__delta__new",
+                "description": "a late connector tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__delta__new",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [
+                {
+                  "name": "mcp__delta__new",
+                  "description": "a late connector tool"
+                }
+              ],
+              "removed": []
+            },
+            "updatedAt": 1700000000000
+          }
+        }
+      ]
+    },
+    {
+      "name": "a session without a tool list",
+      "start": {
+        "id": "sess_none",
+        "agent": "worker",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_none",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+          },
+          "result": null,
+          "after": {
+            "id": "sess_none",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_none",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+          },
+          "result": null,
+          "after": {
+            "id": "sess_none",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a session with no connector tool",
+      "start": {
+        "id": "sess_a",
+        "agent": "worker",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ]
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": []
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": []
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a coding Lead has no policy of its own",
+      "start": {
+        "id": "sess_a",
+        "agent": "lead",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__gamma__get",
+            "description": "mcp__gamma__get tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ]
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "lead",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "lead",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "lead",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "lead",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a previous set that is not a list is a new baseline",
+      "start": {
+        "id": "sess_a",
+        "agent": "worker",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__list",
+            "description": "mcp__alpha__list tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__alpha__send",
+            "description": "mcp__alpha__send tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__beta__ping",
+            "description": "mcp__beta__ping tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          },
+          {
+            "name": "mcp__gamma__get",
+            "description": "mcp__gamma__get tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {}
+          }
+        ],
+        "agentConnectorTools": "oops"
+      },
+      "steps": [
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": "oops"
+          },
+          "result": null,
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          }
+        },
+        {
+          "gain": [],
+          "policyAgent": "worker",
+          "agentDisabled": [
+            "mcp__alpha__list",
+            "mcp__alpha__send"
+          ],
+          "projectDisabled": [],
+          "before": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__alpha__list",
+              "mcp__alpha__send",
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ]
+          },
+          "result": {
+            "added": [],
+            "removed": [
+              "mcp__alpha__list",
+              "mcp__alpha__send"
+            ]
+          },
+          "after": {
+            "id": "sess_a",
+            "agent": "worker",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "mcp__alpha__list tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__alpha__send",
+                "description": "mcp__alpha__send tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__beta__ping",
+                "description": "mcp__beta__ping tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              },
+              {
+                "name": "mcp__gamma__get",
+                "description": "mcp__gamma__get tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {}
+              }
+            ],
+            "agentConnectorTools": [
+              "mcp__beta__ping",
+              "mcp__gamma__get"
+            ],
+            "deferredToolDeltaRevision": 1,
+            "pendingDeferredToolDelta": {
+              "version": 1,
+              "type": "deferred_tools_delta",
+              "revision": 1,
+              "added": [],
+              "removed": [
+                "mcp__alpha__list",
+                "mcp__alpha__send"
+              ]
+            },
+            "updatedAt": 1700000000000
+          }
+        }
+      ]
+    }
+  ]
+}

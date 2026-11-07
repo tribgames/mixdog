@@ -26,6 +26,9 @@ pub trait CorePort: Send + Sync {
     fn cancel_running(&self, running: &[Running]);
     /// The user's `release{pid}` decision on an undecidable prior owner.
     fn release_decision(&self, pid: u32);
+    /// The release begins, before its first step: `reason` is the text Node's `shutdown(reason)` carries for this stop (`daemon.mjs:272`), which the stop steps
+    /// hand to the agent dispatch's abort (`agent-dispatch.mjs:60`). Default: nothing to tell.
+    fn release_started(&self, _reason: &str) {}
     /// Every session actor `Clean` or reported `storage_indeterminate`.
     fn final_barriers(&self);
     fn close_connections(&self);

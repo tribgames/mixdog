@@ -629,6 +629,55 @@ async fn survivors_that_resist_the_kill_keep_the_task_pending() {
     assert_eq!(out, "status: cancel-pending\ntask_id: task-s1\nthe kill was sent and the command itself exited, but processes it started are still alive. They keep being terminated and stay tracked (the folder stays held) until they are gone; re-run task cancel or task read to check again.");
 }
 
+/// `shell` and `task`, built through their runtime constructors, are the definitions Node sends
+/// (`fixtures/tool-defs/definitions.json`): the shell text of the runtime's shell kind, with and
+/// without background tasks, and the task tool for the Lead and for a delegated agent.
+#[test]
+fn the_shell_and_task_tools_are_nodes_definitions() {
+    let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/tool-defs/definitions.json")).expect("the golden is JSON");
+    let variants = golden["variants"].as_array().expect("variants");
+    let same = |got: &ToolSpec, node: &serde_json::Value, what: &str| {
+        assert_eq!(&got.definition(), node, "{what}");
+        assert_eq!(got.annotations.to_json().to_string(), node["annotations"].to_string(), "{what} annotations");
+    };
+    let rig = rig();
+    for powershell in [false, true] {
+        for background in [true, false] {
+            let mut config = rig.runtime.config.clone_for_test();
+            config.windows = powershell;
+            let shell = ShellTool::with_background(ExecRuntime::new(config), background);
+            let kind = if powershell { "powershell" } else { "posix" };
+            let row = variants
+                .iter()
+                .find(|row| row["name"] == "shell" && row["shellKind"] == kind && row["foreground"].as_bool().unwrap_or(false) != background)
+                .expect("a recorded shell");
+            same(shell.spec(), &row["definition"], &format!("shell {kind} background {background}"));
+        }
+    }
+    let task = golden["definitions"].as_array().expect("definitions").iter().find(|def| def["name"] == "task").expect("task");
+    same(rig.task.spec(), task, "task");
+    let agent = variants.iter().find(|row| row["name"] == "task" && row["surface"] == "agent").expect("the agent task");
+    same(rig.task.agent_spec().expect("task has an agent text"), &agent["definition"], "agent task");
+}
+
+/// Node binds the shell text from the kind of the shell it resolves; in every recorded combination of
+/// platform, "system shell" setting and `MIXDOG_SHELL` that kind is the platform's, so the text a
+/// session is sent is the platform's whatever the setting says (and a changed setting changes no text).
+#[test]
+fn the_shell_text_follows_the_platform_for_every_recorded_setting() {
+    let golden: serde_json::Value = serde_json::from_str(include_str!("testdata/shell_choice.json")).expect("the recording is JSON");
+    let tools: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/tool-defs/definitions.json")).expect("the golden is JSON");
+    let text_of = |kind: &str| {
+        tools["variants"].as_array().expect("variants").iter().find(|row| row["name"] == "shell" && row["shellKind"] == kind && row["foreground"].is_null()).expect("a shell")["definition"].clone()
+    };
+    for case in golden["cases"].as_array().expect("cases") {
+        let kind = case["shellType"].as_str().expect("kind");
+        let windows = case["platform"] == "win32";
+        let spec = super::shell::shell_spec(super::shell::ShellKind::of(windows), true);
+        assert_eq!(spec.definition(), text_of(kind), "{case}");
+    }
+}
+
 /// Legacy programs write in the OEM code page; on a CP949 host the bytes are decoded, not garbled.
 #[tokio::test]
 async fn cp949_output_is_decoded_with_the_oem_page() {

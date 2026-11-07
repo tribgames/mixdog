@@ -409,7 +409,24 @@ impl SessionWorkspaces {
     pub async fn admit_turn(&self, session: &str, cwd: Cwd, cancel: &CancellationToken) -> Result<TurnGuard, ScmFailure> {
         self.inner.gate.admit_turn(session, cwd, &*self.inner, cancel).await
     }
+}
 
+/// `admitTurnWorkspace({ signal })` (`turn-prepare.mjs:100`): a turn waits while its session's
+/// workspace changes or another session holds the checkout its cwd lies in; the turn is then
+/// registered until the returned guard drops, when the turn settles (`releaseWorkspace`).
+#[async_trait]
+pub trait TurnAdmission: Send + Sync {
+    async fn admit(&self, thread: &str, cwd: Cwd, cancel: &CancellationToken) -> Result<Box<dyn Send>, ScmFailure>;
+}
+
+#[async_trait]
+impl TurnAdmission for SessionWorkspaces {
+    async fn admit(&self, thread: &str, cwd: Cwd, cancel: &CancellationToken) -> Result<Box<dyn Send>, ScmFailure> {
+        Ok(Box::new(self.admit_turn(thread, cwd, cancel).await?))
+    }
+}
+
+impl SessionWorkspaces {
     /// The admission of project-branch merges and folder cleanups; `actor` is the session
     /// acting on its own checkout, whose own turn and workers its caller already checked.
     pub fn folder_admission(&self, actor: Option<&str>) -> Arc<dyn FolderAdmission> {

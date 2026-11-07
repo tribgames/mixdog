@@ -280,7 +280,7 @@ pub fn normalize_attachments(value: Option<&Value>) -> Vec<Value> {
 }
 
 /// `artifactRecords`: the message attachment records of the stored files.
-fn artifact_records(files: &[Value]) -> Vec<Value> {
+pub fn artifact_records(files: &[Value]) -> Vec<Value> {
     let stored: Vec<Value> = files
         .iter()
         .filter(|file| truthy_of(file.get("id")))

@@ -1,78 +1,78 @@
 {
- "src": "builtin-tools",
- "name": "read",
- "annotations": {
+  "name": "read",
   "title": "Read",
-  "readOnlyHint": true,
-  "destructiveHint": false,
-  "idempotentHint": true,
-  "openWorldHint": false,
-  "compressible": false
- },
- "schema": {
-  "type": "object",
-  "properties": {
-   "file_path": {
-    "anyOf": [
-     {
-      "type": "string"
-     },
-     {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 10,
-      "items": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "object",
-         "properties": {
-          "file_path": {
-           "type": "string"
-          },
-          "offset": {
-           "type": "integer",
-           "minimum": 1
-          },
-          "limit": {
-           "type": "integer",
-           "minimum": 1,
-           "maximum": 100000
-          }
-         },
-         "required": [
-          "file_path"
-         ],
-         "additionalProperties": false
-        }
-       ]
-      }
-     }
-    ],
-    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
-   },
-   "offset": {
-    "type": "integer",
-    "minimum": 1,
-    "description": "1-based start line; default 1; batch default."
-   },
-   "limit": {
-    "type": "integer",
-    "minimum": 1,
-    "maximum": 100000,
-    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
-   },
-   "pages": {
-    "type": "string",
-    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
-   }
+  "annotations": {
+    "title": "Read",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "compressible": false
   },
-  "required": [
-   "file_path"
-  ],
-  "additionalProperties": false
- },
- "descLen": 462
+  "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "file_path": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "file_path": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100000
+                    }
+                  },
+                  "required": [
+                    "file_path"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        ],
+        "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "1-based start line; default 1; batch default."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000,
+        "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+      },
+      "pages": {
+        "type": "string",
+        "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+      }
+    },
+    "required": [
+      "file_path"
+    ],
+    "additionalProperties": false
+  }
 }

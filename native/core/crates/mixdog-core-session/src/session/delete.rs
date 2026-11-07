@@ -71,6 +71,10 @@ pub struct PurgeHooks {
     pub compaction_archive: Arc<dyn PurgeHook>,
     /// After the hooks: `removeSessionScratchDir` (a locked file never fails the delete).
     pub scratch_dir: Arc<dyn PurgeHook>,
+    /// Last, once the store's delete is done: the desktop's `forgetDeletedSession`
+    /// `sessionRetention.forget(id)` (`session-host-lifecycle.ts:573`), which Node runs after the
+    /// daemon answered the delete.
+    pub retention: Arc<dyn PurgeHook>,
 }
 
 impl PurgeHooks {
@@ -94,7 +98,7 @@ impl PurgeHooks {
             Box::pin(std::future::ready(()))
         })
         .await;
-        for hook in [&self.worker_turns, &self.agent_status, &self.compaction_archive, &self.scratch_dir] {
+        for hook in [&self.worker_turns, &self.agent_status, &self.compaction_archive, &self.scratch_dir, &self.retention] {
             guarded(|| hook.purge(id, cwds)).await;
         }
     }

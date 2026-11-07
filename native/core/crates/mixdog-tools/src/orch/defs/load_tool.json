@@ -1,5 +1,6 @@
 {
   "name": "load_tool",
+  "title": "load_tool",
   "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
   "annotations": {
     "title": "load_tool",

@@ -28,7 +28,7 @@ pub struct SurfaceInputs<'a> {
 }
 
 /// `workflowDisallowsAgentTool(workflow, { agentMode })`.
-fn workflow_disallows_agent_tool(workflow: &Value, agent_mode: bool) -> bool {
+pub(crate) fn workflow_disallows_agent_tool(workflow: &Value, agent_mode: bool) -> bool {
     if !workflow.is_object() {
         return false;
     }
@@ -75,6 +75,8 @@ pub fn model_standalone_tools(standalone: &[Arc<dyn Tool>], agent_tools: &HashSe
     let denied: HashSet<&str> = inputs.feature_denied.iter().map(String::as_str).collect();
     standalone
         .iter()
+        // `public: false` tools are dispatch targets, never part of the model-facing set.
+        .filter(|tool| tool.spec().public)
         .filter(|tool| allowed_by_profile(tool))
         .filter(|tool| !hide_agent_tool || !agent_tools.contains(name(tool).as_str()))
         .filter(|tool| !agent_owned || !AGENT_DENIED_TOOLS.contains(&name(tool).to_lowercase().as_str()))

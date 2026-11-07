@@ -119,6 +119,7 @@ mod tests {
 
     use mixdog_core_api::call::CallContext;
     use mixdog_core_api::call::CoreRequest;
+    use mixdog_core_api::call::Reply;
     use mixdog_core_api::ids::Method;
     use mixdog_core_api::mock::MockLimits;
     use mixdog_core_api::mock::MockScopedFeeds;
@@ -169,20 +170,24 @@ mod tests {
         // Connection 5 opens a tab, focuses it (so owns its size) and reports a screen set; connection 6 only watches.
         let cwd = std::env::temp_dir();
         let ensure = json!({ "tabId": "tab_close", "options": { "cwd": cwd.to_string_lossy() } });
-        terminal.call(request("terminal/ensure", ensure, 5)).await.unwrap();
-        terminal.call(request("terminal/focus", json!({ "tabId": "tab_close" }), 5)).await.unwrap();
+        // `ensure` names the tab itself; the id in the request is only a hint, so every later call uses the answered one.
+        let Reply::Value(ensured) = terminal.call(request("terminal/ensure", ensure, 5)).await.unwrap() else {
+            panic!("terminal/ensure answers with a value");
+        };
+        let tab = ensured["id"].as_str().expect("the ensured tab has an id").to_owned();
+        terminal.call(request("terminal/focus", json!({ "tabId": tab }), 5)).await.unwrap();
         screen.notify(Method("ui/screenSessions/changed"), json!({ "sessionIds": ["s1", "s2"] }), ConnectionId(5));
-        let owner = terminal.tabs().size_owner("tab_close").expect("the focused tab has a size owner");
+        let owner = terminal.tabs().size_owner(&tab).expect("the focused tab has a size owner");
         assert_eq!(owner.owner, "5");
         assert!(screen.shows("s1") && screen.shows("s2"));
 
         // Another connection closing releases nothing of connection 5's.
         owners.connection_closed(ConnectionId(6));
-        assert_eq!(terminal.tabs().size_owner("tab_close").map(|o| o.owner), Some("5".to_owned()));
+        assert_eq!(terminal.tabs().size_owner(&tab).map(|o| o.owner), Some("5".to_owned()));
         assert!(screen.shows("s1"));
 
         owners.connection_closed(ConnectionId(5));
-        assert_eq!(terminal.tabs().size_owner("tab_close").map(|o| o.owner), None, "the closed connection no longer owns the tab's size");
+        assert_eq!(terminal.tabs().size_owner(&tab).map(|o| o.owner), None, "the closed connection no longer owns the tab's size");
         assert!(!screen.shows("s1") && !screen.shows("s2"), "a closed UI shows no session");
         assert_eq!(*recorder.0.lock().unwrap(), vec![ConnectionId(6), ConnectionId(5)], "every owner is told, once per close");
         terminal.tabs().dispose_all();

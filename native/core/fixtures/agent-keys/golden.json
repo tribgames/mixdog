@@ -1,0 +1,233 @@
+{
+  "scenarios": [
+    {
+      "name": "nothing set",
+      "env": {},
+      "stored": {},
+      "answers": [
+        {
+          "provider": "gemini",
+          "has": false,
+          "get": null
+        },
+        {
+          "provider": "xai",
+          "has": false,
+          "get": null
+        },
+        {
+          "provider": "openrouter",
+          "has": false,
+          "get": null
+        }
+      ]
+    },
+    {
+      "name": "the standard variable",
+      "env": {
+        "GEMINI_API_KEY": "g-env"
+      },
+      "stored": {},
+      "answers": [
+        {
+          "provider": "gemini",
+          "has": true,
+          "get": "g-env"
+        },
+        {
+          "provider": "xai",
+          "has": false,
+          "get": null
+        }
+      ]
+    },
+    {
+      "name": "the Mixdog variable",
+      "env": {
+        "MIXDOG_AGENT_GEMINI_APIKEY": "g-mixdog"
+      },
+      "stored": {},
+      "answers": [
+        {
+          "provider": "gemini",
+          "has": true,
+          "get": "g-mixdog"
+        }
+      ]
+    },
+    {
+      "name": "the standard variable beats the Mixdog one",
+      "env": {
+        "GEMINI_API_KEY": "std",
+        "MIXDOG_AGENT_GEMINI_APIKEY": "mixdog"
+      },
+      "stored": {},
+      "answers": [
+        {
+          "provider": "gemini",
+          "has": true,
+          "get": "std"
+        }
+      ]
+    },
+    {
+      "name": "an alias",
+      "env": {
+        "GROK_API_KEY": "alias"
+      },
+      "stored": {},
+      "answers": [
+        {
+          "provider": "xai",
+          "has": true,
+          "get": "alias"
+        }
+      ]
+    },
+    {
+      "name": "the standard variable beats the alias",
+      "env": {
+        "XAI_API_KEY": "std",
+        "GROK_API_KEY": "alias"
+      },
+      "stored": {},
+      "answers": [
+        {
+          "provider": "xai",
+          "has": true,
+          "get": "std"
+        }
+      ]
+    },
+    {
+      "name": "an empty variable is unset",
+      "env": {
+        "GEMINI_API_KEY": ""
+      },
+      "stored": {},
+      "answers": [
+        {
+          "provider": "gemini",
+          "has": false,
+          "get": null
+        }
+      ]
+    },
+    {
+      "name": "a stored key",
+      "env": {},
+      "stored": {
+        "agent.gemini.apiKey": "g-stored"
+      },
+      "answers": [
+        {
+          "provider": "gemini",
+          "has": true,
+          "get": "g-stored"
+        },
+        {
+          "provider": "xai",
+          "has": false,
+          "get": null
+        }
+      ]
+    },
+    {
+      "name": "an empty stored key",
+      "env": {},
+      "stored": {
+        "agent.gemini.apiKey": ""
+      },
+      "answers": [
+        {
+          "provider": "gemini",
+          "has": false,
+          "get": null
+        }
+      ]
+    },
+    {
+      "name": "the environment beats a stored key",
+      "env": {
+        "GEMINI_API_KEY": "g-env"
+      },
+      "stored": {
+        "agent.gemini.apiKey": "g-stored"
+      },
+      "answers": [
+        {
+          "provider": "gemini",
+          "has": true,
+          "get": "g-env"
+        }
+      ]
+    },
+    {
+      "name": "a provider with a space or dot",
+      "env": {
+        "MIXDOG_AGENT_NANO_GPT_APIKEY": "n"
+      },
+      "stored": {
+        "agent.nano gpt.apiKey": "s"
+      },
+      "answers": [
+        {
+          "provider": "nano gpt",
+          "has": true,
+          "get": "n"
+        },
+        {
+          "provider": "nano.gpt",
+          "has": true,
+          "get": "n"
+        }
+      ]
+    },
+    {
+      "name": "a blank or padded id",
+      "env": {
+        "GEMINI_API_KEY": "g-env"
+      },
+      "stored": {},
+      "answers": [
+        {
+          "provider": "",
+          "has": false,
+          "get": null
+        },
+        {
+          "provider": "  ",
+          "has": false,
+          "get": null
+        },
+        {
+          "provider": " gemini ",
+          "has": true,
+          "get": "g-env"
+        }
+      ]
+    },
+    {
+      "name": "model proxy client mode holds no credentials",
+      "env": {
+        "MIXDOG_MODEL_PROXY": "client",
+        "GEMINI_API_KEY": "g-env"
+      },
+      "stored": {
+        "agent.gemini.apiKey": "g-stored"
+      },
+      "answers": [
+        {
+          "provider": "gemini",
+          "has": false,
+          "get": null
+        },
+        {
+          "provider": "xai",
+          "has": false,
+          "get": null
+        }
+      ]
+    }
+  ]
+}

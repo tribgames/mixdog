@@ -1,0 +1,703 @@
+{
+  "domain": "voice-progress-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-voice-progress.mjs",
+  "cases": [
+    {
+      "name": "throttle-edges",
+      "events": {
+        "whisper": [
+          {
+            "phase": "runtime",
+            "at": 0,
+            "downloaded": 1,
+            "total": 100
+          },
+          {
+            "phase": "runtime",
+            "at": 499,
+            "downloaded": 2,
+            "total": 100
+          },
+          {
+            "phase": "runtime",
+            "at": 500,
+            "downloaded": 3,
+            "total": 100
+          },
+          {
+            "phase": "runtime",
+            "at": 999,
+            "downloaded": 4,
+            "total": 100
+          },
+          {
+            "phase": "runtime",
+            "at": 1000,
+            "downloaded": 5,
+            "total": 100
+          },
+          {
+            "phase": "extra",
+            "at": 1400,
+            "downloaded": 6,
+            "total": 100
+          },
+          {
+            "phase": "extra",
+            "at": 1500,
+            "downloaded": 7,
+            "total": 100
+          }
+        ],
+        "model": [
+          {
+            "phase": "model",
+            "at": 1501,
+            "downloaded": 8,
+            "total": 100
+          },
+          {
+            "phase": "model",
+            "at": 2000,
+            "downloaded": 9,
+            "total": 100
+          },
+          {
+            "phase": "model",
+            "at": 2499,
+            "downloaded": 10,
+            "total": 100
+          },
+          {
+            "phase": "model",
+            "at": 2500,
+            "downloaded": 11,
+            "total": 100
+          }
+        ],
+        "ffmpeg": [
+          {
+            "phase": "ffmpeg",
+            "at": 2501,
+            "downloaded": 12,
+            "total": 100
+          },
+          {
+            "phase": "ffmpeg",
+            "at": 3000,
+            "downloaded": 13,
+            "total": 100
+          },
+          {
+            "phase": "ffmpeg",
+            "at": 3001,
+            "downloaded": 100,
+            "total": 100
+          }
+        ]
+      },
+      "fail": null,
+      "incomplete": false,
+      "offDuring": false,
+      "writeFail": false,
+      "hints": [
+        [
+          "⬇ Voice whisper runtime ░░░░░░ 1%",
+          "info",
+          1
+        ],
+        [
+          "⬇ Voice whisper runtime ░░░░░░ 3%",
+          "info",
+          3
+        ],
+        [
+          "⬇ Voice whisper runtime ░░░░░░ 5%",
+          "info",
+          5
+        ],
+        [
+          "⬇ Voice extra data ░░░░░░ 7%",
+          "info",
+          7
+        ],
+        [
+          "⬇ Voice model ▓░░░░░ 9%",
+          "info",
+          9
+        ],
+        [
+          "⬇ Voice model ▓░░░░░ 11%",
+          "info",
+          11
+        ],
+        [
+          "⬇ Voice ffmpeg ▓░░░░░ 13%",
+          "info",
+          13
+        ],
+        [
+          ""
+        ]
+      ],
+      "result": true
+    },
+    {
+      "name": "rounding",
+      "events": {
+        "whisper": [
+          {
+            "phase": "runtime",
+            "at": 0,
+            "downloaded": 1,
+            "total": 8
+          },
+          {
+            "phase": "runtime",
+            "at": 500,
+            "downloaded": 3,
+            "total": 8
+          },
+          {
+            "phase": "runtime",
+            "at": 1000,
+            "downloaded": 100,
+            "total": 1200
+          },
+          {
+            "phase": "runtime",
+            "at": 1500,
+            "downloaded": 1,
+            "total": 12
+          },
+          {
+            "phase": "runtime",
+            "at": 2000,
+            "downloaded": 5,
+            "total": 12
+          }
+        ],
+        "model": [
+          {
+            "phase": "model",
+            "at": 2500,
+            "downloaded": 1,
+            "total": 4
+          },
+          {
+            "phase": "model",
+            "at": 3000,
+            "downloaded": 3,
+            "total": 4
+          },
+          {
+            "phase": "model",
+            "at": 3500,
+            "downloaded": 1,
+            "total": 2
+          },
+          {
+            "phase": "model",
+            "at": 4000,
+            "downloaded": 1,
+            "total": 3
+          },
+          {
+            "phase": "model",
+            "at": 4500,
+            "downloaded": 2,
+            "total": 3
+          }
+        ],
+        "ffmpeg": [
+          {
+            "phase": "ffmpeg",
+            "at": 5000,
+            "downloaded": 7,
+            "total": 40
+          },
+          {
+            "phase": "ffmpeg",
+            "at": 5500,
+            "downloaded": 39,
+            "total": 40
+          },
+          {
+            "phase": "ffmpeg",
+            "at": 6000,
+            "downloaded": 0,
+            "total": 40
+          }
+        ]
+      },
+      "fail": null,
+      "incomplete": false,
+      "offDuring": false,
+      "writeFail": false,
+      "hints": [
+        [
+          "⬇ Voice whisper runtime ▓░░░░░ 13%",
+          "info",
+          13
+        ],
+        [
+          "⬇ Voice whisper runtime ▓▓░░░░ 38%",
+          "info",
+          38
+        ],
+        [
+          "⬇ Voice whisper runtime ▓░░░░░ 8%",
+          "info",
+          8
+        ],
+        [
+          "⬇ Voice whisper runtime ▓░░░░░ 8%",
+          "info",
+          8
+        ],
+        [
+          "⬇ Voice whisper runtime ▓▓▓░░░ 42%",
+          "info",
+          42
+        ],
+        [
+          "⬇ Voice model ▓▓░░░░ 25%",
+          "info",
+          25
+        ],
+        [
+          "⬇ Voice model ▓▓▓▓▓░ 75%",
+          "info",
+          75
+        ],
+        [
+          "⬇ Voice model ▓▓▓░░░ 50%",
+          "info",
+          50
+        ],
+        [
+          "⬇ Voice model ▓▓░░░░ 33%",
+          "info",
+          33
+        ],
+        [
+          "⬇ Voice model ▓▓▓▓░░ 67%",
+          "info",
+          67
+        ],
+        [
+          "⬇ Voice ffmpeg ▓░░░░░ 18%",
+          "info",
+          18
+        ],
+        [
+          "⬇ Voice ffmpeg ▓▓▓▓▓▓ 98%",
+          "info",
+          98
+        ],
+        [
+          "⬇ Voice ffmpeg ░░░░░░ 0%",
+          "info",
+          0
+        ],
+        [
+          ""
+        ]
+      ],
+      "result": true
+    },
+    {
+      "name": "unknown-total-and-clamps",
+      "events": {
+        "whisper": [
+          {
+            "phase": "runtime",
+            "at": 0,
+            "downloaded": 12345,
+            "total": 0
+          },
+          {
+            "phase": "runtime",
+            "at": 500,
+            "downloaded": 5,
+            "total": 0
+          },
+          {
+            "phase": "extra",
+            "at": 1000,
+            "downloaded": 0,
+            "total": 0
+          }
+        ],
+        "model": [
+          {
+            "phase": "model",
+            "at": 1500,
+            "downloaded": 300,
+            "total": 200
+          },
+          {
+            "phase": "model",
+            "at": 2000,
+            "downloaded": 0,
+            "total": 200
+          }
+        ],
+        "ffmpeg": [
+          {
+            "phase": "ffmpeg",
+            "at": 2500,
+            "downloaded": 200,
+            "total": 200
+          },
+          {
+            "phase": "other",
+            "at": 3000,
+            "downloaded": 50,
+            "total": 100
+          }
+        ]
+      },
+      "fail": null,
+      "incomplete": false,
+      "offDuring": false,
+      "writeFail": false,
+      "hints": [
+        [
+          "⬇ Voice whisper runtime …",
+          "info",
+          null
+        ],
+        [
+          "⬇ Voice whisper runtime …",
+          "info",
+          null
+        ],
+        [
+          "⬇ Voice extra data …",
+          "info",
+          null
+        ],
+        [
+          "⬇ Voice model ▓▓▓▓▓▓ 100%",
+          "info",
+          100
+        ],
+        [
+          "⬇ Voice model ░░░░░░ 0%",
+          "info",
+          0
+        ],
+        [
+          "⬇ Voice ffmpeg ▓▓▓▓▓▓ 100%",
+          "info",
+          100
+        ],
+        [
+          "⬇ Voice whisper runtime ▓▓▓░░░ 50%",
+          "info",
+          50
+        ],
+        [
+          ""
+        ]
+      ],
+      "result": true
+    },
+    {
+      "name": "install-fails",
+      "events": {
+        "whisper": [
+          {
+            "phase": "runtime",
+            "at": 0,
+            "downloaded": 50,
+            "total": 100
+          }
+        ],
+        "model": [
+          {
+            "phase": "model",
+            "at": 600,
+            "downloaded": 10,
+            "total": 100
+          }
+        ],
+        "ffmpeg": [
+          {
+            "phase": "ffmpeg",
+            "at": 1200,
+            "downloaded": 10,
+            "total": 100
+          }
+        ]
+      },
+      "fail": "model",
+      "incomplete": false,
+      "offDuring": false,
+      "writeFail": false,
+      "hints": [
+        [
+          "⬇ Voice whisper runtime ▓▓▓░░░ 50%",
+          "info",
+          50
+        ],
+        [
+          "⬇ Voice model ▓░░░░░ 10%",
+          "info",
+          10
+        ],
+        [
+          ""
+        ]
+      ],
+      "result": null
+    },
+    {
+      "name": "install-incomplete",
+      "events": {
+        "whisper": [
+          {
+            "phase": "runtime",
+            "at": 0,
+            "downloaded": 50,
+            "total": 100
+          }
+        ],
+        "model": [],
+        "ffmpeg": [
+          {
+            "phase": "ffmpeg",
+            "at": 600,
+            "downloaded": 100,
+            "total": 100
+          }
+        ]
+      },
+      "fail": null,
+      "incomplete": true,
+      "offDuring": false,
+      "writeFail": false,
+      "hints": [
+        [
+          "⬇ Voice whisper runtime ▓▓▓░░░ 50%",
+          "info",
+          50
+        ],
+        [
+          "⬇ Voice ffmpeg ▓▓▓▓▓▓ 100%",
+          "info",
+          100
+        ],
+        [
+          ""
+        ]
+      ],
+      "result": null
+    },
+    {
+      "name": "turned-off-during-install",
+      "events": {
+        "whisper": [
+          {
+            "phase": "runtime",
+            "at": 0,
+            "downloaded": 50,
+            "total": 100
+          }
+        ],
+        "model": [
+          {
+            "phase": "model",
+            "at": 700,
+            "downloaded": 20,
+            "total": 100
+          }
+        ],
+        "ffmpeg": [
+          {
+            "phase": "ffmpeg",
+            "at": 1400,
+            "downloaded": 30,
+            "total": 100
+          }
+        ]
+      },
+      "fail": null,
+      "incomplete": false,
+      "offDuring": true,
+      "writeFail": false,
+      "hints": [
+        [
+          "⬇ Voice whisper runtime ▓▓▓░░░ 50%",
+          "info",
+          50
+        ],
+        [
+          "⬇ Voice model ▓░░░░░ 20%",
+          "info",
+          20
+        ],
+        [
+          "⬇ Voice ffmpeg ▓▓░░░░ 30%",
+          "info",
+          30
+        ],
+        [
+          ""
+        ]
+      ],
+      "result": false
+    },
+    {
+      "name": "config-write-fails",
+      "events": {
+        "whisper": [
+          {
+            "phase": "runtime",
+            "at": 0,
+            "downloaded": 50,
+            "total": 100
+          }
+        ],
+        "model": [],
+        "ffmpeg": []
+      },
+      "fail": null,
+      "incomplete": false,
+      "offDuring": false,
+      "writeFail": true,
+      "hints": [
+        [
+          "⬇ Voice whisper runtime ▓▓▓░░░ 50%",
+          "info",
+          50
+        ],
+        [
+          ""
+        ]
+      ],
+      "result": null
+    },
+    {
+      "name": "no-progress-events",
+      "events": {
+        "whisper": [],
+        "model": [],
+        "ffmpeg": []
+      },
+      "fail": null,
+      "incomplete": false,
+      "offDuring": false,
+      "writeFail": false,
+      "hints": [
+        [
+          ""
+        ]
+      ],
+      "result": true
+    },
+    {
+      "name": "setup-path-without-hint-line",
+      "events": {
+        "whisper": [
+          {
+            "phase": "runtime",
+            "at": 0,
+            "downloaded": 1,
+            "total": 100
+          },
+          {
+            "phase": "runtime",
+            "at": 499,
+            "downloaded": 2,
+            "total": 100
+          },
+          {
+            "phase": "runtime",
+            "at": 500,
+            "downloaded": 3,
+            "total": 100
+          },
+          {
+            "phase": "runtime",
+            "at": 999,
+            "downloaded": 4,
+            "total": 100
+          },
+          {
+            "phase": "runtime",
+            "at": 1000,
+            "downloaded": 5,
+            "total": 100
+          },
+          {
+            "phase": "extra",
+            "at": 1400,
+            "downloaded": 6,
+            "total": 100
+          },
+          {
+            "phase": "extra",
+            "at": 1500,
+            "downloaded": 7,
+            "total": 100
+          }
+        ],
+        "model": [
+          {
+            "phase": "model",
+            "at": 1501,
+            "downloaded": 8,
+            "total": 100
+          },
+          {
+            "phase": "model",
+            "at": 2000,
+            "downloaded": 9,
+            "total": 100
+          },
+          {
+            "phase": "model",
+            "at": 2499,
+            "downloaded": 10,
+            "total": 100
+          },
+          {
+            "phase": "model",
+            "at": 2500,
+            "downloaded": 11,
+            "total": 100
+          }
+        ],
+        "ffmpeg": [
+          {
+            "phase": "ffmpeg",
+            "at": 2501,
+            "downloaded": 12,
+            "total": 100
+          },
+          {
+            "phase": "ffmpeg",
+            "at": 3000,
+            "downloaded": 13,
+            "total": 100
+          },
+          {
+            "phase": "ffmpeg",
+            "at": 3001,
+            "downloaded": 100,
+            "total": 100
+          }
+        ]
+      },
+      "fail": null,
+      "incomplete": false,
+      "offDuring": false,
+      "writeFail": false,
+      "hints": [],
+      "noticeCount": true,
+      "result": true
+    }
+  ]
+}

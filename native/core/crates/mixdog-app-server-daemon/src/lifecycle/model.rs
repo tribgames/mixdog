@@ -142,6 +142,26 @@ impl ReleaseCause {
             _ => unreachable!("unit enum variants serialize to strings"),
         }
     }
+
+    /// The reason Node's `shutdown(reason)` carries (`daemon.mjs:272`), which `sessionRuntimeHost.close(reason)` (`:316`) hands to
+    /// `agent-dispatch.mjs:60` `abortAll(reason)` as the error every aborted run fails with. A signal's name (`SIGTERM`, `SIGINT`,
+    /// `SIGHUP`, `SIGBREAK`, `:1298-1308`) is noted by the trigger itself (`Lifecycle::note_trigger`); these are the texts of the causes
+    /// that have a Node counterpart. Rust's single `NoClients` trigger is Node's self-shutdown of `maybeSelfShutdown` (`:506`), whose
+    /// reasons are 'no live session clients' (`:1245`), 'no live channel clients' (`:917`), 'remote clients changed' (`:1159`),
+    /// 'memory agent activity changed' (`:1065`) and the rechecks 'service calls settled' (`:543`) and 'busy service work settled' (`:556`);
+    /// it fires when the last client is gone, which is `:1245`. A replacement (`:589`) reads `daemon replacement by revision/build <rev>/<ver>`;
+    /// the stop request carries neither number, so the text stops at 'daemon replacement'. A user's stop or quit is the parent's IPC
+    /// message (`:1311`, 'IPC shutdown'). A lost owner lock is `fenceDaemon` (`:655`, 'owner lock file <path> was deleted or replaced';
+    /// the path is not part of the fence), and the other fences have no Node counterpart: they keep their own name.
+    pub fn node_text(self) -> String {
+        match self {
+            ReleaseCause::Stop(StopReason::NoClients) => "no live session clients".to_owned(),
+            ReleaseCause::Stop(StopReason::Update | StopReason::Restart | StopReason::FastDeploy | StopReason::SshReplace) => "daemon replacement".to_owned(),
+            ReleaseCause::Stop(StopReason::Quit | StopReason::UserStop) => "IPC shutdown".to_owned(),
+            ReleaseCause::Fenced(FenceReason::LockFileReplaced) => "owner lock file was deleted or replaced".to_owned(),
+            ReleaseCause::Fenced(_) => self.text(),
+        }
+    }
 }
 
 /// Something the machine decided that happens outside it, in order.

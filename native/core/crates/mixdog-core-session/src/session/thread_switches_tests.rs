@@ -61,6 +61,7 @@ impl WorkflowSurface for Table {
             pack_context: text("packContext"),
             orchestration_context: text("orchestrationContext"),
             agent_catalog_context: text("agentCatalogContext"),
+            contact_catalog_context: String::new(),
         })
     }
 

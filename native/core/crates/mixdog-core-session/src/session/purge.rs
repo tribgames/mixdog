@@ -70,6 +70,8 @@ pub struct PurgeOwners {
     pub worker_turns: WorkerTurns,
     /// The worker index (`registry.forgetDeletedSession`).
     pub agents: Arc<AgentRegistry>,
+    /// The desktop's auto-retention record (`sessionRetention.forget`).
+    pub retention: Arc<dyn super::thread_settings::ArchiveRetention>,
 }
 
 /// `job` on the maintenance lane; resolves once it has run (Node's hooks write synchronously).
@@ -151,7 +153,7 @@ fn remove_all(lane: &InLane<MaintenanceIo>, targets: &[PathBuf]) {
 impl PurgeHooks {
     /// The hooks bound to `owners`, in a booted 1.4.5 daemon's order.
     pub fn new(owners: PurgeOwners) -> Self {
-        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, ingest_offsets, providers, worker_turns, agents } = owners;
+        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, ingest_offsets, providers, worker_turns, agents, retention } = owners;
         let lane = maintenance;
         let data = data_dir.clone();
         let transcript_export = hook(move |id, _| {
@@ -249,6 +251,15 @@ impl PurgeHooks {
             let legacy = data_dir.join("scratch").join(id);
             on_lane(lane, move |lane| remove_all(lane, &[dir, legacy]))
         });
+        let retention = hook(move |id, _| {
+            let (retention, id) = (retention.clone(), id.to_owned());
+            Box::pin(async move {
+                // A record that cannot be written never fails the delete (Node's `.catch` warns).
+                if let Err(error) = retention.forget(&id).await {
+                    tracing::warn!(%error, session = %id, "[mixdog-session] Could not forget the retention record");
+                }
+            })
+        });
         Self {
             transcript_export,
             tool_result_offload,
@@ -261,6 +272,7 @@ impl PurgeHooks {
             agent_status,
             compaction_archive,
             scratch_dir,
+            retention,
         }
     }
 }

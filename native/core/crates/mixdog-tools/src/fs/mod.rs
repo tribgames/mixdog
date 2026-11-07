@@ -38,6 +38,11 @@ pub fn write_failure_message(error: &mixdog_core_api::domain::fs::FsError, targe
     os_error::write_message(error, target)
 }
 
+/// `err.message` of a failed `readFileSync(target)`: `ENOENT: no such file or directory, open '<target>'`.
+pub fn read_failure_message(error: &mixdog_core_api::domain::fs::FsError, target: &std::path::Path) -> String {
+    os_error::read_message(error, target)
+}
+
 /// The key a path has in the [`ReadState`] (the file tools' own key).
 pub fn read_state_key(path: &std::path::Path) -> String {
     common::fwd(path)

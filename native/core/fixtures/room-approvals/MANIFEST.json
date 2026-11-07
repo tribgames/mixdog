@@ -1,0 +1,32 @@
+{
+  "cases": 13,
+  "command": "node benchmarks/rust-core/recorders/record-room-approvals.mjs --tree <tree>",
+  "decorations": 4,
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 38190,
+      "path": "golden.json",
+      "sha256": "c7725ff38d47375b2f89bb99f3f99ddff82086fcb2f1850e76d5db23b7528bf3"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "a3f8c1a8f69258fb6ab421f499e3eb5a2f433b7f",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 9248
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-room-approvals.mjs",
+  "set": "room-approvals",
+  "totalBytes": 38190
+}

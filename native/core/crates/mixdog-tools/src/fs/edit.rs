@@ -18,6 +18,7 @@ use mixdog_js::js_trim;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use crate::orch::util::spec_from_def;
 use super::patch_review::committed_edit;
 use super::patch_review::note_edit;
 use super::read_state::FileVersion;
@@ -39,7 +40,7 @@ pub struct EditTool {
 impl EditTool {
     pub fn new() -> Self {
         Self {
-            spec: spec(EDIT_SPEC, "Replace exact text in one file.", false, Some("fs-write")),
+            spec: spec_from_def(EDIT_SPEC, false, &["fs-write"]),
             state: None,
         }
     }

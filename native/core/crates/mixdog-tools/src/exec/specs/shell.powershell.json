@@ -1,0 +1,45 @@
+{
+  "name": "shell",
+  "title": "Shell",
+  "annotations": {
+    "title": "Shell",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "compressible": true
+  },
+  "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit/apply_patch; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "string",
+        "description": "Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\; $PID is reserved."
+      },
+      "cwd": {
+        "type": "string",
+        "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+      },
+      "wait_ms": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 600000,
+        "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+      },
+      "background": {
+        "type": "boolean",
+        "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+      }
+    },
+    "required": [
+      "command"
+    ],
+    "additionalProperties": false
+  }
+}

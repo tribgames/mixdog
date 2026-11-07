@@ -114,6 +114,28 @@ fn base_dir(cwd: &str) -> PathBuf {
     if cwd.is_empty() { std::env::current_dir().unwrap_or_default() } else { PathBuf::from(cwd) }
 }
 
+/// `sessionRoots(session)`: the session's folders (its cwd, project and worktree, as the caller
+/// lists them), each resolved to its real path; an empty, missing or filesystem-root one is left
+/// out, and a folder listed twice counts once. Reads the file system: run it in a lane job.
+pub fn session_roots(candidates: &[String]) -> Vec<PathBuf> {
+    let base = base_dir("");
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for candidate in candidates {
+        if js_trim(candidate).is_empty() {
+            continue;
+        }
+        let Ok(real) = mixdog_workspace::pathguard::canonical(&resolve(&base, candidate)) else { continue };
+        if real.parent().is_none() {
+            continue;
+        }
+        let key = same_platform_path(&real.to_string_lossy());
+        if !roots.iter().any(|root| same_platform_path(&root.to_string_lossy()) == key) {
+            roots.push(real);
+        }
+    }
+    roots
+}
+
 fn within(root: &Path, path: &Path) -> bool {
     let base = same_platform_path(&root.to_string_lossy());
     let target = same_platform_path(&path.to_string_lossy());
@@ -635,6 +657,26 @@ mod tests {
         assert_eq!(mixdog_statefile::read_content(&stored).unwrap().unwrap(), b"hello\n");
         let blobs = BlobStore::new(&data);
         assert!(on_lane(move |lane| store_attachment(&blobs, lane, b"")).is_err());
+    }
+
+    #[test]
+    fn session_roots_are_real_distinct_non_root_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = mixdog_workspace::pathguard::canonical(dir.path()).unwrap();
+        let inner = real.join("inner");
+        let made = inner.clone();
+        on_lane(move |lane| mixdog_statefile::create_private_dir_all(lane, &made).unwrap());
+        let text = |path: &Path| path.to_string_lossy().into_owned();
+        let roots = session_roots(&[
+            String::new(),
+            "  ".into(),
+            text(&real),
+            text(&real.join("inner").join("..")),
+            text(&inner),
+            text(&real.join("missing")),
+            text(real.ancestors().last().unwrap()),
+        ]);
+        assert_eq!(roots, [real, inner]);
     }
 
     #[test]

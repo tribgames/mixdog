@@ -86,6 +86,9 @@ impl CorePort for Recorder {
     fn release_decision(&self, pid: u32) {
         self.note(format!("release_decision:{pid}"));
     }
+    fn release_started(&self, reason: &str) {
+        self.note(format!("release_started:{reason}"));
+    }
     fn final_barriers(&self) {
         self.note("final_barriers");
     }

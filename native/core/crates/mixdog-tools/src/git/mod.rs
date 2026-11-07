@@ -59,12 +59,13 @@ pub use self::worktree::SessionOp;
 pub use self::worktree::SessionWorktrees;
 pub use self::worktree::WorktreeServices;
 
-use crate::code_graph::spec_from;
 use crate::code_graph::text_output;
+use crate::orch::util::spec_from_def;
 
 type Object = Map<String, JsonValue>;
 
 const SPEC: &str = include_str!("specs/git.json");
+const AGENT_SPEC: &str = include_str!("specs/git.agent.json");
 const COMMAND_ARRAY_LIMIT: usize = 10;
 const REPO_FREE_OPERATIONS: [&str; 2] = ["version", "help"];
 const REPO_WIDE_OPERATIONS: [&str; 5] = ["gc", "maintenance", "prune", "prune-packed", "repack"];
@@ -78,6 +79,8 @@ const CREATION_VALUE_FLAGS: [&str; 23] = [
 
 pub struct GitTool {
     spec: ToolSpec,
+    /// What a delegated agent's session is sent: the Lead's worktree operations are not offered.
+    agent_spec: ToolSpec,
     locks: Arc<RepoLocks>,
     worktrees: Option<Arc<WorktreeServices>>,
 }
@@ -92,7 +95,7 @@ impl GitTool {
     /// A tool sharing the engine's per-repository write locks, so a pane's write and the
     /// tool's wait for each other.
     pub fn with_locks(locks: Arc<RepoLocks>) -> Self {
-        Self { spec: spec_from(SPEC, false), locks, worktrees: None }
+        Self { spec: spec_from_def(SPEC, false, &[]), agent_spec: spec_from_def(AGENT_SPEC, false, &[]), locks, worktrees: None }
     }
 
     /// The managed-worktree services: `mixdog-scm`'s manager and the session transitions.
@@ -856,6 +859,10 @@ async fn execute_git_tool(
 impl Tool for GitTool {
     fn spec(&self) -> &ToolSpec {
         &self.spec
+    }
+
+    fn agent_spec(&self) -> Option<&ToolSpec> {
+        Some(&self.agent_spec)
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {

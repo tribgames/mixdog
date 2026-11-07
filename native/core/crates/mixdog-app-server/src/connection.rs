@@ -54,6 +54,8 @@ pub(crate) type HostReply = Result<Value, HostError>;
 /// events, then the answer.
 pub(crate) enum Streamed {
     Event(Value),
+    /// The claimant vouches for the request (`model/proxy/heartbeat`); carries nothing.
+    Alive,
     Done(HostReply),
 }
 
@@ -266,6 +268,14 @@ impl Connection {
     pub(crate) fn host_stream_event(&self, id: &RequestId, event: Value) -> bool {
         match lock(&self.host).pending.as_ref().and_then(|pending| pending.get(id)) {
             Some(Waiter::Stream(sender)) => sender.send(Streamed::Event(event)).is_ok(),
+            _ => false,
+        }
+    }
+
+    /// Tells a pending streamed request its claimant is alive; `false` when none such is pending here.
+    pub(crate) fn host_stream_alive(&self, id: &RequestId) -> bool {
+        match lock(&self.host).pending.as_ref().and_then(|pending| pending.get(id)) {
+            Some(Waiter::Stream(sender)) => sender.send(Streamed::Alive).is_ok(),
             _ => false,
         }
     }

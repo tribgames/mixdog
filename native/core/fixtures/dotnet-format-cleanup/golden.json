@@ -1,0 +1,26 @@
+{
+  "failedCleanup": {
+    "result": {
+      "id": "dotnet-format",
+      "source": "recorded",
+      "filesChecked": 0,
+      "filesChanged": [],
+      "diagnostics": [],
+      "error": "ENOTEMPTY: directory not empty, rmdir '<report>'"
+    },
+    "error": {
+      "code": "ENOTEMPTY",
+      "syscall": "rmdir",
+      "message": "ENOTEMPTY: directory not empty, rmdir '<report>'"
+    }
+  },
+  "withoutFailure": {
+    "result": {
+      "id": "dotnet-format",
+      "source": "recorded",
+      "filesChecked": 1,
+      "filesChanged": [],
+      "diagnostics": []
+    }
+  }
+}

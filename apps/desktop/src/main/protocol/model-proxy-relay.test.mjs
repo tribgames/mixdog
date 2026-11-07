@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { relayModelProxy } from './model-proxy-relay.ts';
 
@@ -12,6 +12,8 @@ function link() {
     emit: (event) => listeners.forEach((listener) => listener(event)),
   };
 }
+
+const sentWithoutBeats = (server) => server.sent.filter(([, method]) => method !== 'model/proxy/heartbeat');
 
 function rig() {
   const server = Object.assign(link(), {
@@ -78,7 +80,7 @@ test('a stopped relay abandons its calls and relays nothing more', async () => {
   calls[0].resolve({ result: { result: 'route', route: null } });
   await settle();
   assert.equal(local.sent.length, 1);
-  assert.deepEqual(server.sent, [], 'an abandoned call is unanswered');
+  assert.deepEqual(sentWithoutBeats(server), [], 'an abandoned call is unanswered');
 });
 
 test('a lost server link stops every call in flight and leaves them unanswered, like the lease of Node', async () => {
@@ -99,14 +101,14 @@ test('a lost server link stops every call in flight and leaves them unanswered, 
   calls[0].resolve({ result: { result: 'route', route: null } });
   calls[1].reject(new Error('cancelled'));
   await settle();
-  assert.deepEqual(server.sent, []);
+  assert.deepEqual(sentWithoutBeats(server), []);
 
   // The server's ids restart on the next link: the new call is its own run and is answered.
   execute(1);
   assert.notEqual(calls[2].params.runId, calls[0].params.runId);
   calls[2].resolve({ result: { result: 'route', route: null } });
   await settle();
-  assert.equal(server.sent.length, 1);
+  assert.equal(sentWithoutBeats(server).length, 1);
 });
 
 test('runs of two server connections on one local core get different run ids', () => {
@@ -123,12 +125,12 @@ test('run events go back to the server by request id, and the answer is the resp
   const { runId } = calls[0].params;
   local.emit({ type: 'notification', notification: { method: 'modelProxy/run/event', params: { runId, event: { n: 1 } } } });
   local.emit({ type: 'notification', notification: { method: 'modelProxy/run/event', params: { runId: 'other', event: { n: 2 } } } });
-  assert.deepEqual(server.sent, [['notify', 'model/proxy/event', { requestId: 3, event: { n: 1 } }]]);
+  assert.deepEqual(sentWithoutBeats(server), [['notify', 'model/proxy/event', { requestId: 3, event: { n: 1 } }]]);
 
   const answer = { result: { result: 'route', route: null } };
   calls[0].resolve(answer);
   await settle();
-  assert.deepEqual(server.sent.at(-1), ['respond', 3, { result: answer }]);
+  assert.deepEqual(sentWithoutBeats(server).at(-1), ['respond', 3, { result: answer }]);
 });
 
 test('a failed call answers as the error of the request with the failure as its data', async () => {
@@ -139,6 +141,51 @@ test('a failed call answers as the error of the request with the failure as its 
   calls[0].resolve({ result: { result: 'failed', failure } });
   calls[1].reject(new Error('the local core is gone'));
   await settle();
-  assert.deepEqual(server.sent[0], ['respond', 4, { error: { code: -32000, message: 'slow down', data: failure } }]);
-  assert.deepEqual(server.sent[1], ['respond', 5, { error: { code: -32000, message: 'the local core is gone' } }]);
+  assert.deepEqual(sentWithoutBeats(server)[0], ['respond', 4, { error: { code: -32000, message: 'slow down', data: failure } }]);
+  assert.deepEqual(sentWithoutBeats(server)[1], ['respond', 5, { error: { code: -32000, message: 'the local core is gone' } }]);
+});
+
+test('the PC claims a request at once and vouches for every running one until they are over, like the heartbeat of Node', async () => {
+  mock.timers.enable({ apis: ['setInterval'] });
+  try {
+    const { server, calls, execute, settle } = rig();
+    const beats = () => server.sent.filter(([, method]) => method === 'model/proxy/heartbeat').map(([, , params]) => params);
+    execute(7);
+    assert.deepEqual(beats(), [{ requestIds: [7] }], 'the first beat is the claim');
+    execute('b');
+    assert.deepEqual(beats().at(-1), { requestIds: ['b'] });
+    mock.timers.tick(5_000);
+    assert.deepEqual(beats().at(-1), { requestIds: [7, 'b'] }, 'one beat names every running request');
+    calls[0].resolve({ result: { result: 'route', route: null } });
+    await settle();
+    mock.timers.tick(5_000);
+    assert.deepEqual(beats().at(-1), { requestIds: ['b'] });
+    calls[1].resolve({ result: { result: 'route', route: null } });
+    await settle();
+    const count = beats().length;
+    mock.timers.tick(20_000);
+    assert.equal(beats().length, count, 'nothing running, nothing vouched for');
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a lost server link and a stopped relay stop the beat', () => {
+  mock.timers.enable({ apis: ['setInterval'] });
+  try {
+    const { server, stop, execute } = rig();
+    const count = () => server.sent.filter(([, method]) => method === 'model/proxy/heartbeat').length;
+    execute(1);
+    server.emit({ type: 'status', status: { state: 'reconnecting' } });
+    const after = count();
+    mock.timers.tick(10_000);
+    assert.equal(count(), after);
+    execute(2);
+    stop();
+    const stopped = count();
+    mock.timers.tick(10_000);
+    assert.equal(count(), stopped);
+  } finally {
+    mock.timers.reset();
+  }
 });

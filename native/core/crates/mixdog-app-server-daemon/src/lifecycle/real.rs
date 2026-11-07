@@ -110,6 +110,8 @@ pub struct CoreWiring {
     /// The user's `release{pid}` decision on an undecidable prior owner (the verdict gate).
     pub release_decision: Arc<dyn Fn(u32) + Send + Sync>,
     pub close_data_handles: Hook,
+    /// The release's Node-text reason (`CorePort::release_started`), kept for the stop steps.
+    pub release_started: Arc<dyn Fn(&str) + Send + Sync>,
     /// Writes out the queued daemon-log lines (`DaemonLog::flush`), right before the process ends.
     pub flush_log: Hook,
     /// Sends the `core/drain` notification to every connected client. It is a notification, not
@@ -168,6 +170,10 @@ impl CorePort for RuntimeCore {
 
     fn release_decision(&self, pid: u32) {
         (self.wiring.release_decision)(pid);
+    }
+
+    fn release_started(&self, reason: &str) {
+        (self.wiring.release_started)(reason);
     }
 
     fn final_barriers(&self) {

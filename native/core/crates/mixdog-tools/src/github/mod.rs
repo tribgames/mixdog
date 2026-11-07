@@ -15,8 +15,8 @@ use mixdog_scm::exec::Exec;
 use mixdog_scm::exec::ExecSpec;
 
 use crate::code_graph::invalid_args;
-use crate::code_graph::spec_from;
 use crate::code_graph::text_output;
+use crate::orch::util::spec_from_def;
 
 const SPEC: &str = include_str!("specs/github.json");
 const RUN_LIMIT: u64 = 32_000_000;
@@ -28,7 +28,7 @@ pub struct GithubTool {
 impl GithubTool {
     pub fn new() -> Self {
         Self {
-            spec: spec_from(SPEC, false),
+            spec: spec_from_def(SPEC, false, &[]),
         }
     }
 }

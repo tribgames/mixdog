@@ -828,6 +828,47 @@ async fn start_with_session(directory: &SessionDirectory, session: Value) -> Arc
     directory.handle(&id).expect("loaded")
 }
 
+/// A new thread begins with the tool fields its seed gives the header, seeded under the id the
+/// thread then has.
+#[tokio::test(start_paused = true)]
+async fn a_started_thread_begins_with_the_tools_its_seed_wrote() {
+    use mixdog_store::schema::record::Header;
+    struct Seeds(Mutex<Vec<ThreadId>>);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Seeds {
+        async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.0).push(thread.clone());
+            let mut seeded = header.clone();
+            seeded.insert("tools".into(), json!([{ "name": "read" }]));
+            Ok(seeded)
+        }
+    }
+    let rig = Rig::new();
+    let seeds = Arc::new(Seeds(Mutex::default()));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_tools = seeds.clone();
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_with_session(&directory, json!({ "toolMode": "readonly" })).await;
+    assert_eq!(lock(&seeds.0).as_slice(), [handle.id.clone()]);
+    let header = handle.cell.header.load_full();
+    assert_eq!(header["tools"], json!([{ "name": "read" }]));
+    assert_eq!(header["toolSpec"], json!(["tools:readonly"]));
+}
+
+/// A `thread/start` with no `session` options is a `full` Lead denied the goal tools, as
+/// Node's `sessionOptions` makes it.
+#[tokio::test(start_paused = true)]
+async fn a_thread_started_without_options_still_denies_the_goal_tools() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let reply = directory.request(request("thread/start", json!({ "opId": "op-bare", "kind": "task" }), "op-bare")).await.expect("thread/start");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+    let header = directory.handle(&id).expect("loaded").cell.header.load_full();
+    assert_eq!(header["toolSpec"], "full");
+    assert_eq!(header["disallowedTools"], json!(["get_goal", "create_goal", "set_goal_tasks", "update_goal"]));
+}
+
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
 /// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
 #[tokio::test(start_paused = true)]
@@ -1101,7 +1142,8 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
     let unrecorded = ["turnReview", "usageMetrics", "browserSession", "compactionCapture"];
     // The store unlinks the session's log before Node's hooks run, so the export's removal is first.
     let hooks = golden.iter().map(|path| name(path)).filter(|hook| !unrecorded.contains(hook));
-    for hook in ["transcriptExport"].into_iter().chain(hooks).chain(["compactionArchive", "scratchDir"]) {
+    // The desktop's retention record is forgotten once the store's delete is done.
+    for hook in ["transcriptExport"].into_iter().chain(hooks).chain(["compactionArchive", "scratchDir", "retention"]) {
         expected.push(format!("{hook}:{s}:/ws"));
     }
     expected.extend([format!("thread/deleted:{s}"), format!("forgetSessionSearch:{s}"), format!("releaseDeletedWorktree:{s}")]);
@@ -2822,4 +2864,44 @@ async fn on_lane_io<R: Send + 'static>(
         .await
         .expect("job ran")
         .expect("read")
+}
+
+
+/// A cancel of the pending auto-resume takes effect in memory at once (Node's `cancelEpoch += 1` and
+/// `cancelQuotaResumeEntry` are synchronous): with the store write failing, a fire of the cancelled entry
+/// is stale and the failed turn is not replayed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancel_whose_store_write_fails_still_disarms_the_pending_resume() {
+    use super::quota_resume_host::SessionResumeHost;
+    use super::quota_resume_scheduler::FireOutcome;
+    use super::quota_resume_scheduler::ResumeHost;
+    use mixdog_core_ports::ports::domain_sessions::QuotaResumeSessions;
+
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    rig.set_script(quota_failure());
+    let handle = start_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    turn(&handle, "build the parser", "op-failed").await;
+    let entry = eventually(|| rig.quota.entry(&id)).await;
+    eventually(|| idle(&handle).then_some(())).await;
+    // The next store write fails: the file's place becomes a directory (the atomic rename cannot land).
+    let file = rig._data.path().join(mixdog_core_base::quota_resume::QUOTA_RESUME_FILE);
+    std::fs::remove_file(&file).unwrap();
+    std::fs::create_dir(&file).unwrap();
+    directory.cancelled(&handle.id).await.unwrap();
+    assert!(rig.quota.entry(&id).is_some(), "the entry is still stored: the write failed");
+
+    rig.set_script(echo());
+    let host = SessionResumeHost::new(directory.clone(), Arc::new(NoUsage));
+    host.materialize(&id).await.expect("loaded");
+    let mut outcome = host.fire(&id, entry.generation).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while outcome == Ok(FireOutcome::Busy) {
+        assert!(tokio::time::Instant::now() < deadline, "the failed turn never settled");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        outcome = host.fire(&id, entry.generation).await;
+    }
+    assert_eq!(outcome, Ok(FireOutcome::Stale), "the cancelled resume does not fire");
+    assert!(!rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")), "and the failed turn was not replayed");
 }

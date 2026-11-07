@@ -118,6 +118,9 @@ pub enum TurnPathError {
     NoSkillTool,
     #[error("starting the providers: {0}")]
     Providers(String),
+    /// A `git` or `task` without the definition delegated agents are sent.
+    #[error("{0}")]
+    AgentVariant(#[from] super::agent_variants::VariantError),
 }
 
 pub struct TurnPath {
@@ -135,6 +138,9 @@ pub struct TurnPath {
     /// The provider tool exclusions the turns record into: pass this same value to
     /// `SessionCatalog::new` as its `exclusions`.
     pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
+    /// Bind the settings host here once it exists (LeadSurfaceHost as TurnSettings); every turn start
+    /// reconciles through it, and a turn before the bind fails.
+    pub turn_settings: Arc<super::turn_settings::LateTurnSettings>,
 }
 
 impl TurnPath {
@@ -147,6 +153,7 @@ impl TurnPath {
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
         let reaction_targets: Arc<ReactionTargets> = Arc::default();
         let reuses: Arc<super::result_reuse::LiveReuses> = Arc::default();
+        let turn_settings: Arc<super::turn_settings::LateTurnSettings> = Arc::default();
         let contacts = Arc::new(ContactIds::new(agents));
         let gate_env = Arc::new(HostGateEnv::new(unattended.clone(), contacts.clone(), allow_all, hub));
         let host = HostParts {
@@ -167,7 +174,7 @@ impl TurnPath {
             next,
             settings,
             seams: SeamParts {
-                tools: SessionToolBuilder::new(tool_pool, mcp, skills_listed),
+                tools: SessionToolBuilder::new(tool_pool, mcp, skills_listed)?,
                 todos: TodoViews::new(todos, goals, work, cycles),
                 post_tool: Arc::new(BusPostToolDispatch::new(hook_bus, hook_common)),
                 skills: Some(SkillParts { names: skill_names, tool: skill_tool }),
@@ -180,8 +187,9 @@ impl TurnPath {
             observed: Arc::new(StartupObservations::new(clock)),
             shells,
             exclusions: exclusions.clone(),
+            turn_settings: turn_settings.clone(),
         };
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
-        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions })
+        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions, turn_settings })
     }
 }

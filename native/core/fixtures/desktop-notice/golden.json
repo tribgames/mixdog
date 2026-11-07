@@ -1,0 +1,190 @@
+{
+  "hostSteps": [
+    {
+      "op": "raise",
+      "args": [
+        "secret-storage",
+        "secret-storage-failed"
+      ],
+      "returned": true,
+      "delivered": [
+        {
+          "key": "secret-storage",
+          "code": "secret-storage-failed",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "op": "raise",
+      "args": [
+        "secret-storage",
+        "secret-storage-failed"
+      ],
+      "returned": false,
+      "delivered": []
+    },
+    {
+      "op": "raise",
+      "args": [
+        "conversation-save",
+        "conversation-save-failed"
+      ],
+      "returned": true,
+      "delivered": [
+        {
+          "key": "conversation-save",
+          "code": "conversation-save-failed",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "op": "raise",
+      "args": [
+        "",
+        "secret-storage-failed"
+      ],
+      "returned": false,
+      "delivered": []
+    },
+    {
+      "op": "raise",
+      "args": [
+        "empty-code",
+        ""
+      ],
+      "returned": false,
+      "delivered": []
+    },
+    {
+      "op": "raise",
+      "args": [
+        null,
+        "secret-storage-failed"
+      ],
+      "returned": false,
+      "delivered": []
+    },
+    {
+      "op": "raise",
+      "args": [
+        "provider-sign-in:anthropic",
+        "provider-sign-in-expired",
+        {
+          "name": 7,
+          "other": null
+        }
+      ],
+      "returned": true,
+      "delivered": [
+        {
+          "key": "provider-sign-in:anthropic",
+          "code": "provider-sign-in-expired",
+          "params": {
+            "name": "7",
+            "other": ""
+          }
+        }
+      ]
+    },
+    {
+      "op": "raise",
+      "args": [
+        "provider-sign-in:anthropic",
+        "provider-sign-in-expired",
+        {
+          "name": "again"
+        }
+      ],
+      "returned": false,
+      "delivered": []
+    },
+    {
+      "op": "clear",
+      "args": [
+        "secret-storage"
+      ],
+      "returned": null,
+      "delivered": []
+    },
+    {
+      "op": "clear",
+      "args": [
+        "never-raised"
+      ],
+      "returned": null,
+      "delivered": []
+    },
+    {
+      "op": "raise",
+      "args": [
+        "secret-storage",
+        "secret-storage-failed"
+      ],
+      "returned": true,
+      "delivered": [
+        {
+          "key": "secret-storage",
+          "code": "secret-storage-failed",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "op": "raise",
+      "args": [
+        "secret-storage",
+        "secret-storage-failed"
+      ],
+      "returned": false,
+      "delivered": []
+    }
+  ],
+  "keychainSteps": [
+    {
+      "step": "failure",
+      "delivered": [
+        {
+          "key": "secret-storage",
+          "code": "secret-storage-failed",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "step": "second failure",
+      "delivered": []
+    },
+    {
+      "step": "no provider",
+      "delivered": []
+    },
+    {
+      "step": "unreachable",
+      "delivered": []
+    },
+    {
+      "step": "ok",
+      "delivered": []
+    },
+    {
+      "step": "failure after ok",
+      "delivered": []
+    },
+    {
+      "step": "cleared",
+      "delivered": []
+    },
+    {
+      "step": "failure after clear",
+      "delivered": [
+        {
+          "key": "secret-storage",
+          "code": "secret-storage-failed",
+          "params": {}
+        }
+      ]
+    }
+  ]
+}

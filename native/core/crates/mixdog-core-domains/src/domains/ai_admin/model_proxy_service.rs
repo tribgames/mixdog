@@ -5,6 +5,8 @@
 //!   the result `Failed` (the error vocabulary has no place for a `ProxyFailure`).
 //! * `model/proxy/event` (this core is the server): one event of a `model/proxy/execute` request,
 //!   handed to the host channel, which matches it to the pending request.
+//! * `model/proxy/heartbeat` (this core is the server): the PC vouches for the requests it runs; the
+//!   first claims a request, each renews its lease (Node's claim and heartbeat operations).
 //! * [`HostProxyTransport`]: `model/proxy/execute` to the connection that declared
 //!   `capabilities.modelProxy`, as the broker's [`ModelProxyTransport`].
 
@@ -17,7 +19,7 @@ use mixdog_app_protocol::v2::host::{ModelProxyResult, ModelProxyRunEventParams, 
 use mixdog_app_protocol::v2::model_proxy as w;
 use mixdog_core_api::ids::{ConnectionId, Method};
 use mixdog_core_api::service::Admit;
-use mixdog_core_api::{Caller, ConnectionNotifier, CoreError, CoreRequest, DomainService, HostCapability, HostChannel, HostError, Reply};
+use mixdog_core_api::{Caller, ConnectionNotifier, CoreError, CoreRequest, DomainService, HostCapability, HostChannel, HostError, Reply, model_proxy_unavailable_text};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -25,6 +27,7 @@ use super::model_proxy::{ProxyEvents, ProxyRunner};
 
 const RUN: &str = "modelProxy/run";
 const EVENT: &str = "model/proxy/event";
+const HEARTBEAT: &str = "model/proxy/heartbeat";
 const CANCEL: &str = "modelProxy/cancel";
 const EXECUTE: Method = Method("model/proxy/execute");
 const RUN_EVENT: Method = Method("modelProxy/run/event");
@@ -53,7 +56,7 @@ impl ModelProxyTransport for HostProxyTransport {
                 }
             }
             Err(HostError::Rpc { data, message, .. }) => Err(ProxyError::Remote(data.unwrap_or(Value::String(message)))),
-            Err(HostError::Core(CoreError::CapabilityUnavailable { .. })) => Err(ProxyError::Unavailable),
+            Err(HostError::Core(error @ CoreError::CapabilityUnavailable { .. })) => Err(ProxyError::Unavailable(model_proxy_unavailable_text(&error).to_owned())),
             Err(HostError::Core(_)) => Err(ProxyError::Cancelled),
         }
     }
@@ -95,7 +98,7 @@ fn invalid(path: &str, expected: &str) -> CoreError {
 #[async_trait]
 impl DomainService for ModelProxyService {
     fn methods(&self) -> &'static [&'static str] {
-        &[RUN, EVENT, CANCEL]
+        &[RUN, EVENT, HEARTBEAT, CANCEL]
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
@@ -124,6 +127,12 @@ impl DomainService for ModelProxyService {
                 if let Some(request) = params.get("requestId") {
                     // An event of a request that is over or never was is dropped.
                     self.host.stream_event(from, request, params.get("event").cloned().unwrap_or(Value::Null));
+                }
+            }
+            HEARTBEAT => {
+                // Each id claims or renews its request; one that is over or never was is dropped.
+                for request in params.get("requestIds").and_then(Value::as_array).into_iter().flatten() {
+                    self.host.stream_alive(from, request);
                 }
             }
             CANCEL => {

@@ -8,7 +8,8 @@ import { groupToasts, reduceToasts } from './desktop-toast-state';
 import { reportRendererNotice } from './RendererRecovery';
 import { presentedModalDialog } from './surface-input-focus';
 import { relayPayloadTooLargeMessage } from '../shared/remote-payload-limit';
-import type { DesktopNotice } from '../shared/desktop-notice';
+import { type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
+import { useSectionEntries } from './section-store';
 
 function toastTitle(tone: string): string {
   if (tone === 'success') return t('Completed');
@@ -143,6 +144,24 @@ export function DesktopToastRegion({
       unsubscribeNotices?.();
     };
   }, []);
+  // The core raises a desktop notice as an entry of the `notice` section (key = notice key) and removes it
+  // when its condition is over: one toast per standing key, shown again only after the key left and came back.
+  const noticeEntries = useSectionEntries('notice');
+  const shownNotices = useRef(new Set<string>());
+  useEffect(() => {
+    const shown = shownNotices.current;
+    const standing = new Set<string>();
+    for (const entry of noticeEntries) {
+      const notice = readDesktopNotice(entry.value);
+      if (!notice) continue;
+      standing.add(notice.key);
+      if (shown.has(notice.key)) continue;
+      shown.add(notice.key);
+      const { text, tone } = desktopNoticeToast(notice);
+      showDesktopToast(text, tone, { groupKey: notice.key });
+    }
+    for (const key of shown) if (!standing.has(key)) shown.delete(key);
+  }, [noticeEntries]);
   const entries = groupToasts(records);
   useEffect(() => {
     const timers = expiryTimers.current;

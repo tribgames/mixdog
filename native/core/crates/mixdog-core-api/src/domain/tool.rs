@@ -35,8 +35,38 @@ pub struct ToolAnnotations {
     pub open_world_hint: Option<bool>,
     pub compressible: Option<bool>,
     pub compressible_lossless: Option<bool>,
-    /// Removed from sub-agent surfaces.
-    pub agent_hidden: bool,
+    /// Removed from sub-agent surfaces. `None` is a definition that does not say; `Some(false)` one
+    /// that says it outright (both read as not hidden, see [`ToolAnnotations::is_agent_hidden`]).
+    pub agent_hidden: Option<bool>,
+}
+
+impl ToolAnnotations {
+    /// Whether the tool is removed from sub-agent surfaces.
+    pub fn is_agent_hidden(&self) -> bool {
+        self.agent_hidden == Some(true)
+    }
+
+    /// The `annotations` object of a definition, in the order the product's definitions write
+    /// it; a key the definition does not have is left out.
+    pub fn to_json(&self) -> JsonValue {
+        let mut hints = serde_json::Map::new();
+        let fields = [
+            ("title", self.title.clone().map(JsonValue::String)),
+            ("readOnlyHint", self.read_only_hint.map(JsonValue::Bool)),
+            ("destructiveHint", self.destructive_hint.map(JsonValue::Bool)),
+            ("idempotentHint", self.idempotent_hint.map(JsonValue::Bool)),
+            ("openWorldHint", self.open_world_hint.map(JsonValue::Bool)),
+            ("agentHidden", self.agent_hidden.map(JsonValue::Bool)),
+            ("compressible", self.compressible.map(JsonValue::Bool)),
+            ("compressibleLossless", self.compressible_lossless.map(JsonValue::Bool)),
+        ];
+        for (key, value) in fields {
+            if let Some(value) = value {
+                hints.insert(key.to_owned(), value);
+            }
+        }
+        JsonValue::Object(hints)
+    }
 }
 
 /// Mutual-exclusion group for scheduling within a turn.
@@ -46,13 +76,47 @@ pub struct ToolGroup(pub String);
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ToolSpec {
     pub name: String,
+    /// The definition's own `title`, where it has one (it is not always the annotations' title:
+    /// the desktop bridge tools carry only this one).
+    pub title: Option<String>,
     /// Declared aliases; an unknown name is `UnknownTool`, never fuzzy-matched.
     pub aliases: Vec<String>,
     pub description: String,
+    /// The definition's `trigger`, where it has one: when the model should reach for the tool.
+    pub trigger: Option<String>,
+    /// `public: false` is a tool the runtime dispatches for other tools (the `web_fetch` transports)
+    /// but never lists: it is in no model-visible tool list or schema, whatever the session.
+    pub public: bool,
     pub input_schema: JsonValue,
     pub annotations: ToolAnnotations,
     pub parallel_safe: bool,
     pub exclusive_with: Vec<ToolGroup>,
+}
+
+impl ToolSpec {
+    /// The tool as a definition object a session's catalogs hold: `name`, `title`, `trigger`,
+    /// `public` (only `false`), `description`, `inputSchema` and `annotations`, each only where the
+    /// definition has it (a definition without hints has no `annotations`).
+    pub fn definition(&self) -> JsonValue {
+        let mut definition = serde_json::Map::new();
+        definition.insert("name".to_owned(), JsonValue::String(self.name.clone()));
+        if let Some(title) = &self.title {
+            definition.insert("title".to_owned(), JsonValue::String(title.clone()));
+        }
+        if let Some(trigger) = &self.trigger {
+            definition.insert("trigger".to_owned(), JsonValue::String(trigger.clone()));
+        }
+        if !self.public {
+            definition.insert("public".to_owned(), JsonValue::Bool(false));
+        }
+        definition.insert("description".to_owned(), JsonValue::String(self.description.clone()));
+        definition.insert("inputSchema".to_owned(), self.input_schema.clone());
+        let hints = self.annotations.to_json();
+        if hints.as_object().is_some_and(|hints| !hints.is_empty()) {
+            definition.insert("annotations".to_owned(), hints);
+        }
+        JsonValue::Object(definition)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -284,6 +348,13 @@ pub type ToolOutcome = Result<ToolOutput, ToolError>;
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn spec(&self) -> &ToolSpec;
+
+    /// The definition a delegated agent's session is sent where it differs from the Lead's
+    /// (`bindAgentOwner`: `git` without the Lead's worktree operations, `task` with the agent's
+    /// wait default); `None` where the agent's text is the Lead's.
+    fn agent_spec(&self) -> Option<&ToolSpec> {
+        None
+    }
 
     /// Typed outbound classification for the policy (replaces the name list):
     /// the action kind this call performs outside the machine, if any.

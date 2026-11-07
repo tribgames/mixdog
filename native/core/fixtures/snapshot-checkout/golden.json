@@ -1,0 +1,28 @@
+{
+  "created": {
+    "record": {
+      "kind": "snapshot",
+      "state": "ready",
+      "existingBranch": true,
+      "disposable": true,
+      "ownerSessionId": null,
+      "holderIsTheSession": true,
+      "resources": {
+        "worktree": "created",
+        "lock": "created",
+        "owner": "created"
+      }
+    },
+    "lockReason": "locked mixdog snapshot session=<holder>",
+    "lease": {
+      "sessionIsTheHolder": true,
+      "runtimeTokenIsTheHolders": true
+    },
+    "worktrees": 2
+  },
+  "failed": {
+    "threw": true,
+    "registryIds": [],
+    "worktrees": 1
+  }
+}

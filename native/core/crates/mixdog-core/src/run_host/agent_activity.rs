@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_session::session::agent_registry::signals::StatusSignals;
 
 use super::compose_parts::LateDirectory;
 
@@ -57,10 +58,22 @@ impl AgentActivity {
         }
     }
 
+    /// The registry's emitter (`StoreWorkers::bind_signals`) reaches the same listener.
+    pub fn signals(self: &Arc<Self>) -> Arc<dyn StatusSignals> {
+        self.clone()
+    }
+
     /// `JobBoard::new(clock, notifier, Some(listener))`.
     pub fn name_listener(self: &Arc<Self>) -> Arc<dyn Fn(&str) + Send + Sync> {
         let this = Arc::clone(self);
         Arc::new(move |owner| this.owner(owner))
+    }
+}
+
+/// The worker-index write (`registry.onWorkerRowsChange`) names no owner to Node's listener either.
+impl StatusSignals for AgentActivity {
+    fn worker_rows(&self, _session: &str) {
+        self.everyone();
     }
 }
 
@@ -113,6 +126,15 @@ mod tests {
         activity.approval_wait("w");
         activity.session_record("w");
         assert_eq!(*sink.1.lock().unwrap(), ["a", "b", "a", "b"]);
+    }
+
+    /// A worker-index write names no owner: all loaded threads re-read.
+    #[test]
+    fn a_worker_index_write_reaches_every_loaded_thread() {
+        let sink = Arc::new(Sink(vec!["a", "b"], Mutex::default()));
+        let signals = AgentActivity::new(sink.clone()).signals();
+        signals.worker_rows("w");
+        assert_eq!(*sink.1.lock().unwrap(), ["a", "b"]);
     }
 
     #[test]

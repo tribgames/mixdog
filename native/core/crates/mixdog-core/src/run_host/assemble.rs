@@ -47,6 +47,8 @@ pub struct SessionTools {
     pub tools: Vec<Arc<dyn Tool>>,
     /// The builtin names typo aliases and suggestions draw from (`ToolSet::with_builtins`).
     pub builtins: Vec<String>,
+    /// The session is a delegated agent's: it is sent the agent text of `git` and `task`.
+    pub agent: bool,
 }
 
 /// `RunConfig` fields that come from the route, the settings and the agent definition.
@@ -178,6 +180,8 @@ pub struct HostServices {
     pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
     /// The tools the provider left out of a session's requests (`recordProviderToolExclusion`).
     pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
+    /// The settings reconcile every turn starts with; bound once the surface host exists.
+    pub turn_settings: Arc<super::turn_settings::LateTurnSettings>,
 }
 
 mod session_view;
@@ -256,8 +260,8 @@ impl HostRunParts {
             .await
             .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
         let cwd = cwd_of(header)?;
-        let SessionTools { tools, builtins } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
-        let tool_set = ToolSet::with_builtins(tools, builtins);
+        let SessionTools { tools, builtins, agent } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
+        let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
         let settings = super::settings::merge_settings(
             seams.run_settings(thread, header),
             &s.settings,
@@ -321,6 +325,11 @@ impl HostRunParts {
 
 #[async_trait]
 impl RunParts for HostRunParts {
+    async fn reconcile_turn(&self, thread: &ThreadId, _: Header, conversation: bool) -> Result<Header, TurnError> {
+        use super::turn_settings::TurnSettings;
+        self.services.turn_settings.reconcile(thread, conversation).await.map_err(refuse)
+    }
+
     fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
         self.services.seams.stall_cap_idle_seconds(agent)
     }
