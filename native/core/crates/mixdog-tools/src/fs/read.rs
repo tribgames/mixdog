@@ -518,7 +518,7 @@ impl ReadTool {
     /// `executeHexTool` over a file read whole: the numbered text a mode answers with.
     async fn glance_text(&self, ctx: &ToolContext, path: &str, mode: &str, n: Option<&JsonValue>, offset: Option<f64>, seen: &mut Option<Observed>) -> Result<String, ToolError> {
         if let Some(reason) = path_string_guard(path) {
-            return Ok(format!("Error: {reason}: {path}"));
+            return Ok(format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(path)));
         }
         let abs = resolve_path(&ctx.cwd, path)?;
         if let Some(reason) = path_string_guard(&fwd(abs.as_path())) {
@@ -1197,7 +1197,7 @@ impl ReadTool {
     async fn read_one(&self, ctx: &ToolContext, e: &Entry, pages: Option<&str>, mode: Mode) -> Result<Body, ToolError> {
         let raw = e.path.trim();
         if let Some(reason) = path_string_guard(raw) {
-            return Ok(Body::text(format!("Error: {reason}: {raw}")));
+            return Ok(Body::text(format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(raw))));
         }
         let abs = resolve_path(&ctx.cwd, raw)?;
         // The path as resolved against the working directory meets the same refusals.
@@ -1593,7 +1593,8 @@ impl ReadTool {
         let message = format!("ENOENT: no such file or directory, stat '{}'", abs.as_path().to_string_lossy());
         let head = format!("[path absent] {}", read_paths::normalize_error_message(&message, Some(&fwd(ctx.cwd.as_path()))));
         if let Some(similar) = Self::similar_sibling(ctx, abs).await {
-            let shown = display_path(similar.as_path(), &ctx.cwd);
+            // `readNotFoundResponse`: the near name is the absolute path, not cwd-relative.
+            let shown = super::patch_guard::normalize_output_path(&similar.as_path().to_string_lossy());
             return format!("{head} Did you mean \"{shown}\"?{cwd_note} {FIND_NUDGE}");
         }
         let target = abs

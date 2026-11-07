@@ -1270,7 +1270,8 @@ fn recorded_resizer(doc: &JsonValue) -> Arc<Fixed> {
 
 /// A tool outcome as the recorder summarizes Node's: text parts, and an image as `mime:base64 length`.
 fn summary(outcome: &ToolOutcome, cwd: &str) -> Vec<(String, String)> {
-    let fix = |s: &str| s.replace(cwd, "<WS>");
+    // Node's native errors spell the workspace with the host's separators.
+    let fix = |s: &str| s.replace(cwd, "<WS>").replace(&cwd.replace('/', "\\"), "<WS>");
     match outcome {
         Ok(out) => out
             .parts

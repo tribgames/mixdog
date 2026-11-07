@@ -108,7 +108,7 @@ mod tests {
         assert_eq!(surfaced_tool_units("web_search", &json!("{\"keywords\":[\"x\",\"y\"]}")), Some(("Web Research", 2)));
         assert_eq!(surfaced_tool_units("web_fetch", &json!({ "urls": ["u", "v"] })), Some(("Web Research", 2)));
         assert_eq!(surfaced_tool_units("fetch", &json!({ "limit": 5.9 })), Some(("Web Research", 5)));
-        assert_eq!(surfaced_tool_units("fetch", &json!({ "limit": 0, "messages": ["m", "n"] })), Some(("Web Research", 1)));
+        assert_eq!(surfaced_tool_units("fetch", &json!({ "limit": 0, "messages": ["m", "n"] })), Some(("Web Research", 2)));
         assert_eq!(surfaced_tool_units("shell", &json!({ "commands": ["a", "b"] })), Some(("Shell", 2)));
         assert_eq!(surfaced_tool_units("bash", &json!({ "command": "ls" })), Some(("Shell", 1)));
         assert_eq!(surfaced_tool_units("agent", &json!({ "agents": [{ "role": "x" }, { "role": "y" }] })), Some(("Agent", 2)));

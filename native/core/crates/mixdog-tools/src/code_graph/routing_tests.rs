@@ -19,6 +19,12 @@ use super::federation::TrustSnapshot;
 /// A recorded path with `<ROOT>` forward-slashed, the way the recorder writes it.
 fn scrub(text: &str, ws: &Path, fs_root: &Path) -> String {
     let ws_text = ws.display().to_string();
+    // The recorder ran under a tree with no sentinel above it, so Node's refusal never names one. A sentinel the
+    // machine keeps above the temp dir (a `package.json` in the home dir) is named by this port as Node would on that
+    // machine (`root-resolution.mjs:138`); it is the host's, not the case's, so it is not compared.
+    let text = ws.ancestors().skip(1).fold(text.to_owned(), |text, host| {
+        text.replace(&format!("The nearest sentinel is at '{}' (home/temp), which is never auto-adopted. ", host.display()), "")
+    });
     let text = text
         .replace(&ws_text, "<ROOT>")
         .replace(&ws_text.replace('\\', "/"), "<ROOT>")

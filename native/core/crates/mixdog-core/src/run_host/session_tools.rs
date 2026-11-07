@@ -352,11 +352,15 @@ impl SessionToolBuilder {
             },
         );
         let bridge = if surface.bridge { named(&self.pool, &BRIDGE) } else { Vec::new() };
+        // The standalone tools `applyDeferredToolSurface` adds to a Lead's schema are in the pool, not in its spec's
+        // list (a `readonly` spec holds the filesystem tools only, yet sends `web_search`, `load_tool` and `Skill`).
+        // A worker's list never holds the Lead-only control tools, whoever added them.
+        let standalone: Tools = if surface.agent_owned { Vec::new() } else { internal_tools(&self.pool) };
         let tools: Tools = surface
             .active_tools
             .iter()
             .filter(|active| !surface.route_excluded.iter().any(|(excluded, _)| excluded == *active))
-            .filter_map(|active| resolved.iter().chain(&bridge).find(|t| name(t) == active).cloned())
+            .filter_map(|active| resolved.iter().chain(&bridge).chain(&standalone).find(|t| name(t) == active).cloned())
             .map(|tool| bound_to_model(tool, model))
             .collect();
         let builtins = tools.iter().map(|t| name(t)).filter(|n| is_builtin(n)).map(str::to_owned).collect();
@@ -564,7 +568,13 @@ mod tests {
             agent_owned: true,
             ..SessionSurface::default()
         };
-        let got = builder().tools(&header(json!({"cwd": "/work", "model": "claude-sonnet-4"})), &surface).await.unwrap();
+        // The recorded pool is the one Node's `internalToolDefs` held when it was recorded, which has no `goal`
+        // (registered only with the goal lane); add it so the test keeps a tool a worker is left with.
+        let g = golden();
+        let (mut pool, mcp) = pool(&g);
+        pool.push(stub("goal"));
+        let builder = SessionToolBuilder::new(pool, Arc::new(Fixed(mcp)), Arc::new(Listed(false))).expect("pool");
+        let got = builder.tools(&header(json!({"cwd": "/work", "model": "claude-sonnet-4"})), &surface).await.unwrap();
         assert_eq!(names(&got.tools), ["goal"]);
     }
 
