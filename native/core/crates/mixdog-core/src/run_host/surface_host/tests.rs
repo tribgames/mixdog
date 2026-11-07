@@ -427,7 +427,7 @@ async fn a_new_thread_starts_with_the_tools_node_gives_it() {
         // The session system is composed once, at creation, by the rebuild every reconcile uses.
         let requests = rig.prompts.0.lock().unwrap();
         assert_eq!(requests.len(), 1, "{label}: one composition");
-        assert_eq!(requests[0].header["promptIdentity"]["agent"], Value::Null);
+        assert_eq!(requests[0].header["promptIdentity"]["agent"], "lead");
         assert_eq!(requests[0].header["id"], "t1");
         assert!(requests[0].denied.contains(&"react".to_owned()), "{label}: BP1 omits react");
         assert_eq!(SystemBlocks::from_header(&seeded).base.as_deref(), Some("# Tool Calls\nrules"), "{label}: blocks");
@@ -436,7 +436,31 @@ async fn a_new_thread_starts_with_the_tools_node_gives_it() {
         assert_eq!(seeded["orchestrationMode"], "balanced");
         assert_eq!(seeded["sessionMode"], "coding");
         assert!(names(&seeded["disallowedTools"]).contains(&"react".to_owned()));
-        assert!(seeded.get("messages").is_none());    }
+        assert!(seeded.get("messages").is_none());
+        // The record fields of a Lead, and the stamps of what its prompt was composed from. The roster is
+        // `leadRosterRevision` of the fake workflow's slices (`"" \0 "# Bots\n\n- Mimi (lead)" \0`, sha-256).
+        assert_eq!((seeded["agent"].clone(), seeded["owner"].clone(), seeded["lane"].clone()), (json!("lead"), json!("cli"), json!("cli")));
+        assert_eq!(seeded["agentProfileRevision"], "coding-lead");
+        assert_eq!(seeded["agentRosterRevision"], "fe1e7f32a83c59ea9da75764");
+        assert_eq!(seeded["lastUsedAt"], 1_700_000_000_000_i64);
+        assert_eq!((seeded["generation"].clone(), seeded["closed"].clone()), (json!(0), json!(false)));
+    }
+}
+
+/// `leadRosterRevision` over the slices Node's recorder gave it (`create_goldens/lead.json`).
+#[test]
+fn the_roster_revision_is_nodes() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../mixdog-core-session/src/session/create_goldens/lead.json")).expect("golden");
+    let text = |key: &str| golden["parts"][key].as_str().expect("slice").to_owned();
+    let target = WorkflowTarget {
+        summary: Value::Null,
+        orchestration_mode: String::new(),
+        pack_context: String::new(),
+        orchestration_context: String::new(),
+        agent_catalog_context: text("agentCatalogContext"),
+        contact_catalog_context: text("contactCatalogContext"),
+    };
+    assert_eq!(golden["record"]["agentRosterRevision"], json!(roster_revision(&target)));
 }
 
 /// A pool whose `git` has no definition for delegated agents is refused when the host is built, with

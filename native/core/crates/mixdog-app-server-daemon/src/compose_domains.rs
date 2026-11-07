@@ -140,7 +140,7 @@ pub struct DomainPaths {
     pub data_dir: PathBuf,
     /// The desktop profile folder.
     pub user_data_dir: PathBuf,
-    /// The package root: shipped `orchestration/`, `output-styles/`, `agents/`.
+    /// The package root: the shipped `orchestration/`, `output-styles/`, `workflows/` and `agents/` are under its `src/` (`mixdogRoot()`).
     pub package_root: PathBuf,
     /// The JS interpreter of the install (`JsRuntime::program`) and whether it is the app binary
     /// in node mode: what runs the staged update's `npm`.
@@ -314,7 +314,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
     let local = local::build(inputs, &config).await?;
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());
     let settings = Settings::new(config.clone(), inputs.seams.settings_effects.clone(), inputs.env.clone());
-    let output_styles = OutputStyles::new(config.clone(), inputs.paths.package_root.join("output-styles"), &inputs.paths.data_dir);
+    let output_styles = OutputStyles::new(config.clone(), inputs.paths.package_root.join("src").join("output-styles"), &inputs.paths.data_dir);
     services.push(Arc::new(ConfigService::new(config.clone(), tool_modules.clone(), settings.clone(), output_styles)));
     services.extend(local.services);
     let setup_requests = Arc::new(SetupRequests::new(inputs.seams.setup_ui.clone()));
@@ -329,7 +329,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
     services.push(Arc::new(CompactionSettingsService::new(Arc::new(config.clone()), inputs.seams.compaction_host.clone())));
     let workflow_config = WorkflowConfig::new(
         config.clone(),
-        WorkflowPaths { root: inputs.paths.package_root.clone(), data: inputs.paths.data_dir.clone() },
+        WorkflowPaths { root: inputs.paths.package_root.join("src"), data: inputs.paths.data_dir.clone() },
         inputs.seams.workflow_host.clone(),
         inputs.scopes.scopes("workflow")?,
         &inputs.tokens,

@@ -1492,7 +1492,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let prompt_facts = Arc::new(mixdog_core::run_host::prewarm::PromptFacts::from_process(b.package_root.join("src"), b.data_dir.clone(), config.stored_instruction_files()));
     let run_workflow_surface = Arc::new(mixdog_core::run_host::workflow_surface::RunWorkflowSurface::new(mixdog_core::run_host::workflow_surface::SurfaceParts {
         lane: b.tokens.interactive_io,
-        paths: mixdog_core_config::workflow::WorkflowPaths { root: b.package_root.clone(), data: b.data_dir.clone() },
+        paths: mixdog_core_config::workflow::WorkflowPaths { root: b.package_root.join("src"), data: b.data_dir.clone() },
         config: config.clone(),
         agents: agents.clone(),
         probes: Arc::new(crate::feature_probes::HostFeatureProbes::new(bridges.clone(), b.tokens.interactive_io, b.env.clone(), clock_agent.clone())),
