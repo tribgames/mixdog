@@ -2,6 +2,7 @@
 //! Apple Silicon (unified memory) on macOS arm64. The probe is cached for a few seconds.
 
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -90,9 +91,28 @@ pub struct Hardware {
     pub error: Option<String>,
 }
 
+/// `process.platform` for the OS name Rust spells in `std::env::consts::OS`.
+fn node_platform(os: &str) -> &str {
+    match os {
+        "windows" => "win32",
+        "macos" => "darwin",
+        other => other,
+    }
+}
+
+/// `process.arch` for the architecture name Rust spells in `std::env::consts::ARCH`.
+fn node_arch(arch: &str) -> &str {
+    match arch {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        "x86" => "ia32",
+        other => other,
+    }
+}
+
 impl Hardware {
     pub fn to_json(&self) -> Value {
-        json!({"platform": self.platform, "arch": self.arch, "gpu": self.gpus.first().map(Gpu::to_json),
+        json!({"platform": node_platform(&self.platform), "arch": node_arch(&self.arch), "gpu": self.gpus.first().map(Gpu::to_json),
                "gpus": self.gpus.iter().map(Gpu::to_json).collect::<Vec<_>>(), "supported": self.supported,
                "checking": self.checking, "checkedAt": self.checked_at, "error": self.error})
     }
@@ -113,6 +133,8 @@ pub struct HardwareProbe {
     supported_platform: bool,
     cache_ms: i64,
     value: Mutex<Hardware>,
+    /// A probe started by [`HardwareProbe::start_refresh`] has not finished (Node's `pending`).
+    in_flight: AtomicBool,
     signal: ChangeSignal,
     processes: Processes,
 }
@@ -128,6 +150,7 @@ impl HardwareProbe {
         Arc::new(Self {
             signal,
             processes,
+            in_flight: AtomicBool::new(false),
             os: os.into(),
             arch: arch.into(),
             supported_platform,
@@ -139,6 +162,20 @@ impl HardwareProbe {
     /// The last answer; cheap and never waits.
     pub fn status(&self) -> Hardware {
         self.value.lock().unwrap().clone()
+    }
+
+    /// What Node's `status()` does besides answering: `void refresh()`. Starts an unforced probe in
+    /// the background unless the last answer is under the cache age or one started here still runs.
+    pub fn start_refresh(self: &Arc<Self>) {
+        let fresh = self.status().checked_at.is_some_and(|at| now_ms() - at < self.cache_ms);
+        if fresh || self.in_flight.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let probe = self.clone();
+        tokio::spawn(async move {
+            probe.detect(false).await;
+            probe.in_flight.store(false, Ordering::Release);
+        });
     }
 
     pub async fn refresh<F, Fut>(&self, force: bool, query: F) -> Hardware

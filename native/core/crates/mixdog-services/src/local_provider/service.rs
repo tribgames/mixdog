@@ -39,7 +39,13 @@ impl From<ProviderError> for CoreError {
     fn from(e: ProviderError) -> Self {
         match e {
             ProviderError::Invalid(m) => invalid("params", &m),
-            ProviderError::Failed(_) => domain("localProviderFailed"),
+            // The `[local-provider] …` text is what Node's error carries to the caller.
+            ProviderError::Failed(message) => CoreError::DomainError {
+                domain: "localProvider".into(),
+                code: Some("localProviderFailed".into()),
+                message: Some(message.into()),
+                detail: None,
+            },
         }
     }
 }
