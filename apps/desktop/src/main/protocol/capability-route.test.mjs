@@ -11,7 +11,7 @@ import { METHOD_ARGS } from '../../../../../src/standalone/protocol-session/meth
 import { DESKTOP_CAPABILITIES } from '../../shared/contract-capabilities.ts';
 import { createDesktopConnection } from '../connections/desktop-connection.ts';
 import { DesktopServiceClient } from '../desktop-service-client.ts';
-import { createCapabilityLane, routeCapability } from './capability-route.ts';
+import { THREAD_REQUIRED_CAPABILITIES, createCapabilityLane, routeCapability } from './capability-route.ts';
 
 const schemaDir = new URL('../../../../../native/core/crates/mixdog-app-protocol/schema/', import.meta.url);
 const json = (name) => JSON.parse(readFileSync(new URL(name, schemaDir), 'utf8'));
@@ -50,18 +50,35 @@ const NOT_ROUTED = [
   'getOnboardingStatus',
 ];
 
+/** A fake core. `calls` are the ops a capability sent; `all` adds the lane's own requests (`thread/start` of the control
+ *  thread, `thread/read` of the state a reply carries). `states` is what `thread/read` answers per thread. */
 function recordingLane(answer = async () => ({ ok: true })) {
   const calls = [];
+  const all = [];
+  const states = new Map();
+  const world = { starts: 0, failStarts: 0, shell: [] };
   const protocol = {
+    snapshot: () => ({ status: 'ready', entries: world.shell }),
     call: async (method, params) => {
+      all.push({ method, params });
+      if (method === 'thread/start') {
+        if (world.failStarts > 0) {
+          world.failStarts -= 1;
+          throw new Error('core busy');
+        }
+        world.starts += 1;
+        return { thread: { id: `control-${world.starts}` } };
+      }
+      if (method === 'thread/read') {
+        const state = states.get(params.threadId) ?? {};
+        return { thread: { id: params.threadId }, state, items: [], hasOlder: false };
+      }
       calls.push({ method, params });
       return answer(method, params);
     },
   };
-  const held = { held: 'shell snapshot' };
-  return { calls, lane: createCapabilityLane({ protocol, snapshot: () => held }), held };
+  return { calls, all, states, world, lane: createCapabilityLane({ protocol }) };
 }
-
 // The 14 `mcp/*` actions: `[capability, positional args, params without threadId]`. The names are the fields of the
 // Rust `Mcp*Params` structs in declared order (`v2/params.rs`), which is the order of Node's `resource-mcp-api.mjs`.
 const SERVER = { name: 'x', url: 'http://127.0.0.1:9/mcp' };
@@ -110,10 +127,80 @@ test('the 14 mcp actions are the whole mcp namespace of the method table', () =>
   );
 });
 
-test('a result carries the core value and the held shell snapshot', async () => {
-  const { lane, held } = recordingLane(async () => ({ servers: [] }));
-  assert.deepEqual(await lane.invoke('mcpStatus', [], 'pane-1'), { value: { servers: [] }, snapshot: held });
+test('a reply carries the state of the addressed thread, read from the core at that moment', async () => {
+  const { all, lane, states, world } = recordingLane(async () => ({ servers: [] }));
+  world.shell = [{ section: 'hostShellJobs', key: null, revision: 3, value: [{ id: 'job-1' }] }];
+  states.set('pane-1', { route: { sessionModel: 'm1' }, runtime: { busy: true } });
+  const first = await lane.invoke('mcpStatus', [], 'pane-1');
+  assert.deepEqual(first.value, { servers: [] });
+  assert.equal(first.snapshot.sessionId, 'pane-1');
+  assert.equal(first.snapshot.sessionModel, 'm1');
+  assert.equal(first.snapshot.busy, true);
+  assert.deepEqual(first.snapshot.hostShellJobs, [{ id: 'job-1' }]);
+  assert.equal(first.snapshot.toolApproval, null);
+  // The thread moved between two calls: the second reply shows it, nothing was kept from the first.
+  states.set('pane-1', { route: { sessionModel: 'm2' } });
+  const second = await lane.invoke('mcpStatus', [], 'pane-1');
+  assert.equal(second.snapshot.sessionModel, 'm2');
+  assert.equal(second.snapshot.busy, undefined);
+  assert.deepEqual(
+    all.filter((call) => call.method === 'thread/read'),
+    [
+      { method: 'thread/read', params: { threadId: 'pane-1', window: { none: true } } },
+      { method: 'thread/read', params: { threadId: 'pane-1', window: { none: true } } },
+    ]
+  );
 });
+
+test('a call without a session is answered with the state of the control thread', async () => {
+  const { lane, states } = recordingLane();
+  states.set('control-1', { route: { sessionProvider: 'openai', sessionModel: 'main' } });
+  const { snapshot } = await lane.invoke('getAutoClear', [], undefined);
+  assert.equal(snapshot.sessionId, 'control-1');
+  assert.equal(snapshot.sessionModel, 'main');
+});
+
+test('retryFailedTurn keeps the session it names, and takes the addressed thread when it names none', async () => {
+  const { calls, lane } = recordingLane();
+  await lane.invoke('retryFailedTurn', ['pane-9', 'turn-1'], undefined);
+  await lane.invoke('retryFailedTurn', [undefined, 'turn-2'], undefined);
+  assert.deepEqual(calls, [
+    { method: 'turn/retryFailed', params: { threadId: 'pane-9', turnKey: 'turn-1' } },
+    { method: 'turn/retryFailed', params: { threadId: 'control-1', turnKey: 'turn-2' } },
+  ]);
+});
+
+test('the control thread is a task thread started once and kept', async () => {
+  const { all, lane } = recordingLane();
+  await lane.invoke('getAutoClear', [], undefined);
+  await lane.invoke('getAutoClear', [], undefined);
+  await lane.invoke('mcpStatus', [], 'pane-1');
+  assert.deepEqual(
+    all.filter((call) => call.method === 'thread/start'),
+    [{ method: 'thread/start', params: { kind: 'task' } }]
+  );
+});
+
+test('a failed start of the control thread is tried again by the next call', async () => {
+  const { lane, world } = recordingLane();
+  world.failStarts = 1;
+  await assert.rejects(lane.invoke('clear', [], undefined), /core busy/);
+  const { value } = await lane.invoke('clear', [], undefined);
+  assert.deepEqual(value, { ok: true });
+  assert.equal(world.starts, 1);
+});
+
+for (const capability of THREAD_REQUIRED_CAPABILITIES) {
+  test(`${capability} with no session runs on the control thread, and on its own thread with one`, async () => {
+    const { calls, lane } = recordingLane();
+    await lane.invoke(capability, [], undefined);
+    await lane.invoke(capability, [], 'pane-1');
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].params.threadId, 'control-1');
+    assert.equal(calls[1].params.threadId, 'pane-1');
+    assert.equal(calls[0].method, calls[1].method);
+  });
+}
 
 test('the desktop-only overrides send the ops the spec maps them to', () => {
   assert.deepEqual(routeCapability('getBotOrder', [], undefined), { method: 'config/getBotOrder', params: {} });
@@ -154,6 +241,7 @@ test('every capability the desktop declares is in the spec map', () => {
 test('every routed capability sends the op the spec map names, with params the Rust schema declares', () => {
   const routed = DESKTOP_CAPABILITIES.filter((capability) => !NOT_ROUTED.includes(capability));
   assert.equal(routed.length + NOT_ROUTED.length, DESKTOP_CAPABILITIES.length);
+  const requiresThread = [];
   for (const capability of routed) {
     const target = specActions.get(capability);
     const wanted = target.kind === 'method' ? [target.target] : target.kind === 'methods' ? target.target : [];
@@ -169,16 +257,19 @@ test('every routed capability sends the op the spec map names, with params the R
       assert.ok(name in schema.properties, `${capability}: ${name} is a param of ${method}`);
     }
     assert.equal('threadId' in params, 'threadId' in schema.properties, `${capability}: threadId follows the schema`);
+    if ((schema.required ?? []).includes('threadId')) requiresThread.push(capability);
     if (verbatim) {
       for (const name of (schema.required ?? []).filter((required) => required !== 'opId')) {
         assert.ok(name in params, `${capability}: ${method} requires ${name}`);
       }
     }
   }
+  // The ops that cannot run without a thread are exactly the ones the lane addresses to the control thread.
+  assert.deepEqual(requiresThread.sort(), [...THREAD_REQUIRED_CAPABILITIES].sort());
 });
 
 test('a capability with no op fails before anything is sent, and does not fall back', async () => {
-  const { calls, lane } = recordingLane();
+  const { all, calls, lane } = recordingLane();
   for (const capability of NOT_ROUTED) {
     await assert.rejects(lane.invoke(capability, [], 'pane-1'), (error) => error.code === 'unknownMethod', capability);
   }
@@ -187,10 +278,11 @@ test('a capability with no op fails before anything is sent, and does not fall b
   assert.equal(result.ok, false);
   assert.match(result.error, /no protocol method/);
   assert.deepEqual(calls, []);
+  assert.deepEqual(all, []);
 });
 
-test('reads are answered together, in request order, each with its own thread and outcome', async () => {
-  const { calls, lane } = recordingLane(async (method) => {
+test('reads are answered together, in order, from the control session whatever sessionId they name', async () => {
+  const { all, calls, lane } = recordingLane(async (method) => {
     if (method === 'mcp/mcpStatus') throw new Error('status unavailable');
     return method;
   });
@@ -206,9 +298,11 @@ test('reads are answered together, in request order, each with its own thread an
   ]);
   assert.deepEqual(calls, [
     { method: 'config/getAutoClear', params: {} },
-    { method: 'mcp/mcpStatus', params: { threadId: 'pane-1' } },
-    { method: 'skills/skillsStatus', params: { threadId: 'pane-2', options: { cwd: '/w' } } },
+    { method: 'mcp/mcpStatus', params: {} },
+    { method: 'skills/skillsStatus', params: { options: { cwd: '/w' } } },
   ]);
+  // Node's readCapabilities never reads a request's sessionId, and a read starts no thread and reads no state.
+  assert.deepEqual(all, calls);
 });
 
 test('a domain error of the core reaches the window as the error Node raised', async () => {
@@ -257,6 +351,7 @@ test("a connection with a core endpoint routes its client's capabilities through
       calls.push({ method, params });
       return { servers: [] };
     },
+    snapshot: () => ({ status: 'ready', entries: [] }),
     close: async () => {},
   };
   const connection = createDesktopConnection(
@@ -282,7 +377,10 @@ test("a connection with a core endpoint routes its client's capabilities through
   try {
     const result = await connection.client.invokeCapability('mcpStatus', [], 'pane-7');
     assert.deepEqual(result.value, { servers: [] });
-    assert.deepEqual(calls, [{ method: 'mcp/mcpStatus', params: { threadId: 'pane-7' } }]);
+    assert.deepEqual(calls, [
+      { method: 'mcp/mcpStatus', params: { threadId: 'pane-7' } },
+      { method: 'thread/read', params: { threadId: 'pane-7', window: { none: true } } },
+    ]);
   } finally {
     await connection.dispose();
   }

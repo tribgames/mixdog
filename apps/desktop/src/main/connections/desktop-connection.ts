@@ -305,9 +305,9 @@ function createServiceClient({
   live: ClientLive;
   protocol: ProtocolConnection | null;
 }): DesktopServiceClient {
-  const client: DesktopServiceClient = new DesktopServiceClient({
+  const client = new DesktopServiceClient({
     // A connection with a core endpoint sends its session capabilities there (capability-route.ts).
-    ...(protocol ? { capabilityLane: createCapabilityLane({ protocol, snapshot: () => client.getSnapshot() }) } : {}),
+    ...(protocol ? { capabilityLane: createCapabilityLane({ protocol }) } : {}),
     connect: () => {
       live.transport = new SessionTransport(
         deps.moduleUrl(),
