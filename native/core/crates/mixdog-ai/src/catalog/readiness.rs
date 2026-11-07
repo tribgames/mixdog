@@ -23,7 +23,6 @@ use serde_json::Value;
 
 use mixdog_protocol::ProviderId;
 
-use super::ModelSource;
 use super::service::CatalogService;
 use crate::registry::providers::ProviderRegistry;
 use crate::registry::providers::RegistryError;
@@ -164,7 +163,7 @@ impl ProviderReadiness {
                     self.registry
                         .all()
                         .into_iter()
-                        .filter_map(|(name, adapter)| ModelSource::of_adapter(ProviderId::from(name.as_str()), adapter))
+                        .filter_map(|(name, adapter)| self.catalog.model_source(ProviderId::from(name.as_str()), adapter))
                         .collect(),
                 );
                 return result;
