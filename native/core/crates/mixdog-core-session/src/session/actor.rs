@@ -4042,22 +4042,6 @@ impl SessionActor {
                 meta.entry("agent").or_insert_with(|| json!(route_agent));
             }
         }
-        // `backfillFallbackSessionTitle` (`session-fallback-title.mjs`, called by `precommitUserTurn`): a session
-        // with no usable title takes it from the first human prompt, unless the title is locked or generated.
-        // Only this turn's prompt is read here, not the history before it.
-        let header = &self.projected.header;
-        let titled = header.get("title").and_then(Value::as_str).is_some_and(super::session_title::is_usable_title);
-        let human = body.pointer("/meta/source").is_none();
-        if human && !titled && header.get("titleLocked") != Some(&Value::Bool(true)) && !header.get("generatedTitleStage").is_some_and(|stage| !stage.is_null() && stage.as_str() != Some("")) {
-            let title = super::session_title::fallback_title_from_text(body.get("content").unwrap_or(&Value::Null));
-            if !title.is_empty() {
-                let mut set = serde_json::Map::new();
-                set.insert("title".into(), json!(title));
-                set.insert("titleUpdatedAt".into(), json!(self.deps.clock.now_ms()));
-                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
-                self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
-            }
-        }
         self.sync_turn_chain();
         // `mintTranscriptEpoch` (`transcript-durability.mjs`): a transcript lineage is named when the first turn
         // saves, and again when a history rewrite makes the next turn open on a transcript that is not an

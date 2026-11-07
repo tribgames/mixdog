@@ -78,7 +78,9 @@ struct Check {
     reminders: u32,
     awaiting_progress: bool,
     audit_asked: bool,
-    stale_mutations: u32,
+    /// `todoCheck.staleMutations`: absent until a todo call, a mutating call, a closed list or a fired reminder
+    /// sets it, and a reset leaves a stored 0 (`todo-check.mjs` `staleTodoReminder`).
+    stale_mutations: Option<u32>,
     create_nudged: bool,
     user_wait: bool,
     /// `session.todoCheck` exists: a genuine prompt opened a cycle, or a check read it (`checkState`).
@@ -94,7 +96,7 @@ impl Check {
             reminders: count("reminders"),
             awaiting_progress: flag("awaitingProgress"),
             audit_asked: flag("auditAsked"),
-            stale_mutations: count("staleMutations"),
+            stale_mutations: saved.get("staleMutations").is_some().then(|| count("staleMutations")),
             create_nudged: flag("createNudged"),
             user_wait: false,
             kept: saved.is_object(),
@@ -106,8 +108,8 @@ impl Check {
             return None;
         }
         let mut saved = serde_json::json!({ "reminders": self.reminders, "awaitingProgress": self.awaiting_progress, "auditAsked": self.audit_asked });
-        if self.stale_mutations > 0 {
-            saved["staleMutations"] = self.stale_mutations.into();
+        if let Some(stale) = self.stale_mutations {
+            saved["staleMutations"] = stale.into();
         }
         if self.create_nudged {
             saved["createNudged"] = true.into();
@@ -193,7 +195,7 @@ impl TurnGuards for TodoGuards {
         check.kept = true;
         for call in calls {
             if call.name == TODO_TOOL {
-                check.stale_mutations = 0;
+                check.stale_mutations = Some(0);
                 continue;
             }
             let landed = results
@@ -201,21 +203,21 @@ impl TurnGuards for TodoGuards {
                 .find(|m| m.tool_call_id() == Some(call.id.as_str()))
                 .is_some_and(|m| !matches!(m.tool_kind, Some(ToolKind::Error | ToolKind::Skipped)));
             if landed && self.view.is_mutation(call) {
-                check.stale_mutations += 1;
+                check.stale_mutations = Some(check.stale_mutations.unwrap_or(0) + 1);
             }
         }
         let has_open = phases.iter().flat_map(|p| &p.tasks).any(|t| t.status.open());
         if !phases.is_empty() && !has_open {
-            check.stale_mutations = 0;
+            check.stale_mutations = Some(0);
             return None;
         }
         if phases.is_empty() && check.create_nudged {
             return None;
         }
-        if check.stale_mutations < STALE_MUTATIONS {
+        if check.stale_mutations.unwrap_or(0) < STALE_MUTATIONS {
             return None;
         }
-        check.stale_mutations = 0;
+        check.stale_mutations = Some(0);
         if phases.is_empty() {
             check.create_nudged = true;
             return Some(reminder([
@@ -328,6 +330,51 @@ mod tests {
         assert!(next.completion_reminder(false).await.is_none(), "the continuation still awaits progress");
         next.start_turn(true).await;
         assert_eq!(next.saved(), Some(serde_json::json!({ "reminders": 0, "awaitingProgress": false, "auditAsked": false })));
+    }
+
+    fn batch(names: &[&str]) -> (Vec<ToolCall>, Vec<AgentMessage>) {
+        let calls: Vec<ToolCall> = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| ToolCall { id: format!("c{i}"), name: (*name).into(), arguments: serde_json::json!({}), native_type: None })
+            .collect();
+        let results = calls.iter().map(|call| AgentMessage::tool_text(call.id.clone(), "ok", ToolKind::Normal)).collect();
+        (calls, results)
+    }
+
+    /// `todo-check.mjs` `staleTodoReminder`: `todoCheck.staleMutations` is absent until something sets it,
+    /// and a todo call, a closed list and a fired reminder each leave a stored 0 (`:104`, `:111`, `:116`).
+    #[tokio::test]
+    async fn stale_mutations_is_stored_as_zero_where_node_assigns_it() {
+        let bare = serde_json::json!({ "reminders": 0, "awaitingProgress": false, "auditAsked": false });
+        let with = |count: u64| serde_json::json!({ "reminders": 0, "awaitingProgress": false, "auditAsked": false, "staleMutations": count });
+        let open = || Arc::new(View { phases: open_list(), goal: false });
+
+        let guards = TodoGuards::new(open(), false);
+        assert!(guards.stale_reminder(&[], &[]).await.is_none());
+        assert_eq!(guards.saved(), Some(bare), "reading the check sets no count");
+
+        let (calls, results) = batch(&["edit"]);
+        assert!(guards.stale_reminder(&calls, &results).await.is_none());
+        assert_eq!(guards.saved(), Some(with(1)));
+
+        let (calls, results) = batch(&[TODO_TOOL]);
+        assert!(guards.stale_reminder(&calls, &results).await.is_none());
+        assert_eq!(guards.saved(), Some(with(0)), "a todo call resets to a stored 0");
+
+        let (calls, results) = batch(&["edit"; 10]);
+        assert!(guards.stale_reminder(&calls, &results).await.is_some(), "the tenth mutation fires the reminder");
+        assert_eq!(guards.saved(), Some(with(0)), "a fired reminder resets to a stored 0");
+
+        let closed = TodoGuards::new(
+            Arc::new(View { phases: vec![TodoPhase { tasks: vec![TodoTask { content: "done".into(), status: TodoStatus::Completed }] }], goal: false }),
+            false,
+        );
+        assert!(closed.stale_reminder(&[], &[]).await.is_none());
+        assert_eq!(closed.saved(), Some(with(0)), "a finished list stores 0");
+
+        let restored = TodoGuards::new(open(), false).with_saved(Some(&with(0)));
+        assert_eq!(restored.saved(), Some(with(0)), "a stored 0 survives the record round trip");
     }
 
     fn open_list() -> Vec<TodoPhase> {
