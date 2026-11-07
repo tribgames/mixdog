@@ -5,6 +5,7 @@
 //! A rejected credential gets one refreshed credential and one resend, which is
 //! part of getting a request accepted; retrying is above the adapter.
 
+use crate::transport::deadlines::MODEL_STREAM;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -96,7 +97,7 @@ pub async fn run_attempt(
     loop {
         let mut sent = wire.clone();
         sent.headers.extend(header.clone());
-        let head = http.send(sent).await?;
+        let head = http.send(sent, MODEL_STREAM).await?;
         if head.status == 401 && credential.refreshable() && !refreshed {
             refreshed = true;
             let next = credential.header(true).await?;

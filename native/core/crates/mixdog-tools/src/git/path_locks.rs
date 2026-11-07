@@ -97,7 +97,7 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn one_path_runs_one_holder_at_a_time_in_arrival_order() {
         let cancel = CancellationToken::new();
         let first = lock_paths(&[Path::new("/r/a")], &cancel).await.unwrap();
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(*order.lock().unwrap(), [0, 1, 2]);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_folder_lock_does_not_cover_file_locks_under_it_as_in_node() {
         let cancel = CancellationToken::new();
         // A git write holds the work tree; an edit locks its target file (and its real path).
@@ -150,7 +150,7 @@ mod tests {
         drop((git_write, edit));
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn entries_are_dropped_once_unused_and_a_cancelled_wait_leaves_none() {
         let cancel = CancellationToken::new();
         let held = lock_paths(&[Path::new("/r/only-here"), Path::new("/r/only-here-too")], &cancel)

@@ -67,8 +67,8 @@ impl ExtensionHost for Host {
     async fn announce(&self, _: &str) {}
     async fn announce_without_invalidating(&self, _: &str) {}
 
-    async fn tool_names(&self) -> Vec<String> {
-        Vec::new()
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
 
     async fn reconnect_mcp_and_announce(&self, only: Option<&str>, enabled: bool, _: &[String]) -> Value {
@@ -96,8 +96,8 @@ impl ExtensionHost for Host {
     fn invalidate_skills(&self) {}
     async fn flush_skills_save(&self) {}
 
-    async fn current_cwd(&self, _: Option<&str>) -> PathBuf {
-        self.cwd.clone()
+    async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
+        Ok(self.cwd.clone())
     }
 
     async fn skills_status(&self) -> Value {

@@ -87,6 +87,27 @@ pub(crate) async fn eventually_on<T>(wakes: &[&tokio::sync::Notify], mut probe: 
     }
 }
 
+/// The Rig's Goal timers fire at their time on the test runtime's clock (here paused, so exactly),
+/// and a cancelled one never fires.
+#[tokio::test(start_paused = true)]
+async fn the_rigs_goal_timers_follow_the_test_clock_and_cancel() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    use mixdog_core_goal::goal::GoalTimers;
+    use mixdog_core_goal::goal::TimerKind;
+
+    let fired = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (due, never) = (fired.clone(), fired.clone());
+    let timers = super::testing::RigGoalTimers;
+    let _due = timers.after(TimerKind::Deadline, 60_000.0, Box::new(move || { due.fetch_add(1, SeqCst); }));
+    let cancelled = timers.after(TimerKind::Warning, 30_000.0, Box::new(move || { never.fetch_add(10, SeqCst); }));
+    cancelled.cancel();
+    tokio::time::sleep(Duration::from_secs(59)).await;
+    assert_eq!(fired.load(SeqCst), 0, "not before its time");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(fired.load(SeqCst), 1, "the due one fired once; the cancelled one never");
+}
+
 pub(super) async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
     let reply = directory
         .request(request(
@@ -1289,6 +1310,33 @@ async fn a_large_prompt_round_trips_through_the_real_store() {
     assert_eq!(value["text"], text.as_str());
 }
 
+/// A fence `op/status` recorded is in the log: a thread that loads afterwards answers the fenced
+/// id `opFenced` and runs nothing (P §9.4).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fenced_op_is_refused_after_the_thread_reloads() {
+    use mixdog_core_base::ops::ThreadOpGates;
+
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&first).await;
+    let id = handle.id.clone();
+    let op = "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0b";
+    let gate = first.thread_ops().gate(&id, &connection()).await.expect("gate");
+    let status = gate.status(&[OpId::from(op)], true, &connection()).await.expect("status");
+    assert!(matches!(status[..], [mixdog_core_api::ops::OpStatus::NotApplied]));
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let late = reopened
+        .request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "late" } }), op))
+        .await;
+    assert!(matches!(late, Err(CoreError::OpFenced { .. })));
+    assert!(rows(&reopened).is_empty(), "the fenced turn ran nothing");
+}
+
 /// The whole stored history reads every page of the lineage, oldest first, and a rewind's
 /// superseded rows are not part of it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1478,7 +1526,9 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
             run.port.reasoning_delta(reasoning.clone(), "think ".into()).await.expect("delta");
             run.port.reasoning_delta(reasoning.clone(), "more".into()).await.expect("delta");
             run.port.reasoning_completed(reasoning, "think more".into()).await.expect("completed");
-            run.port.notice("model switch failed".into()).await.expect("notice");
+            run.port.notice("model switch failed".into(), mixdog_agent::env::Tone::Info).await.expect("notice");
+            let excluded = "Tool \"mcp__x__broken\" was excluded from this session's requests: its input schema is invalid at / (bad). Fix the tool's schema or disable the tool.";
+            run.port.notice(excluded.into(), mixdog_agent::env::Tone::Warn).await.expect("warn notice");
             let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, cache_read_tokens: 3, cache_write_tokens: 2, ..Default::default() };
             let tool = mixdog_core_api::domain::provider::ToolDefinition { name: "read".into(), description: "d".into(), input_schema: json!({ "type": "object" }), defer_loading: true };
             run.port
@@ -1562,6 +1612,18 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
         })
         .expect("the notice");
     assert_eq!((notice["ext"]["text"].clone(), notice["ext"]["tone"].clone()), (json!("Couldn’t switch model."), json!("info")), "{notice}");
+    // A warn-toned stage notice (an excluded tool) is shown with the warn level.
+    let warned = shown
+        .iter()
+        .find_map(|item| match item {
+            ThreadItem::StatusRow { kind, meta, .. } if kind == "notice" => {
+                let meta = serde_json::to_value(meta).expect("meta");
+                meta["ext"]["text"].as_str().is_some_and(|text| text.contains("was excluded from this session")).then_some(meta)
+            }
+            _ => None,
+        })
+        .expect("the warn notice");
+    assert_eq!(warned["ext"]["tone"], json!("warn"), "{warned}");
 
     let frames = rig.feeds.frames(handle.id.as_str());
     let methods: Vec<&str> = frames.iter().map(|(_, method, _)| method.as_str()).collect();
@@ -2110,6 +2172,7 @@ async fn a_retention_delete_is_refused_when_the_session_changed_after_the_check(
     assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
     handle.cell.unsubscribed();
     eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
+    handle.inbox.closed().await;
 
     // Used after the check: its activity is not what the pass read.
     assert!(!directory.delete_stored(id.as_str(), read - 1.0, &[], &live).await.expect("delete"), "moved");
@@ -2148,6 +2211,9 @@ async fn a_retention_delete_is_refused_when_another_member_of_the_tree_is_open()
         subscribe(&handle);
         handle.cell.unsubscribed();
         eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+        // Out of the directory is not stopped: the actor still hands off what it accepted. Its inbox
+        // closes when it ends, and only then is the stored header final.
+        handle.inbox.closed().await;
     }
     turn(&peer, "hello", "op-p1").await;
     eventually_on(&[&peer.cell.stepped], || idle(&peer).then_some(())).await;

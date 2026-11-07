@@ -185,7 +185,7 @@ impl SkillsService {
     pub async fn status(&self, cwd: &Path) -> Result<Value, Failure> {
         let skills = self.skills().await?;
         let gate = self.settings.current().gate;
-        let tools: Vec<Value> = self.host.tool_names().await.into_iter().map(|name| json!({"name": name})).collect();
+        let tools: Vec<Value> = self.host.tool_names().await?.into_iter().map(|name| json!({"name": name})).collect();
         let rows: Vec<Value> = skills
             .iter()
             .map(|skill| {
@@ -216,7 +216,7 @@ impl SkillsService {
         Ok(json!({"cwd": path_text(cwd), "count": rows.len(), "tools": tools, "skills": rows}))
     }
 
-    async fn current_cwd(&self, params: &Value) -> PathBuf {
+    async fn current_cwd(&self, params: &Value) -> Result<PathBuf, Failure> {
         self.host.current_cwd(params.get("threadId").and_then(Value::as_str)).await
     }
 
@@ -236,7 +236,7 @@ impl SkillsService {
     async fn skills_status(&self, params: &Value) -> Result<Value, Failure> {
         let cwd = match self.requested_cwd(params).await? {
             Some(cwd) => cwd,
-            None => self.current_cwd(params).await,
+            None => self.current_cwd(params).await?,
         };
         let status = self.status(&cwd).await?;
         Ok(decorate_skills(&status, &self.scopes(), &cwd))
@@ -369,7 +369,7 @@ impl SkillsService {
     async fn add_skill(&self, params: &Value) -> Result<Value, Failure> {
         let skill = self.add_global_skill(params.get("input").unwrap_or(&json!({}))).await?;
         self.host.announce("skills").await;
-        Ok(json!({"skill": skill, "status": self.status(&self.current_cwd(params).await).await?}))
+        Ok(json!({"skill": skill, "status": self.status(&self.current_cwd(params).await?).await?}))
     }
 
     async fn save_skill(&self, params: &Value) -> Result<Value, Failure> {
@@ -384,7 +384,7 @@ impl SkillsService {
             }
         }
         self.host.announce_without_invalidating("skills").await;
-        Ok(json!({"skill": skill, "status": self.status(&self.current_cwd(params).await).await?}))
+        Ok(json!({"skill": skill, "status": self.status(&self.current_cwd(params).await?).await?}))
     }
 
     async fn remove_skill(&self, params: &Value) -> Result<Value, Failure> {
@@ -397,7 +397,7 @@ impl SkillsService {
             self.host.flush_skills_save().await;
         }
         self.host.announce("skills").await;
-        Ok(json!({"skill": removed, "status": self.status(&self.current_cwd(params).await).await?}))
+        Ok(json!({"skill": removed, "status": self.status(&self.current_cwd(params).await?).await?}))
     }
 }
 
@@ -507,8 +507,11 @@ impl DomainService for SkillsService {
             "skills/removeSkill" => self.remove_skill(params).await,
             "skills/reloadSkills" => {
                 self.host.announce("skills").await;
-                let cwd = self.current_cwd(params).await;
-                self.status(&cwd).await
+                // The `String` failure ends as the skills `DomainError` through `domain_error` below.
+                match self.current_cwd(params).await {
+                    Ok(cwd) => self.status(&cwd).await,
+                    Err(failure) => Err(failure),
+                }
             }
             "skills/setDisabledSkills" => {
                 let names: Vec<String> = params

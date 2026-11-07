@@ -381,7 +381,9 @@ impl McpServer {
         if let Some(version) = init.get("protocolVersion").and_then(Value::as_str) {
             client.transport().set_protocol_version(version);
         }
-        client.notify("notifications/initialized", json!({})).await?;
+        client
+            .notify_and_wait("notifications/initialized", json!({}))
+            .await?;
         client.transport().initialized();
         let capabilities = init.get("capabilities").cloned().unwrap_or(Value::Null);
         let tools = if capabilities.get("tools").is_some_and(Value::is_object) {

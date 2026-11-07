@@ -237,7 +237,7 @@ async fn explore(provider: Arc<Provider>, deadline: Duration) -> Result<mixdog_t
 /// The recorded Node `runExplorer` results (`fixtures/agent/record-explorer.mjs`):
 /// the text it resolves with, or that it rejects. A deadline answer is the late
 /// one, so a case whose Node text exists after a hang is `late`.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn explorer_results_equal_nodes() {
     #[allow(clippy::disallowed_methods)] // test fixture loading
     let cases = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent/explorer/cases.json")).unwrap();

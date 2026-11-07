@@ -59,7 +59,11 @@ struct Http {
 
 #[async_trait]
 impl HttpSend for Http {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         self.seen.lock().unwrap().push(request);
         let sse = format!("data: {}\n\n", answer_event("resp_http", "via http", "response.completed"));
         Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(VecBody([Bytes::from(sse)].into())) })

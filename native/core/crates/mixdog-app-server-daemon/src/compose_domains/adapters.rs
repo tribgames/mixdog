@@ -33,6 +33,25 @@ use mixdog_core_domains::domains::diagnostics::Probe;
 use mixdog_core_domains::domains::diagnostics::ProbeFailed;
 use serde_json::Value;
 use serde_json::json;
+use mixdog_core_agents::setup::DomainCalls;
+use mixdog_core_agents::setup::ProviderAccounts;
+use mixdog_core_domains::domains::ai_admin::provider_status::ProviderRoster;
+use mixdog_core_agents::setup::WorkflowFacts;
+use mixdog_core_config::workflow::WorkflowConfig;
+use mixdog_core_agents::setup::UpdateSettings;
+use mixdog_core_config::config::Settings;
+use mixdog_core_domains::domains::update::UpdateService;
+use mixdog_tools::orch::util::PortError;
+
+/// `getProviderAccounts(provider)` of the setup tool: the provider admin's roster read.
+pub(super) struct RosterAccounts(pub(super) Arc<dyn ProviderRoster>);
+
+#[async_trait]
+impl ProviderAccounts for RosterAccounts {
+    async fn accounts(&self, provider: &str) -> Result<Value, String> {
+        self.0.accounts(provider).await
+    }
+}
 
 /// `refreshLocalProviderCatalog`: the installed local models are listed by the model catalog.
 pub(super) struct CatalogRefresh(Arc<CatalogService>);
@@ -132,6 +151,67 @@ impl LateDomains {
             Reply::Value(value) => Ok(value),
             Reply::Subscribe(_) => Err(failed("domains", format!("{method} answered a subscription"))),
         }
+    }
+}
+
+#[async_trait]
+impl DomainCalls for LateDomains {
+    async fn call(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        LateDomains::call(self, method, params).await
+    }
+}
+
+/// `rt.setAutoUpdate(enabled)` of the setup tool: the config actor stores the switch, the update
+/// service answers `getUpdateSettings()`. The update service is built after the owners are
+/// handed out (the MCP stage needs them first), so it is bound into the cell later.
+#[derive(Default)]
+pub struct UpdateCell(OnceLock<Arc<UpdateService>>);
+
+impl UpdateCell {
+    pub(super) fn bind(&self, update: Arc<UpdateService>) {
+        // Composition binds the one update service once.
+        self.0.set(update).unwrap_or_else(|_| panic!("the update service is bound once"));
+    }
+}
+
+pub(super) struct UpdateSetup {
+    settings: Settings,
+    update: Arc<UpdateCell>,
+}
+
+impl UpdateSetup {
+    pub(super) fn new(settings: Settings, update: Arc<UpdateCell>) -> Arc<Self> {
+        Arc::new(Self { settings, update })
+    }
+}
+
+#[async_trait]
+impl UpdateSettings for UpdateSetup {
+    async fn set_auto_update(&self, enabled: bool) -> Result<Value, PortError> {
+        self.settings
+            .set_auto_update(&Value::Bool(enabled))
+            .await
+            .map_err(|error| PortError::Failed { capability: "setup".into(), message: error.to_string() })?;
+        let update = self.update.0.get().ok_or_else(|| PortError::Unavailable {
+            capability: "update".into(),
+            message: "the update service is not composed yet".into(),
+        })?;
+        Ok(update.settings())
+    }
+}
+/// The workflow owner's getters, for the `websearch` and `onboarding` status domains.
+pub(super) struct WorkflowGetters(pub(super) Arc<WorkflowConfig>);
+
+#[async_trait]
+impl WorkflowFacts for WorkflowGetters {
+    fn web_search_route(&self) -> Result<Value, PortError> {
+        self.0.web_search_route().map_err(|error| PortError::Failed { capability: "setup".into(), message: format!("{error:?}") })
+    }
+    fn onboarding(&self) -> Result<Value, PortError> {
+        self.0.onboarding_status().map_err(|error| PortError::Failed { capability: "setup".into(), message: format!("{error:?}") })
+    }
+    async fn workflows(&self) -> Result<Value, PortError> {
+        self.0.list_workflows().await.map_err(|error| PortError::Failed { capability: "setup".into(), message: format!("{error:?}") })
     }
 }
 

@@ -32,7 +32,7 @@ mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
-tokio = { workspace = true, features = ["rt", "macros", "io-util", "fs"] }
+tokio = { workspace = true, features = ["rt", "macros", "io-util", "fs", "test-util"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

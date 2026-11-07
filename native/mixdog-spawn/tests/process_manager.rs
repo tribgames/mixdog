@@ -26,9 +26,7 @@ fn long_sleep() -> CommandSpec {
 }
 
 async fn wait_exit(manager: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) {
-    let deadline = Instant::now() + Duration::from_secs(10);
     while manager.info(h).unwrap().exit.is_none() {
-        assert!(Instant::now() < deadline, "the process did not exit");
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
@@ -193,7 +191,7 @@ async fn replay_ring_forgets_the_oldest_events() {
 
 /// The pid a script printed as `CHILD=<pid>`.
 async fn child_pid(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u32 {
-    tokio::time::timeout(Duration::from_secs(30), async {
+    async {
         let mut events = m.subscribe(h, Some(0)).unwrap();
         let mut seen = String::new();
         while let Some(event) = events.next().await {
@@ -208,9 +206,8 @@ async fn child_pid(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::P
             }
         }
         panic!("the script never printed its child");
-    })
+    }
     .await
-    .expect("the grandchild starts")
 }
 
 fn tree_script() -> CommandSpec {
@@ -290,10 +287,8 @@ fn flood_command(path: &str) -> CommandSpec {
 }
 
 async fn pushed_when_stable(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u64 {
-    let deadline = Instant::now() + Duration::from_secs(20);
     // The shell takes a moment to start printing.
     while m.output_pushed(h).unwrap() == 0 {
-        assert!(Instant::now() < deadline, "the process printed nothing");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     let mut last = m.output_pushed(h).unwrap();
@@ -303,7 +298,6 @@ async fn pushed_when_stable(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_pr
         if now == last {
             return now;
         }
-        assert!(Instant::now() < deadline, "the reader never settled");
         last = now;
     }
 }

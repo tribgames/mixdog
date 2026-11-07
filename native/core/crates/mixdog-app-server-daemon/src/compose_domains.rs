@@ -11,6 +11,7 @@
 mod adapters;
 mod export;
 mod local;
+mod local_setup;
 mod rows;
 #[cfg(test)]
 mod tests;
@@ -23,6 +24,16 @@ use mixdog_ai::netproxy::NetworkProxy;
 use mixdog_ai::netproxy::clients::RoutedClients;
 use mixdog_ai::netproxy::system::SystemProxy;
 use mixdog_ai::service::network_proxy::NetworkProxyService;
+use mixdog_core_agents::setup::DomainSettings;
+use mixdog_core_agents::setup::FeatureActivity;
+use mixdog_core_agents::setup::FeatureStatus;
+use mixdog_core_agents::setup::QuotaAutoResume;
+use mixdog_core_agents::setup::ConfigStatus;
+use mixdog_core_agents::setup::SettingsSetup;
+use mixdog_core_agents::setup::StatusReader;
+use mixdog_core_agents::setup::ModelStatus;
+use mixdog_core_agents::setup::SummaryStatus;
+use mixdog_core_agents::setup::WorkflowStatus;
 use mixdog_core_agents::setup::SetupRequests;
 use mixdog_core_agents::setup::SetupRequestsService;
 use mixdog_core_agents::setup::SetupUiSurface;
@@ -32,6 +43,7 @@ use mixdog_core_domains::domains::diagnostics::DoctorConfig;
 use mixdog_core_domains::domains::host::NotificationClicks;
 use mixdog_core_domains::domains::instructions::InstructionsChanged;
 use mixdog_core_ports::ports::domain_sessions::SessionAttachments;
+use mixdog_core_ports::ports::setup_actions::SetupActions;
 use mixdog_remote::access::RemoteRuntime;
 use mixdog_remote::bridge::Dialer;
 use mixdog_services::bots::beat::UserActivity;
@@ -60,6 +72,13 @@ use mixdog_workspace::transfer::TransferSource;
 use tokio_util::sync::CancellationToken;
 
 use adapters::ServiceDoctor;
+use adapters::UpdateCell;
+use adapters::WorkflowGetters;
+use adapters::RosterAccounts;
+use adapters::UpdateSetup;
+use mixdog_core_agents::setup::MediaDefaultSetup;
+use mixdog_core_domains::domains::ai_admin::provider_status::ProviderRoster;
+use local_setup::LocalSetup;
 pub use export::{HeaderCwds, SessionCwds};
 use export::HostExportRenderer;
 use mixdog_agent::compact::settings_service::CompactionHost;
@@ -162,6 +181,17 @@ pub struct DomainSeams {
     /// The live route, provider registry and session facts of the workflow, orchestration-mode,
     /// web-search-route, model-preference and onboarding methods: WP-SESSION, WP-AI-SVC.
     pub workflow_host: Arc<dyn WorkflowHost>,
+    /// The pending quota resumes (quota-resume.json): the setup action set_quota_auto_resume drops them when it turns the switch off.
+    pub quota_resume: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
+    /// Whether the desktop's browser, computer and terminal bridges are up (the MIXDOG_FEATURE_* overrides first, then the bridge
+    /// discovery files): the same fact the skill gate reads. The `features` status prints it.
+    pub feature_activity: Arc<dyn FeatureActivity>,
+    /// The live Lead route (provider, model, effort, fast, model parameters, context limits): the session's fact, printed
+    /// by the `summary` status.
+    pub live_route: Arc<dyn mixdog_core_agents::setup::LiveRoute>,
+    /// The OAuth account roster (`ProviderRoster`, implemented by `ProviderAdmin`): the setup action set_media_default checks an
+    /// account id against it. WP-AI-ADMIN.
+    pub provider_roster: Arc<dyn ProviderRoster>,
 }
 
 /// The seams of the post-directory stage: both read the session directory, which is built from the
@@ -252,6 +282,14 @@ pub struct PreDomains {
     pub plugins: Arc<dyn DomainService>,
     /// The `WorkflowConfig` also in `services` (`config/getWorkflowPack`).
     pub workflow: Arc<dyn DomainService>,
+    /// The setup actions this composition serves (local models, the domain-backed settings, the
+    /// scalar settings): register each with SetupService::with_actions in the MCP stage.
+    pub setup_actions: Vec<Arc<dyn SetupActions>>,
+    /// The `status` readers this composition serves (the config-backed domains): register each with
+    /// SetupService::with_status in the MCP stage.
+    pub status_readers: Vec<Arc<dyn StatusReader>>,
+    /// Bound to the update service by compose_domains_post; set_auto_update answers its settings.
+    update_cell: Arc<UpdateCell>,
 }
 
 /// Stage one: every service that needs nothing of the session directory. Build order of the
@@ -265,7 +303,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());
     let settings = Settings::new(config.clone(), inputs.seams.settings_effects.clone(), inputs.env.clone());
     let output_styles = OutputStyles::new(config.clone(), inputs.paths.package_root.join("output-styles"), &inputs.paths.data_dir);
-    services.push(Arc::new(ConfigService::new(config.clone(), tool_modules.clone(), settings, output_styles)));
+    services.push(Arc::new(ConfigService::new(config.clone(), tool_modules.clone(), settings.clone(), output_styles)));
     services.extend(local.services);
     let setup_requests = Arc::new(SetupRequests::new(inputs.seams.setup_ui.clone()));
     services.push(Arc::new(SetupRequestsService::new(setup_requests.clone())));
@@ -277,13 +315,14 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
     let mut transfer_sources = local.transfer_sources;
     transfer_sources.push(ExportSource::new(HostExportRenderer::new(inputs.host.clone(), inputs.seams.session_cwds.clone()), &inputs.tokens));
     services.push(Arc::new(CompactionSettingsService::new(Arc::new(config.clone()), inputs.seams.compaction_host.clone())));
-    let workflow: Arc<dyn DomainService> = WorkflowConfig::new(
+    let workflow_config = WorkflowConfig::new(
         config.clone(),
         WorkflowPaths { root: inputs.paths.package_root.clone(), data: inputs.paths.data_dir.clone() },
         inputs.seams.workflow_host.clone(),
         inputs.scopes.scopes("workflow")?,
         &inputs.tokens,
     );
+    let workflow: Arc<dyn DomainService> = workflow_config.clone();
     services.push(workflow.clone());
     services.push(Arc::new(BrowserService::new(inputs.host.clone())));
     services.push(Arc::new(VisualizeService::new(inputs.host.clone())));
@@ -296,6 +335,26 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         inputs.tokens.maintenance_io,
     ));
     services.push(plugins.clone());
+    let late = Arc::new(LateDomains::default());
+    let update_cell = Arc::new(UpdateCell::default());
+    let setup_actions: Vec<Arc<dyn SetupActions>> = vec![
+        LocalSetup::new(local.service),
+        Arc::new(DomainSettings::new(late.clone())),
+        Arc::new(MediaDefaultSetup::new(late.clone(), Arc::new(RosterAccounts(inputs.seams.provider_roster.clone())))),
+        Arc::new(SettingsSetup::new(
+            settings.clone(),
+            UpdateSetup::new(settings.clone(), update_cell.clone()),
+            QuotaAutoResume::new(config.clone(), inputs.seams.quota_resume.clone()),
+        )),
+    ];
+    let features = Arc::new(FeatureStatus::new(late.clone(), settings, inputs.seams.feature_activity.clone()));
+    let status_readers: Vec<Arc<dyn StatusReader>> = vec![
+        Arc::new(ConfigStatus::new(late.clone())),
+        Arc::new(WorkflowStatus::new(Arc::new(WorkflowGetters(workflow_config.clone())), late.clone())),
+        features.clone(),
+        Arc::new(SummaryStatus::new(late.clone(), Arc::new(WorkflowGetters(workflow_config)), features, inputs.seams.live_route.clone())),
+        Arc::new(ModelStatus::new(inputs.seams.live_route.clone())),
+    ];
     Ok(PreDomains {
         services,
         transfer_sources,
@@ -303,11 +362,14 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         config,
         tool_modules,
         watcher,
-        late: Arc::new(LateDomains::default()),
+        late,
         extensions,
         setup_requests,
         plugins,
         workflow,
+        setup_actions,
+        status_readers,
+        update_cell,
     })
 }
 
@@ -316,8 +378,9 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
 /// but were built after it in Node's order (client, host, instructions, feedback, blob, update,
 /// system, diagnostics).
 pub async fn compose_domains_post(inputs: &DomainInputs, post: PostSeams, pre: PreDomains) -> Result<ComposedDomains, ComposeDomainsError> {
-    let PreDomains { mut services, mut transfer_sources, state, config, tool_modules, watcher, late, extensions, setup_requests, .. } = pre;
+    let PreDomains { mut services, mut transfer_sources, state, config, tool_modules, watcher, late, extensions, setup_requests, update_cell, .. } = pre;
     let rows = rows::build(inputs, &config, state.publisher.clone(), tool_modules.clone(), post.session_attachments).await?;
+    update_cell.bind(rows.update.clone());
     services.extend(rows.services);
     transfer_sources.extend(rows.transfer_sources);
     services.push(DiagnosticsService::new(

@@ -12,7 +12,7 @@ fn focus(client: &super::Client, id: i64) {
     client.request(id, "terminal/focus", json!({ "tabId": format!("tab{id}") }));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn saturating_a_class_is_answered_at_once_and_retries_ride_on_own_responses() {
     let rig = Rig::gated(&["terminal"]);
     let client = rig.ready(1, json!({}));
@@ -50,7 +50,7 @@ async fn saturating_a_class_is_answered_at_once_and_retries_ride_on_own_response
     assert!(rest.iter().all(|wire| wire.body.get("result").is_some()));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn control_requests_stay_admitted_while_a_class_is_saturated() {
     let rig = Rig::gated(&["terminal"]);
     let thread = rig
@@ -74,7 +74,7 @@ async fn control_requests_stay_admitted_while_a_class_is_saturated() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn classes_are_counted_apart() {
     let rig = Rig::gated(&["terminal"]);
     let client = rig.ready(1, json!({}));

@@ -87,11 +87,11 @@ const INITIALIZE_PROBE: &str = r#"{"jsonrpc":"2.0","id":0,"method":"initialize",
 #[async_trait]
 pub trait McpSurface: Send + Sync {
     /// The folder the caller's session works in.
-    async fn current_cwd(&self, thread: Option<&str>) -> PathBuf;
+    async fn current_cwd(&self, thread: Option<&str>) -> Result<PathBuf, String>;
     /// Rebuilds what new sessions see of the tool surface.
     async fn refresh_surface(&self);
-    /// The names of the tools the session offers.
-    async fn tool_names(&self) -> Vec<String>;
+    /// The names of the tools the session offers; a surface that cannot be read is the error.
+    async fn tool_names(&self) -> Result<Vec<String>, String>;
     /// Opens the authorization URL in the host browser.
     fn open_browser(&self, url: &str);
     /// Tells the other processes the plugin registry changed.
@@ -239,25 +239,30 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
 
     /// `resolveConfiguredCatalog()`: user and plugin servers, disabled included.
     async fn resolve_configured_catalog(&self) -> Catalog {
-        let cwd = self.surface.current_cwd(None).await.to_string_lossy().into_owned();
         let config = Value::Object(self.config.agent());
         let (admin, declarations) = (Arc::clone(&self.admin), Arc::clone(&self.declarations));
-        let job = {
-            let config = config.clone();
-            move |lane: &mixdog_rt::InLane<MaintenanceIo>| {
-                let data = admin.data_dir().to_string_lossy().into_owned();
-                match admin.list_registered_plugins(lane) {
-                    Ok(rows) => {
-                        let declared = declarations_of(&rows, &|root| declarations.load(lane, root));
-                        (resolve_mcp_server_catalog(&config, &declared, &cwd, &data), None)
+        // A working folder that cannot be read is reported as the registry failing to load is: the
+        // catalog is empty and says why.
+        let cwd = self.surface.current_cwd(None).await.map(|cwd| cwd.to_string_lossy().into_owned());
+        let ran = match cwd {
+            Ok(cwd) => {
+                let config = config.clone();
+                let job = move |lane: &mixdog_rt::InLane<MaintenanceIo>| {
+                    let data = admin.data_dir().to_string_lossy().into_owned();
+                    match admin.list_registered_plugins(lane) {
+                        Ok(rows) => {
+                            let declared = declarations_of(&rows, &|root| declarations.load(lane, root));
+                            (resolve_mcp_server_catalog(&config, &declared, &cwd, &data), None)
+                        }
+                        Err(error) => (resolve_mcp_server_catalog(&config, &[], &cwd, &data), Some(error.0)),
                     }
-                    Err(error) => (resolve_mcp_server_catalog(&config, &[], &cwd, &data), Some(error.0)),
+                };
+                match self.maintenance.submit_wait(&CancellationToken::new(), job).await {
+                    Ok(handle) => handle.await.map_err(|e| e.to_string()),
+                    Err(error) => Err(error.to_string()),
                 }
             }
-        };
-        let ran = match self.maintenance.submit_wait(&CancellationToken::new(), job).await {
-            Ok(handle) => handle.await.map_err(|e| e.to_string()),
-            Err(error) => Err(error.to_string()),
+            Err(message) => Err(format!("the working folder could not be read: {message}")),
         };
         let (mut catalog, registry_error) = match ran {
             Ok(done) => done,
@@ -1108,7 +1113,7 @@ impl ExtensionHost for GlueHost {
         self.do_announce(kind, false).await;
     }
 
-    async fn tool_names(&self) -> Vec<String> {
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
         self.glue.surface.tool_names().await
     }
 
@@ -1169,13 +1174,16 @@ impl ExtensionHost for GlueHost {
         self.glue.surface.flush_skills_save().await;
     }
 
-    async fn current_cwd(&self, thread_id: Option<&str>) -> PathBuf {
+    async fn current_cwd(&self, thread_id: Option<&str>) -> Result<PathBuf, String> {
         self.glue.surface.current_cwd(thread_id).await
     }
 
     async fn skills_status(&self) -> Value {
         let Some(skills) = self.skills.get() else { return json!({"skills": [], "error": "the skills service is not bound"}) };
-        let cwd = self.glue.surface.current_cwd(None).await;
+        let cwd = match self.glue.surface.current_cwd(None).await {
+            Ok(cwd) => cwd,
+            Err(error) => return json!({"skills": [], "error": error}),
+        };
         match skills.status(&cwd).await {
             Ok(status) => status,
             Err(error) => json!({"skills": [], "error": error}),

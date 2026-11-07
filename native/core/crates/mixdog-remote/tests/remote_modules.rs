@@ -358,7 +358,7 @@ async fn settle() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn bridge_is_byte_transparent_and_forwards_core_close() {
     let (bridge, dialer, mut phone) = rig(false);
     bridge.client_open("p1");
@@ -377,7 +377,7 @@ async fn bridge_is_byte_transparent_and_forwards_core_close() {
     assert_eq!(phone.recv().await.unwrap(), ToPhone::Close { peer_id: "p1".into(), code: 4002, reason: "version".into() });
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn bridge_closes_on_client_close_revoke_leg_loss_and_target_change() {
     let (bridge, dialer, _phone) = rig(false);
     for id in ["a", "b", "c"] {
@@ -422,7 +422,7 @@ impl PhoneSink for SlowFor {
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_stalled_phone_does_not_delay_another() {
     let dialer = Arc::new(MockDialer { cores: Mutex::new(Vec::new()), closed: Arc::default(), fail: false });
     let (tx, mut rx) = mpsc::unbounded_channel();

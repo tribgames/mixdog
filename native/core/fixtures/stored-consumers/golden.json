@@ -1,0 +1,61 @@
+{
+  "brokenFile": {
+    "name": "sess_broken.log.jsonl",
+    "text": "{ this is not a session record\n"
+  },
+  "consumers": [
+    {
+      "active": true,
+      "closed": false,
+      "cwd": "C:\\mixdog-golden\\project",
+      "id": "sess_child",
+      "ownerSessionId": "sess_idle",
+      "parentSessionId": "sess_idle"
+    },
+    {
+      "active": false,
+      "closed": false,
+      "cwd": "C:\\mixdog-golden\\project",
+      "id": "sess_idle",
+      "ownerSessionId": null,
+      "parentSessionId": null
+    },
+    {
+      "active": true,
+      "closed": false,
+      "cwd": "C:\\mixdog-golden\\project",
+      "id": "sess_legacy",
+      "ownerSessionId": null,
+      "parentSessionId": null
+    },
+    {
+      "active": false,
+      "closed": false,
+      "cwd": null,
+      "id": "sess_nocwd",
+      "ownerSessionId": null,
+      "parentSessionId": null
+    },
+    {
+      "active": true,
+      "closed": false,
+      "cwd": "C:\\mixdog-golden\\project\\wt",
+      "id": "sess_streaming",
+      "ownerSessionId": null,
+      "parentSessionId": null
+    }
+  ],
+  "files": {
+    "sess_child.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c370a24d247bcd36e4817f10\",\"id\":\"sess_child\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_child\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"ownerSessionId\":\"sess_idle\",\"parentSessionId\":\"sess_idle\",\"status\":\"running\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n",
+    "sess_closed.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7ccdddd3ca431b0df52a5e76\",\"id\":\"sess_closed\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_closed\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":true,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"status\":\"running\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n",
+    "sess_idle.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"9b75600248415fcc2bb24759\",\"id\":\"sess_idle\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_idle\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"status\":\"idle\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n",
+    "sess_legacy.json": "{\"id\":\"sess_legacy\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}],\"status\":\"tool_running\"}",
+    "sess_nocwd.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"be233baf10de5c9a891e663e\",\"id\":\"sess_nocwd\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_nocwd\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n",
+    "sess_streaming.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"3ae72f5bf2be62c56dd7cb63\",\"id\":\"sess_streaming\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_streaming\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\\\\wt\",\"status\":\"Streaming\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n"
+  },
+  "refusal": "Cannot inspect session sess_broken; no workspace was removed.",
+  "unlistable": {
+    "absent": "ENOENT: no such file or directory, scandir '<sessions>'",
+    "notAFolder": "ENOTDIR: not a directory, scandir '<sessions>'"
+  }
+}

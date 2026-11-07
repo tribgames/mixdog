@@ -409,6 +409,7 @@ impl SessionState {
             Section::PromptRestore(value) => s.prompt_restore = value,
             Section::ProviderAccount(value) => s.provider_account_change = Some(value),
             Section::Remote(value) => s.remote_enabled = Some(value),
+            Section::SetupUiRequest(value) => s.setup_ui_request = value,
         }
     }
 

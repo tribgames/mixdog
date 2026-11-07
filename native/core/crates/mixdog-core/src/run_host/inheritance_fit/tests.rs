@@ -38,7 +38,7 @@ async fn seams() -> (tempfile::TempDir, Arc<ConfigRunSeams>) {
         Arc::new(|| Value::Null),
         dir.path().join("workspace"),
     );
-    let seams = ConfigRunSeams::new(config, agents, dir.path().to_path_buf(), dir.path().to_path_buf(), Arc::new(|_| None));
+    let seams = ConfigRunSeams::new(config, Arc::new(agents), dir.path().to_path_buf(), dir.path().to_path_buf(), Arc::new(|_| None));
     (dir, Arc::new(seams))
 }
 

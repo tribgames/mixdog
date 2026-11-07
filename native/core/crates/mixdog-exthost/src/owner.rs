@@ -151,7 +151,7 @@ mod tests {
         assert_signal_then_reap(&rig.log);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn an_exit_announced_while_waiting_kills_before_the_reap() {
         let Rig { mut owner, log, exited, tick, kill: _kill } = rig();
         let run = tokio::spawn(async move { owner.until_exit().await });
@@ -163,7 +163,7 @@ mod tests {
         assert_signal_then_reap(&log);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_stop_that_races_the_exit_signals_once_and_before_the_reap() {
         // Both are visible when the owner looks.
         let mut both = rig();
@@ -190,7 +190,7 @@ mod tests {
         assert_signal_then_reap(&log);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn losing_the_notifier_kills_the_still_unreaped_leader_then_reaps() {
         let rig = rig();
         let Rig { mut owner, log, tick, kill: _kill, exited: _exited } = rig;
@@ -201,7 +201,7 @@ mod tests {
         assert_signal_then_reap(&log);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn dropping_every_handle_ends_the_child_the_same_way() {
         let Rig { mut owner, log, kill, tick: _tick, exited: _exited } = rig();
         let run = tokio::spawn(async move { owner.until_exit().await });

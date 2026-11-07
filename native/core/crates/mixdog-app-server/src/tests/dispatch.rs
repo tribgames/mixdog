@@ -38,7 +38,7 @@ const HANDLED_HERE: [&str; 9] = [
     "host/claim",
 ];
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn every_method_of_the_table_dispatches_to_the_mock_core() {
     let rig = Rig::new();
     rig.core.mock.directory().insert(ThreadId::from("x"));
@@ -70,7 +70,7 @@ async fn every_method_of_the_table_dispatches_to_the_mock_core() {
     assert!(dispatched > 400, "only {dispatched} methods reached the core");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_request_naming_a_thread_goes_to_that_thread_and_others_to_the_directory() {
     let rig = Rig::new();
     let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
@@ -90,7 +90,7 @@ async fn a_request_naming_a_thread_goes_to_that_thread_and_others_to_the_directo
     assert_eq!(missing["error"]["data"]["threadId"], json!("missing"));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn mutations_carry_their_op_id_to_the_core() {
     let rig = Rig::new();
     type Seen = Arc<Mutex<Vec<(String, Option<OpId>)>>>;
@@ -119,7 +119,7 @@ async fn mutations_carry_their_op_id_to_the_core() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn shape_rules_hold_for_every_method() {
     let rig = Rig::new();
     rig.core.mock.directory().insert(ThreadId::from("t1"));
@@ -138,7 +138,7 @@ async fn shape_rules_hold_for_every_method() {
     assert_eq!(device["error"]["data"]["path"], json!("device"));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn subscribing_to_a_feed_nobody_holds_is_refused() {
     let rig = Rig::new();
     let client = rig.ready(1, json!({}));
@@ -148,7 +148,7 @@ async fn subscribing_to_a_feed_nobody_holds_is_refused() {
     assert_eq!(refused["error"]["data"]["path"], json!("feedId"));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn origin_rules_come_from_the_table() {
     let rig = Rig::new();
     let phone = rig.connect(1, Origin::Relay);
@@ -166,7 +166,7 @@ async fn origin_rules_come_from_the_table() {
     assert!(phone.response(2).await.get("result").is_some());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_call_from_a_connection_without_a_known_origin_is_refused() {
     let rig = Rig::new();
     // Never registered with the transport: not even `initialize` is served.
@@ -189,7 +189,7 @@ async fn a_call_from_a_connection_without_a_known_origin_is_refused() {
     assert_eq!(rig.core.opens(), before);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn the_lifecycle_gates_new_work_but_not_controls() {
     let rig = Rig::new();
     let client = rig.ready(1, json!({}));
@@ -223,7 +223,7 @@ async fn the_lifecycle_gates_new_work_but_not_controls() {
     assert!(client.response(4).await.get("result").is_some(), "reads continue");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_answer_racing_the_connection_close_is_not_sent() {
     let rig = Rig::new();
     rig.core
@@ -236,7 +236,7 @@ async fn an_answer_racing_the_connection_close_is_not_sent() {
     assert!(client.drain().is_empty());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn op_status_answers_from_the_op_index_per_scope() {
     let rig = Rig::new();
     let index = rig.core.mock.op_index();
@@ -291,7 +291,7 @@ fn touch(samples: &Samples, op: &str) -> Value {
     params
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn requests_of_one_key_run_one_at_a_time_and_other_keys_run_beside_them() {
     let rig = Rig::gated(&["terminal"]);
     let client = rig.ready(1, json!({}));
@@ -324,7 +324,7 @@ async fn requests_of_one_key_run_one_at_a_time_and_other_keys_run_beside_them() 
     assert!(a_ends[0] < a_starts[1], "second `a` started before the first ended: {log:?}");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn reads_share_a_domain_and_queue_behind_its_writes() {
     let rig = Rig::gated(&["project"]);
     let client = rig.ready(1, json!({}));
@@ -352,7 +352,7 @@ async fn reads_share_a_domain_and_queue_behind_its_writes() {
 
 /// `thread/continueInModel` and `thread/quotaResume/*` act on the route and the daemon-wide quota
 /// store: the domain service that claims them answers, not the thread's actor.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_thread_method_a_domain_claims_goes_to_the_domain_not_the_thread() {
     const CLAIMED: &[&str] = &["thread/continueInModel", "thread/quotaResume/schedule", "thread/quotaResume/cancel"];
     let rig = Rig::routed(super::domain_methods(), vec![("route", CLAIMED)]);
@@ -376,7 +376,7 @@ async fn a_thread_method_a_domain_claims_goes_to_the_domain_not_the_thread() {
     assert_eq!(client.response(10).await["result"], json!({ "via": "thread" }));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn queued_requests_of_a_closed_connection_never_run() {
     let rig = Rig::gated(&["project"]);
     let samples = Samples::new();

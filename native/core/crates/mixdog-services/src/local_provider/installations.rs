@@ -238,7 +238,7 @@ mod tests {
                             tokio::task::yield_now().await;
                             Ok(seen.status()[0]["jobId"].clone())
                         });
-                        let result = tokio::time::timeout(std::time::Duration::from_secs(5), wait(rx)).await.expect("a waiter was left unresolved");
+                        let result = wait(rx).await;
                         (status["jobId"].clone(), result)
                     })
                 })

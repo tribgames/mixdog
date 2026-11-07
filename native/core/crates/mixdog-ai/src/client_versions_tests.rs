@@ -48,7 +48,11 @@ pub(crate) struct Net {
 
 #[async_trait]
 impl HttpSend for Net {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         assert_eq!(request.method, "GET");
         let headers = request.headers.iter().map(|(k, v)| (k.to_lowercase(), v.clone())).collect();
         self.log.lock().unwrap().push((request.url, headers));

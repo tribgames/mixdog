@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-agent-effects.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 4408,
+      "path": "golden.json",
+      "sha256": "01132be4d9e97bcc68906fb7021e6df98929e7a0aeaa8c84c3c7f3d896afd087"
+    }
+  ],
+  "product": {
+    "appsSha256": "fafa2dadfb9db84dba5ba512f05574282fe76e530ac5b39b4bb99cc0f396199c",
+    "commit": "c397510597b76f4ee67778650a58a1570d923480",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "c397510597b76f4ee67778650a58a1570d923480",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-effects.mjs",
+  "set": "agent-effects",
+  "totalBytes": 4408
+}

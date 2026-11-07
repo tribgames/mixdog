@@ -1,0 +1,1424 @@
+{
+  "domain": "setup-open-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-setup-open.mjs",
+  "targets": [
+    {
+      "target": "settings",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings (Ctrl+,) · TUI: /setting"
+    },
+    {
+      "target": "providers",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Providers · TUI: /providers"
+    },
+    {
+      "target": "model",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: session header model picker · TUI: /model"
+    },
+    {
+      "target": "websearch",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Workflows → Web Search · TUI: /websearch"
+    },
+    {
+      "target": "workflow",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Workflows · TUI: /workflow"
+    },
+    {
+      "target": "agents",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Workflows → Agents · TUI: /agents"
+    },
+    {
+      "target": "outputstyle",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Output style · TUI: /OutputStyle"
+    },
+    {
+      "target": "theme",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Theme · TUI: /theme"
+    },
+    {
+      "target": "profile",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → General → Profile · TUI: /profile"
+    },
+    {
+      "target": "autoclear",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Context · TUI: /autoclear"
+    },
+    {
+      "target": "memory",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions tab → Built-in (Memory); core memories under Projects → project → Memories · TUI: /memory"
+    },
+    {
+      "target": "mcp",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions → Connectors tab · TUI: /mcp"
+    },
+    {
+      "target": "skills",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Skills (activity rail) · TUI: /skills"
+    },
+    {
+      "target": "plugins",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions → Extensions tab (plugins that bring MCP servers: Connectors tab → Custom connectors) · TUI: /plugins"
+    },
+    {
+      "target": "update",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → System → Update · TUI: /update"
+    },
+    {
+      "target": "usage",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: /usage in the composer · TUI: /usage"
+    },
+    {
+      "target": "doctor",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → System → Doctor, or /doctor in the composer · TUI: /doctor"
+    },
+    {
+      "target": "context",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: /context in the composer · TUI: /context"
+    },
+    {
+      "target": "developer",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Developer options · TUI: /setting → Developer"
+    },
+    {
+      "target": "voice",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions tab → Built-in (Voice) · TUI: /setting → Voice"
+    },
+    {
+      "target": "connection",
+      "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop only: Settings → Connection"
+    }
+  ],
+  "cases": [
+    {
+      "args": {
+        "action": "open",
+        "target": "settings"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /settings",
+          "extra": {
+            "kind": "ui-open",
+            "command": "settings"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "settings",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "settings"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /settings",
+          "extra": {
+            "kind": "ui-open",
+            "command": "settings"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "settings",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings (Ctrl+,) · TUI: /setting"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "settings"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "settings",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings (Ctrl+,) · TUI: /setting"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "providers"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /providers",
+          "extra": {
+            "kind": "ui-open",
+            "command": "providers"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "providers",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "providers"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /providers",
+          "extra": {
+            "kind": "ui-open",
+            "command": "providers"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "providers",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Providers · TUI: /providers"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "providers"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "providers",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Providers · TUI: /providers"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "model"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /model",
+          "extra": {
+            "kind": "ui-open",
+            "command": "model"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "model",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "model"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /model",
+          "extra": {
+            "kind": "ui-open",
+            "command": "model"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "model",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: session header model picker · TUI: /model"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "model"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "model",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: session header model picker · TUI: /model"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "websearch"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /websearch",
+          "extra": {
+            "kind": "ui-open",
+            "command": "websearch"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "websearch",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "websearch"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /websearch",
+          "extra": {
+            "kind": "ui-open",
+            "command": "websearch"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "websearch",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Workflows → Web Search · TUI: /websearch"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "websearch"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "websearch",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Workflows → Web Search · TUI: /websearch"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "workflow"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /workflow",
+          "extra": {
+            "kind": "ui-open",
+            "command": "workflow"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "workflow",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "workflow"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /workflow",
+          "extra": {
+            "kind": "ui-open",
+            "command": "workflow"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "workflow",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Workflows · TUI: /workflow"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "workflow"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "workflow",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Workflows · TUI: /workflow"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "agents"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /agents",
+          "extra": {
+            "kind": "ui-open",
+            "command": "agents"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "agents",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "agents"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /agents",
+          "extra": {
+            "kind": "ui-open",
+            "command": "agents"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "agents",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Workflows → Agents · TUI: /agents"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "agents"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "agents",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Workflows → Agents · TUI: /agents"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "outputstyle"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /outputstyle",
+          "extra": {
+            "kind": "ui-open",
+            "command": "outputstyle"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "outputstyle",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "outputstyle"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /outputstyle",
+          "extra": {
+            "kind": "ui-open",
+            "command": "outputstyle"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "outputstyle",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Output style · TUI: /OutputStyle"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "outputstyle"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "outputstyle",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Output style · TUI: /OutputStyle"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "theme"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /theme",
+          "extra": {
+            "kind": "ui-open",
+            "command": "theme"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "theme",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "theme"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /theme",
+          "extra": {
+            "kind": "ui-open",
+            "command": "theme"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "theme",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Theme · TUI: /theme"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "theme"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "theme",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Theme · TUI: /theme"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "profile"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /profile",
+          "extra": {
+            "kind": "ui-open",
+            "command": "profile"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "profile",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "profile"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /profile",
+          "extra": {
+            "kind": "ui-open",
+            "command": "profile"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "profile",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → General → Profile · TUI: /profile"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "profile"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "profile",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → General → Profile · TUI: /profile"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "autoclear"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /autoclear",
+          "extra": {
+            "kind": "ui-open",
+            "command": "autoclear"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "autoclear",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "autoclear"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /autoclear",
+          "extra": {
+            "kind": "ui-open",
+            "command": "autoclear"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "autoclear",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Context · TUI: /autoclear"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "autoclear"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "autoclear",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Context · TUI: /autoclear"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "memory"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /memory",
+          "extra": {
+            "kind": "ui-open",
+            "command": "memory"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "memory",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "memory"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /memory",
+          "extra": {
+            "kind": "ui-open",
+            "command": "memory"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "memory",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions tab → Built-in (Memory); core memories under Projects → project → Memories · TUI: /memory"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "memory"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "memory",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions tab → Built-in (Memory); core memories under Projects → project → Memories · TUI: /memory"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "mcp"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /mcp",
+          "extra": {
+            "kind": "ui-open",
+            "command": "mcp"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "mcp",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "mcp"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /mcp",
+          "extra": {
+            "kind": "ui-open",
+            "command": "mcp"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "mcp",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions → Connectors tab · TUI: /mcp"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "mcp"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "mcp",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions → Connectors tab · TUI: /mcp"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "skills"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /skills",
+          "extra": {
+            "kind": "ui-open",
+            "command": "skills"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "skills",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "skills"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /skills",
+          "extra": {
+            "kind": "ui-open",
+            "command": "skills"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "skills",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Skills (activity rail) · TUI: /skills"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "skills"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "skills",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Skills (activity rail) · TUI: /skills"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "plugins"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /plugins",
+          "extra": {
+            "kind": "ui-open",
+            "command": "plugins"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "plugins",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "plugins"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /plugins",
+          "extra": {
+            "kind": "ui-open",
+            "command": "plugins"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "plugins",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions → Extensions tab (plugins that bring MCP servers: Connectors tab → Custom connectors) · TUI: /plugins"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "plugins"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "plugins",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions → Extensions tab (plugins that bring MCP servers: Connectors tab → Custom connectors) · TUI: /plugins"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "update"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /update",
+          "extra": {
+            "kind": "ui-open",
+            "command": "update"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "update",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "update"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /update",
+          "extra": {
+            "kind": "ui-open",
+            "command": "update"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "update",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → System → Update · TUI: /update"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "update"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "update",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → System → Update · TUI: /update"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "usage"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /usage",
+          "extra": {
+            "kind": "ui-open",
+            "command": "usage"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "usage",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "usage"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /usage",
+          "extra": {
+            "kind": "ui-open",
+            "command": "usage"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "usage",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: /usage in the composer · TUI: /usage"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "usage"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "usage",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: /usage in the composer · TUI: /usage"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "doctor"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /doctor",
+          "extra": {
+            "kind": "ui-open",
+            "command": "doctor"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "doctor",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "doctor"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /doctor",
+          "extra": {
+            "kind": "ui-open",
+            "command": "doctor"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "doctor",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → System → Doctor, or /doctor in the composer · TUI: /doctor"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "doctor"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "doctor",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → System → Doctor, or /doctor in the composer · TUI: /doctor"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "context"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /context",
+          "extra": {
+            "kind": "ui-open",
+            "command": "context"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "context",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "context"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /context",
+          "extra": {
+            "kind": "ui-open",
+            "command": "context"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "context",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: /context in the composer · TUI: /context"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "context"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "context",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: /context in the composer · TUI: /context"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "developer"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /developer",
+          "extra": {
+            "kind": "ui-open",
+            "command": "developer"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "developer",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "developer"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /developer",
+          "extra": {
+            "kind": "ui-open",
+            "command": "developer"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "developer",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Developer options · TUI: /setting → Developer"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "developer"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "developer",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings → Developer options · TUI: /setting → Developer"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "voice"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /voice",
+          "extra": {
+            "kind": "ui-open",
+            "command": "voice"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "voice",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "voice"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /voice",
+          "extra": {
+            "kind": "ui-open",
+            "command": "voice"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "voice",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions tab → Built-in (Voice) · TUI: /setting → Voice"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "voice"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "voice",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Extensions tab → Built-in (Voice) · TUI: /setting → Voice"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "connection"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /connection",
+          "extra": {
+            "kind": "ui-open",
+            "command": "connection"
+          }
+        }
+      ],
+      "result": {
+        "opened": true,
+        "target": "connection",
+        "note": "The attached app navigated to this surface; the user completes the step there."
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "connection"
+      },
+      "takes": false,
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /connection",
+          "extra": {
+            "kind": "ui-open",
+            "command": "connection"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "connection",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop only: Settings → Connection"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "connection"
+      },
+      "takes": true,
+      "session": "",
+      "notified": [],
+      "result": {
+        "opened": false,
+        "target": "connection",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop only: Settings → Connection"
+      }
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "nope"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [],
+      "error": "[tool-input-validation] setup.target must be one of: settings, providers, model, websearch, workflow, agents, outputstyle, theme, profile, autoclear, memory, mcp, skills, plugins, update, usage, doctor, context, developer, voice, connection"
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": " settings "
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [],
+      "error": "[tool-input-validation] setup.target must be one of: settings, providers, model, websearch, workflow, agents, outputstyle, theme, profile, autoclear, memory, mcp, skills, plugins, update, usage, doctor, context, developer, voice, connection"
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "  "
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [],
+      "error": "[tool-input-validation] setup.target must be one of: settings, providers, model, websearch, workflow, agents, outputstyle, theme, profile, autoclear, memory, mcp, skills, plugins, update, usage, doctor, context, developer, voice, connection"
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "SETTINGS"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [],
+      "error": "[tool-input-validation] setup.target must be one of: settings, providers, model, websearch, workflow, agents, outputstyle, theme, profile, autoclear, memory, mcp, skills, plugins, update, usage, doctor, context, developer, voice, connection"
+    },
+    {
+      "args": {
+        "action": "open"
+      },
+      "takes": true,
+      "session": "sess_a",
+      "notified": [],
+      "error": "[tool-input-validation] target is required for setup.open"
+    },
+    {
+      "args": {
+        "action": "open",
+        "target": "settings"
+      },
+      "takes": "yes",
+      "session": "sess_a",
+      "notified": [
+        {
+          "id": "sess_a",
+          "text": "Open /settings",
+          "extra": {
+            "kind": "ui-open",
+            "command": "settings"
+          }
+        }
+      ],
+      "result": {
+        "opened": false,
+        "target": "settings",
+        "note": "No interactive UI is attached to this session. Tell the user where to go: Desktop: Settings (Ctrl+,) · TUI: /setting"
+      }
+    }
+  ]
+}

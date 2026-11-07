@@ -280,9 +280,9 @@ impl McpService {
         Arc::clone(adds.entry(connector.to_owned()).or_default())
     }
 
-    async fn mcp_status(&self, params: &Value) -> Value {
-        let cwd = self.host.current_cwd(params.get("threadId").and_then(Value::as_str)).await;
-        decorate_mcp(&self.runtime.status().await, &self.scopes(), &cwd)
+    async fn mcp_status(&self, params: &Value) -> Result<Value, Failure> {
+        let cwd = self.host.current_cwd(params.get("threadId").and_then(Value::as_str)).await?;
+        Ok(decorate_mcp(&self.runtime.status().await, &self.scopes(), &cwd))
     }
 
     async fn reconnect_mcp(&self, name: Option<&str>) -> Result<Value, Failure> {
@@ -364,7 +364,7 @@ impl McpService {
     }
 
     async fn add_server_now(&self, input: &Value) -> Result<Value, Failure> {
-        let cwd = self.host.current_cwd(None).await;
+        let cwd = self.host.current_cwd(None).await?;
         let (name, mut server_config) = normalize_mcp_server_input(input, &cwd, &self.home)?;
         // A catalog connector's server keeps its catalog id.
         let connector_id = text(field(input, "connector"));
@@ -514,7 +514,7 @@ impl McpService {
         }
         let original = if !explicit.is_empty() { explicit } else if servers.contains_key(&bare) { bare } else { String::new() };
         let existing = if original.is_empty() { json!({}) } else { servers[&original].clone() };
-        let cwd = self.host.current_cwd(None).await;
+        let cwd = self.host.current_cwd(None).await?;
         let (normalized_name, normalized_config) =
             normalize_mcp_server_input(&merged_server_input(input, &existing, &original), &cwd, &self.home)?;
         let name = if !original.is_empty() && text(field(input, "name")) == original { original.clone() } else { normalized_name };
@@ -561,7 +561,7 @@ impl McpService {
     async fn save_connector_account(&self, mut servers: Map<String, Value>, target: AccountTarget, input: &Value) -> Result<Value, Failure> {
         let AccountTarget { server_name, cfg, account, account_cfg } = target;
         let account_name = text(field(&account, "name"));
-        let cwd = self.host.current_cwd(None).await;
+        let cwd = self.host.current_cwd(None).await?;
         let mut patch = input.as_object().cloned().unwrap_or_default();
         patch.insert("name".to_owned(), json!(account_name));
         let (_, config) = normalize_mcp_server_input(&merged_server_input(&Value::Object(patch), &account_cfg, &account_name), &cwd, &self.home)?;
@@ -968,7 +968,7 @@ impl DomainService for McpService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let p = &req.params;
         let value = match req.method.as_str() {
-            "mcp/mcpStatus" => Ok(self.mcp_status(p).await),
+            "mcp/mcpStatus" => self.mcp_status(p).await,
             "mcp/getMcpServerConfig" => self.runtime.server_config(&text(field(p, "name"))).await,
             "mcp/reconnectMcp" => self.reconnect_mcp(p.get("name").and_then(Value::as_str)).await,
             "mcp/addMcpServer" => self.add_mcp_server(field(p, "input")).await,

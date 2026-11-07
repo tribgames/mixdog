@@ -354,7 +354,7 @@ mod tests {
         assert!(longest < Duration::from_millis(150), "the runtime thread stalled for {longest:?} while the child was killed");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn map_limit_keeps_input_order() {
         let out = map_limit(vec![3u64, 1, 2], 2, |n| async move {
             tokio::time::sleep(Duration::from_millis(n * 10)).await;

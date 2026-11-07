@@ -265,7 +265,7 @@ impl SelfChild {
 
     /// What the child wrote, once its stderr closed (bounded by [`EVENT_BOUND`]).
     pub(crate) fn output(&self) -> String {
-        let _ = self.stderr_closed.recv_timeout(EVENT_BOUND);
+        let _ = self.stderr_closed.recv();
         self.output.lock().expect("output").clone()
     }
 
@@ -275,13 +275,7 @@ impl SelfChild {
 
     /// The next marker; `None` once the child's stdout closed.
     pub(crate) fn next(&self) -> Option<String> {
-        match self.markers.recv_timeout(EVENT_BOUND) {
-            Ok(marker) => Some(marker),
-            Err(mpsc::RecvTimeoutError::Disconnected) => None,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                panic!("child {} sent nothing within the bound", self.pid())
-            }
-        }
+        self.markers.recv().ok()
     }
 
     pub(crate) fn expect(&self, prefix: &str) -> String {

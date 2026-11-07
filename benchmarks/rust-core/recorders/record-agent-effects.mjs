@@ -4,15 +4,24 @@
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const SRC = 'C:/Project/mixdog/src';
+//   node record-agent-effects.mjs --tree <Node product tree> [--out <golden.json>]
+// (the default output is the fixture set `agent-effects` of the checkout this file is in)
+const flag = (name) => process.argv[process.argv.indexOf(`--${name}`) + 1];
+if (!process.argv.includes('--tree')) throw new Error('pass --tree <Node product tree>');
+const SRC = `${resolve(flag('tree')).replaceAll('\\', '/')}/src`;
+const OUT = process.argv.includes('--out')
+  ? resolve(flag('out'))
+  : join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'native', 'core', 'fixtures', 'agent-effects', 'golden.json');
 const work = mkdtempSync(join(tmpdir(), 'rec-agent-effects-'));
 const dataDir = join(work, 'data');
 const home = join(work, 'home');
 for (const dir of [dataDir, home, join(work, 'backups'), join(work, 'mods')]) mkdirSync(dir, { recursive: true });
 Object.assign(process.env, {
   MIXDOG_DATA_DIR: dataDir,
+  MIXDOG_HOME: work,
+  MIXDOG_SKIP_USER_DATA_BACKUP: '1',
   MIXDOG_USER_DATA_BACKUP_ROOT: join(work, 'backups'),
   HOME: home,
   USERPROFILE: home,
@@ -194,6 +203,6 @@ await scene('purge with a failing delete', async () => {
   }
 });
 const stable = JSON.stringify(cases, null, 2);
-writeFileSync(process.argv[2] ?? join(work, 'golden.json'), `${stable}\n`);
-console.log(stable);
+writeFileSync(OUT, `${stable}\n`);
+console.log(`recorded ${OUT}`);
 process.exit(0);

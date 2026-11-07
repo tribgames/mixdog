@@ -46,7 +46,7 @@ async fn seams(stored: Option<Value>, env: HashMap<String, String>) -> (tempfile
         dir.path().join("workspace"),
     );
     let env: EnvReader = Arc::new(move |name| env.get(name).cloned());
-    let seams = ConfigRunSeams::new(config, agents, dir.path().to_path_buf(), dir.path().to_path_buf(), env);
+    let seams = ConfigRunSeams::new(config, Arc::new(agents), dir.path().to_path_buf(), dir.path().to_path_buf(), env);
     (dir, seams)
 }
 

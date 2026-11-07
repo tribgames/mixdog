@@ -79,6 +79,9 @@ pub struct StatusSurface {
     pub active: Vec<String>,
     /// Deferred tools the thread has discovered.
     pub discovered: Vec<String>,
+    /// `getTools()` of the skills API: the names of the eager tools, the deferred catalog and the
+    /// late deferred catalog, in that order, each once.
+    pub listed: Vec<String>,
 }
 
 #[async_trait]
@@ -278,6 +281,7 @@ mod tests {
             catalog: catalog.iter().map(tool).collect(),
             active,
             discovered: string_list(&node["deferredDiscoveredTools"]),
+            listed: Vec::new(),
         }
     }
 
@@ -295,7 +299,7 @@ mod tests {
     #[tokio::test]
     async fn the_method_replies_with_the_readout_and_refuses_other_methods() {
         use mixdog_core_api::call::CallContext;
-        let surface = StatusSurface { mode: "lead".into(), catalog: vec![StatusTool { name: "read".into(), description: "Read".into(), ..StatusTool::default() }], active: vec!["read".into()], discovered: vec![] };
+        let surface = StatusSurface { mode: "lead".into(), catalog: vec![StatusTool { name: "read".into(), description: "Read".into(), ..StatusTool::default() }], active: vec!["read".into()], discovered: vec![], listed: vec![] };
         let service = ToolsService::new(Arc::new(Fixed(surface.clone())));
         let request = |method: &'static str, params: Value| CoreRequest { method: Method(method), params, op: None, ctx: CallContext::internal("test") };
         let Ok(Reply::Value(value)) = service.call(request("tools/toolsStatus", json!({"threadId": "t1", "query": "REA"}))).await else { panic!("reply") };

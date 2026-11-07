@@ -11,6 +11,7 @@
 //! turn, and a turn needs the directory. Unbound they answer as an unknown thread would.
 
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core::run_host::compose_parts::LateDirectory;
@@ -35,10 +36,17 @@ impl LateSetupUi {
 
 #[async_trait]
 impl SetupUiSurface for LateSetupUi {
-    async fn notify(&self, thread: &ThreadId, request_id: &str) -> bool {
+    async fn notify(&self, thread: &ThreadId, request_id: &str, window: Duration) -> bool {
         match self.0.get() {
-            Some(surface) => surface.notify(thread, request_id).await,
+            Some(surface) => surface.notify(thread, request_id, window).await,
             None => false,
+        }
+    }
+
+    /// Unbound, no request was ever shown, so there is nothing to settle.
+    async fn settled(&self, thread: &ThreadId, request_id: &str) {
+        if let Some(surface) = self.0.get() {
+            surface.settled(thread, request_id).await;
         }
     }
 }
@@ -86,13 +94,18 @@ mod tests {
 
     use super::*;
 
-    struct Counting(AtomicUsize);
+    /// Counts notices and settles.
+    struct Counting(AtomicUsize, AtomicUsize);
 
     #[async_trait]
     impl SetupUiSurface for Counting {
-        async fn notify(&self, _: &ThreadId, _: &str) -> bool {
+        async fn notify(&self, _: &ThreadId, _: &str, _: Duration) -> bool {
             self.0.fetch_add(1, Ordering::SeqCst);
             true
+        }
+
+        async fn settled(&self, _: &ThreadId, _: &str) {
+            self.1.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -100,11 +113,15 @@ mod tests {
     async fn the_setup_surface_answers_no_surface_until_bound_then_delegates() {
         let late = LateSetupUi::default();
         let thread = ThreadId::from("t");
-        assert!(!late.notify(&thread, "r1").await);
-        let counting = Arc::new(Counting(AtomicUsize::new(0)));
+        let window = Duration::from_secs(15);
+        assert!(!late.notify(&thread, "r1", window).await);
+        late.settled(&thread, "r1").await;
+        let counting = Arc::new(Counting(AtomicUsize::new(0), AtomicUsize::new(0)));
         assert!(late.bind(counting.clone()).is_ok());
-        assert!(late.notify(&thread, "r1").await);
+        assert!(late.notify(&thread, "r1", window).await);
+        late.settled(&thread, "r1").await;
         assert_eq!(counting.0.load(Ordering::SeqCst), 1);
+        assert_eq!(counting.1.load(Ordering::SeqCst), 1, "only the settle after the bind reaches the surface");
         assert!(late.bind(counting).is_err(), "a second bind is refused");
     }
 

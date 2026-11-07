@@ -231,6 +231,18 @@ async fn thread_ops_are_looked_up_by_session_and_id() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fenced_ops_are_listed_by_session() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let op = "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0b";
+    let digest = "sha256:a20b52fae57cc7a99c9651f1b573950fd211823e3ace3bb9c273c06430f24cd3";
+    let fence = rec(json!({"k":"op","op":{"id":op,"method":"op/status","digest":digest},"state":"fenced","at":1}));
+    env.commit(w, vec![item("a"), fence]).await;
+    assert_eq!(env.store.fenced_ops("s1").await.unwrap(), [op]);
+    assert!(env.store.fenced_ops("s2").await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rewind_supersedes_rows_and_stales_cursors() {
     let env = Env::new();
     let w = env.create("s1", None).await;

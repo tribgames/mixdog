@@ -566,6 +566,35 @@ impl JobBoard {
         self.lock().tasks.iter().any(|t| t.status == "running" && t.notify_session.as_deref() == Some(session_id))
     }
 
+    /// The job view's list for a scope (`listJobs`): [`JobBoard::list_jobs`], then, when the scope
+    /// names a process, a running job is dropped if its worker session runs under a different
+    /// one. `worker_pid` answers the positive `clientHostPid` of a job's worker session (`None`:
+    /// no such session, or none recorded, and the job stays). A finished job carries no pid and
+    /// always stays.
+    pub fn list_jobs_for_client(&self, scope: &Scope, worker_pid: &dyn Fn(&str) -> Option<u64>) -> Vec<JobSnapshot> {
+        let wanted = scope.host_pid.filter(|pid| *pid >= 1);
+        let mut jobs = self.list_jobs(scope);
+        if let Some(wanted) = wanted {
+            jobs.retain(|job| {
+                is_terminal(&job.status)
+                    || job.meta.session_id.as_deref().filter(|id| !id.is_empty()).and_then(worker_pid).is_none_or(|pid| pid == wanted)
+            });
+        }
+        jobs
+    }
+
+    /// The jobs `assertLeadIdle` (`activity-guards.mjs`) counts as busy for a scope: of the rows
+    /// of [`JobBoard::list_jobs_for_client`], those whose lowercased status is one of
+    /// `BUSY_JOB_STATES`. A job with no session and no process is in every scope, one with only a
+    /// process is in the scope naming it, as in [`JobBoard::list_jobs`].
+    pub fn busy_count(&self, scope: &Scope, worker_pid: &dyn Fn(&str) -> Option<u64>) -> u64 {
+        self.list_jobs_for_client(scope, worker_pid).iter().filter(|t| matches!(t.status.as_str(), "starting" | "spawning" | "queued" | "pending" | "running")).count() as u64
+    }
+    /// [`JobBoard::busy_count`] for the session's own scope (its session id, no process, so no
+    /// worker is asked).
+    pub fn running_count(&self, session_id: &str) -> u64 {
+        self.busy_count(&Scope { caller_session_id: Some(session_id.to_owned()), host_pid: None }, &|_| None)
+    }
     /// `activeBackgroundTaskSessionIds({ surface: 'agent' })`: the owner (caller, else routing)
     /// of every running job, from one pass; a job with no session adds nothing.
     pub fn running_owners(&self) -> std::collections::HashSet<String> {

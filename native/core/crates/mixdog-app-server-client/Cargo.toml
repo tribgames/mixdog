@@ -27,5 +27,5 @@ uuid = { workspace = true, features = ["v7"] }
 libc = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "macros", "time", "net", "io-util"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "macros", "time", "net", "io-util", "test-util"] }
 tempfile = { workspace = true }

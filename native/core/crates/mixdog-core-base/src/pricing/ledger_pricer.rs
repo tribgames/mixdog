@@ -83,8 +83,15 @@ mod tests {
     struct Offline;
     #[async_trait::async_trait]
     impl HttpSend for Offline {
-        async fn send(&self, _: WireRequest) -> Result<HttpResponse, ProviderError> {
-            Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
+        async fn send(
+            &self,
+            _: WireRequest,
+            _exchange: mixdog_ai::transport::Exchange,
+        ) -> Result<HttpResponse, ProviderError> {
+            Err(ProviderError::new(
+                ErrorKind::Transient,
+                DeliveryState::NotSent,
+            ))
         }
     }
 

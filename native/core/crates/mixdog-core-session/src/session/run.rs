@@ -234,8 +234,8 @@ pub(crate) enum ProducerMsg {
 
 /// What the run shows besides its rows and deltas.
 pub(crate) enum RunShown {
-    /// A muted transcript notice (`pushNotice(text, 'info', {transcript: true})`).
-    Notice(String),
+    /// A transcript notice (`pushNotice(text, tone, {transcript: true})`).
+    Notice { text: String, tone: mixdog_agent::env::Tone },
     /// One model call's usage (`onUsageDelta`).
     Usage(UsageReport),
     /// The finished `Reasoning` item (`item/completed`).
@@ -411,10 +411,10 @@ impl RunPort {
         self.send(ProducerMsg::Delta { item, text, method, params }).await
     }
 
-    /// A runtime notice of the turn (`onStageChange('notice')`): a muted (`info`) transcript
-    /// line, live only.
-    pub async fn notice(&self, text: String) -> Result<(), RunError> {
-        self.shown(RunShown::Notice(text)).await
+    /// A runtime notice of the turn (`onStageChange('notice', { tone, message })`): a transcript
+    /// line of the stage's tone (`warn`, else `info`), live only.
+    pub async fn notice(&self, text: String, tone: mixdog_agent::env::Tone) -> Result<(), RunError> {
+        self.shown(RunShown::Notice { text, tone }).await
     }
 
     /// One model call's usage (`onUsageDelta`): `thread/tokenUsage/updated` with Node's delta
@@ -556,7 +556,7 @@ mod cancel_tests {
     #[tokio::test]
     async fn a_send_blocked_on_a_full_lane_ends_at_cancel() {
         let (port, _actor, _ctl, cancel) = port(1);
-        port.notice("fills the lane".into()).await.expect("room for one");
+        port.notice("fills the lane".into(), mixdog_agent::env::Tone::Info).await.expect("room for one");
         let blocked = tokio::spawn({
             let port = port.clone();
             async move { port.save_provider_state(None).await }
@@ -579,7 +579,7 @@ mod cancel_tests {
     #[tokio::test]
     async fn an_approval_rides_the_control_lane_past_a_full_producer_lane_and_ends_at_cancel() {
         let (port, _actor, mut ctl, cancel) = port(1);
-        port.notice("fills the lane".into()).await.expect("room for one");
+        port.notice("fills the lane".into(), mixdog_agent::env::Tone::Info).await.expect("room for one");
         let asking = tokio::spawn({
             let port = port.clone();
             async move { port.request(ask()).await }

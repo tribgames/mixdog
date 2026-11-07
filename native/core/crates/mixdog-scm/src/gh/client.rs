@@ -458,7 +458,7 @@ fn clone_destination(value: &str) -> Result<PathBuf, ScmFailure> {
 mod tests {
     use super::*;
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn writes_to_one_repository_queue_and_others_do_not_wait() {
         let queue = Arc::new(KeyedQueue::default());
         let cancel = CancellationToken::new();

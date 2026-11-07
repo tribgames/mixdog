@@ -22,6 +22,7 @@ use mixdog_services::memory::error::MemoryError;
 use mixdog_services::memory::error::Result;
 use mixdog_services::memory::session_search::ingest::IngestSession;
 use mixdog_services::memory::session_search::ingest::StoredSessions;
+use mixdog_store::schema::record::Header;
 
 use super::SessionLanes;
 use super::delete::is_session_id;
@@ -43,29 +44,58 @@ impl StoredSearchSessions {
     }
 }
 
+impl StoredSearchSessions {
+    /// The stored header of a session; `None` for one absent, deleted or unreadable (Node's
+    /// `loadSession` null).
+    pub(super) async fn header(&self, session_id: &str) -> Option<Header> {
+        let (reader, thread): (Arc<dyn ThreadStore>, ThreadId) = (self.threads.clone(), ThreadId::from(session_id));
+        self.lanes
+            .io
+            .submit_wait(&CancellationToken::new(), move |lane| reader.read_header(lane, &thread))
+            .await
+            .ok()?
+            .await
+            .ok()?
+            .ok()
+    }
+}
+
 fn failed(what: &str, error: impl std::fmt::Display) -> MemoryError {
     MemoryError::Io(std::io::Error::other(format!("{what}: {error}")))
 }
 
-#[async_trait]
-impl StoredSessions for StoredSearchSessions {
-    async fn session_ids(&self) -> Result<Vec<String>> {
+impl StoredSearchSessions {
+    /// `<data>/sessions`, the folder [`Self::listed`] reads.
+    pub(super) fn sessions_dir(&self) -> &std::path::Path {
+        self.threads.sessions_dir()
+    }
+
+    /// The listing of the store folder: the session folders not carrying the delete mark. The
+    /// error is the folder's own (`readdir`'s) when it cannot be listed.
+    pub(super) async fn listed(&self) -> std::io::Result<Vec<String>> {
         let sessions = self.threads.sessions_dir().to_path_buf();
         let names = self
             .lanes
             .io
             .submit_wait(&CancellationToken::new(), move |lane| mixdog_statefile::list_dir(lane, &sessions))
             .await
-            .map_err(|e| failed("list sessions", e))?
+            .map_err(std::io::Error::other)?
             .await
-            .map_err(|e| failed("list sessions", e))??;
+            .map_err(std::io::Error::other)??;
         let mut ids = Vec::new();
         for name in names.into_iter().filter(|name| is_session_id(name)) {
-            if self.threads.index().deleted(&name).await.map_err(|e| failed("list sessions", e))? != Some(true) {
+            if self.threads.index().deleted(&name).await.map_err(std::io::Error::other)? != Some(true) {
                 ids.push(name);
             }
         }
         Ok(ids)
+    }
+}
+
+#[async_trait]
+impl StoredSessions for StoredSearchSessions {
+    async fn session_ids(&self) -> Result<Vec<String>> {
+        self.listed().await.map_err(|e| failed("list sessions", e))
     }
 
     async fn record_stamp(&self, session_id: &str) -> Option<String> {
@@ -76,16 +106,7 @@ impl StoredSessions for StoredSearchSessions {
     async fn read(&self, session_id: &str) -> Option<IngestSession> {
         let id = ThreadId::from(session_id);
         let store: Arc<dyn ThreadStore> = self.threads.clone();
-        let (reader, thread) = (store.clone(), id.clone());
-        let header = self
-            .lanes
-            .io
-            .submit_wait(&CancellationToken::new(), move |lane| reader.read_header(lane, &thread))
-            .await
-            .ok()?
-            .await
-            .ok()?
-            .ok()?;
+        let header = self.header(session_id).await?;
         let messages = read_context(&store, &self.lanes, &id).await.ok()?;
         Some(search_session(&id, &header, messages.into_iter().map(|(_, body)| body).collect()))
     }

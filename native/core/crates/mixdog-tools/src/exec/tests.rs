@@ -234,8 +234,7 @@ fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNoti
         elevation,
         oem: None,
         skill_runtime: None,
-        shell_path: "/bin/sh".into(),
-        shell_name: "sh".into(),
+        shell: Arc::new(FixedShell("/bin/sh".into())),
         script_syntax: Arc::new(AwaitIsTopLevel),
         windows: false,
         powershell: false,
@@ -763,7 +762,7 @@ async fn background_end(notify: Option<ToolNotify>, owner: &Arc<OwnerNotices>) {
 
 /// Node `notifyToolCompletion`: the launching call's `notifyFn` takes the completion first, with
 /// the meta that files it; the owner's default delivery is not used when it accepts.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_background_end_goes_to_the_calls_notify_hook_first() {
     let owner = Arc::new(OwnerNotices::default());
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -809,7 +808,7 @@ fn the_completion_instruction_is_nodes_for_each_kind_of_end() {
 
 /// A hook that declines (`false`) falls through to the owner, as Node's `enqueueFallback` does; a
 /// call without a hook goes straight to the owner.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_declined_or_missing_hook_falls_back_to_the_owner() {
     let owner = Arc::new(OwnerNotices::default());
     let declined = ToolNotify(Arc::new(|_: &str, _: &JsonValue| false));
@@ -916,7 +915,7 @@ fn windows_powershell_rig() -> (Rig, ShellTool) {
     let mut config = rig.runtime.config.clone_for_test();
     config.windows = true;
     config.powershell = true;
-    config.shell_name = "powershell.exe".into();
+    config.shell = Arc::new(FixedShell("powershell.exe".into()));
     config.skill_runtime = Some(skill_runtime());
     let shell = ShellTool::new(ExecRuntime::new(config));
     (rig, shell)
@@ -927,7 +926,8 @@ async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
     let (rig, shell) = windows_powershell_rig();
     shell.call(&ctx(&rig, "p1"), serde_json::json!({"command": "echo hi", "background": true})).await.unwrap();
     let (spec, _) = rig.processes.seen.lock().unwrap()[0].clone();
-    let CommandSpec::Shell { script, shell: None } = spec else { panic!("{spec:?}") };
+    let CommandSpec::Shell { script, shell: Some(program) } = spec else { panic!("{spec:?}") };
+    assert_eq!(program, "powershell.exe");
     assert_eq!(
         script,
         format!(
@@ -944,6 +944,108 @@ async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
     let path = env.set.iter().find(|(k, _)| k == "PATH" || k.eq_ignore_ascii_case("path")).unwrap();
     let name = installed.file_name().unwrap().to_string_lossy().into_owned();
     assert!(path.1.starts_with(&format!("{}skill-launchers\\{name};", &path.1[..path.1.find("skill-launchers").unwrap()])), "{}", path.1);
+}
+
+/// A shell source like the daemon's: the default is probed when first needed, kept, and dropped by
+/// a setting change (`setConfiguredShell`). Each probe finds the next installation in `installs`.
+#[derive(Default)]
+struct ChangingShell {
+    state: std::sync::Mutex<(String, Option<String>)>,
+    probes: std::sync::atomic::AtomicUsize,
+}
+
+impl ChangingShell {
+    fn set(&self, value: &str) {
+        let mut state = self.state.lock().unwrap();
+        if state.0 != value {
+            *state = (value.to_owned(), None);
+        }
+    }
+}
+
+impl ShellSource for ChangingShell {
+    fn configured(&self) -> String {
+        self.state.lock().unwrap().0.clone()
+    }
+    fn kept_default(&self) -> Option<String> {
+        self.state.lock().unwrap().1.clone()
+    }
+    fn resolve_default(&self) -> String {
+        let n = self.probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        format!("C:\\Host\\pwsh{n}.exe")
+    }
+    fn keep_default(&self, configured: &str, program: String) {
+        let mut state = self.state.lock().unwrap();
+        if state.0 == configured {
+            state.1 = Some(program);
+        }
+    }
+}
+
+/// The default program is probed once and kept; a setting change drops it, so the next spawn
+/// probes again (Node's `setConfiguredShell` clearing `_resolvedShell`); an unchanged value keeps it.
+#[tokio::test]
+async fn a_setting_change_makes_the_next_spawn_resolve_the_default_again() {
+    let rig = rig();
+    let source = Arc::new(ChangingShell::default());
+    let mut config = rig.runtime.config.clone_for_test();
+    config.windows = true;
+    config.powershell = true;
+    config.shell = source.clone();
+    let shell = ShellTool::new(ExecRuntime::new(config));
+    // (setting before the spawn, program the spawn runs)
+    for (n, (value, expected)) in [
+        ("", "C:\\Host\\pwsh0.exe"),
+        ("", "C:\\Host\\pwsh0.exe"),
+        ("bash", "C:\\Host\\pwsh1.exe"),
+        ("bash", "C:\\Host\\pwsh1.exe"),
+        ("", "C:\\Host\\pwsh2.exe"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        source.set(value);
+        shell
+            .call(&ctx(&rig, &format!("r{n}")), serde_json::json!({"command": "echo hi", "background": true}))
+            .await
+            .unwrap();
+        let (spec, _) = rig.processes.seen.lock().unwrap()[n].clone();
+        let CommandSpec::Shell { shell: Some(program), .. } = spec else { panic!("{spec:?}") };
+        assert_eq!(program, expected, "spawn {n}");
+    }
+}
+
+/// The "system shell" setting is read on every spawn: a change reaches the next command, and a
+/// POSIX shell named on Windows leaves the default PowerShell (Node's `resolveShell`; the recorded
+/// choices themselves are checked in `shell_choice`).
+#[tokio::test]
+async fn a_changed_system_shell_setting_reaches_the_next_spawn() {
+    let rig = rig();
+    let setting = Arc::new(ChangingShell::default());
+    let mut config = rig.runtime.config.clone_for_test();
+    config.windows = true;
+    config.powershell = true;
+    config.shell = setting.clone();
+    let shell = ShellTool::new(ExecRuntime::new(config));
+    // `MIXDOG_SHELL` only matters while the setting is empty, which no step here is.
+    for (n, (value, expected)) in [
+        ("pwsh", "pwsh"),
+        ("D:\\Tools\\PowerShell\\pwsh.exe", "D:\\Tools\\PowerShell\\pwsh.exe"),
+        ("bash", "C:\\Host\\pwsh2.exe"),
+        ("powershell.exe", "powershell.exe"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        setting.set(value);
+        shell
+            .call(&ctx(&rig, &format!("s{n}")), serde_json::json!({"command": "echo hi", "background": true}))
+            .await
+            .unwrap();
+        let (spec, _) = rig.processes.seen.lock().unwrap()[n].clone();
+        let CommandSpec::Shell { shell: Some(program), .. } = spec else { panic!("{spec:?}") };
+        assert_eq!(program, expected, "setting {value:?}");
+    }
 }
 
 /// The producer failed and the trailing filter matched nothing: the visible output is empty, so
@@ -971,7 +1073,7 @@ async fn a_swallowing_filter_pipeline_gets_the_rescue_tail_and_its_tee_is_consum
 async fn a_bash_command_is_delivered_through_the_environment() {
     let rig = rig();
     let mut config = rig.runtime.config.clone_for_test();
-    config.shell_path = "/bin/bash".into();
+    config.shell = Arc::new(FixedShell("/bin/bash".into()));
     let shell = ShellTool::new(ExecRuntime::new(config));
     shell.call(&ctx(&rig, "b1"), serde_json::json!({"command": "echo hi", "background": true})).await.unwrap();
     let (spec, env) = rig.processes.seen.lock().unwrap()[0].clone();
@@ -1137,7 +1239,7 @@ async fn a_closing_session_kills_its_shells_and_flags_the_owner_closed() {
     background_of(&rig, "y", other.as_str(), "sleep 100").await;
     control.cancel_owned(&owner);
     let gone = rig.runtime.get(&owner, "task-x").unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(5), gone.settled()).await.unwrap();
+    gone.settled().await;
     assert_eq!(gone.status(), JobStatus::Cancelled);
     assert!(rig.runtime.get(&other, "task-y").unwrap().is_running());
     assert!(control.tasks().get("task-x").unwrap().owner_closed);
@@ -1173,7 +1275,7 @@ async fn an_unconfirmed_stop_holds_the_row_until_the_job_ends_or_is_released() {
     // The survivors exit by themselves: confirmed gone, so the hold ends with the job.
     let ended = runtime.get(&owner, "task-s1").unwrap();
     watch.gone.notify_one();
-    tokio::time::timeout(std::time::Duration::from_secs(5), ended.settled()).await.unwrap();
+    ended.settled().await;
     assert!(control.hold("task-s1").is_none());
     assert!(!control.tasks().get("task-s1").unwrap().termination_unconfirmed);
     assert!(orphaned(&control).is_empty());
@@ -1253,7 +1355,7 @@ async fn a_stalled_turns_reap_stops_and_splits_the_shells_as_node_did() {
         if case["kill"] != "unconfirmed" {
             for id in &reaped {
                 let job = runtime.get(&owner, &format!("task-{id}")).unwrap();
-                tokio::time::timeout(std::time::Duration::from_secs(5), job.settled()).await.unwrap();
+                job.settled().await;
             }
         }
         for job in case["jobs"].as_array().unwrap() {

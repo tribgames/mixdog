@@ -182,3 +182,35 @@ async fn methods_match_node() {
         }
     }
 }
+
+/// `listWorkflows()` over the worlds of `fixtures/desktop/settings/workflow-list-twin.json`: the
+/// real Node `listWorkflowPacks` and its mapping, on temp shipped and user folders.
+#[tokio::test]
+async fn the_catalog_lists_the_packs_as_node_does() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/workflow-list-twin.json");
+    let twin: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(twin["cases"].as_array().unwrap().len(), 50);
+    for case in twin["cases"].as_array().unwrap() {
+        let dir = tempfile::tempdir().unwrap();
+        let (root, data) = (dir.path().join("root"), dir.path().join("data"));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        for file in case["files"].as_array().unwrap() {
+            let base = if file["side"] == "root" { &root } else { &data };
+            let target = base.join("workflows").join(file["path"].as_str().unwrap());
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(target, file["text"].as_str().unwrap()).unwrap();
+        }
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let config_path = dir.path().join("cfg").join("mixdog-config.json");
+        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        std::fs::write(&config_path, serde_json::to_vec(&json!({ "agent": case["config"] })).unwrap()).unwrap();
+        let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        let host = Arc::new(Host { main: Mutex::new(json!({})), custom_agents: Vec::new(), capable: false, adopted: Mutex::default() });
+        let service = WorkflowConfig::new(config, WorkflowPaths { root, data }, host, scopes(dir.path(), "config").await, &tokens);
+        let got = service.list_workflows().await.unwrap();
+        // Key order is part of the text the model reads.
+        assert_eq!(got.to_string(), case["result"].to_string(), "{} {}", case["world"], case["config"]);
+    }
+}

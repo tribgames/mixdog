@@ -239,9 +239,14 @@ pub struct ReadyRows {
 /// The process's one provider registry: `DefaultProviderBuilder` over the builder inputs of `process`, accounted
 /// by pricing, the ledger, the send scope and the account lookup. Built right after `ProcessServices`, so
 /// `ProviderReadiness::new(registry, catalog)` and the settings and feature effects share it with the turn path.
-pub fn provider_registry(process: &ProcessServices, env: mixdog_ai::registry::builder::BuilderEnv) -> Arc<ProviderRegistry> {
+pub fn provider_registry(
+    process: &ProcessServices,
+    env: mixdog_ai::registry::builder::BuilderEnv,
+) -> (Arc<ProviderRegistry>, Arc<mixdog_ai::registry::builder::DefaultProviderBuilder>) {
     let builder = Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(env));
-    Arc::new(ProviderRegistry::new(builder).with_accounting(super::accounting_scope::accounting_deps(process)))
+    // The concrete builder is handed back with the registry: `ProviderAdmin::production` takes the same `Arc` (wp-ai-svc-21).
+    let registry = Arc::new(ProviderRegistry::new(builder.clone()).with_accounting(super::accounting_scope::accounting_deps(process)));
+    (registry, builder)
 }
 
 /// Builds every row whose inputs exist. `process` is the one `ProcessServices` of the daemon.
@@ -637,7 +642,8 @@ mod tests {
     #[tokio::test]
     async fn the_registry_is_built_once_and_shared_with_readiness() {
         let world = world(&[], json!({}), Vec::new()).await;
-        let registry = provider_registry(&world.services, crate::run_host::builder_env::builder_env(&world.services));
+        let (registry, builder) = provider_registry(&world.services, crate::run_host::builder_env::builder_env(&world.services));
+        assert!(Arc::strong_count(&builder) >= 2, "the registry holds the builder it hands back");
         let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), world.services.catalog.clone());
         assert!(Arc::strong_count(&registry) >= 2, "readiness holds the registry the turn path is given");
         drop(readiness);

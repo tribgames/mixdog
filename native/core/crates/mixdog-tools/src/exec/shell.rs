@@ -59,6 +59,8 @@ use super::jobs::Job;
 use super::jobs::ReadOptions;
 use super::jobs::shown_path;
 use super::jobs::signal_name;
+use super::shell_choice::chosen_shell;
+use super::shell_choice::default_program;
 use super::psfix::powershell_bashism_hint;
 use super::psfix::rewrite_wmic_process;
 use super::bashism::rewrite_powershell_bashisms;
@@ -583,6 +585,23 @@ impl ShellTool {
         // wmic → Get-CimInstance (PowerShell only): the text that runs is not the text the caller
         // sent, so the note rides the result and the rewrite's deadline is a hard one.
         let mut command = guarded;
+        // The shell of this spawn: the setting is read now, as Node does on every spawn.
+        let configured = runtime.config.shell.configured();
+        let default_shell =
+            default_program(&runtime.config.shell, runtime.config.lanes.maintenance, &ctx.cancel, &configured)
+                .await
+                .map_err(|reason| {
+                    failed(
+                        ToolErrorCode::Unavailable { capability: "shell".into(), reason: reason.clone() },
+                        tool_failure(&reason),
+                    )
+                })?;
+        let shell_program = chosen_shell(
+            runtime.config.windows,
+            &configured,
+            std::env::var("MIXDOG_SHELL").ok().as_deref(),
+            &default_shell,
+        );
         let (mut rewrite_notes, mut hard_cap) = (Vec::<String>::new(), 0u64);
         if runtime.config.powershell {
             match rewrite_wmic_process(&command) {
@@ -600,7 +619,7 @@ impl ShellTool {
                 None => {}
             }
             // Invalid PowerShell syntax is rejected; MSYS `/x/…` drive paths become `X:\…`.
-            let (text, block) = preflight_powershell_hygiene(&command, true, &runtime.config.shell_name);
+            let (text, block) = preflight_powershell_hygiene(&command, true, &shell_program);
             if let Some(block) = block {
                 return Err(failed(ToolErrorCode::PermissionDenied, tool_failure(&block)));
             }
@@ -723,12 +742,13 @@ impl ShellTool {
                     let tee = build_powershell_filter_tee_plan(&command, &spill::fresh_token(), &tmp, '\\');
                     let body = tee.as_ref().map_or_else(|| command.clone(), |t| t.command.clone());
                     tee_path = tee.map(|t| PathBuf::from(t.tee_path));
-                    CommandSpec::Shell { script: prefix_powershell_utf8(&body, skill), shell: None }
+                    CommandSpec::Shell { script: prefix_powershell_utf8(&body, skill), shell: Some(shell_program) }
                 } else if runtime.config.powershell {
-                    CommandSpec::Shell { script: prefix_powershell_skill_function(&command, skill), shell: None }
-                } else if !runtime.config.windows
-                    && (runtime.config.shell_path.contains("bash") || runtime.config.shell_path.contains("zsh"))
-                {
+                    CommandSpec::Shell {
+                        script: prefix_powershell_skill_function(&command, skill),
+                        shell: Some(shell_program),
+                    }
+                } else if !runtime.config.windows && (shell_program.contains("bash") || shell_program.contains("zsh")) {
                     // The command travels in the environment, not argv, behind a snapshot of the
                     // user's shell state when one can be made.
                     let mut wrapped = command.clone();
@@ -740,7 +760,7 @@ impl ShellTool {
                                     processes: &ctx.processes,
                                     lane: runtime.config.lanes.maintenance,
                                     cancel: &ctx.cancel,
-                                    shell_path: &runtime.config.shell_path,
+                                    shell_path: &shell_program,
                                     data_dir: data,
                                     launcher_dir: &dir.to_string_lossy(),
                                     cwd: cwd.clone(),
@@ -756,7 +776,7 @@ impl ShellTool {
                     env.set.push(("MIXDOG_SHELL_SCRIPT".to_owned(), wrapped));
                     CommandSpec::Shell {
                         script: EVAL_SCRIPT.to_owned(),
-                        shell: Some(runtime.config.shell_path.clone()),
+                        shell: Some(shell_program),
                     }
                 } else {
                     CommandSpec::Shell { script: command.clone(), shell: None }

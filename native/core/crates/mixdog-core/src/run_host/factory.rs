@@ -347,7 +347,7 @@ enum Shown {
     Delta(ItemId, String),
     ReasoningDelta(ItemId, String),
     ReasoningDone(ItemId, String),
-    Notice(String),
+    Notice(String, mixdog_agent::env::Tone),
     Usage(mixdog_core_session::session::UsageReport),
     Compact(mixdog_agent::env::CompactEvent),
 }
@@ -426,8 +426,8 @@ impl RunObserver for PortObserver {
                 self.progress.stream_delta(StreamKind::Reasoning);
                 self.reasoning(text);
             }
-            RunEvent::Stage(Stage::Notice { message }) => {
-                let _ = self.out.send(Shown::Notice(message));
+            RunEvent::Stage(Stage::Notice { message, tone }) => {
+                let _ = self.out.send(Shown::Notice(message, tone));
             }
             RunEvent::Usage { iteration, usage, delta } => {
                 self.end_reasoning();
@@ -595,7 +595,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
                 Shown::Delta(id, text) => shown_port.delta(id, text).await,
                 Shown::ReasoningDelta(id, text) => shown_port.reasoning_delta(id, text).await,
                 Shown::ReasoningDone(id, text) => shown_port.reasoning_completed(id, text).await,
-                Shown::Notice(text) => shown_port.notice(text).await,
+                Shown::Notice(text, tone) => shown_port.notice(text, tone).await,
                 Shown::Usage(report) => shown_port.usage(report).await,
                 Shown::Compact(event) => shown_port.compact_event(event).await,
             };
@@ -905,10 +905,16 @@ mod tests {
                 })
                 .collect()
         };
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while roles().len() < 4 {
-            assert!(tokio::time::Instant::now() < deadline, "the turn did not settle: requests={} {:?}", lock(&provider.requests).len(), roles().iter().map(|r| r.0.clone()).collect::<Vec<_>>());
-            tokio::time::sleep(Duration::from_millis(10)).await;
+        // Woken by each step of the thread's actor, which acknowledges each row after the store holds
+        // it; registered before the check so a step in between is not missed. No clock judges it.
+        loop {
+            let stepped = handle.stepped().notified();
+            tokio::pin!(stepped);
+            stepped.as_mut().enable();
+            if roles().len() >= 4 {
+                break;
+            }
+            stepped.await;
         }
         let rows = roles();
         assert_eq!(rows.iter().map(|(role, _)| role.as_str()).collect::<Vec<_>>(), ["user", "assistant", "tool", "assistant"]);
@@ -1273,8 +1279,15 @@ mod tests {
     struct Offline;
     #[async_trait]
     impl mixdog_ai::transport::http::HttpSend for Offline {
-        async fn send(&self, _: mixdog_core_api::domain::provider::WireRequest) -> Result<mixdog_ai::transport::http::HttpResponse, ProviderError> {
-            Err(ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Transient, DeliveryState::NotSent))
+        async fn send(
+            &self,
+            _: mixdog_core_api::domain::provider::WireRequest,
+            _exchange: mixdog_ai::transport::Exchange,
+        ) -> Result<mixdog_ai::transport::http::HttpResponse, ProviderError> {
+            Err(ProviderError::new(
+                mixdog_core_api::domain::provider::ErrorKind::Transient,
+                DeliveryState::NotSent,
+            ))
         }
     }
 

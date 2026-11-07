@@ -621,7 +621,7 @@ mod tests {
     /// Every scenario of the recorder (`session-title.mjs` driven in Node with a scripted model
     /// and promotion): what each step returned, what the model was asked, what was promoted and
     /// what was logged.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn the_controller_equals_nodes_for_every_recorded_scenario() {
         mixdog_rt::testing::tokens();
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/session-titles/golden.json")).unwrap();

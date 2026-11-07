@@ -3,7 +3,9 @@
 //! unqualified table names resolve there; a query that touches another schema
 //! qualifies the name.
 
-use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, RecyclingMethod};
+use std::time::Duration;
+
+use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, RecyclingMethod, Runtime};
 use tokio_postgres::{Config, NoTls, Row, ToStatement, types::ToSql};
 
 use crate::memory::error::{MemoryError, Result};
@@ -16,6 +18,33 @@ const LOCK_CLASS: i32 = 0x6d69_6478;
 const LOCK_CREATE_DB: i32 = 1;
 const LOCK_SCHEMA_BOOTSTRAP: i32 = 2;
 const POOL_SIZE: usize = 5;
+
+/// Every wait on the memory database is bounded by one budget (hang audit F14).
+struct PgBudget {
+    /// TCP connect, and the whole of opening one pooled connection: Node `pg.Pool`
+    /// `connectionTimeoutMillis` 10_000 (`runtime/memory/lib/pg/adapter.mjs:545`).
+    connect: Duration,
+    /// Waiting for a free pooled connection. In Node the same `connectionTimeoutMillis`
+    /// covers it (`adapter.mjs:545`).
+    pool_wait: Duration,
+    /// Waiting on a row or table lock: Node `SET LOCAL lock_timeout = '5s'`
+    /// (`core-memory-store.mjs:155`).
+    lock: Duration,
+    /// Waiting for the cluster advisory lock of first-boot DDL: Node's blocking acquire uses
+    /// `lock_timeout = '30s'` (`trace-store.mjs:519`).
+    cluster_lock: Duration,
+    /// One statement. Divergence (decisions.md): Node sets no session-wide limit; its longest
+    /// per-statement bound is `statement_timeout = '5min'` (`pg/compact-indexes.mjs:41`).
+    statement: Duration,
+}
+
+const BUDGET: PgBudget = PgBudget {
+    connect: Duration::from_secs(10),
+    pool_wait: Duration::from_secs(10),
+    lock: Duration::from_secs(5),
+    cluster_lock: Duration::from_secs(30),
+    statement: Duration::from_secs(300),
+};
 
 /// The schemas that share the cluster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,17 +64,40 @@ impl Schema {
 
 fn config(port: u16, database: &str, search_path: Option<&str>) -> Config {
     let mut config = Config::new();
-    config.host("127.0.0.1").port(port).user(USER).dbname(database);
+    config
+        .host("127.0.0.1")
+        .port(port)
+        .user(USER)
+        .dbname(database)
+        .connect_timeout(BUDGET.connect);
+    let mut options = format!(
+        "-c lock_timeout={} -c statement_timeout={}",
+        BUDGET.lock.as_millis(),
+        BUDGET.statement.as_millis()
+    );
     if let Some(path) = search_path {
-        config.options(format!("-c search_path={}", path.replace(' ', "\\ ")));
+        options.push_str(&format!(" -c search_path={}", path.replace(' ', "\\ ")));
     }
+    config.options(options);
     config
 }
 
 fn build_pool(config: Config, size: usize) -> Result<Pool> {
-    let manager =
-        Manager::from_config(config, NoTls, ManagerConfig { recycling_method: RecyclingMethod::Fast });
-    Pool::builder(manager).max_size(size).build().map_err(|error| MemoryError::Pool(error.to_string()))
+    let manager = Manager::from_config(
+        config,
+        NoTls,
+        ManagerConfig {
+            recycling_method: RecyclingMethod::Fast,
+        },
+    );
+    Pool::builder(manager)
+        .max_size(size)
+        .runtime(Runtime::Tokio1)
+        .wait_timeout(Some(BUDGET.pool_wait))
+        .create_timeout(Some(BUDGET.connect))
+        .recycle_timeout(Some(BUDGET.pool_wait))
+        .build()
+        .map_err(|error| MemoryError::Pool(error.to_string()))
 }
 
 /// A session-scoped advisory lock on a dedicated connection; released by
@@ -55,13 +107,26 @@ where
     F: AsyncFnOnce(&Object) -> Result<T>,
 {
     let client = pool.get().await?;
-    client.execute("SELECT pg_advisory_lock($1, $2)", &[&LOCK_CLASS, &object]).await?;
+    // The wait for another process's first-boot DDL is longer than a row-lock wait; the
+    // session returns to the pool budget when the lock is released.
+    client
+        .batch_execute(&format!(
+            "SET lock_timeout = {}",
+            BUDGET.cluster_lock.as_millis()
+        ))
+        .await?;
+    client
+        .execute("SELECT pg_advisory_lock($1, $2)", &[&LOCK_CLASS, &object])
+        .await?;
     let result = body(&client).await;
-    match client.execute("SELECT pg_advisory_unlock($1, $2)", &[&LOCK_CLASS, &object]).await {
-        Ok(_) => {}
-        Err(_) => {
-            let _ = Object::take(client);
-        }
+    let released = async {
+        client
+            .execute("SELECT pg_advisory_unlock($1, $2)", &[&LOCK_CLASS, &object])
+            .await?;
+        client.batch_execute("RESET lock_timeout").await
+    };
+    if released.await.is_err() {
+        let _ = Object::take(client);
     }
     result
 }
@@ -159,5 +224,30 @@ impl Db {
 impl std::fmt::Debug for Db {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Db").field("schema", &self.schema).finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A postmaster that accepts the TCP connection and never answers the startup packet.
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_postgres_fails_the_checkout_instead_of_holding_it() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let silent = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                held.push(socket);
+            }
+        });
+        let pool = build_pool(config(port, DATABASE, Some("memory, public")), 1).unwrap();
+        let outcome = tokio::time::timeout(BUDGET.connect * 3, pool.get()).await;
+        assert!(
+            matches!(outcome, Ok(Err(_))),
+            "the budget ends the checkout, the test timeout does not"
+        );
+        silent.abort();
     }
 }

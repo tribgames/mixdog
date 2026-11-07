@@ -1,0 +1,7040 @@
+{
+  "domain": "setup-list-models-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-setup-list-models.mjs",
+  "cases": [
+    {
+      "args": {
+        "action": "list_models"
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "providers": [
+          {
+            "provider": "openai",
+            "count": 3
+          },
+          {
+            "provider": "openai-oauth",
+            "count": 1
+          },
+          {
+            "provider": "deepseek",
+            "count": 2,
+            "defaultModel": "deepseek-v4-pro"
+          },
+          {
+            "provider": "xai",
+            "count": 1,
+            "defaultModel": "grok-4.5"
+          },
+          {
+            "provider": "openrouter",
+            "count": 2,
+            "defaultModel": "openrouter/auto"
+          },
+          {
+            "provider": "groq",
+            "count": 1
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {}
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "providers": [
+          {
+            "provider": "openai",
+            "count": 3
+          },
+          {
+            "provider": "openai-oauth",
+            "count": 1
+          },
+          {
+            "provider": "deepseek",
+            "count": 2,
+            "defaultModel": "deepseek-v4-pro"
+          },
+          {
+            "provider": "xai",
+            "count": 1,
+            "defaultModel": "grok-4.5"
+          },
+          {
+            "provider": "openrouter",
+            "count": 2,
+            "defaultModel": "openrouter/auto"
+          },
+          {
+            "provider": "groq",
+            "count": 1
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "refresh": true
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": true
+            }
+          ]
+        }
+      ],
+      "result": {
+        "providers": [
+          {
+            "provider": "openai",
+            "count": 3
+          },
+          {
+            "provider": "openai-oauth",
+            "count": 1
+          },
+          {
+            "provider": "deepseek",
+            "count": 2,
+            "defaultModel": "deepseek-v4-pro"
+          },
+          {
+            "provider": "xai",
+            "count": 1,
+            "defaultModel": "grok-4.5"
+          },
+          {
+            "provider": "openrouter",
+            "count": 2,
+            "defaultModel": "openrouter/auto"
+          },
+          {
+            "provider": "groq",
+            "count": 1
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "refresh": "yes"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [],
+      "error": "[tool-input-validation] setup.catalog.refresh must be a boolean"
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "webSearch": true
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listWebSearchModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "providers": [
+          {
+            "provider": "openai",
+            "count": 1
+          },
+          {
+            "provider": "xai",
+            "count": 1,
+            "defaultModel": "grok-4.5"
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "webSearch": true,
+          "refresh": true
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listWebSearchModels",
+          "args": [
+            {
+              "refresh": true
+            }
+          ]
+        }
+      ],
+      "result": {
+        "providers": [
+          {
+            "provider": "openai",
+            "count": 1
+          },
+          {
+            "provider": "xai",
+            "count": 1,
+            "defaultModel": "grok-4.5"
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "webSearch": true,
+          "provider": "xai"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listWebSearchModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "xai",
+        "total": 1,
+        "page": 1,
+        "pages": 1,
+        "models": [
+          {
+            "id": "grok-4.5",
+            "display": "Grok 4.5",
+            "context": 256000,
+            "maxContext": 2000000,
+            "efforts": [],
+            "favorite": true
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "openai"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "openai",
+        "total": 3,
+        "page": 1,
+        "pages": 1,
+        "models": [
+          {
+            "id": "gpt-5",
+            "display": "GPT-5",
+            "context": 400000,
+            "maxContext": 1000000,
+            "efforts": [
+              "low",
+              "high"
+            ],
+            "fast": true,
+            "vision": true,
+            "hidden": false,
+            "favorite": true
+          },
+          {
+            "id": "gpt-5-mini",
+            "display": "gpt-5-mini",
+            "context": 128000,
+            "efforts": [],
+            "hidden": true
+          },
+          {
+            "id": "o3",
+            "display": "o3",
+            "context": null,
+            "maxContext": 200000,
+            "efforts": [
+              "minimal"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "deepseek"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "deepseek",
+        "total": 2,
+        "page": 1,
+        "pages": 1,
+        "models": [
+          {
+            "id": "deepseek-v4-pro",
+            "display": "DeepSeek V4 Pro",
+            "context": 1000000,
+            "efforts": []
+          },
+          {
+            "id": "deepseek-v4-flash",
+            "display": "deepseek-v4-flash",
+            "context": 64000,
+            "efforts": []
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "groq"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "groq",
+        "total": 1,
+        "page": 1,
+        "pages": 1,
+        "models": [
+          {
+            "id": "llama",
+            "display": "llama",
+            "context": 131072,
+            "efforts": []
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "nobody"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "nobody",
+        "total": 0,
+        "page": 1,
+        "pages": 1,
+        "models": []
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "openai",
+          "limit": 2
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "openai",
+        "total": 3,
+        "page": 1,
+        "pages": 2,
+        "nextPage": 2,
+        "models": [
+          {
+            "id": "gpt-5",
+            "display": "GPT-5",
+            "context": 400000,
+            "maxContext": 1000000,
+            "efforts": [
+              "low",
+              "high"
+            ],
+            "fast": true,
+            "vision": true,
+            "hidden": false,
+            "favorite": true
+          },
+          {
+            "id": "gpt-5-mini",
+            "display": "gpt-5-mini",
+            "context": 128000,
+            "efforts": [],
+            "hidden": true
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "openai",
+          "limit": 2,
+          "page": 2
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "openai",
+        "total": 3,
+        "page": 2,
+        "pages": 2,
+        "models": [
+          {
+            "id": "o3",
+            "display": "o3",
+            "context": null,
+            "maxContext": 200000,
+            "efforts": [
+              "minimal"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "openai",
+          "limit": 2,
+          "page": 3
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "openai",
+        "total": 3,
+        "page": 3,
+        "pages": 2,
+        "models": []
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "openai",
+          "limit": 2,
+          "page": 9
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "openai",
+        "total": 3,
+        "page": 9,
+        "pages": 2,
+        "models": []
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "openai",
+          "limit": 1,
+          "page": 1
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "openai",
+        "total": 3,
+        "page": 1,
+        "pages": 3,
+        "nextPage": 2,
+        "models": [
+          {
+            "id": "gpt-5",
+            "display": "GPT-5",
+            "context": 400000,
+            "maxContext": 1000000,
+            "efforts": [
+              "low",
+              "high"
+            ],
+            "fast": true,
+            "vision": true,
+            "hidden": false,
+            "favorite": true
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "openrouter",
+          "limit": 100
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "openrouter",
+        "total": 2,
+        "page": 1,
+        "pages": 1,
+        "models": [
+          {
+            "id": "openrouter/auto",
+            "display": "openrouter/auto",
+            "context": 200000,
+            "efforts": []
+          },
+          {
+            "id": "a/b",
+            "display": "A B",
+            "context": 8000,
+            "efforts": []
+          }
+        ]
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "gpt-5"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "error": "model \"gpt-5\" is offered by openai, openai-oauth; pass catalog.provider"
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "gpt-5",
+          "provider": "openai"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "context": 400000,
+          "maxContext": 1000000,
+          "outputTokens": 128000,
+          "vision": true,
+          "webSearch": true,
+          "reasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "serviceTiers": [
+            "priority"
+          ],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "hidden": false,
+          "favorite": true
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "gpt-5",
+          "provider": "openai-oauth"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "context": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "gpt-5-mini",
+          "provider": "openai"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "display": "gpt-5-mini",
+          "context": 128000,
+          "hidden": true
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "o3"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "maxContext": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "deepseek-v4-flash"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "display": "deepseek-v4-flash",
+          "context": 64000
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "grok-4.5"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "context": 256000,
+          "maxContext": 2000000,
+          "favorite": true
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "a/b"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "context": 8000
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "llama"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "groq",
+          "id": "llama",
+          "display": "llama",
+          "context": 131072,
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "ghost"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "error": "model \"ghost\" not found; list_models with catalog.provider returns its model ids"
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "ghost",
+          "provider": "openai"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "error": "model \"ghost\" not found for provider \"openai\"; list_models with catalog.provider returns its model ids"
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "gpt-5",
+          "provider": "groq"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "error": "model \"gpt-5\" not found for provider \"groq\"; list_models with catalog.provider returns its model ids"
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "gpt-5",
+          "webSearch": true
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listWebSearchModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "context": 400000,
+          "maxContext": 1000000,
+          "outputTokens": 128000,
+          "vision": true,
+          "webSearch": true,
+          "reasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "serviceTiers": [
+            "priority"
+          ],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "hidden": false,
+          "favorite": true
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "grok-4.5",
+          "webSearch": true,
+          "provider": "xai"
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listWebSearchModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "context": 256000,
+          "maxContext": 2000000,
+          "favorite": true
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "gpt-5",
+          "provider": "openai",
+          "limit": 1,
+          "page": 2
+        }
+      },
+      "rows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "openai",
+          "id": "gpt-5-mini",
+          "contextWindow": 128000,
+          "maxContextWindow": 128000,
+          "effortOptions": [],
+          "savedHidden": true
+        },
+        {
+          "provider": "openai",
+          "id": "o3",
+          "display": "o3",
+          "contextWindow": null,
+          "maxContextWindow": "200000",
+          "effortOptions": [
+            {
+              "value": "minimal"
+            }
+          ],
+          "favorite": false
+        },
+        {
+          "provider": "openai-oauth",
+          "id": "gpt-5",
+          "display": "GPT-5 (OAuth)",
+          "contextWindow": 272000,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            }
+          ],
+          "fastCapable": false,
+          "supportsVision": false
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-pro",
+          "display": "DeepSeek V4 Pro",
+          "contextWindow": 1000000,
+          "supportsReasoning": true
+        },
+        {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "contextWindow": 64000
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        },
+        {
+          "provider": "openrouter",
+          "id": "openrouter/auto",
+          "contextWindow": 200000
+        },
+        {
+          "provider": "openrouter",
+          "id": "a/b",
+          "display": "A B",
+          "contextWindow": 8000,
+          "maxContextWindow": "x"
+        },
+        {
+          "provider": "groq",
+          "id": "llama",
+          "contextWindow": 131072,
+          "modelParameterOptions": {},
+          "parameterVariants": [
+            {
+              "id": "v"
+            }
+          ]
+        }
+      ],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "model": {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "context": 400000,
+          "maxContext": 1000000,
+          "outputTokens": 128000,
+          "vision": true,
+          "webSearch": true,
+          "reasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "serviceTiers": [
+            "priority"
+          ],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "hidden": false,
+          "favorite": true
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {}
+      },
+      "rows": [],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "providers": []
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "provider": "openai"
+        }
+      },
+      "rows": [],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "result": {
+        "provider": "openai",
+        "total": 0,
+        "page": 1,
+        "pages": 1,
+        "models": []
+      }
+    },
+    {
+      "args": {
+        "action": "list_models",
+        "catalog": {
+          "model": "x"
+        }
+      },
+      "rows": [],
+      "webRows": [
+        {
+          "provider": "openai",
+          "id": "gpt-5",
+          "display": "GPT-5",
+          "contextWindow": 400000,
+          "maxContextWindow": 1000000,
+          "outputTokens": 128000,
+          "supportsVision": true,
+          "supportsWebSearch": true,
+          "supportsReasoning": true,
+          "effortOptions": [
+            {
+              "value": "low",
+              "label": "Low",
+              "description": "d"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ],
+          "defaultEffort": "medium",
+          "fastCapable": true,
+          "fastEfforts": [
+            "low"
+          ],
+          "defaultFast": false,
+          "serviceTiers": [
+            "priority"
+          ],
+          "defaultServiceTier": "",
+          "additionalSpeedTiers": [],
+          "modelParameterOptions": {
+            "temperature": [
+              "0",
+              "1"
+            ]
+          },
+          "parameterVariants": [],
+          "defaultModelParameters": {},
+          "supportsMaxMode": false,
+          "savedHidden": false,
+          "favorite": true
+        },
+        {
+          "provider": "xai",
+          "id": "grok-4.5",
+          "display": "Grok 4.5",
+          "contextWindow": 256000,
+          "maxContextWindow": 2000000,
+          "favorite": true
+        }
+      ],
+      "calls": [
+        {
+          "method": "listProviderModels",
+          "args": [
+            {
+              "refresh": false
+            }
+          ]
+        }
+      ],
+      "error": "model \"x\" not found; list_models with catalog.provider returns its model ids"
+    }
+  ]
+}

@@ -60,6 +60,9 @@ const SECTIONS: Readonly<Record<string, SectionDef>> = {
   'thread/promptRestore': { stateKey: 'promptRestore', field: 'promptRestore' },
   'thread/providerAccount/changed': { stateKey: 'providerAccountChange', field: 'providerAccountChange' },
   'thread/remote/updated': { stateKey: 'remoteEnabled', field: 'remoteEnabled' },
+  // The setup tool's desktop request (`{ id, at }`, Node's session store `setupUiRequest`), held by the thread until a window
+  // claims it or its claim window ends; a snapshot carries it as a replay does.
+  'thread/setupUiRequest/updated': { stateKey: 'setupUiRequest', field: 'setupUiRequest' },
 };
 
 /** Up-arrow recall holds at most this many prompts (`PROMPT_HISTORY_LIMIT`). */
@@ -175,14 +178,6 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         return withField(s, 'desktopSessionTitle', typeof p.title === 'string' ? p.title : undefined);
       case 'thread/goal/cleared':
         return withField(s, 'goal', undefined);
-      case 'thread/notification': {
-        // The session store's `setup-ui` action (notification-router.mjs:26, notification-plan.mjs:89-90): a notice with an id
-        // becomes the desktop request the window claims; one without, or with no text (notification-bus.mjs:99), is ignored.
-        // Other notices own no field.
-        const meta = asObj(p.meta);
-        if (meta.kind !== 'setup-ui' || !meta.id || !String(p.content ?? '').trim()) return s;
-        return withField(s, 'setupUiRequest', { id: String(meta.id), at: Date.now() });
-      }
       case 'turn/started':
       case 'turn/completed':
         return withLive(s, null);

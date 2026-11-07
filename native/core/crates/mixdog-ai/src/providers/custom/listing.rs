@@ -7,6 +7,7 @@
 //! is an error only when nothing is usable. The error carries the status, with
 //! the key redacted from its text.
 
+use crate::transport::deadlines::COMPAT_MODEL_LIST;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -336,7 +337,16 @@ impl CustomListing {
         headers.extend(self.headers.iter().cloned());
         let response = self
             .http
-            .send(WireRequest { transport: TransportKind::Http1, method: "GET".into(), url: self.url(), headers, body: Vec::new() })
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "GET".into(),
+                    url: self.url(),
+                    headers,
+                    body: Vec::new(),
+                },
+                COMPAT_MODEL_LIST,
+            )
             .await?;
         let status = response.status;
         let ok = response.is_success();

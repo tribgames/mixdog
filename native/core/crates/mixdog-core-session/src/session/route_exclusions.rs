@@ -241,4 +241,59 @@ mod tests {
         assert_eq!(store.record(&thread, ExcludedTool { reason: "now".into(), ..broken() }), None);
         assert!(store.excluded(&thread, &gemini)[0].1.contains("(now)"));
     }
+
+    /// Node's `recordProviderToolExclusion` / `dropSessionTool` / `providerToolExclusionReason` and
+    /// the answer `preDispatchDenyForSession` gives a call of an excluded tool, replayed step by
+    /// step (`fixtures/tool-exclusions`, recorded by `record-tool-exclusions.mjs`). The notice text
+    /// is compared whole; its `tone` ("warn") is not carried by the turn's `Stage::Notice`.
+    #[test]
+    fn it_notices_and_answers_as_nodes_provider_exclusions_do() {
+        const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/tool-exclusions/golden.json"));
+        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let cases = golden["cases"].as_array().unwrap();
+        assert!(cases.len() >= 7);
+        for case in cases {
+            let label = case["name"].as_str().unwrap();
+            let (store, thread) = (SessionToolExclusions::new(), ThreadId::from("t1"));
+            let mut route = header(case["route"].clone());
+            for step in case["steps"].as_array().unwrap() {
+                let text = |value: &Value| value.as_str().unwrap().to_owned();
+                let tool = || ExcludedTool {
+                    name: text(&step["tool"]["name"]),
+                    pointer: text(&step["tool"]["pointer"]),
+                    reason: text(&step["tool"]["reason"]),
+                };
+                let op = step["op"].as_str().unwrap();
+                let notice = match op {
+                    "record" => store.record(&thread, tool()),
+                    "drop" => store.drop_tool(&thread, &route, tool()),
+                    "begin" => {
+                        store.begin_request(&thread);
+                        None
+                    }
+                    "route" => {
+                        route.insert("provider".into(), step["provider"].clone());
+                        route.insert("model".into(), step["model"].clone());
+                        None
+                    }
+                    "reason" => {
+                        let name = step["name"].as_str().unwrap();
+                        let got = store.excluded(&thread, &route).into_iter().find(|(tool, _)| tool == name).map(|(_, reason)| reason);
+                        assert_eq!(got.as_deref(), step["reason"].as_str(), "{label}: {op} {name}");
+                        None
+                    }
+                    "deny" => {
+                        let name = step["name"].as_str().unwrap();
+                        let surface = mixdog_tools::policy::SessionSurface::from_header(&route, store.excluded(&thread, &route));
+                        let got = surface.refusal_for_call(name, None, &json!({})).map(|error| error.message_for_model);
+                        assert_eq!(got.as_deref(), step["answer"].as_str(), "{label}: {op} {name}");
+                        None
+                    }
+                    other => panic!("unknown step {other}"),
+                };
+                let want: Vec<&str> = step["notices"].as_array().unwrap().iter().map(|n| n["message"].as_str().unwrap()).collect();
+                assert_eq!(notice.as_deref().into_iter().collect::<Vec<_>>(), want, "{label}: {op}");
+            }
+        }
+    }
 }

@@ -13,6 +13,15 @@ mod agent_settings;
 mod definitions;
 mod mcp;
 mod requests;
+mod config_status;
+mod domain_settings;
+mod media_default;
+mod features_status;
+mod models;
+mod settings;
+mod status;
+mod summary_status;
+mod workflow_status;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
@@ -28,6 +37,22 @@ pub use mcp::McpSetup;
 pub use requests::SetupRequests;
 pub use requests::SetupRequestsService;
 pub use requests::SetupUiSurface;
+pub use config_status::ConfigStatus;
+pub use domain_settings::DomainCalls;
+pub use features_status::FeatureActivity;
+pub use media_default::MediaDefaultSetup;
+pub use media_default::ProviderAccounts;
+pub use features_status::FeatureStatus;
+pub use domain_settings::DomainSettings;
+pub use settings::QuotaAutoResume;
+pub use status::StatusReader;
+pub use summary_status::LiveRoute;
+pub use summary_status::ModelStatus;
+pub use summary_status::SummaryStatus;
+pub use workflow_status::WorkflowFacts;
+pub use workflow_status::WorkflowStatus;
+pub use settings::SettingsSetup;
+pub use settings::UpdateSettings;
 
 use mixdog_core_ports::ports::setup_actions::{CallerScope, SetupActions, SetupCall, SetupCallers};
 use std::collections::HashMap;
@@ -92,9 +117,10 @@ const READ_ONLY: [&str; 11] = [
     "read_project_connectors",
 ];
 /// Actions that start or steer work rather than saving a setting.
-const BACKGROUND: [&str; 8] = [
+const BACKGROUND: [&str; 9] = [
     "start_local_installation", "maintain_local_model", "cancel_local_installation", "reconnect_mcp",
     "run_automation", "reset_route_fallback", "continue_in_model", "schedule_quota_resume",
+    "cancel_quota_resume",
 ];
 /// `AGENT_DEFINITION_ACTIONS`.
 const AGENT_DEFINITION: [&str; 4] = ["create_definition", "save_definition", "delete_definition", "restore_definition"];
@@ -108,10 +134,45 @@ const UNATTENDED_OWN: [&str; 5] = [
     "set_agent_route",
 ];
 
-const NATIVE: [&str; 11] = [
+/// SETUP_DESKTOP_ACTIONS: the desktop window runs these; the executor only forwards the request.
+const DESKTOP_ROUTED: [&str; 6] = [
+    "set_desktop_settings", "set_appearance", "save_project", "remove_project", "revoke_linked_device",
+    "set_activity_rail_pins",
+];
+
+/// `SETUP_OPEN_TARGETS` with `OPEN_TARGET_HINTS` :
+/// the surfaces `open` can take the user to, and what it tells the model when no UI is attached.
+const OPEN_TARGETS: [(&str, &str); 21] = [
+    ("settings", "Desktop: Settings (Ctrl+,) · TUI: /setting"),
+    ("providers", "Desktop: Settings → Providers · TUI: /providers"),
+    ("model", "Desktop: session header model picker · TUI: /model"),
+    ("websearch", "Desktop: Workflows → Web Search · TUI: /websearch"),
+    ("workflow", "Desktop: Workflows · TUI: /workflow"),
+    ("agents", "Desktop: Workflows → Agents · TUI: /agents"),
+    ("outputstyle", "Desktop: Settings → Output style · TUI: /OutputStyle"),
+    ("theme", "Desktop: Settings → Theme · TUI: /theme"),
+    ("profile", "Desktop: Settings → General → Profile · TUI: /profile"),
+    ("autoclear", "Desktop: Settings → Context · TUI: /autoclear"),
+    ("memory", "Desktop: Extensions tab → Built-in (Memory); core memories under Projects → project → Memories · TUI: /memory"),
+    ("mcp", "Desktop: Extensions → Connectors tab · TUI: /mcp"),
+    ("skills", "Desktop: Skills (activity rail) · TUI: /skills"),
+    ("plugins", "Desktop: Extensions → Extensions tab (plugins that bring MCP servers: Connectors tab → Custom connectors) · TUI: /plugins"),
+    ("update", "Desktop: Settings → System → Update · TUI: /update"),
+    ("usage", "Desktop: /usage in the composer · TUI: /usage"),
+    ("doctor", "Desktop: Settings → System → Doctor, or /doctor in the composer · TUI: /doctor"),
+    ("context", "Desktop: /context in the composer · TUI: /context"),
+    ("developer", "Desktop: Settings → Developer options · TUI: /setting → Developer"),
+    ("voice", "Desktop: Extensions tab → Built-in (Voice) · TUI: /setting → Voice"),
+    ("connection", "Desktop only: Settings → Connection"),
+];
+
+const NATIVE: [&str; 19] = [
+    "open", "status",
     "set_memory_enabled", "set_recap_enabled", "set_web_search_enabled", "set_instruction_files",
     "set_auto_effort_base", "set_builtin_enabled", "install_builtin", "set_worktree_settings",
     "set_bot_order", "set_cache_warming_enabled", "set_output_style",
+    "set_desktop_settings", "set_appearance", "save_project", "remove_project", "revoke_linked_device",
+    "set_activity_rail_pins",
 ];
 
 /// `ACTION_APPLIES_TO`: when a saved change reaches what already runs.
@@ -198,9 +259,29 @@ pub struct SetupService {
     owners: HashMap<&'static str, Arc<dyn SetupActions>>,
     settings: Option<Settings>,
     output_styles: Option<OutputStyles>,
+    ui: Option<Arc<dyn SetupUiSurface>>,
+    readers: HashMap<&'static str, Arc<dyn StatusReader>>,
 }
 
 impl SetupService {
+    /// Registers the `status` domains a reader answers (the state is its owner's).
+    pub fn with_status(mut self, reader: Arc<dyn StatusReader>) -> Self {
+        for domain in reader.domains() {
+            assert!(
+                status::STATUS_DOMAINS.contains(domain) && *domain != "capabilities" && !status::DESKTOP_DOMAINS.contains(domain),
+                "status {domain} is not a reader domain"
+            );
+            self.readers.insert(domain, reader.clone());
+        }
+        self
+    }
+
+    /// The session's UI, for `open` (without it nothing is ever attached).
+    pub fn with_ui(mut self, ui: Arc<dyn SetupUiSurface>) -> Self {
+        self.ui = Some(ui);
+        self
+    }
+
     /// Serves `set_output_style`.
     pub fn with_output_styles(mut self, styles: OutputStyles) -> Self {
         self.output_styles = Some(styles);
@@ -220,7 +301,7 @@ impl SetupService {
         desktop: Arc<dyn SetupDesktop>,
         voice: Arc<dyn SetupVoice>,
     ) -> Self {
-        Self { tool_modules, config, callers, desktop, voice, owners: HashMap::new(), settings: None, output_styles: None }
+        Self { tool_modules, config, callers, desktop, voice, owners: HashMap::new(), settings: None, output_styles: None, ui: None, readers: HashMap::new() }
     }
 
     /// Registers the actions an owner serves; a name this service serves itself is refused.
@@ -381,6 +462,51 @@ impl SetupService {
                     "appliedToCurrentSession": self.callers.settings_reach_session(call.thread).await,
                 }))
             }
+            "status" => {
+                let domain = args.get("domain").map(|v| mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_owned()).filter(|d| !d.is_empty()).unwrap_or_else(|| "summary".to_owned());
+                let Some(domain) = status::STATUS_DOMAINS.iter().copied().find(|name| *name == domain) else {
+                    return Err(invalid("domain", format!("domain must be one of {}", status::STATUS_DOMAINS.join(", "))));
+                };
+                let detail = args.get("detail") == Some(&Value::Bool(true));
+                let body = if domain == "capabilities" {
+                    status::capabilities()
+                } else if status::DESKTOP_DOMAINS.contains(&domain) {
+                    match self.desktop.request(call.thread, &serde_json::json!({ "action": "status", "domain": domain })).await? {
+                        DesktopAnswer::Done(done) => done,
+                        DesktopAnswer::Unclaimed(message) => return Err(PortError::Unavailable { capability: "desktop".into(), message }),
+                    }
+                } else {
+                    let reader = self.readers.get(domain).ok_or_else(|| PortError::Unavailable {
+                        capability: format!("setup.status.{domain}"),
+                        message: format!("the {domain} status reader is not wired"),
+                    })?;
+                    reader.read(domain, detail, call.thread).await?
+                };
+                // `{ domain, ...status }`
+                let mut out = Map::new();
+                out.insert("domain".into(), Value::String(domain.to_owned()));
+                if let Value::Object(fields) = body {
+                    out.extend(fields);
+                }
+                Ok(Value::Object(out))
+            }            "open" => {
+                let target = args.get("target").map(|v| mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_owned()).unwrap_or_default();
+                let Some((command, hint)) = OPEN_TARGETS.iter().find(|(name, _)| *name == target) else {
+                    let names: Vec<&str> = OPEN_TARGETS.iter().map(|(name, _)| *name).collect();
+                    return Err(invalid("target", format!("target must be one of {}", names.join(", "))));
+                };
+                let session = !call.thread.as_str().is_empty();
+                let handled = match &self.ui {
+                    Some(ui) if session => ui.open(call.thread, command).await,
+                    _ => false,
+                };
+                let note = if handled {
+                    "The attached app navigated to this surface; the user completes the step there.".to_owned()
+                } else {
+                    format!("No interactive UI is attached to this session. Tell the user where to go: {hint}")
+                };
+                Ok(serde_json::json!({ "opened": handled, "target": command, "note": note }))
+            }            action if DESKTOP_ROUTED.contains(&action) => self.hosted(call).await,
             other => Err(PortError::Unavailable {
                 capability: format!("setup.{other}"),
                 message: format!("setup {other} is not served by the config actor"),

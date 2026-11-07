@@ -72,7 +72,7 @@ impl Drop for Relay {
 }
 
 async fn next<T>(rx: &mut mpsc::Receiver<T>) -> T {
-    tokio::time::timeout(Duration::from_secs(10), rx.recv()).await.expect("timed out").expect("closed")
+    rx.recv().await.expect("closed")
 }
 
 fn text(value: Value) -> Outgoing {

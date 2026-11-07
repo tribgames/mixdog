@@ -1,0 +1,1054 @@
+{
+  "domain": "setup-domain-settings-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-setup-domain-settings.mjs",
+  "cases": [
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5"
+        }
+      },
+      "calls": [
+        {
+          "method": "setWebSearchRoute",
+          "args": [
+            {
+              "provider": "openai",
+              "model": "gpt-5"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "route": {
+          "answered": "setWebSearchRoute"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": " xai ",
+          "model": " grok ",
+          "effort": " high ",
+          "fast": true,
+          "autoEffort": false
+        }
+      },
+      "calls": [],
+      "error": "route.autoEffort is only accepted by set_route and set_agent_route"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": ""
+        }
+      },
+      "calls": [
+        {
+          "method": "setWebSearchRoute",
+          "args": [
+            {
+              "provider": ""
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "route": {
+          "answered": "setWebSearchRoute"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "model": "m"
+        }
+      },
+      "calls": [
+        {
+          "method": "setWebSearchRoute",
+          "args": [
+            {
+              "model": "m"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "route": {
+          "answered": "setWebSearchRoute"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {}
+      },
+      "calls": [],
+      "error": "route with at least one of the supported settings is required"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "fast": "yes",
+          "autoEffort": 1,
+          "effort": "  "
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route.fast must be a boolean"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "modelParameters": {
+            "temperature": 0.2
+          },
+          "contextPercent": 40,
+          "contextTokens": 9000,
+          "disabled": true
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route.modelParameters.temperature must be a string"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "modelParameters": null,
+          "contextPercent": null
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route.modelParameters must be an object"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "fallbacks": []
+        }
+      },
+      "calls": [
+        {
+          "method": "setWebSearchRoute",
+          "args": [
+            {
+              "provider": "openai",
+              "model": "gpt-5",
+              "fallbacks": []
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "route": {
+          "answered": "setWebSearchRoute"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "fallbacks": [
+            {
+              "provider": "groq",
+              "model": " llama "
+            },
+            {
+              "model": "x"
+            },
+            {
+              "provider": "a",
+              "fallbacks": [
+                {
+                  "provider": "b"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route.fallbacks[1] requires field(s): provider"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "fallbacks": [
+            null
+          ]
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route.fallbacks[0] must be an object"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "fallbacks": "x"
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route.fallbacks must be an array"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "fallbacks": null
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route.fallbacks must be an array"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "fallbacks": {}
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route.fallbacks must be an array"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] route is required for setup.set_web_search_route"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": null
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route must be an object"
+    },
+    {
+      "args": {
+        "action": "set_web_search_route",
+        "route": "openai"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.route must be an object"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "provider": "openai",
+        "model": "gpt-5",
+        "hidden": true
+      },
+      "calls": [
+        {
+          "method": "setModelPreferences",
+          "args": [
+            "openai",
+            [
+              {
+                "model": "gpt-5",
+                "hidden": true
+              }
+            ]
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "the /model picker and model management lists",
+        "answered": "setModelPreferences"
+      }
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "provider": " openai ",
+        "model": " gpt-5 ",
+        "favorite": false,
+        "hidden": false
+      },
+      "calls": [
+        {
+          "method": "setModelPreferences",
+          "args": [
+            "openai",
+            [
+              {
+                "model": "gpt-5",
+                "hidden": false,
+                "favorite": false
+              }
+            ]
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "the /model picker and model management lists",
+        "answered": "setModelPreferences"
+      }
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "provider": "openai",
+        "model": "gpt-5"
+      },
+      "calls": [],
+      "error": "hidden or favorite is required"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "provider": "openai",
+        "hidden": true
+      },
+      "calls": [],
+      "error": "[tool-input-validation] model is required for setup.set_model_preferences"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "model": "gpt-5",
+        "hidden": true
+      },
+      "calls": [],
+      "error": "[tool-input-validation] provider is required for setup.set_model_preferences"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "provider": "openai",
+        "model": "gpt-5",
+        "hidden": "yes"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.hidden must be a boolean"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "provider": "openai",
+        "model": "gpt-5",
+        "favorite": 1
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.favorite must be a boolean"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "provider": "  ",
+        "model": "  ",
+        "hidden": true
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.model must match the required format"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "model": "m"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] provider is required for setup.set_model_preferences"
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "enabled": true
+      },
+      "calls": [
+        {
+          "method": "setCompactionSettings",
+          "args": [
+            {
+              "auto": true
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setCompactionSettings",
+        "appliedToCurrentSession": true
+      }
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "enabled": false
+      },
+      "calls": [
+        {
+          "method": "setCompactionSettings",
+          "args": [
+            {
+              "auto": false
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setCompactionSettings",
+        "appliedToCurrentSession": true
+      }
+    },
+    {
+      "args": {
+        "action": "set_compaction"
+      },
+      "calls": [],
+      "error": "enabled or compaction is required"
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "compaction": {}
+      },
+      "calls": [],
+      "error": "compaction requires at least one setting"
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "compaction": {
+          "summaryMode": "self"
+        }
+      },
+      "calls": [
+        {
+          "method": "setCompactionSettings",
+          "args": [
+            {
+              "summaryMode": "self"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setCompactionSettings",
+        "appliedToCurrentSession": true
+      }
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "compaction": {
+          "mainBufferTokens": 8000
+        },
+        "enabled": true
+      },
+      "calls": [
+        {
+          "method": "setCompactionSettings",
+          "args": [
+            {
+              "mainBufferTokens": 8000,
+              "auto": true
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setCompactionSettings",
+        "appliedToCurrentSession": true
+      }
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "compaction": {
+          "mainBufferPercent": 10
+        }
+      },
+      "calls": [
+        {
+          "method": "setCompactionSettings",
+          "args": [
+            {
+              "mainBufferPercent": 10
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setCompactionSettings",
+        "appliedToCurrentSession": true
+      }
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "compaction": {
+          "mainBufferTokens": 8000,
+          "mainBufferPercent": 10
+        }
+      },
+      "calls": [],
+      "error": "Choose mainBufferTokens or mainBufferPercent, not both"
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "compaction": {
+          "mainBufferTokens": null,
+          "mainBufferPercent": null
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.compaction.mainBufferTokens must be an integer"
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "compaction": {
+          "auto": false
+        },
+        "enabled": true
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.compaction does not accept field(s): auto"
+    },
+    {
+      "args": {
+        "action": "set_compaction",
+        "compaction": {
+          "zeta": 1,
+          "alpha": 2
+        },
+        "enabled": false
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.compaction does not accept field(s): zeta, alpha"
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "enabled": true
+        }
+      },
+      "calls": [
+        {
+          "method": "setAutoClear",
+          "args": [
+            {
+              "enabled": true
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setAutoClear"
+      }
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "duration": "45m"
+        }
+      },
+      "calls": [
+        {
+          "method": "setAutoClear",
+          "args": [
+            {
+              "duration": "45m"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setAutoClear"
+      }
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "provider": "groq",
+          "duration": "90m"
+        }
+      },
+      "calls": [
+        {
+          "method": "setAutoClear",
+          "args": [
+            {
+              "provider": "groq",
+              "duration": "90m"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setAutoClear"
+      }
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "reset": true
+        }
+      },
+      "calls": [
+        {
+          "method": "setAutoClear",
+          "args": [
+            {
+              "reset": true
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setAutoClear"
+      }
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "resetProvider": true,
+          "provider": "groq"
+        }
+      },
+      "calls": [
+        {
+          "method": "setAutoClear",
+          "args": [
+            {
+              "resetProvider": true,
+              "provider": "groq"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setAutoClear"
+      }
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "resetProvider": true
+        }
+      },
+      "calls": [],
+      "error": "resetProvider requires provider"
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "resetProvider": true,
+          "provider": "  "
+        }
+      },
+      "calls": [],
+      "error": "resetProvider requires provider"
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "reset": true,
+          "provider": "groq"
+        }
+      },
+      "calls": [],
+      "error": "Use resetProvider for a provider override"
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "reset": true,
+          "duration": "10m"
+        }
+      },
+      "calls": [],
+      "error": "Cannot reset and set a duration together"
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "resetProvider": true,
+          "provider": "x",
+          "duration": "10m"
+        }
+      },
+      "calls": [],
+      "error": "Cannot reset and set a duration together"
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {
+          "reset": false,
+          "resetProvider": 0,
+          "duration": "10m"
+        }
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.autoclear.resetProvider must be a boolean"
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": {}
+      },
+      "calls": [],
+      "error": "autoclear with enabled, duration, or provider is required"
+    },
+    {
+      "args": {
+        "action": "set_autoclear"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] autoclear is required for setup.set_autoclear"
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": []
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.autoclear must be an object"
+    },
+    {
+      "args": {
+        "action": "set_autoclear",
+        "autoclear": "x"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.autoclear must be an object"
+    },
+    {
+      "args": {
+        "action": "set_network_proxy",
+        "networkProxy": {
+          "mode": "system"
+        }
+      },
+      "calls": [
+        {
+          "method": "setNetworkProxy",
+          "args": [
+            {
+              "mode": "system"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "the next request of every provider path; pooled connections opened under the old route are closed, and a request already in flight finishes on its connection",
+        "answered": "setNetworkProxy"
+      }
+    },
+    {
+      "args": {
+        "action": "set_network_proxy",
+        "networkProxy": {
+          "mode": "manual",
+          "url": "http://127.0.0.1:8080"
+        }
+      },
+      "calls": [
+        {
+          "method": "setNetworkProxy",
+          "args": [
+            {
+              "mode": "manual",
+              "url": "http://127.0.0.1:8080"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "the next request of every provider path; pooled connections opened under the old route are closed, and a request already in flight finishes on its connection",
+        "answered": "setNetworkProxy"
+      }
+    },
+    {
+      "args": {
+        "action": "set_network_proxy",
+        "networkProxy": {}
+      },
+      "calls": [],
+      "error": "networkProxy requires at least one setting"
+    },
+    {
+      "args": {
+        "action": "set_network_proxy"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] networkProxy is required for setup.set_network_proxy"
+    },
+    {
+      "args": {
+        "action": "set_workflow",
+        "workflow": "review"
+      },
+      "calls": [
+        {
+          "method": "setWorkflow",
+          "args": [
+            "review"
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setWorkflow"
+      }
+    },
+    {
+      "args": {
+        "action": "set_workflow",
+        "workflow": "  Review  "
+      },
+      "calls": [
+        {
+          "method": "setWorkflow",
+          "args": [
+            "Review"
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setWorkflow"
+      }
+    },
+    {
+      "args": {
+        "action": "set_workflow",
+        "workflow": "   "
+      },
+      "calls": [],
+      "error": "workflow is required"
+    },
+    {
+      "args": {
+        "action": "set_workflow"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] workflow is required for setup.set_workflow"
+    },
+    {
+      "args": {
+        "action": "set_orchestration_mode",
+        "mode": "balanced"
+      },
+      "calls": [
+        {
+          "method": "setOrchestrationMode",
+          "args": [
+            "balanced"
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",
+        "answered": "setOrchestrationMode"
+      }
+    },
+    {
+      "args": {
+        "action": "set_orchestration_mode",
+        "mode": "none"
+      },
+      "calls": [
+        {
+          "method": "setOrchestrationMode",
+          "args": [
+            "none"
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",
+        "answered": "setOrchestrationMode"
+      }
+    },
+    {
+      "args": {
+        "action": "set_orchestration_mode",
+        "mode": "auto"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.mode must be one of: none, focused, balanced, swarm"
+    },
+    {
+      "args": {
+        "action": "set_orchestration_mode",
+        "mode": "invalid"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.mode must be one of: none, focused, balanced, swarm"
+    },
+    {
+      "args": {
+        "action": "set_orchestration_mode"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] mode is required for setup.set_orchestration_mode"
+    },
+    {
+      "args": {
+        "action": "set_local_context",
+        "modelId": "m1",
+        "localContextWindow": 16384
+      },
+      "calls": [
+        {
+          "method": "setLocalProviderContext",
+          "args": [
+            "m1",
+            16384
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setLocalProviderContext"
+      }
+    },
+    {
+      "args": {
+        "action": "set_local_context",
+        "modelId": "m1",
+        "localContextWindow": null
+      },
+      "calls": [
+        {
+          "method": "setLocalProviderContext",
+          "args": [
+            "m1",
+            null
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "new sessions unless appliedToCurrentSession is true",
+        "answered": "setLocalProviderContext"
+      }
+    },
+    {
+      "args": {
+        "action": "set_local_context",
+        "modelId": "m1"
+      },
+      "calls": [],
+      "error": "[tool-input-validation] localContextWindow is required for setup.set_local_context"
+    },
+    {
+      "args": {
+        "action": "set_local_context",
+        "localContextWindow": 4096
+      },
+      "calls": [],
+      "error": "[tool-input-validation] setup.localContextWindow must be at least 16384 or setup.localContextWindow must be null"
+    }
+  ]
+}

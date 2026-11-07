@@ -1,6 +1,6 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
-  "fileCount": 74,
+  "fileCount": 76,
   "files": [
     {
       "bytes": 47880,
@@ -208,9 +208,19 @@
       "sha256": "3a9a077f6546c309b3c7b24ce9b1b369dfbff8c3fc03d6171b25ab573ced4d8a"
     },
     {
+      "bytes": 8215,
+      "path": "jobs/busy-count.json",
+      "sha256": "fa09eded99bd90ac366701e48a3a1b804230bd29c1dbf929397a79f58f280931"
+    },
+    {
       "bytes": 97100,
       "path": "jobs/progress.json",
       "sha256": "08477a97d880b5b466fe47fff5b8b6850e58aeccef413513f1734ce476570308"
+    },
+    {
+      "bytes": 315690,
+      "path": "jobs/worker-states.json",
+      "sha256": "6ec1f55693dc2179b2faa0382abeafdd0b96a18ffcea52c590b2e5573e7e10a1"
     },
     {
       "bytes": 18290,
@@ -391,5 +401,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 2029646
+  "totalBytes": 2353551
 }

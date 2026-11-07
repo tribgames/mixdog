@@ -112,9 +112,17 @@ pub fn busy_with(reason: &str, sessions: Option<Vec<String>>, entry_id: Option<S
     ScmFailure::coded(WORKTREE_BUSY_JOBS, detail)
 }
 
-/// A managed worktree still retains the branch (`delete-branch`).
+/// A managed worktree still retains the branch (`delete-branch`): Node's plain
+/// `worktreeError('WORKTREE_BUSY_JOBS', text)`, with no `reason` or other details.
 pub fn branch_retained() -> ScmFailure {
-    ScmFailure::coded(WORKTREE_BUSY_JOBS, none_busy("branch-retained"))
+    coded_text(WORKTREE_BUSY_JOBS, "A managed worktree still retains this branch.")
+}
+
+/// A checkout still holds the branch (`delete-branch`): Node's plain
+/// `worktreeError('WORKTREE_BRANCH_OCCUPIED', text)`, without the branch detail the other
+/// producers attach.
+pub fn branch_checkout_held() -> ScmFailure {
+    coded_text(WORKTREE_BRANCH_OCCUPIED, "Remove or leave the checkout before deleting its branch.")
 }
 
 pub fn confirm_required() -> ScmFailure {
@@ -479,6 +487,16 @@ pub fn unmerged(entry_id: Option<String>, commit: Option<String>, branch: Option
             merge_target,
             commits: None,
         },
+    )
+}
+
+/// `delete-branch` of a branch the target does not contain: Node's own text and only the
+/// `commit` detail (`worktreeError('WORKTREE_UNMERGED', ..., { commit })`).
+pub fn branch_unmerged(commit: String, target: &str) -> ScmFailure {
+    ScmFailure::coded_with_message(
+        WORKTREE_UNMERGED,
+        DomainErrorDetail::WorktreeUnmerged { commit: Some(commit), entry_id: None, branch: None, merge_target: None, commits: None },
+        format!("The branch is not merged into {target}."),
     )
 }
 

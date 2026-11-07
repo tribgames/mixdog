@@ -498,15 +498,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     assert_eq!(left["sessions"], json!({ "sess_kept": route }));
     assert_eq!((left["version"].clone(), left["sessionHosts"].clone()), (json!(2), json!({})));
     deletion.thread_deleted(&mixdog_core_api::ids::ThreadId::from("sess_gone"));
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        let texts = conn.drain_text();
-        if texts.iter().any(|t| t.contains(r#""method":"thread/deleted","params":{"threadId":"sess_gone"}"#)) {
-            break;
-        }
-        assert!(std::time::Instant::now() < deadline, "thread/deleted not published");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    conn.drain_text_until(|texts| texts.iter().any(|t| t.contains(r#""method":"thread/deleted","params":{"threadId":"sess_gone"}"#))).await;
     deletion.release_deleted_worktree("sess_gone").await;
     assert_eq!(*cancelled.lock().unwrap(), [Some("sess_gone".to_owned())]);
     deletion.forget_session_search("sess_gone");

@@ -558,7 +558,7 @@ impl Worktrees {
         };
         if request.action == "delete-branch" {
             if state.path.is_some() {
-                return Err(errors::branch_occupied(request.branch.clone(), None, None, None));
+                return Err(errors::branch_checkout_held());
             }
             let common = facts.common_dir.to_string_lossy().into_owned();
             let held = self
@@ -579,7 +579,7 @@ impl Worktrees {
                 return Ok(json!({ "deleted": true, "branch": request.branch }));
             }
             if !request.force {
-                return Err(errors::unmerged(None, Some(request.commit.clone()), None, Some(target)));
+                return Err(errors::branch_unmerged(request.commit.clone(), &target));
             }
             // Unmerged work the user confirmed dropping: only while the branch is still at the
             // commit the user saw.

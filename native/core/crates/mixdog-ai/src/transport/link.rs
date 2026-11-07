@@ -16,6 +16,8 @@ use mixdog_core_api::domain::provider::ErrorResponse;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
+use mixdog_rt::Expired;
+use mixdog_rt::Liveness;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::Response;
@@ -26,6 +28,7 @@ use crate::netproxy::RouteError;
 use crate::netproxy::RoutedClients;
 use crate::netproxy::clients::ClientError;
 
+use super::deadlines::NODE_DISPATCHER;
 use super::fault::fault_from_reqwest;
 use super::fault::provider_error_from_reqwest;
 use super::http::client_builder;
@@ -56,14 +59,25 @@ impl HttpResponse {
     /// delivery: the caller holds a status and no content.
     pub async fn read_all(mut self) -> Result<ErrorResponse, ProviderError> {
         let mut body = Vec::new();
-        while let Some(chunk) = self.body.next().await {
-            match chunk {
-                Ok(bytes) => body.extend_from_slice(&bytes),
-                Err(fault) => {
-                    return Err(ProviderError::transport(fault, DeliveryState::Accepted));
+        // A whole-body read is never a stream of content: a `Unary` body already
+        // ends at its own total, and the error body of a `Stream` response ends at
+        // the dispatcher ceiling (Node `http-agent.mjs:414` `bodyTimeout`).
+        let drained = NODE_DISPATCHER
+            .liveness
+            .bound_head(async {
+                while let Some(chunk) = self.body.next().await {
+                    match chunk {
+                        Ok(bytes) => body.extend_from_slice(&bytes),
+                        Err(fault) => {
+                            return Err(ProviderError::transport(fault, DeliveryState::Accepted));
+                        }
+                    }
                 }
-            }
-        }
+                Ok(())
+            })
+            .await
+            .map_err(|expired| deadline_error(expired, DeliveryState::Accepted))?;
+        drained?;
         Ok(ErrorResponse {
             status: Some(self.status),
             headers: self.headers,
@@ -72,11 +86,45 @@ impl HttpResponse {
     }
 }
 
+/// What the link does with a 3xx answer, chosen per request to match the Node call site
+/// (`fetch` follows by default, up to 20 hops; a call site that bears credentials sets
+/// `redirect: 'error'` or `'manual'`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Redirect {
+    /// `fetch` default: follow up to 20 redirects. Credentials stay on the origin they were
+    /// meant for: `authorization`, `cookie` and `proxy-authorization` are dropped across origins,
+    /// and a 301/302 on POST or a 303 becomes a body-less GET, as in the fetch spec.
+    Follow,
+    /// `redirect: 'error'`: a 3xx is a network error.
+    Error,
+    /// `redirect: 'manual'`: the 3xx response is returned as is.
+    Manual,
+}
+
+/// The two per-request choices of an HTTP exchange: how long it may take and what a redirect does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Exchange {
+    pub liveness: Liveness,
+    pub redirect: Redirect,
+}
+
+impl Exchange {
+    pub const fn new(liveness: Liveness, redirect: Redirect) -> Self {
+        Self { liveness, redirect }
+    }
+}
+
 #[async_trait]
 pub trait HttpSend: Send + Sync {
-    /// One request. A failure before a status arrived carries the delivery
+    /// One request under its [`Liveness`]: a `Unary` exchange (head and body)
+    /// ends within `total`, a `Stream` gets its head within `head` and its body
+    /// has no timer. A failure before a status arrived carries the delivery
     /// state the connection reached (`NotSent` / `Ambiguous`).
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError>;
+    async fn send(
+        &self,
+        request: WireRequest,
+        exchange: Exchange,
+    ) -> Result<HttpResponse, ProviderError>;
 }
 
 /// Writes request-body frames of an open exchange.
@@ -94,6 +142,7 @@ pub trait BidiOpen: Send + Sync {
         &self,
         request: WireRequest,
         first: Vec<u8>,
+        exchange: Exchange,
     ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError>;
 }
 
@@ -209,15 +258,148 @@ fn response_of(response: reqwest::Response) -> HttpResponse {
     }
 }
 
+/// The deadline passed: a transient transport fact (Node: undici
+/// `UND_ERR_HEADERS_TIMEOUT` / `UND_ERR_BODY_TIMEOUT`, both retried as transient).
+pub(crate) fn deadline_error(expired: Expired, delivery: DeliveryState) -> ProviderError {
+    let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, delivery);
+    error.message = format!("request timed out after {}ms", expired.after.as_millis());
+    error
+}
+
+/// A `Unary` body ends at the exchange deadline; the stream below it keeps no timer.
+struct DeadlineBody {
+    inner: Box<dyn BodyStream>,
+    until: tokio::time::Instant,
+}
+
+#[async_trait]
+impl BodyStream for DeadlineBody {
+    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+        match tokio::time::timeout_at(self.until, self.inner.next()).await {
+            Ok(item) => item,
+            Err(_) => Some(Err(TransportFault::Io { os_code: None })),
+        }
+    }
+}
+
+/// Redirects a request may follow before it fails (the fetch spec's limit).
+const MAX_REDIRECTS: usize = 20;
+
+fn is_redirect(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 301 | 302 | 303 | 307 | 308)
+}
+
+/// `fetch` rejects a redirect under `redirect: 'error'` as a network error.
+fn redirect_refused(status: reqwest::StatusCode) -> ProviderError {
+    let mut error = ProviderError::transport(
+        TransportFault::Io { os_code: None },
+        DeliveryState::Ambiguous,
+    );
+    error.message = format!("unexpected redirect (HTTP {})", status.as_u16());
+    error
+}
+
+/// The request a followed redirect sends next, or `None` when the answer names no usable target.
+fn next_hop(
+    request: &WireRequest,
+    status: reqwest::StatusCode,
+    location: &str,
+) -> Option<WireRequest> {
+    let from = reqwest::Url::parse(&request.url).ok()?;
+    let to = from.join(location).ok()?;
+    let mut next = request.clone();
+    if from.origin() != to.origin() {
+        next.headers.retain(|(name, _)| {
+            !["authorization", "cookie", "proxy-authorization"]
+                .iter()
+                .any(|dropped| name.eq_ignore_ascii_case(dropped))
+        });
+    }
+    let status = status.as_u16();
+    if (status == 303 && request.method != "HEAD")
+        || (matches!(status, 301 | 302) && request.method == "POST")
+    {
+        next.method = "GET".to_owned();
+        next.body.clear();
+        next.headers
+            .retain(|(name, _)| !name.to_ascii_lowercase().starts_with("content-"));
+    }
+    next.url = to.into();
+    Some(next)
+}
+
+/// The one place a request meets its [`Exchange`]: the head is bounded for both liveness
+/// classes, and a `Unary` body shares the same total.
+async fn settle(
+    exchange: Exchange,
+    answer: impl std::future::Future<Output = Result<reqwest::Response, ProviderError>>,
+) -> Result<HttpResponse, ProviderError> {
+    let liveness = exchange.liveness;
+    let started = tokio::time::Instant::now();
+    let response = liveness
+        .bound_head(answer)
+        .await
+        .map_err(|expired| deadline_error(expired, DeliveryState::Ambiguous))??;
+    let mut response = response_of(response);
+    if let Some(total) = liveness.total_deadline() {
+        response.body = Box::new(DeadlineBody {
+            inner: response.body,
+            until: started + total,
+        });
+    }
+    Ok(response)
+}
+
 #[async_trait]
 impl HttpSend for ReqwestLink {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
-        let builder = self.builder(&request).await?.body(request.body);
-        let response = builder
-            .send()
-            .await
-            .map_err(|err| provider_error_from_reqwest(&err))?;
-        Ok(response_of(response))
+    async fn send(
+        &self,
+        request: WireRequest,
+        exchange: Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
+        settle(exchange, self.hops(request, exchange.redirect)).await
+    }
+}
+
+impl ReqwestLink {
+    /// Sends `request` and applies the redirect policy to each answer.
+    async fn hops(
+        &self,
+        mut request: WireRequest,
+        redirect: Redirect,
+    ) -> Result<reqwest::Response, ProviderError> {
+        for _ in 0..=MAX_REDIRECTS {
+            let builder = self.builder(&request).await?.body(request.body.clone());
+            let raw = builder
+                .send()
+                .await
+                .map_err(|err| provider_error_from_reqwest(&err))?;
+            if !is_redirect(raw.status()) {
+                return Ok(raw);
+            }
+            match redirect {
+                Redirect::Manual => return Ok(raw),
+                Redirect::Error => return Err(redirect_refused(raw.status())),
+                Redirect::Follow => {
+                    let location = raw
+                        .headers()
+                        .get(reqwest::header::LOCATION)
+                        .and_then(|v| v.to_str().ok());
+                    // No usable `Location`: the answer is the response, as in fetch.
+                    let Some(next) = location.and_then(|l| next_hop(&request, raw.status(), l))
+                    else {
+                        return Ok(raw);
+                    };
+                    request = next;
+                }
+            }
+        }
+        let mut error = ProviderError::transport(
+            TransportFault::Io { os_code: None },
+            DeliveryState::Ambiguous,
+        );
+        error.message = format!("more than {MAX_REDIRECTS} redirects");
+        Err(error)
     }
 }
 
@@ -237,7 +419,15 @@ impl BidiOpen for ReqwestLink {
         &self,
         request: WireRequest,
         first: Vec<u8>,
+        exchange: Exchange,
     ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+        // A streaming request body cannot be replayed, so a redirect is never followed.
+        let redirect = exchange.redirect;
+        if redirect == Redirect::Follow {
+            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+            error.message = "a streaming request body cannot follow a redirect".to_owned();
+            return Err(error);
+        }
         let (tx, rx) = mpsc::unbounded_channel::<Bytes>();
         let _ = tx.send(Bytes::from(first));
         let stream = futures::stream::unfold(rx, |mut rx| async move {
@@ -249,11 +439,18 @@ impl BidiOpen for ReqwestLink {
             .builder(&request)
             .await?
             .body(reqwest::Body::wrap_stream(stream));
-        let response = builder
-            .send()
-            .await
-            .map_err(|err| provider_error_from_reqwest(&err))?;
-        Ok((response_of(response), Arc::new(ChannelSink(tx))))
+        let answer = async {
+            let raw = builder
+                .send()
+                .await
+                .map_err(|err| provider_error_from_reqwest(&err))?;
+            if redirect == Redirect::Error && is_redirect(raw.status()) {
+                return Err(redirect_refused(raw.status()));
+            }
+            Ok(raw)
+        };
+        let response = settle(exchange, answer).await?;
+        Ok((response, Arc::new(ChannelSink(tx))))
     }
 }
 
@@ -316,5 +513,54 @@ impl WsDial for KeepaliveDialer {
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
         let (connection, response) = ws::connect_via(request, &self.schedule, self.policy.as_deref()).await?;
         Ok((Box::new(connection), response))
+    }
+}
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    /// A body whose peer holds the connection open and says nothing.
+    struct Silent;
+
+    #[async_trait]
+    impl BodyStream for Silent {
+        async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+            std::future::pending().await
+        }
+    }
+
+    fn head_of(body: Box<dyn BodyStream>) -> HttpResponse {
+        HttpResponse {
+            status: 200,
+            headers: Vec::new(),
+            body,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_unary_body_that_never_ends_fails_at_its_total() {
+        let total = Duration::from_secs(30);
+        let body = DeadlineBody {
+            inner: Box::new(Silent),
+            until: tokio::time::Instant::now() + total,
+        };
+        let error = head_of(Box::new(body))
+            .read_all()
+            .await
+            .expect_err("the peer never finishes the body");
+        assert_eq!(error.delivery, DeliveryState::Accepted);
+        assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_error_body_of_a_stream_ends_at_the_dispatcher_ceiling() {
+        let error = head_of(Box::new(Silent))
+            .read_all()
+            .await
+            .expect_err("the error body never ends");
+        assert_eq!(error.delivery, DeliveryState::Accepted);
+        assert_eq!(error.message, "request timed out after 600000ms");
     }
 }

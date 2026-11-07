@@ -1,0 +1,1171 @@
+{
+  "domain": "setup-media-default-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-setup-media-default.mjs",
+  "lanes": [
+    {
+      "id": "gemini",
+      "label": "Gemini",
+      "authenticated": true,
+      "image": {
+        "models": [
+          {
+            "id": "nano"
+          },
+          {
+            "id": "nano-pro"
+          }
+        ]
+      },
+      "video": null
+    },
+    {
+      "id": "oa",
+      "label": "OpenAI",
+      "authType": "oauth",
+      "authProvider": "openai-oauth",
+      "authenticated": true,
+      "image": {
+        "models": [
+          {
+            "id": "gpt-image-2"
+          }
+        ]
+      },
+      "video": {
+        "models": [
+          {
+            "id": "sora"
+          }
+        ]
+      }
+    },
+    {
+      "id": "grok",
+      "label": "Grok",
+      "authenticated": false,
+      "image": null,
+      "video": null
+    },
+    {
+      "id": "cat",
+      "label": "Catalog",
+      "authenticated": true,
+      "catalogError": "The catalog could not be read",
+      "image": null,
+      "video": null
+    },
+    {
+      "id": "bare",
+      "authenticated": true,
+      "image": {
+        "models": [
+          {
+            "id": "m"
+          }
+        ]
+      },
+      "video": null
+    },
+    {
+      "id": "broken",
+      "label": "Broken",
+      "authType": "oauth",
+      "authProvider": "broken-oauth",
+      "authenticated": true,
+      "image": {
+        "models": [
+          {
+            "id": "m"
+          }
+        ]
+      },
+      "video": {
+        "models": [
+          {
+            "id": "v"
+          }
+        ]
+      }
+    },
+    {
+      "id": "fal",
+      "label": "Fal",
+      "authType": "api-key",
+      "authenticated": true,
+      "image": {
+        "models": [
+          {
+            "id": "flux"
+          }
+        ]
+      },
+      "video": {
+        "models": [
+          {
+            "id": "wan"
+          }
+        ]
+      }
+    }
+  ],
+  "rosters": {
+    "openai-oauth": {
+      "provider": "openai-oauth",
+      "selectedId": "a1",
+      "accounts": [
+        {
+          "id": "a1"
+        },
+        {
+          "id": "a2"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "gemini"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": "gemini"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": {
+          "kind": "image",
+          "lane": "gemini",
+          "model": "",
+          "account": ""
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "gemini",
+        "model": "nano"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": "gemini",
+              "model": "nano"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": {
+          "kind": "image",
+          "lane": "gemini",
+          "model": "nano",
+          "account": ""
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "gemini",
+        "model": "nano-pro"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": "gemini",
+              "model": "nano-pro"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": {
+          "kind": "image",
+          "lane": "gemini",
+          "model": "nano-pro",
+          "account": ""
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "gemini",
+        "model": "other"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "model \"other\" is not available on gemini/image"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "video",
+        "lane": "gemini"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "gemini offers no video models"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "video",
+        "lane": "oa",
+        "model": "sora"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "video",
+              "lane": "oa",
+              "model": "sora"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "video",
+        "media": {
+          "kind": "video",
+          "lane": "oa",
+          "model": "sora",
+          "account": ""
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "oa",
+        "accountId": "a2"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "getProviderAccounts",
+          "args": [
+            "openai-oauth"
+          ]
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": "oa",
+              "account": "a2"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": {
+          "kind": "image",
+          "lane": "oa",
+          "model": "",
+          "account": "a2"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "oa",
+        "accountId": "a1",
+        "model": "gpt-image-2"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "getProviderAccounts",
+          "args": [
+            "openai-oauth"
+          ]
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": "oa",
+              "model": "gpt-image-2",
+              "account": "a1"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": {
+          "kind": "image",
+          "lane": "oa",
+          "model": "gpt-image-2",
+          "account": "a1"
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "oa",
+        "accountId": "zz"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "getProviderAccounts",
+          "args": [
+            "openai-oauth"
+          ]
+        }
+      ],
+      "error": "Unknown openai-oauth account \"zz\"; list accounts with status providers"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "oa",
+        "accountId": ""
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "getProviderAccounts",
+          "args": [
+            "openai-oauth"
+          ]
+        }
+      ],
+      "error": "Unknown openai-oauth account \"\"; list accounts with status providers"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "oa",
+        "accountId": "a1",
+        "model": "nope"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "model \"nope\" is not available on oa/image"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "gemini",
+        "accountId": "a1"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "gemini signs in with an API key; it has no accounts"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "fal",
+        "accountId": "a1"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "fal signs in with an API key; it has no accounts"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "fal",
+        "model": "flux"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": "fal",
+              "model": "flux"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": {
+          "kind": "image",
+          "lane": "fal",
+          "model": "flux",
+          "account": ""
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "video",
+        "lane": "fal",
+        "model": "wan"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "video",
+              "lane": "fal",
+              "model": "wan"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "video",
+        "media": {
+          "kind": "video",
+          "lane": "fal",
+          "model": "wan",
+          "account": ""
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "broken",
+        "accountId": "a1"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "getProviderAccounts",
+          "args": [
+            "broken-oauth"
+          ]
+        }
+      ],
+      "error": "Unknown OAuth provider."
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "broken"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": "broken"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": {
+          "kind": "image",
+          "lane": "broken",
+          "model": "",
+          "account": ""
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "missing"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "Unknown media lane \"missing\"; list lanes with the media tool"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": " gemini "
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "Unknown media lane \" gemini \"; list lanes with the media tool"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "Gemini"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "Unknown media lane \"Gemini\"; list lanes with the media tool"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "grok"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "Grok is not signed in; open providers first"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "grok",
+        "model": "x",
+        "accountId": "y"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "Grok is not signed in; open providers first"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "cat"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "The catalog could not be read"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "video",
+        "lane": "cat"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "The catalog could not be read"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "video",
+        "lane": "grok"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "Grok is not signed in; open providers first"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "bare"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": "bare"
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": {
+          "kind": "image",
+          "lane": "bare",
+          "model": "",
+          "account": ""
+        }
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "video",
+        "lane": "bare"
+      },
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "bare offers no video models"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": ""
+      },
+      "calls": [
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": ""
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": null
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "video",
+        "lane": ""
+      },
+      "calls": [
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "video",
+              "lane": ""
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "video",
+        "media": null
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "   "
+      },
+      "calls": [
+        {
+          "method": "setMediaPin",
+          "args": [
+            {
+              "kind": "image",
+              "lane": ""
+            }
+          ]
+        }
+      ],
+      "receipt": {
+        "saved": true,
+        "scope": "installation",
+        "appliesTo": "media generations that name no lane/model; lane \"\" returns the kind to Auto",
+        "kind": "image",
+        "media": null
+      }
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "",
+        "model": "nano"
+      },
+      "calls": [],
+      "error": "model and accountId need a lane"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "",
+        "accountId": "a1"
+      },
+      "calls": [],
+      "error": "model and accountId need a lane"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "skills",
+        "lane": "gemini"
+      },
+      "calls": [],
+      "error": "kind must be one of image, video"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "mcp",
+        "lane": ""
+      },
+      "calls": [],
+      "error": "kind must be one of image, video"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "plugins",
+        "lane": "oa",
+        "accountId": "a1"
+      },
+      "calls": [],
+      "error": "kind must be one of image, video"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "w"
+      },
+      "lanes": [
+        {
+          "id": "w",
+          "authenticated": false,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "x",
+          "authenticated": true,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "y",
+          "label": "Why",
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        },
+        {
+          "id": "z",
+          "authType": "oauth",
+          "authenticated": true,
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        }
+      ],
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "undefined is not signed in; open providers first"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "x"
+      },
+      "lanes": [
+        {
+          "id": "w",
+          "authenticated": false,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "x",
+          "authenticated": true,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "y",
+          "label": "Why",
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        },
+        {
+          "id": "z",
+          "authType": "oauth",
+          "authenticated": true,
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        }
+      ],
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "x offers no image models"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "y"
+      },
+      "lanes": [
+        {
+          "id": "w",
+          "authenticated": false,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "x",
+          "authenticated": true,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "y",
+          "label": "Why",
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        },
+        {
+          "id": "z",
+          "authType": "oauth",
+          "authenticated": true,
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        }
+      ],
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "Why is not signed in; open providers first"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "z",
+        "accountId": "a"
+      },
+      "lanes": [
+        {
+          "id": "w",
+          "authenticated": false,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "x",
+          "authenticated": true,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "y",
+          "label": "Why",
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        },
+        {
+          "id": "z",
+          "authType": "oauth",
+          "authenticated": true,
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        }
+      ],
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        },
+        {
+          "method": "getProviderAccounts",
+          "args": [
+            null
+          ]
+        }
+      ],
+      "error": "Unknown OAuth provider."
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "gemini"
+      },
+      "lanes": [
+        {
+          "id": "w",
+          "authenticated": false,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "x",
+          "authenticated": true,
+          "image": null,
+          "video": null
+        },
+        {
+          "id": "y",
+          "label": "Why",
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        },
+        {
+          "id": "z",
+          "authType": "oauth",
+          "authenticated": true,
+          "image": {
+            "models": [
+              {
+                "id": "m"
+              }
+            ]
+          },
+          "video": null
+        }
+      ],
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "Unknown media lane \"gemini\"; list lanes with the media tool"
+    },
+    {
+      "args": {
+        "action": "set_media_default",
+        "kind": "image",
+        "lane": "gemini"
+      },
+      "lanes": [],
+      "calls": [
+        {
+          "method": "listMediaLanes",
+          "args": []
+        }
+      ],
+      "error": "Unknown media lane \"gemini\"; list lanes with the media tool"
+    }
+  ]
+}

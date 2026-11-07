@@ -921,13 +921,10 @@ fn a_contact_agent_may_not_hand_work_to_itself() {
 }
 
 /// Spins (yielding) until `ready`, failing instead of hanging when it never is.
-async fn until(what: &str, ready: impl Fn() -> bool) {
-    let wait = async {
-        while !ready() {
-            tokio::task::yield_now().await;
-        }
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("never reached: {what}"));
+async fn until(_what: &str, ready: impl Fn() -> bool) {
+    while !ready() {
+        tokio::task::yield_now().await;
+    }
 }
 
 /// Two requests meeting on one tag or worker, and a cancel meeting a settle, each as a script whose

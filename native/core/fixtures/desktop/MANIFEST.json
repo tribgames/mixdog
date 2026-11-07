@@ -6,7 +6,7 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 39,
+  "fileCount": 47,
   "files": [
     {
       "bytes": 43749,
@@ -179,9 +179,44 @@
       "sha256": "53f7801b11f9de300941259871aca935fcd1801855476e15f56d32148e26af90"
     },
     {
+      "bytes": 24834,
+      "path": "settings/setup-domain-settings-twin.json",
+      "sha256": "fe074684af8e32e556b1067611025fa2ae10078013d86d47b869f0b2faf6ac2b"
+    },
+    {
+      "bytes": 174257,
+      "path": "settings/setup-list-models-twin.json",
+      "sha256": "db94430589f6427644212fc04cf2429ab4729309f7395e98799538fdb5bcb84b"
+    },
+    {
+      "bytes": 24388,
+      "path": "settings/setup-media-default-twin.json",
+      "sha256": "6d1418f0f4832e3ad43e2c54730f0bc8d018aac73d309afb0752b045cc9e39b1"
+    },
+    {
+      "bytes": 37872,
+      "path": "settings/setup-open-twin.json",
+      "sha256": "bab0ed2e74ccc06cd233239be876084172f4be5cb1208aeb21e5e8e56492be51"
+    },
+    {
       "bytes": 463009,
       "path": "settings/setup-requests-twin.json",
       "sha256": "13b862f3a41e0f6b7330c65d3c2aa816e59db95e974fa137fbb04d89a5398542"
+    },
+    {
+      "bytes": 812539,
+      "path": "settings/setup-settings-twin.json",
+      "sha256": "8c6728ffa3cfcf43f7a1fb75f00bbda5d41303211b69cf4285b24d53f43c9d7c"
+    },
+    {
+      "bytes": 44852,
+      "path": "settings/setup-status-config-twin.json",
+      "sha256": "31424c51d922dec17722b6ceddc026a19a20f27d3618b09cc1715df14c9929e8"
+    },
+    {
+      "bytes": 11125,
+      "path": "settings/setup-status-twin.json",
+      "sha256": "2a1e979eb293fd7952dc3c1e493836af01bdada8ff93b185124c3e5532969196"
     },
     {
       "bytes": 2190099,
@@ -192,6 +227,11 @@
       "bytes": 4257645,
       "path": "settings/turn-auto-effort-twin.json",
       "sha256": "7290a76e6b3a26f4826301d7843e038f9465ff507d99acc8bafce443a97cbe82"
+    },
+    {
+      "bytes": 74026,
+      "path": "settings/workflow-list-twin.json",
+      "sha256": "ce39e4dc65b996fcff554e62a7857b55fbad7221b56a91bbb19d12b2d5699952"
     },
     {
       "bytes": 2251,
@@ -227,5 +267,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 41080132
+  "totalBytes": 42284025
 }

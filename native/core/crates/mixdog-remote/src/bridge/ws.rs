@@ -38,8 +38,13 @@ impl Dialer for WsDialer {
             "Authorization",
             HeaderValue::from_str(&format!("Bearer {}", self.token)).map_err(|_| DialError)?,
         );
-        headers.insert(RELAY_PEER_HEADER, HeaderValue::from_str(peer_id).map_err(|_| DialError)?);
-        let (socket, _) = tokio_tungstenite::connect_async(request).await.map_err(|_| DialError)?;
+        headers.insert(
+            RELAY_PEER_HEADER,
+            HeaderValue::from_str(peer_id).map_err(|_| DialError)?,
+        );
+        let (socket, _) = crate::dial::connect(request, None)
+            .await
+            .map_err(|_| DialError)?;
         Ok(Box::new(WsUpstream { socket }))
     }
 }

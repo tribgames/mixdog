@@ -327,7 +327,7 @@ mod tests {
         assert_eq!(folder_bytes(dir.path(), 10), (100, true));
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn sizes_are_measured_once_refreshed_in_the_background_when_stale_and_forgotten_on_removal() {
         use std::sync::atomic::AtomicUsize;
         let lane = mixdog_rt::testing::tokens().maintenance_io;

@@ -5,6 +5,7 @@
 //! (`cursor-api`) of [`AccessToken`]. Credential files, the refresh lock and
 //! the poll-login flow belong to the shared OAuth plumbing.
 
+use crate::transport::deadlines::TOKEN_EXCHANGE;
 use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -137,16 +138,19 @@ pub fn exchange_error(status: u16, headers: &[(String, String)], detail: &str) -
 /// access token.
 pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTokens, ProviderError> {
     let head = http
-        .send(WireRequest {
-            transport: TransportKind::Http1,
-            method: "POST".to_owned(),
-            url: EXCHANGE_URL.to_owned(),
-            headers: vec![
-                ("authorization".to_owned(), format!("Bearer {token}")),
-                ("content-type".to_owned(), "application/json".to_owned()),
-            ],
-            body: b"{}".to_vec(),
-        })
+        .send(
+            WireRequest {
+                transport: TransportKind::Http1,
+                method: "POST".to_owned(),
+                url: EXCHANGE_URL.to_owned(),
+                headers: vec![
+                    ("authorization".to_owned(), format!("Bearer {token}")),
+                    ("content-type".to_owned(), "application/json".to_owned()),
+                ],
+                body: b"{}".to_vec(),
+            },
+            TOKEN_EXCHANGE,
+        )
         .await?;
     let success = head.is_success();
     let response = head.read_all().await?;
@@ -368,7 +372,11 @@ mod tests {
 
     #[async_trait]
     impl HttpSend for Exchange {
-        async fn send(&self, _request: WireRequest) -> Result<HttpResponse, ProviderError> {
+        async fn send(
+            &self,
+            _request: WireRequest,
+            _exchange: crate::transport::Exchange,
+        ) -> Result<HttpResponse, ProviderError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             for _ in 0..5 {
                 tokio::task::yield_now().await;

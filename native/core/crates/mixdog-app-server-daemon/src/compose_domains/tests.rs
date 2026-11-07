@@ -18,6 +18,7 @@ use mixdog_core_base::feed::FeedLimits;
 use mixdog_core_base::ops::OpGate;
 use mixdog_core_base::ops::StateOpStore;
 use mixdog_core_base::ops::ThreadOpGates;
+use mixdog_core_base::quota_resume::QuotaResumeStore;
 use mixdog_core_config::config::SettingsEffects;
 use mixdog_core_config::tool_modules::FeatureEffects;
 use mixdog_core_domains::domains::DomainsBuilder;
@@ -66,7 +67,56 @@ use crate::compose::compose;
 use adapters::DoctorHost;
 use mixdog_core_domains::domains::diagnostics::Probe;
 
+const EXPECTED_SETUP_ACTIONS: [&str; 29] = [
+    "install_local_model",
+    "start_local_installation",
+    "cancel_local_installation",
+    "set_local_idle_ttl",
+    "search_local_models",
+    "inspect_hf_model",
+    "register_hf_model",
+    "local_model_details",
+    "maintain_local_model",
+    "delete_local_model",
+    "set_web_search_route",
+    "set_model_preferences",
+    "set_compaction",
+    "set_autoclear",
+    "set_network_proxy",
+    "set_workflow",
+    "set_orchestration_mode",
+    "set_local_context",
+    "list_models",
+    "set_media_default",
+    "set_system_shell",
+    "set_auto_update",
+    "set_ai_session_titles",
+    "set_quota_auto_resume",
+    "set_heartbeat_enabled",
+    "set_heartbeat_interval",
+    "set_reactions_enabled",
+    "set_profile",
+    "set_developer_option",
+];
 struct Quiet;
+
+impl mixdog_core_agents::setup::LiveRoute for Quiet {
+    fn route(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+    fn lead_fallbacks(&self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
+    fn positions(&self, _: &mixdog_core_api::ids::ThreadId, _: bool) -> serde_json::Value {
+        serde_json::json!({ "sessions": [] })
+    }
+}
+
+impl mixdog_core_agents::setup::FeatureActivity for Quiet {
+    fn active(&self, _: &str) -> bool {
+        false
+    }
+}
 
 #[async_trait]
 impl SettingsEffects for Quiet {
@@ -131,6 +181,13 @@ impl NotificationClicks for Quiet {
 }
 
 #[async_trait]
+impl mixdog_core_domains::domains::ai_admin::provider_status::ProviderRoster for Quiet {
+    async fn accounts(&self, _: &str) -> Result<serde_json::Value, String> {
+        Ok(serde_json::json!({ "accounts": [] }))
+    }
+}
+
+#[async_trait]
 impl InstructionsChanged for Quiet {
     async fn changed(&self) {}
 }
@@ -182,8 +239,8 @@ impl ExtensionHost for Quiet {
     async fn reconcile_plugins_and_announce(&self) {}
     async fn announce(&self, _: &str) {}
     async fn announce_without_invalidating(&self, _: &str) {}
-    async fn tool_names(&self) -> Vec<String> {
-        Vec::new()
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
     async fn reconnect_mcp_and_announce(&self, _: Option<&str>, _: bool, _: &[String]) -> Value {
         json!({})
@@ -201,8 +258,8 @@ impl ExtensionHost for Quiet {
     }
     fn invalidate_skills(&self) {}
     async fn flush_skills_save(&self) {}
-    async fn current_cwd(&self, _: Option<&str>) -> std::path::PathBuf {
-        std::path::PathBuf::new()
+    async fn current_cwd(&self, _: Option<&str>) -> Result<std::path::PathBuf, String> {
+        Ok(std::path::PathBuf::new())
     }
     async fn skills_status(&self) -> Value {
         json!({})
@@ -319,9 +376,11 @@ impl mixdog_core_config::workflow::WorkflowHost for Quiet {
 
 #[async_trait]
 impl SetupUiSurface for Quiet {
-    async fn notify(&self, _: &ThreadId, _: &str) -> bool {
+    async fn notify(&self, _: &ThreadId, _: &str, _: std::time::Duration) -> bool {
         false
     }
+
+    async fn settled(&self, _: &ThreadId, _: &str) {}
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -459,6 +518,10 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             session_cwds: quiet.clone(),
             compaction_host: quiet.clone(),
             workflow_host: quiet.clone(),
+            feature_activity: quiet.clone(),
+            live_route: quiet.clone(),
+            provider_roster: quiet.clone(),
+            quota_resume: Arc::new(QuotaResumeStore::open(dir.path(), tokens.durability_io, CancellationToken::new()).await.unwrap()),
         },
     };
     // The two stages: nothing of the pre-pool stage reads the directory, so it runs first; the
@@ -466,6 +529,11 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
     // one-call composition served.
     let pre = crate::compose_domains::compose_domains_pre(&inputs).await.unwrap();
     assert!(!pre.services.iter().any(|s| s.methods().contains(&"diagnostics/runDoctor")), "the doctor is a post-directory service");
+    // The local-model, domain and scalar setup actions are served by composed owners, none by a mock.
+    let served: Vec<&str> = pre.setup_actions.iter().flat_map(|owner| owner.actions().iter().copied()).collect();
+    assert_eq!(served, EXPECTED_SETUP_ACTIONS);
+    let read: Vec<&str> = pre.status_readers.iter().flat_map(|reader| reader.domains().iter().copied()).collect();
+    assert_eq!(read, ["autoclear", "compaction", "developer", "shell", "update", "worktree", "network-proxy", "output-style", "local-provider", "memory", "profile", "websearch", "onboarding", "workflow", "features", "summary", "model"]);
     let composed = crate::compose_domains::compose_domains_post(
         &inputs,
         crate::compose_domains::PostSeams { session_attachments: quiet.clone(), doctor: quiet.clone() },

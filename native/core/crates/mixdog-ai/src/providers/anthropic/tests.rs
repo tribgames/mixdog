@@ -283,6 +283,7 @@ impl HttpSend for ScriptedHttp {
     async fn send(
         &self,
         request: mixdog_core_api::domain::provider::WireRequest,
+        _exchange: crate::transport::Exchange,
     ) -> Result<HttpResponse, ProviderError> {
         self.sent.lock().expect("sent").push(request);
         let next = self.script.lock().expect("script").pop_front().expect("scripted response");

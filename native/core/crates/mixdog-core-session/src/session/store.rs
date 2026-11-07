@@ -68,6 +68,7 @@ use super::seams::HeadRead;
 use super::seams::OpenedLog;
 use super::seams::RecordCodec;
 use super::seams::SessionLog;
+use super::seams::StoredOp;
 use super::seams::ThreadStore;
 use super::seams::WindowRead;
 
@@ -774,6 +775,32 @@ impl ThreadStore for StoreThreads {
             rows.reverse();
             return Ok((opened.fold.history_rev, rows));
         }
+    }
+
+    fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError> {
+        self.wait(lane, self.projector.flush());
+        let Some(row) = self.wait(lane, self.index.thread_op(id.as_str(), op)).map_err(|e| internal("thread-op", &e))? else {
+            return Ok(None);
+        };
+        let record =
+            log::read_frame(lane, &self.dir(id.as_str()), row.pos, row.frame_len).map_err(|e| Self::read_error(id, e))?;
+        let result = super::thread_ops::op_ref_of(&record).and_then(|o| o.result.as_ref()).map(|r| r.get().clone());
+        let detail = match &record {
+            Record::Op(r) => match &r.detail {
+                Some(slot) => match self.resolve(lane, slot)? {
+                    Slot::Inline(value) => Some(value),
+                    Slot::Blob(_) => return Err(internal("thread-op", &"detail left out of line")),
+                },
+                None => None,
+            },
+            _ => None,
+        };
+        Ok(Some(StoredOp { method: row.method, digest: row.payload_digest, state: row.state, seq: row.pos.ordinal, result, detail }))
+    }
+
+    fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
+        self.wait(lane, self.projector.flush());
+        self.wait(lane, self.index.fenced_ops(id.as_str())).map_err(|e| internal("fenced-ops", &e))
     }
 
     /// Pages newest first until the row is found: a switch anchors near the history's end.

@@ -123,7 +123,12 @@ fn core_wiring(
         },
         close_data_handles: {
             let core = core.clone();
+            let runtime = runtime.clone();
             Arc::new(move || runtime.block_on(core.run_stop_steps()))
+        },
+        flush_log: {
+            let core = core.clone();
+            Arc::new(move || runtime.block_on(core.flush_log()))
         },
         drain_feed: drain_feed(sections.clone()),
     }

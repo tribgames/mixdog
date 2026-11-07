@@ -14,6 +14,7 @@
 //! Nothing here runs on a read path: catalog reads load an `ArcSwap`
 //! snapshot, and the layer is applied when the catalog refreshes.
 
+use crate::transport::deadlines::NODE_DISPATCHER;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -238,7 +239,11 @@ impl ModelsDevSource {
             body: Vec::new(),
         };
         let exchange = async {
-            let response = self.http.send(request).await.map_err(|e| e.message)?;
+            let response = self
+                .http
+                .send(request, NODE_DISPATCHER)
+                .await
+                .map_err(|e| e.message)?;
             if !response.is_success() {
                 return Err(format!("HTTP {}", response.status));
             }
@@ -324,7 +329,11 @@ mod tests {
     }
     #[async_trait]
     impl HttpSend for Fake {
-        async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+        async fn send(
+            &self,
+            request: WireRequest,
+            _exchange: crate::transport::Exchange,
+        ) -> Result<HttpResponse, ProviderError> {
             assert_eq!(request.method, "GET");
             self.calls.fetch_add(1, Ordering::SeqCst);
             let Some(body) = *self.body.lock().unwrap() else {

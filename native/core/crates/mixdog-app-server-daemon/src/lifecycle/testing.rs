@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::PoisonError;
-use std::time::Duration;
 
 use super::DiscoveryState;
 use super::DrainNotice;
@@ -60,13 +59,12 @@ impl Recorder {
     }
 
     /// Waits for the process-exit call; the bound only keeps a failing test from hanging.
-    pub fn wait_exit(&self) -> bool {
+    pub fn wait_exit(&self) {
         let guard = lock(&self.exited);
-        let (guard, _) = self
+        let _exited = self
             .exit_signal
-            .wait_timeout_while(guard, Duration::from_secs(20), |exited| !*exited)
+            .wait_while(guard, |exited| !*exited)
             .unwrap_or_else(PoisonError::into_inner);
-        *guard
     }
 }
 

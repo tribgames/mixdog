@@ -45,6 +45,7 @@ use mixdog_workspace::service::WorkspaceService;
 use crate::catalog::CatalogError;
 use crate::catalog::CatalogHost;
 use crate::catalog::build_catalog;
+use crate::domain_seams::settings_effects::ConfiguredShell;
 use crate::exec::Exec;
 use crate::exec::ExecEvents;
 use crate::exec::build_exec;
@@ -306,6 +307,12 @@ impl ComposedCore {
         self.run_stop_steps().await;
     }
 
+    /// The daemon log written out: the release procedure runs it right before the process ends, on every path, because a stuck step skips
+    /// `run_stop_steps` and the lines queued by then would be lost.
+    pub async fn flush_log(&self) {
+        self.log.flush().await;
+    }
+
     /// The registered stop steps alone, for the release procedure that closes the extension host
     /// at its own point (RuntimeCore::close_ext_host).
     pub async fn run_stop_steps(&self) {
@@ -533,7 +540,17 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
     let catalog = build_catalog(tokens, data_dir, Vec::new()).await.map_err(ComposeError::Catalog)?;
     let shell_path =
         crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.map_err(ComposeError::Shell)?;
-    let (exec, exec_events) = build_exec(tokens, data_dir, skill_launcher_dir, shell_path, skill_runtime, ext_host.clone());
+    // The one `ConfiguredShell`: every spawn reads it, and the flip hands `exec.configured_shell` to
+    // `DaemonSettingsEffects::new` and sets the boot value from `config.shell` on it.
+    let (exec, exec_events) = build_exec(
+        tokens,
+        data_dir,
+        skill_launcher_dir,
+        shell_path,
+        Arc::new(ConfiguredShell::default()),
+        skill_runtime,
+        ext_host.clone(),
+    );
     let shell_control = Arc::new(mixdog_tools::exec::ShellControl::new(exec.runtime.clone(), process_manager));
     let id = FeedId::from("app");
     let epoch = FeedEpoch::from(new_instance_id());

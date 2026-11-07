@@ -1,0 +1,269 @@
+{
+  "cases": [
+    {
+      "name": "no surface",
+      "surface": null,
+      "tools": []
+    },
+    {
+      "name": "empty surface",
+      "surface": {},
+      "tools": []
+    },
+    {
+      "name": "eager only",
+      "surface": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool"
+          },
+          {
+            "name": "grep",
+            "description": "grep tool"
+          },
+          {
+            "name": "edit",
+            "description": "edit tool"
+          }
+        ]
+      },
+      "tools": [
+        "read",
+        "grep",
+        "edit"
+      ]
+    },
+    {
+      "name": "catalog only",
+      "surface": {
+        "deferredToolCatalog": [
+          {
+            "name": "web_search",
+            "description": "web_search tool"
+          },
+          {
+            "name": "web_fetch",
+            "description": "web_fetch tool"
+          }
+        ]
+      },
+      "tools": [
+        "web_search",
+        "web_fetch"
+      ]
+    },
+    {
+      "name": "late only",
+      "surface": {
+        "deferredLateToolCatalog": [
+          {
+            "name": "office",
+            "description": "office tool"
+          }
+        ]
+      },
+      "tools": [
+        "office"
+      ]
+    },
+    {
+      "name": "all three, disjoint",
+      "surface": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool"
+          },
+          {
+            "name": "grep",
+            "description": "grep tool"
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "web_search",
+            "description": "web_search tool"
+          },
+          {
+            "name": "git",
+            "description": "git tool"
+          }
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "name": "office",
+            "description": "office tool"
+          },
+          {
+            "name": "media",
+            "description": "media tool"
+          }
+        ]
+      },
+      "tools": [
+        "read",
+        "grep",
+        "web_search",
+        "git",
+        "office",
+        "media"
+      ]
+    },
+    {
+      "name": "a name in every list keeps its first place",
+      "surface": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool"
+          },
+          {
+            "name": "git",
+            "description": "git tool"
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "web_search",
+            "description": "web_search tool"
+          },
+          {
+            "name": "read",
+            "description": "read tool"
+          },
+          {
+            "name": "git",
+            "description": "git tool"
+          }
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "name": "git",
+            "description": "git tool"
+          },
+          {
+            "name": "office",
+            "description": "office tool"
+          },
+          {
+            "name": "web_search",
+            "description": "web_search tool"
+          }
+        ]
+      },
+      "tools": [
+        "read",
+        "git",
+        "web_search",
+        "office"
+      ]
+    },
+    {
+      "name": "repeats inside one list",
+      "surface": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool"
+          },
+          {
+            "name": "grep",
+            "description": "grep tool"
+          },
+          {
+            "name": "read",
+            "description": "read tool"
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "a",
+            "description": "a tool"
+          },
+          {
+            "name": "a",
+            "description": "a tool"
+          },
+          {
+            "name": "b",
+            "description": "b tool"
+          }
+        ]
+      },
+      "tools": [
+        "read",
+        "grep",
+        "a",
+        "b"
+      ]
+    },
+    {
+      "name": "catalog before late, eager last in the file",
+      "surface": {
+        "deferredLateToolCatalog": [
+          {
+            "name": "z",
+            "description": "z tool"
+          }
+        ],
+        "deferredToolCatalog": [
+          {
+            "name": "y",
+            "description": "y tool"
+          }
+        ],
+        "tools": [
+          {
+            "name": "x",
+            "description": "x tool"
+          }
+        ]
+      },
+      "tools": [
+        "x",
+        "y",
+        "z"
+      ]
+    },
+    {
+      "name": "the deferred bookkeeping is not a list",
+      "surface": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool"
+          }
+        ],
+        "deferredCallableTools": [
+          "web_search"
+        ],
+        "deferredDiscoveredTools": [
+          "git"
+        ]
+      },
+      "tools": [
+        "read"
+      ]
+    },
+    {
+      "name": "names that differ by case are different",
+      "surface": {
+        "tools": [
+          {
+            "name": "Skill",
+            "description": "Skill tool"
+          },
+          {
+            "name": "skill",
+            "description": "skill tool"
+          }
+        ]
+      },
+      "tools": [
+        "Skill",
+        "skill"
+      ]
+    }
+  ]
+}

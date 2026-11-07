@@ -1,0 +1,30 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-prompt-reroot.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 28581,
+      "path": "golden.json",
+      "sha256": "8fbae737ec528057910d3cfe603fc373e584677983f59dc350554a4c1859f58d"
+    }
+  ],
+  "product": {
+    "appsSha256": "fafa2dadfb9db84dba5ba512f05574282fe76e530ac5b39b4bb99cc0f396199c",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "f465ea125b8871c8b385849511b5421936d143b7",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 9248
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-prompt-reroot.mjs",
+  "set": "prompt-reroot",
+  "totalBytes": 28581
+}

@@ -65,6 +65,7 @@ pub mod setup_ui;
 pub mod run_stamps;
 pub mod route_setup;
 mod ops;
+pub mod thread_ops;
 mod outbox;
 mod pending;
 pub mod delivered;

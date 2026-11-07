@@ -42,6 +42,9 @@ struct Shared {
     limits: MockLimits,
     budget: Arc<EventBudget>,
     state: Mutex<State>,
+    /// Counts every frame that reaches the connection's queues (control, lane push, filled snapshot
+    /// slot): what a test waits on instead of sleeping for the server to write.
+    received: tokio::sync::watch::Sender<u64>,
 }
 
 struct EventBudget {
@@ -97,6 +100,10 @@ impl Shared {
         self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn received(&self) {
+        self.received.send_modify(|count| *count += 1);
     }
 
     fn reserve(&self, bytes: usize) -> Option<Reservation> {
@@ -160,6 +167,7 @@ impl MockConnection {
                     free: AtomicUsize::new(limits.event_budget_bytes()),
                 }),
                 state: Mutex::new(State::default()),
+                received: tokio::sync::watch::Sender::new(0),
             }),
         }
     }
@@ -222,6 +230,21 @@ impl MockConnection {
         written
     }
 
+    /// [`Self::drain_text`] repeated, as frames arrive, until `done` holds for everything drained so
+    /// far; returns all of it. Woken by each frame the connection receives, never by the clock, so a
+    /// slow writer only slows the wait.
+    pub async fn drain_text_until(&self, mut done: impl FnMut(&[String]) -> bool) -> Vec<String> {
+        let mut arrivals = self.shared.received.subscribe();
+        let mut all = Vec::new();
+        loop {
+            all.extend(self.drain_text());
+            if done(&all) {
+                return all;
+            }
+            arrivals.changed().await.expect("the connection keeps its counter");
+        }
+    }
+
     /// [`Self::drain`] rendered as `control:<text>` / `<sub>:<text>`.
     pub fn drain_text(&self) -> Vec<String> {
         self.drain()
@@ -276,6 +299,7 @@ impl MockConnection {
         }
         state.control_used += frame.len();
         state.control.push_back((frame, release));
+        self.shared.received();
         Ok(())
     }
 }
@@ -348,6 +372,7 @@ impl Lane for MockLane {
             && !lane.lagged
         {
             lane.queue.push_back(Entry::Frame(frame, reservation));
+            self.shared.received();
         }
     }
 
@@ -455,6 +480,9 @@ impl SlotFill for MockSlot {
             *frame = Some(bytes);
             true
         });
+        if let Some(shared) = self.shared.upgrade() {
+            shared.received();
+        }
     }
 }
 

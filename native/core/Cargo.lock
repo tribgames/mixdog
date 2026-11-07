@@ -4337,6 +4337,7 @@ dependencies = [
  "mixdog-core-domains",
  "mixdog-core-goal",
  "mixdog-core-ports",
+ "mixdog-core-prompt",
  "mixdog-core-review",
  "mixdog-core-run",
  "mixdog-js",

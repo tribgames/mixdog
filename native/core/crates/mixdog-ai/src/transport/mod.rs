@@ -9,6 +9,7 @@
 //! frames: any inbound frame proves the link alive, and a missing one only
 //! triggers a probe.
 
+pub mod deadlines;
 pub mod fault;
 pub mod http;
 pub mod link;
@@ -17,10 +18,12 @@ pub mod ws;
 
 pub use link::BidiOpen;
 pub use link::BodyStream;
+pub use link::Exchange;
 pub use link::FrameSink;
 pub use link::HttpResponse;
 pub use link::HttpSend;
 pub use link::KeepaliveDialer;
+pub use link::Redirect;
 pub use link::ReqwestLink;
 pub use link::WsDial;
 pub use link::WsSocket;

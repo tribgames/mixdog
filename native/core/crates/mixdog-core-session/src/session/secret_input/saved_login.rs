@@ -576,7 +576,7 @@ mod tests {
         json!({ "session": guard.turn.session, "turn": guard.turn.turn, "windowId": guard.window_id, "pid": guard.pid })
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_registry_follows_the_recorded_scenarios() {
         for case in golden("registry.json")["cases"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();

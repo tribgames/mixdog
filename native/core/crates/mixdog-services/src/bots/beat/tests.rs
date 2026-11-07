@@ -399,7 +399,7 @@ fn the_timers_are_a_minute_then_five() {
     assert_eq!((FIRST_TICK, TICK), (Duration::from_secs(60), Duration::from_secs(300)));
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_first_tick_comes_after_its_wait_and_the_rest_at_the_tick() {
     let r = rig(None, None).await;
     r.settings.enabled.store(false, Ordering::SeqCst);

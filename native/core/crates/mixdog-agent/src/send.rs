@@ -30,6 +30,7 @@ use crate::env::RouteDecision;
 use crate::env::Retracted;
 use crate::env::RunEvent;
 use crate::env::Stage;
+use crate::env::Tone;
 use crate::env::TextRetraction;
 use crate::env::or_cancelled;
 use crate::message::AgentMessage;
@@ -291,6 +292,9 @@ impl Run {
             self.last_request = Some(request.clone());
             if self.side_ticket.is_none() && let Some(tap) = &self.env.side {
                 self.side_ticket = Some(tap.begin(&request));
+            }
+            if let Some(begin) = &self.config.request_begin {
+                begin();
             }
             let failure = match self.attempt_once(request).await? {
                 Ok(response) => {
@@ -702,6 +706,7 @@ impl Run {
         self.baseline = None;
         self.emit(RunEvent::Stage(Stage::Notice {
             message: switch.notice,
+            tone: Tone::Info,
         }));
         self.emit(RunEvent::Stage(Stage::ModelFallback {
             model: switch.model,

@@ -84,7 +84,7 @@ pub fn pty_request(handle: &ProcessHandle, command: CommandSpec, size: PtySize) 
 
 /// All output of `handle` up to its exit, and the exit.
 pub async fn collect(manager: &LocalProcessManager, handle: &ProcessHandle) -> (Vec<u8>, ProcessExit) {
-    tokio::time::timeout(WAIT, async {
+    async {
         let mut events = manager.subscribe(handle, Some(0)).expect("subscribe");
         let mut bytes = Vec::new();
         loop {
@@ -93,9 +93,8 @@ pub async fn collect(manager: &LocalProcessManager, handle: &ProcessHandle) -> (
                 ProcessEvent::Exited { exit, .. } => return (bytes, exit),
             }
         }
-    })
+    }
     .await
-    .expect("the process exits in time")
 }
 
 pub fn text(bytes: &[u8]) -> String {

@@ -72,8 +72,8 @@ impl ExtensionHost for Host {
         self.log.lock().unwrap().push(format!("announce:{kind}:keep"));
     }
 
-    async fn tool_names(&self) -> Vec<String> {
-        vec!["read".to_owned(), "bash".to_owned()]
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
+        Ok(vec!["read".to_owned(), "bash".to_owned()])
     }
 
     async fn reconnect_mcp_and_announce(&self, _: Option<&str>, _: bool, _: &[String]) -> Value {
@@ -104,8 +104,8 @@ impl ExtensionHost for Host {
         self.log.lock().unwrap().push("flushSkills".to_owned());
     }
 
-    async fn current_cwd(&self, _: Option<&str>) -> PathBuf {
-        self.cwd.clone()
+    async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
+        Ok(self.cwd.clone())
     }
 
     async fn skills_status(&self) -> Value {

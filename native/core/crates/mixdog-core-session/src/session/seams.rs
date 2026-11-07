@@ -234,6 +234,20 @@ pub struct OpenedLog {
     pub append: AppendPosition,
 }
 
+/// An op of a thread as its log holds it (P §9.2): the indexed row and the frame that carries it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredOp {
+    pub method: String,
+    pub digest: String,
+    pub state: mixdog_store::schema::record::OpState,
+    /// The ordinal of the carrying frame: the op's `seq`.
+    pub seq: u64,
+    /// The response result the mutation record stored (≤ 16 KiB).
+    pub result: Option<Value>,
+    /// An `op` record's detail: the rejection, or `{effect, target}`.
+    pub detail: Option<Value>,
+}
+
 /// The thread store's open and create paths (FORMAT.md §6.3, SPEC R28).
 pub trait ThreadStore: Send + Sync + 'static {
     /// J1. `threadNotFound` for an unknown id.
@@ -280,6 +294,13 @@ pub trait ThreadStore: Send + Sync + 'static {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<(u64, Vec<ItemRecord>), CoreError>;
+
+    /// P §9.2 thread-scope lookup: the stored record of op `op` of thread `id` (the index
+    /// holds every barrier acked so far), `None` when the thread never recorded it.
+    fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError>;
+
+    /// The ops of thread `id` that were fenced (P §9.4), read once when the thread loads.
+    fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError>;
 
     /// The live history row `iid` of the lineage with its ordinal, as the transcript reads it;
     /// `None` when no live row has that id.

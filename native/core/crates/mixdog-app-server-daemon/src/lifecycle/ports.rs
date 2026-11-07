@@ -32,6 +32,9 @@ pub trait CorePort: Send + Sync {
     /// `bye`, then wait for the extension host to exit.
     fn close_ext_host(&self);
     fn close_data_handles(&self);
+    /// Writes out the log lines still queued. Runs once, right before the process ends, on every release path (a stuck step included),
+    /// as Node's `process.on('exit', flushDaemonLogsSync)` does. Default: nothing to write.
+    fn flush_log(&self) {}
 }
 
 /// The discovery file (LR §4). Owned by the ownership package; the lifecycle supplies only the

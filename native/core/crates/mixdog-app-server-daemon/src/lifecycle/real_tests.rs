@@ -48,6 +48,7 @@ struct Fixture {
     cancel: Arc<CancelRegistry>,
     barriers: Arc<AtomicU32>,
     data: Arc<AtomicU32>,
+    flushes: Arc<AtomicU32>,
     released: Arc<Mutex<Vec<u32>>>,
     ext_host: Arc<ExtHostPool>,
     drains: Arc<Mutex<Vec<CoreDrainParams>>>,
@@ -62,6 +63,7 @@ fn fixture() -> Fixture {
     let cancel = Arc::new(CancelRegistry::default());
     let barriers = Arc::new(AtomicU32::new(0));
     let data = Arc::new(AtomicU32::new(0));
+    let flushes = Arc::new(AtomicU32::new(0));
     let released = Arc::new(Mutex::new(Vec::new()));
     let drains = Arc::new(Mutex::new(Vec::new()));
     let counter = |count: &Arc<AtomicU32>| -> Hook {
@@ -103,12 +105,13 @@ fn fixture() -> Fixture {
             Arc::new(move |pid| released.lock().unwrap().push(pid))
         },
         close_data_handles: counter(&data),
+        flush_log: counter(&flushes),
         drain_feed: {
             let drains = Arc::clone(&drains);
             Arc::new(move |params| drains.lock().unwrap().push(params))
         },
     });
-    Fixture { runtime, sections, cancel, barriers, data, released, ext_host, drains, core }
+    Fixture { runtime, sections, cancel, barriers, data, flushes, released, ext_host, drains, core }
 }
 
 #[test]
@@ -185,9 +188,11 @@ fn the_release_steps_reach_what_the_composition_supplied() {
     f.core.close_connections();
     f.core.close_ext_host();
     f.core.close_data_handles();
+    f.core.flush_log();
     f.core.release_decision(4242);
     assert_eq!(f.barriers.load(Ordering::SeqCst), 1);
     assert_eq!(f.data.load(Ordering::SeqCst), 1);
+    assert_eq!(f.flushes.load(Ordering::SeqCst), 1);
     assert_eq!(*f.released.lock().unwrap(), vec![4242]);
     drop(f.runtime);
 }

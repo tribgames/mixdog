@@ -16,6 +16,7 @@
 //! dialect's version before it goes out ([`ClientVersions::warm`]); what it then puts on the wire
 //! is read at request time ([`Live`]), so a version learned later reaches the next request.
 
+use crate::transport::deadlines::NODE_DISPATCHER;
 use std::cmp::Ordering;
 use std::convert::Infallible;
 use std::fmt;
@@ -233,7 +234,7 @@ async fn fetch_text(http: &dyn HttpSend, url: &str, headers: &[(String, String)]
         body: Vec::new(),
     };
     let exchange = async {
-        let response = http.send(request).await.ok()?;
+        let response = http.send(request, NODE_DISPATCHER).await.ok()?;
         if !response.is_success() {
             return None;
         }

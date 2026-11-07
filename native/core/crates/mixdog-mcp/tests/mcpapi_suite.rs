@@ -96,8 +96,8 @@ impl ExtensionHost for Host {
 
     async fn announce_without_invalidating(&self, _: &str) {}
 
-    async fn tool_names(&self) -> Vec<String> {
-        Vec::new()
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
 
     async fn reconnect_mcp_and_announce(&self, only: Option<&str>, enabled: bool, drop: &[String]) -> Value {
@@ -134,8 +134,8 @@ impl ExtensionHost for Host {
         self.push("flushSkills".to_owned());
     }
 
-    async fn current_cwd(&self, _: Option<&str>) -> PathBuf {
-        self.cwd.clone()
+    async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
+        Ok(self.cwd.clone())
     }
 
     async fn skills_status(&self) -> Value {

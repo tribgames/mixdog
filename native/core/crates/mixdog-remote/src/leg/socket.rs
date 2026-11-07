@@ -184,7 +184,7 @@ async fn serve_leg(
     ws_config.max_frame_size = Some(config.max_payload);
     let connected = tokio::select! {
         () = cancel.cancelled() => return Ok(Ended::Cancelled),
-        result = tokio_tungstenite::connect_async_with_config(request, Some(ws_config), false) => result,
+        result = crate::dial::connect(request, Some(ws_config)) => result,
     };
     let (socket, _) = connected.map_err(|_| ())?;
     let (mut sink, mut stream) = socket.split();

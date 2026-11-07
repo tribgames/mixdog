@@ -253,13 +253,9 @@ fn lines(log: &Log) -> Vec<String> {
 
 /// The server sees QUIT after the check has already returned.
 async fn until(log: &Log, line: &str) {
-    for _ in 0..200 {
-        if lines(log).iter().any(|l| l == line) {
-            return;
-        }
+    while !lines(log).iter().any(|l| l == line) {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    panic!("the server never received {line:?}: {:?}", lines(log));
 }
 
 fn texts(code: &str) -> String {

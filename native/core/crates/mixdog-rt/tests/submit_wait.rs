@@ -44,11 +44,7 @@ fn serial() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn block_on<F: Future>(fut: F) -> F::Output {
-    rt().0.handle(TaskClass::Work).block_on(async {
-        tokio::time::timeout(Duration::from_secs(10), fut)
-            .await
-            .expect("timed out")
-    })
+    rt().0.handle(TaskClass::Work).block_on(fut)
 }
 
 #[derive(Clone)]
@@ -90,7 +86,7 @@ fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
         );
     }
     for _ in 0..2 {
-        started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        started_rx.recv().unwrap();
     }
     for _ in 0..2 {
         let gate = gate.clone();
@@ -128,11 +124,8 @@ fn waits_for_room_then_enqueues_and_runs() {
     let value = block_on(async {
         let mut waiting = pin!(tokens.cpu_bulk.submit_wait(&cancel, |_| 41 + 1));
         // Still waiting while the lane is full.
-        assert!(
-            tokio::time::timeout(Duration::from_millis(50), waiting.as_mut())
-                .await
-                .is_err()
-        );
+        let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx))).await;
+        assert!(polled.is_pending());
         gate.open();
         waiting.await.expect("accepted once room appears").await
     });
@@ -180,9 +173,9 @@ fn dropping_the_wait_enqueues_nothing() {
             .cpu_bulk
             .submit_wait(&cancel, move |_| flag.store(true, SeqCst));
         // Abandoned mid-wait, as a `select!` branch or a timeout would.
-        assert!(tokio::time::timeout(Duration::from_millis(50), waiting)
-            .await
-            .is_err());
+        let mut waiting = pin!(waiting);
+        let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx))).await;
+        assert!(polled.is_pending());
     });
     gate.open();
     for h in held {

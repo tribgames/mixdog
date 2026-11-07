@@ -15,11 +15,14 @@ use mixdog_rt::TaskClass;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::Notify;
+use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::sync::watch;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::deadlines::CALL;
+use crate::deadlines::NOTICE;
 use crate::transport::CloseCause;
 use crate::transport::Incoming;
 use crate::transport::IncomingRx;
@@ -61,6 +64,31 @@ pub struct RequestOptions<'a> {
     pub cancel: Option<&'a CancellationToken>,
 }
 
+/// Notifications and replies waiting for the writer task. A full queue refuses the next one
+/// instead of holding the caller.
+const NOTICE_QUEUE: usize = 64;
+
+struct Notice {
+    message: Value,
+    /// Told how the send ended; `None` when nobody waits for it.
+    sent: Option<oneshot::Sender<Result<(), RpcError>>>,
+}
+
+/// The one writer of everything that is not a request. The request path never waits on it, so
+/// a peer that stops answering cannot hold a caller past its own cancel or timeout; the
+/// transport bounds each send by `NOTICE`.
+async fn write_notices(transport: Arc<dyn Transport>, mut queue: mpsc::Receiver<Notice>) {
+    while let Some(notice) = queue.recv().await {
+        let outcome = transport
+            .send(notice.message, NOTICE)
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()));
+        if let Some(sent) = notice.sent {
+            let _ = sent.send(outcome);
+        }
+    }
+}
+
 struct Pending {
     tx: oneshot::Sender<Result<Value, RpcError>>,
     progress: Arc<Notify>,
@@ -72,6 +100,7 @@ pub struct RpcClient {
     pending: Mutex<HashMap<u64, Pending>>,
     closed: watch::Sender<Option<CloseCause>>,
     tools_changed: Notify,
+    notices: mpsc::Sender<Notice>,
 }
 
 async fn cancelled(token: Option<&CancellationToken>) {
@@ -85,7 +114,14 @@ impl RpcClient {
     /// Starts the reader task over `incoming`.
     pub fn start(transport: Arc<dyn Transport>, incoming: IncomingRx) -> Arc<Self> {
         let (closed, _) = watch::channel(None);
+        let (notices, queue) = mpsc::channel(NOTICE_QUEUE);
+        mixdog_rt::spawn(
+            "mcp.rpc.notify",
+            TaskClass::Work,
+            write_notices(Arc::clone(&transport), queue),
+        );
         let client = Arc::new(Self {
+            notices,
             transport,
             next_id: AtomicU64::new(1),
             pending: Mutex::new(HashMap::new()),
@@ -168,10 +204,7 @@ impl RpcClient {
                 "error": {"code": METHOD_NOT_FOUND, "message": UNSUPPORTED, "data": {"method": method}},
             })
         };
-        let transport = Arc::clone(&self.transport);
-        mixdog_rt::spawn("mcp.rpc.reply", TaskClass::Work, async move {
-            let _ = transport.send(reply).await;
-        });
+        let _ = self.enqueue(reply, None);
     }
 
     fn handle_notification(&self, method: &str, message: &Value) {
@@ -216,11 +249,34 @@ impl RpcClient {
         let _ = pending.tx.send(outcome);
     }
 
-    pub async fn notify(&self, method: &str, params: Value) -> Result<(), RpcError> {
-        self.transport
-            .send(json!({"jsonrpc": "2.0", "method": method, "params": params}))
-            .await
-            .map_err(|e| RpcError::Transport(e.to_string()))
+    fn enqueue(
+        &self,
+        message: Value,
+        sent: Option<oneshot::Sender<Result<(), RpcError>>>,
+    ) -> Result<(), RpcError> {
+        self.notices
+            .try_send(Notice { message, sent })
+            .map_err(|_| RpcError::Transport("notification queue is full or closed".to_owned()))
+    }
+
+    /// Queues a notification for the writer task and returns; it is never awaited.
+    pub fn notify(&self, method: &str, params: Value) -> Result<(), RpcError> {
+        self.enqueue(
+            json!({"jsonrpc": "2.0", "method": method, "params": params}),
+            None,
+        )
+    }
+
+    /// Queues a notification and waits until it was sent, for the one that must reach the peer
+    /// before the next request (`notifications/initialized`). Bounded by the transport.
+    pub async fn notify_and_wait(&self, method: &str, params: Value) -> Result<(), RpcError> {
+        let (sent, done) = oneshot::channel();
+        self.enqueue(
+            json!({"jsonrpc": "2.0", "method": method, "params": params}),
+            Some(sent),
+        )?;
+        done.await
+            .unwrap_or_else(|_| Err(RpcError::Closed("connection ended".to_owned())))
     }
 
     pub async fn request(&self, method: &str, params: Value, options: RequestOptions<'_>) -> Result<Value, RpcError> {
@@ -252,9 +308,10 @@ impl RpcClient {
                 Err(RpcError::Cancelled) => "cancelled",
                 _ => "timed out",
             };
-            let _ = self
-                .notify("notifications/cancelled", json!({"requestId": id, "reason": reason}))
-                .await;
+            let _ = self.notify(
+                "notifications/cancelled",
+                json!({"requestId": id, "reason": reason}),
+            );
         }
         outcome
     }
@@ -267,7 +324,7 @@ impl RpcClient {
         options: RequestOptions<'_>,
     ) -> Result<Value, RpcError> {
         let idle_for = options.idle_timeout.unwrap_or(FOREVER);
-        let send = self.transport.send(message);
+        let send = self.transport.send(message, CALL);
         tokio::pin!(send);
         let mut sent = false;
         let idle = tokio::time::sleep(idle_for);
@@ -295,5 +352,110 @@ impl RpcClient {
 
     pub async fn close(&self) {
         self.transport.close().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use async_trait::async_trait;
+    use mixdog_rt::Liveness;
+
+    use super::*;
+    use crate::transport::TransportError;
+
+    /// A server that took the request and then stopped answering anything, including the
+    /// cancel notification: that send never completes unless its future is dropped.
+    struct Unresponsive {
+        cancel_reached_wire: Notify,
+        cancel_class: Mutex<Option<Liveness>>,
+        cancel_send_dropped: Arc<AtomicBool>,
+    }
+
+    impl Unresponsive {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                cancel_reached_wire: Notify::new(),
+                cancel_class: Mutex::new(None),
+                cancel_send_dropped: Arc::new(AtomicBool::new(false)),
+            })
+        }
+    }
+
+    struct MarkDropped(Arc<AtomicBool>);
+
+    impl Drop for MarkDropped {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait]
+    impl Transport for Unresponsive {
+        async fn send(&self, message: Value, liveness: Liveness) -> Result<(), TransportError> {
+            if message.get("method").and_then(Value::as_str) == Some("notifications/cancelled") {
+                let _dropped = MarkDropped(Arc::clone(&self.cancel_send_dropped));
+                *self.cancel_class.lock().unwrap() = Some(liveness);
+                self.cancel_reached_wire.notify_one();
+                // What `HttpTransport::send` does with the class it is given.
+                let _ = liveness.bound_head(std::future::pending::<()>()).await;
+                return Err(TransportError::Request("timed out".to_owned()));
+            }
+            Ok(())
+        }
+
+        async fn close(&self) {}
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_cancelled_call_returns_while_its_cancel_notification_is_still_unanswered() {
+        let _runtime = mixdog_rt::testing::tokens();
+        let wire = Unresponsive::new();
+        let (_incoming_tx, incoming) = tokio::sync::mpsc::unbounded_channel();
+        let client = RpcClient::start(wire.clone(), incoming);
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let options = RequestOptions {
+            cancel: Some(&cancel),
+            ..RequestOptions::default()
+        };
+
+        // Before the queue, this waited for the unanswered cancel POST and never returned.
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(1),
+            client.request("tools/call", json!({}), options),
+        )
+        .await;
+        assert_eq!(outcome, Ok(Err(RpcError::Cancelled)));
+
+        wire.cancel_reached_wire.notified().await;
+        assert_eq!(*wire.cancel_class.lock().unwrap(), Some(NOTICE));
+        assert!(
+            !wire.cancel_send_dropped.load(Ordering::SeqCst),
+            "still waiting on the peer"
+        );
+        tokio::time::advance(Duration::from_secs(30)).await;
+        tokio::task::yield_now().await;
+        assert!(
+            wire.cancel_send_dropped.load(Ordering::SeqCst),
+            "the send ended at its notice deadline"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_full_notice_queue_refuses_instead_of_holding_the_caller() {
+        let _runtime = mixdog_rt::testing::tokens();
+        let (_incoming_tx, incoming) = tokio::sync::mpsc::unbounded_channel();
+        let client = RpcClient::start(Unresponsive::new(), incoming);
+        // Nothing drains while the caller runs, so the bounded queue fills.
+        let refused = (0..NOTICE_QUEUE + 2)
+            .map(|_| client.notify("notifications/cancelled", json!({"requestId": 1})))
+            .filter(Result::is_err)
+            .count();
+        assert_eq!(
+            refused, 2,
+            "the queue holds NOTICE_QUEUE and refuses the rest"
+        );
     }
 }

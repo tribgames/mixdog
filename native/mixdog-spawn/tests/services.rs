@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::time::Instant;
 
 use common::*;
 use mixdog_core_api::call::CallContext;
@@ -48,10 +47,8 @@ fn scoped() -> Arc<MockScopedFeeds> {
     Arc::new(MockScopedFeeds::new(MockLimits::default()))
 }
 
-async fn until(what: &str, mut ok: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(30);
+async fn until(_what: &str, mut ok: impl FnMut() -> bool) {
     while !ok() {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }

@@ -528,7 +528,7 @@ mod tools {
         assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn last_waiter_leaving_cancels_the_provider_call() {
         let (fake, web) = searcher();
         let token = CancellationToken::new();

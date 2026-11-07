@@ -99,8 +99,9 @@ pub trait WorkspaceHost: Send + Sync + 'static {
     /// Live sessions of this runtime.
     fn live_sessions(&self) -> Vec<LiveSession>;
 
-    /// Stored sessions that may still use a folder.
-    async fn stored_consumers(&self) -> Vec<LiveSession>;
+    /// Stored sessions that may still use a folder. Fails closed: a record that cannot be
+    /// read refuses the whole listing (`storedWorkspaceConsumers`).
+    async fn stored_consumers(&self) -> Result<Vec<LiveSession>, ScmFailure>;
 
     async fn running_jobs(&self) -> Vec<JobCwd>;
 

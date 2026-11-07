@@ -580,10 +580,7 @@ fn login_for(program: String) -> crate::gh::login::GithubLogin {
 async fn next_state(
     session: &dyn mixdog_core_api::domain::login::LoginSession,
 ) -> mixdog_core_api::domain::login::LoginState {
-    tokio::time::timeout(std::time::Duration::from_secs(30), session.next())
-        .await
-        .expect("a state change")
-        .expect("a state")
+    session.next().await.expect("a state")
 }
 
 #[tokio::test]

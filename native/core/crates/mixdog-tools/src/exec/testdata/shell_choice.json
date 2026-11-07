@@ -1,0 +1,914 @@
+{
+  "defaults": {
+    "win32": "powershell",
+    "linux": "posix",
+    "darwin": "posix"
+  },
+  "cases": [
+    {
+      "platform": "win32",
+      "configured": "",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "",
+      "env": "",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "",
+      "env": "pwsh",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "",
+      "env": " pwsh ",
+      "shell": " pwsh ",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "",
+      "env": "bash",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "",
+      "env": "cmd.exe",
+      "shell": "cmd.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh",
+      "env": null,
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh",
+      "env": "",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh",
+      "env": "pwsh",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh",
+      "env": " pwsh ",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh",
+      "env": "bash",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh",
+      "env": "cmd.exe",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "powershell",
+      "env": null,
+      "shell": "powershell",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "powershell",
+      "env": "",
+      "shell": "powershell",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "powershell",
+      "env": "pwsh",
+      "shell": "powershell",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "powershell",
+      "env": " pwsh ",
+      "shell": "powershell",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "powershell",
+      "env": "bash",
+      "shell": "powershell",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "powershell",
+      "env": "cmd.exe",
+      "shell": "powershell",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "powershell",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "powershell",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh.exe",
+      "env": null,
+      "shell": "pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh.exe",
+      "env": "",
+      "shell": "pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh.exe",
+      "env": "pwsh",
+      "shell": "pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh.exe",
+      "env": " pwsh ",
+      "shell": "pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh.exe",
+      "env": "bash",
+      "shell": "pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh.exe",
+      "env": "cmd.exe",
+      "shell": "pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "pwsh.exe",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "PowerShell.EXE",
+      "env": null,
+      "shell": "PowerShell.EXE",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "PowerShell.EXE",
+      "env": "",
+      "shell": "PowerShell.EXE",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "PowerShell.EXE",
+      "env": "pwsh",
+      "shell": "PowerShell.EXE",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "PowerShell.EXE",
+      "env": " pwsh ",
+      "shell": "PowerShell.EXE",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "PowerShell.EXE",
+      "env": "bash",
+      "shell": "PowerShell.EXE",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "PowerShell.EXE",
+      "env": "cmd.exe",
+      "shell": "PowerShell.EXE",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "PowerShell.EXE",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "PowerShell.EXE",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "  pwsh  ",
+      "env": null,
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "  pwsh  ",
+      "env": "",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "  pwsh  ",
+      "env": "pwsh",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "  pwsh  ",
+      "env": " pwsh ",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "  pwsh  ",
+      "env": "bash",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "  pwsh  ",
+      "env": "cmd.exe",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "  pwsh  ",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "env": null,
+      "shell": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "env": "",
+      "shell": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "env": "pwsh",
+      "shell": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "env": " pwsh ",
+      "shell": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "env": "bash",
+      "shell": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "env": "cmd.exe",
+      "shell": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "env": null,
+      "shell": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "env": "",
+      "shell": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "env": "pwsh",
+      "shell": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "env": " pwsh ",
+      "shell": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "env": "bash",
+      "shell": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "env": "cmd.exe",
+      "shell": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "/usr/bin/pwsh",
+      "env": null,
+      "shell": "/usr/bin/pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "/usr/bin/pwsh",
+      "env": "",
+      "shell": "/usr/bin/pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "/usr/bin/pwsh",
+      "env": "pwsh",
+      "shell": "/usr/bin/pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "/usr/bin/pwsh",
+      "env": " pwsh ",
+      "shell": "/usr/bin/pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "/usr/bin/pwsh",
+      "env": "bash",
+      "shell": "/usr/bin/pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "/usr/bin/pwsh",
+      "env": "cmd.exe",
+      "shell": "/usr/bin/pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "/usr/bin/pwsh",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "/usr/bin/pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "bash",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "bash",
+      "env": "",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "bash",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "bash",
+      "env": " pwsh ",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "bash",
+      "env": "bash",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "bash",
+      "env": "cmd.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "bash",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "zsh",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "zsh",
+      "env": "",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "zsh",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "zsh",
+      "env": " pwsh ",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "zsh",
+      "env": "bash",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "zsh",
+      "env": "cmd.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "zsh",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "sh",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "sh",
+      "env": "",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "sh",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "sh",
+      "env": " pwsh ",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "sh",
+      "env": "bash",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "sh",
+      "env": "cmd.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "sh",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "env": "",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "env": " pwsh ",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "env": "bash",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "env": "cmd.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe\\",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe\\",
+      "env": "",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe\\",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe\\",
+      "env": " pwsh ",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe\\",
+      "env": "bash",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe\\",
+      "env": "cmd.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\Program Files\\Git\\bin\\bash.exe\\",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "cmd.exe",
+      "env": null,
+      "shell": "cmd.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "cmd.exe",
+      "env": "",
+      "shell": "cmd.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "cmd.exe",
+      "env": "pwsh",
+      "shell": "cmd.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "cmd.exe",
+      "env": " pwsh ",
+      "shell": "cmd.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "cmd.exe",
+      "env": "bash",
+      "shell": "cmd.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "cmd.exe",
+      "env": "cmd.exe",
+      "shell": "cmd.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "cmd.exe",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "cmd.exe",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\tools\\pwsh.cmd",
+      "env": null,
+      "shell": "C:\\tools\\pwsh.cmd",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\tools\\pwsh.cmd",
+      "env": "",
+      "shell": "C:\\tools\\pwsh.cmd",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\tools\\pwsh.cmd",
+      "env": "pwsh",
+      "shell": "C:\\tools\\pwsh.cmd",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\tools\\pwsh.cmd",
+      "env": " pwsh ",
+      "shell": "C:\\tools\\pwsh.cmd",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\tools\\pwsh.cmd",
+      "env": "bash",
+      "shell": "C:\\tools\\pwsh.cmd",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\tools\\pwsh.cmd",
+      "env": "cmd.exe",
+      "shell": "C:\\tools\\pwsh.cmd",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "win32",
+      "configured": "C:\\tools\\pwsh.cmd",
+      "env": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "C:\\tools\\pwsh.cmd",
+      "shellType": "powershell"
+    },
+    {
+      "platform": "linux",
+      "configured": "",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "linux",
+      "configured": "",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "linux",
+      "configured": "pwsh",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "linux",
+      "configured": "pwsh",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "linux",
+      "configured": "bash",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "linux",
+      "configured": "bash",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "darwin",
+      "configured": "",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "darwin",
+      "configured": "",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "darwin",
+      "configured": "pwsh",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "darwin",
+      "configured": "pwsh",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "darwin",
+      "configured": "bash",
+      "env": null,
+      "shell": "<default>",
+      "shellType": "posix"
+    },
+    {
+      "platform": "darwin",
+      "configured": "bash",
+      "env": "pwsh",
+      "shell": "<default>",
+      "shellType": "posix"
+    }
+  ],
+  "sequence": [
+    {
+      "set": "",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "set": "pwsh",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "set": "pwsh",
+      "shell": "pwsh",
+      "shellType": "powershell"
+    },
+    {
+      "set": "bash",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "set": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shell": "D:\\Tools\\PowerShell\\pwsh.exe",
+      "shellType": "powershell"
+    },
+    {
+      "set": "",
+      "shell": "<default>",
+      "shellType": "powershell"
+    },
+    {
+      "set": "powershell.exe",
+      "shell": "powershell.exe",
+      "shellType": "powershell"
+    }
+  ]
+}

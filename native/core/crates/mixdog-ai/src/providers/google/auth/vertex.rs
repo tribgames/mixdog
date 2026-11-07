@@ -4,6 +4,7 @@
 //! A token is minted once per credential identity and shared by every
 //! attempt until five minutes before it expires.
 
+use crate::transport::deadlines::VERTEX_TOKEN;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -302,7 +303,16 @@ impl VertexAuth {
     async fn post(&self, url: &str, headers: Vec<(String, String)>, body: Vec<u8>, what: &str) -> Result<Vec<u8>, ProviderError> {
         let response = self
             .http
-            .send(WireRequest { transport: TransportKind::Http1, method: "POST".into(), url: url.into(), headers, body })
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "POST".into(),
+                    url: url.into(),
+                    headers,
+                    body,
+                },
+                VERTEX_TOKEN,
+            )
             .await?;
         let status = response.status;
         let reply = response.read_all().await?;

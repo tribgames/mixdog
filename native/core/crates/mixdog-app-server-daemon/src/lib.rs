@@ -11,6 +11,7 @@ pub mod compose_core;
 pub mod compose_mcp;
 pub mod compose_domains;
 pub mod late_session;
+pub mod late_seams;
 pub mod control;
 pub mod daemon_log;
 pub mod discovery;
@@ -20,6 +21,7 @@ pub mod event_pipeline;
 pub mod held_requests;
 pub mod hook_rule_setup;
 pub mod lifecycle;
+pub mod mcp_surface;
 pub mod media;
 pub mod exec;
 pub mod ownership;
@@ -76,7 +78,8 @@ pub async fn serve() -> Result<(), ServeError> {
     let outgoing = mixdog_app_server::Outgoing::new();
     // The daemon's run token and the one daemon log (`<data>/daemon.log`), enabled where the daemon starts, as Node enables its log at
     // startup. Compose and every writer share the log; the one stop procedure (`ComposedCore::run_stop_steps`) flushes it after the
-    // last step and then cancels the token.
+    // last step (Node: daemon.mjs:411, `await flushDaemonLogs()` before the exit) and then cancels the token. A forced exit that skips the
+    // stop steps is covered by the release procedure's own `flush_log` step (run-host-25).
     let stop = mixdog_rt::CancellationToken::new();
     let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
     log.enable_file_logging();

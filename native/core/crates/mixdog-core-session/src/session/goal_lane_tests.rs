@@ -30,6 +30,7 @@ use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
 use super::tests::eventually;
+use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
@@ -490,17 +491,19 @@ async fn a_goal_reminder_marks_the_sessions_pending_reminder() {
 /// A turn takes the pending Goal reminder into its tail (`snapshotPendingGoalReminder`) and the
 /// marker goes once that turn completed (`acknowledgePendingGoalReminder`); a mark made while a
 /// turn runs is not that turn's, so it survives the turn's end.
-#[tokio::test(start_paused = true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_completed_turn_carries_the_pending_reminder_and_clears_it() {
     let rig = Rig::new();
     let gate = Arc::new(tokio::sync::Notify::new());
     let seen: Arc<Mutex<Vec<Option<(u64, String)>>>> = Arc::default();
-    let (open, first, reminders) = (gate.clone(), Arc::new(std::sync::atomic::AtomicBool::new(true)), seen.clone());
+    let pushed = Arc::new(tokio::sync::Notify::new());
+    let (open, first, reminders, said) = (gate.clone(), Arc::new(std::sync::atomic::AtomicBool::new(true)), seen.clone(), pushed.clone());
     rig.set_script(Arc::new(move |run| {
-        let (open, first, reminders) = (open.clone(), first.clone(), reminders.clone());
+        let (open, first, reminders, said) = (open.clone(), first.clone(), reminders.clone(), said.clone());
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             lock(&reminders).push(run.goal_reminder.as_ref().map(|reminder| (reminder.revision, reminder.content.clone())));
+            said.notify_waiters();
             if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
                 open.notified().await;
             }
@@ -515,13 +518,13 @@ async fn a_completed_turn_carries_the_pending_reminder_and_clears_it() {
     handle.request(edit).await.expect("edit");
     // The edit marks the reminder and the active Goal's continuation turn takes it; the turn is
     // held open, so the marker stays until the turn is accepted.
-    let carried = eventually(|| lock(&seen).iter().flatten().next().cloned()).await;
+    let carried = eventually_on(&[&pushed, &handle.cell.stepped], || lock(&seen).iter().flatten().next().cloned()).await;
     assert_eq!(carried.0, 1);
     assert!(carried.1.contains("The user changed this Goal's objective."), "{}", carried.1);
     let pending = |handle: &SessionHandle| handle.cell.header.load().get("pendingGoalReminder").cloned();
     assert_eq!(pending(&handle).map(|pending| pending["revision"].clone()), Some(json!(1)));
     gate.notify_one();
-    eventually(|| pending(&handle).is_none().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || pending(&handle).is_none().then_some(())).await;
 }
 
 /// `canDeliverSteeringEntry`: the terminal boundary of a running turn steers the queued closeout

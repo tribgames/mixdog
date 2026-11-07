@@ -1,6 +1,7 @@
 pub mod access;
 pub mod bridge;
 pub mod clients;
+mod dial;
 pub mod e2ee;
 pub mod ice;
 pub mod identity;

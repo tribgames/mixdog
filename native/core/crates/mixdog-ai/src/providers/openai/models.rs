@@ -16,6 +16,7 @@
 
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
+use crate::transport::deadlines::OPENAI_CATALOG;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -285,7 +286,16 @@ impl ModelListing for OpenAiModels {
         };
         let response = self
             .http
-            .send(WireRequest { transport: TransportKind::Http1, method: "GET".into(), url, headers, body: Vec::new() })
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "GET".into(),
+                    url,
+                    headers,
+                    body: Vec::new(),
+                },
+                OPENAI_CATALOG,
+            )
             .await?;
         let success = response.is_success();
         let read = response.read_all().await?;

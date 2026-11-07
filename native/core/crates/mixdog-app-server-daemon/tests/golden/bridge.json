@@ -1,0 +1,1407 @@
+{
+  "cases": [
+    {
+      "name": "no files",
+      "where": "discovery",
+      "files": {},
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "all four up",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "only browser",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "only visualize",
+      "where": "discovery",
+      "files": {
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": true
+      }
+    },
+    {
+      "name": "no pid field",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "pid zero",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":0}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":0}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":0}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":0}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "pid negative",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":-4}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":-4}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":-4}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":-4}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "pid fractional",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":2.5}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":2.5}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":2.5}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":2.5}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "pid text",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"abc\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"abc\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"abc\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"abc\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "pid null",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":null}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":null}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":null}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":null}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "pid numeric text alive",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "pid of an exited process",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":2147483646}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":2147483646}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":2147483646}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":2147483646}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "version 2",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":2,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":2,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":2,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":2,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "version text",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":\"1\",\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":\"1\",\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":\"1\",\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":\"1\",\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "version missing",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "port zero",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":0,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":0,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":0,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":0,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "port too big",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":65536,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":65536,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":65536,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":65536,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "port max",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":65535,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":65535,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":65535,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":65535,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "port fractional",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":80.5,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":80.5,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":80.5,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":80.5,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "port text",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":\"8080\",\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":\"8080\",\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":\"8080\",\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":\"8080\",\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "port text junk",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":\"x\",\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":\"x\",\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":\"x\",\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":\"x\",\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "port null",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":null,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":null,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":null,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":null,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "token empty",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "token missing",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "token number",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":7,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":7,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":7,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":7,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "token zero",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":0,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":0,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":0,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":0,\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "file fresh at four minutes",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 240
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 240
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 240
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 240
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "file expired at six minutes",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 360
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 360
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 360
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 360
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "file expired long ago",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 86400
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 86400
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 86400
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 86400
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "json null",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "null",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "null",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "null",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "null",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "json array",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "[1]",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "[1]",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "[1]",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "[1]",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "json string",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "\"x\"",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "\"x\"",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "\"x\"",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "\"x\"",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "json broken",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "file empty",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "file is a folder",
+      "where": "discovery",
+      "files": {},
+      "dirs": [
+        "browser-bridge.json",
+        "computer-bridge.json",
+        "terminal-bridge.json",
+        "visualize-bridge.json"
+      ],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "mixed: browser up, computer expired, terminal broken",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 900
+        },
+        "terminal-bridge.json": {
+          "text": "{",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "env on without a file",
+      "where": "discovery",
+      "files": {},
+      "dirs": [],
+      "env": {
+        "MIXDOG_FEATURE_BROWSER": "1",
+        "MIXDOG_FEATURE_COMPUTER": "yes",
+        "MIXDOG_FEATURE_TERMINAL": " TRUE ",
+        "MIXDOG_FEATURE_VISUALIZE": "on"
+      },
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "env off with files",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {
+        "MIXDOG_FEATURE_BROWSER": "0",
+        "MIXDOG_FEATURE_COMPUTER": "false",
+        "MIXDOG_FEATURE_TERMINAL": "No",
+        "MIXDOG_FEATURE_VISUALIZE": "OFF"
+      },
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "env blank defers to the file",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {
+        "MIXDOG_FEATURE_BROWSER": "  ",
+        "MIXDOG_FEATURE_COMPUTER": ""
+      },
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "visualize module off",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": {
+        "modules": {
+          "visualize": {
+            "enabled": false
+          }
+        }
+      },
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": false
+      }
+    },
+    {
+      "name": "visualize module off, env on",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {
+        "MIXDOG_FEATURE_VISUALIZE": "1"
+      },
+      "config": {
+        "modules": {
+          "visualize": {
+            "enabled": false
+          }
+        }
+      },
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "visualize module off, no file",
+      "where": "discovery",
+      "files": {},
+      "dirs": [],
+      "env": {},
+      "config": {
+        "modules": {
+          "visualize": {
+            "enabled": false
+          }
+        }
+      },
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "discovery dir set",
+      "where": "discovery",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "data dir only",
+      "where": "data",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "home only",
+      "where": "home",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {},
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    },
+    {
+      "name": "files in the data dir while a discovery dir is set",
+      "where": "data",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {
+        "MIXDOG_BRIDGE_DISCOVERY_DIR": "{other}"
+      },
+      "config": null,
+      "answer": {
+        "browser": false,
+        "computer": false,
+        "terminal": false,
+        "visualize": false
+      }
+    },
+    {
+      "name": "empty discovery dir variable falls through",
+      "where": "data",
+      "files": {
+        "browser-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "computer-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "terminal-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        },
+        "visualize-bridge.json": {
+          "text": "{\"version\":1,\"port\":4100,\"token\":\"t0k\",\"pid\":\"{alive}\"}",
+          "ageSec": 5
+        }
+      },
+      "dirs": [],
+      "env": {
+        "MIXDOG_BRIDGE_DISCOVERY_DIR": ""
+      },
+      "config": null,
+      "answer": {
+        "browser": true,
+        "computer": true,
+        "terminal": true,
+        "visualize": true
+      }
+    }
+  ]
+}

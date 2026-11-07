@@ -6,6 +6,8 @@
 //!
 //! The HTTP exchange is the shared `transport::HttpSend` seam.
 
+use crate::transport::deadlines::COMPAT_MODEL_LIST;
+use crate::transport::deadlines::MODEL_STREAM;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
@@ -190,7 +192,10 @@ impl ProviderAdapter for CompatAdapter {
         };
         let mut reloaded = false;
         loop {
-            let response = self.http.send(Self::with_key(&wire, key.as_deref())).await?;
+            let response = self
+                .http
+                .send(Self::with_key(&wire, key.as_deref()), MODEL_STREAM)
+                .await?;
             if response.is_success() {
                 return Ok(Box::new(CompatStream::new(response.body, self.codec.decoder(&request))));
             }
@@ -269,13 +274,16 @@ pub(super) async fn fetch_json(
         headers.push(("authorization".into(), format!("Bearer {key}")));
     }
     let response = http
-        .send(WireRequest {
-            transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
-            method: "GET".into(),
-            url,
-            headers,
-            body: Vec::new(),
-        })
+        .send(
+            WireRequest {
+                transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
+                method: "GET".into(),
+                url,
+                headers,
+                body: Vec::new(),
+            },
+            COMPAT_MODEL_LIST,
+        )
         .await?;
     let ok = response.is_success();
     let body = response.read_all().await?;

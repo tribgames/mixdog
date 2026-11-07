@@ -11,6 +11,7 @@ use serde_json::Map;
 use serde_json::Value;
 use mixdog_app_protocol::v2::thread::PromptRestore;
 use mixdog_app_protocol::v2::thread::ProviderAccountChange;
+use mixdog_app_protocol::v2::thread::SetupUiRequest;
 use mixdog_app_protocol::v2::thread::ThreadAgents;
 use mixdog_app_protocol::v2::thread::ThreadApprovals;
 use mixdog_app_protocol::v2::thread::ThreadContext;
@@ -67,4 +68,7 @@ pub enum Section {
     PromptRestore(Option<PromptRestore>),
     ProviderAccount(ProviderAccountChange),
     Remote(bool),
+    /// The setup tool's desktop request waiting for a claim; `None` once it is claimed or its
+    /// window ended.
+    SetupUiRequest(Option<SetupUiRequest>),
 }

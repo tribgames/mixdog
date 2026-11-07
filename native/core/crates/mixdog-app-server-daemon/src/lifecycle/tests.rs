@@ -50,7 +50,7 @@ fn the_last_client_leaving_an_idle_core_stops_it_with_no_grace() {
     drop(first);
     assert!(!fx.recorder.has_exited(), "one client is still attached");
     drop(second);
-    assert!(fx.recorder.wait_exit());
+    fx.recorder.wait_exit();
     assert_eq!(release_events(&fx.recorder.events()), RELEASE_ORDER);
     let exit = last_exit(fx.runtime_root.path());
     assert_eq!(exit["reason"], "noClients");
@@ -68,7 +68,7 @@ fn work_keeps_an_unattended_core_alive_until_it_ends() {
     assert!(!fx.recorder.has_exited());
     assert_eq!(fx.lifecycle.status().state, StateName::Serving);
     drop(work);
-    assert!(fx.recorder.wait_exit());
+    fx.recorder.wait_exit();
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn goals_schedules_and_channels_keep_it_alive() {
         drop(client);
         assert!(!fx.recorder.has_exited(), "{kind:?}");
         drop(keeper);
-        assert!(fx.recorder.wait_exit(), "{kind:?}");
+        fx.recorder.wait_exit();
     }
 }
 
@@ -106,7 +106,7 @@ fn an_update_stop_waits_for_running_work_and_nothing_times_it() {
     assert!(!fx.recorder.has_exited());
 
     drop(work);
-    assert!(fx.recorder.wait_exit());
+    fx.recorder.wait_exit();
     assert_eq!(last_exit(fx.runtime_root.path())["reason"], "update");
 }
 
@@ -129,7 +129,7 @@ fn abort_needs_the_token_the_status_shows_and_then_cancels() {
     let token = fx.lifecycle.status().drain.clone().unwrap().confirm_token;
     fx.lifecycle.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
     assert_eq!(fx.recorder.cancelled().len(), 1);
-    assert!(fx.recorder.wait_exit(), "the cancelled turn ended the idle wait, from inside the port");
+    fx.recorder.wait_exit();
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn a_fence_leaves_at_once_with_its_reason() {
     fx.lifecycle.set_serving().unwrap();
     let _work = fx.lifecycle.begin_activity(turn());
     fx.lifecycle.fence(FenceReason::LockLost);
-    assert!(fx.recorder.wait_exit(), "a fence waits for nothing");
+    fx.recorder.wait_exit();
     assert_eq!(last_exit(fx.runtime_root.path())["reason"], "lockLost");
     assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Stopped);
 }

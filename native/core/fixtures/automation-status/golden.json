@@ -1,0 +1,1391 @@
+{
+  "domain": "automation-status",
+  "recorder": "benchmarks/rust-core/recorders/record-automation-status.mjs",
+  "states": {
+    "empty": {
+      "schedules": [],
+      "webhooks": [],
+      "webhook": {
+        "enabled": true,
+        "port": 3333,
+        "domain": "h.example",
+        "publicUrl": "https://h.example"
+      }
+    },
+    "busy": {
+      "schedules": [
+        {
+          "instructions": "Tidy up PRs",
+          "name": "pr-sweep",
+          "owner": "reviewer",
+          "description": "d",
+          "time": "0 9 * * 1-5",
+          "whenCron": "0 9 * * 1-5",
+          "timezone": "Asia/Seoul",
+          "executorAgentId": "worker",
+          "enabled": true,
+          "cwd": "/w",
+          "nextFireAt": "2031-01-01T00:00:00.000Z",
+          "id": 7,
+          "secret": "sek"
+        },
+        {
+          "name": "mixy-daily",
+          "time": "0 9 * * 1-5",
+          "whenCron": "0 9 * * 1-5",
+          "timezone": "Asia/Seoul",
+          "instructions": "Morning",
+          "owner": "lead",
+          "executorAgentId": null,
+          "enabled": true,
+          "days": [
+            "mon",
+            "fri"
+          ]
+        },
+        {
+          "name": "once",
+          "time": "at 2031-05-06T07:08:09.000Z",
+          "whenAt": "2031-05-06T07:08:09.000Z",
+          "at": "2031-05-06T07:08:09.000Z",
+          "instructions": "Once",
+          "owner": "lead",
+          "executorAgentId": null,
+          "enabled": false,
+          "attachments": [
+            {
+              "kind": "text",
+              "name": "n.txt",
+              "mimeType": "text/plain",
+              "data": "héllo😀",
+              "path": "/p"
+            },
+            {
+              "kind": "image",
+              "name": "i.png",
+              "mimeType": "image/png"
+            },
+            {
+              "kind": "text",
+              "name": "z",
+              "mimeType": "text/plain",
+              "data": null
+            },
+            {
+              "kind": "text",
+              "name": "num",
+              "mimeType": "text/plain",
+              "data": 12345
+            },
+            {
+              "kind": "text",
+              "name": "no",
+              "mimeType": "text/plain",
+              "data": false
+            }
+          ]
+        },
+        {
+          "name": "ownerless",
+          "time": "0 9 * * 1-5",
+          "whenCron": "0 9 * * 1-5",
+          "timezone": "Asia/Seoul",
+          "instructions": "x",
+          "enabled": true,
+          "attachments": "not-a-list"
+        },
+        {
+          "name": "empty-attachments",
+          "instructions": "x",
+          "attachments": []
+        }
+      ],
+      "webhooks": [
+        {
+          "name": "hook",
+          "parser": "github",
+          "instructions": "Summarise",
+          "owner": "reviewer",
+          "executorAgentId": null,
+          "enabled": true,
+          "secretSet": true,
+          "hasLastPayload": true,
+          "secret": "sek"
+        },
+        {
+          "name": "quiet",
+          "parser": "stripe",
+          "instructions": "Pay",
+          "owner": "lead",
+          "executorAgentId": null,
+          "enabled": false,
+          "secretSet": true,
+          "hasLastPayload": false
+        }
+      ],
+      "webhook": {
+        "enabled": false,
+        "port": 4100,
+        "domain": null,
+        "publicUrl": null
+      }
+    },
+    "bare": {
+      "schedules": [
+        {
+          "name": "a",
+          "instructions": "x"
+        }
+      ],
+      "webhooks": [
+        {
+          "name": "b",
+          "instructions": "y"
+        }
+      ]
+    },
+    "odd": {
+      "schedules": [],
+      "webhooks": [],
+      "webhook": {
+        "enabled": "yes",
+        "port": "8080",
+        "domain": 0
+      }
+    },
+    "oddNull": {
+      "schedules": [],
+      "webhooks": [],
+      "webhook": {
+        "enabled": true,
+        "port": null,
+        "domain": ""
+      }
+    },
+    "noPort": {
+      "schedules": [],
+      "webhooks": [],
+      "webhook": {
+        "enabled": true,
+        "domain": "only.example"
+      }
+    },
+    "broken": {},
+    "brokenNull": {
+      "schedules": null,
+      "webhooks": null
+    },
+    "brokenType": {
+      "schedules": "x",
+      "webhooks": {}
+    }
+  },
+  "cases": [
+    {
+      "caller": "human",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "room",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "human",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "room",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "human",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"port\":3333,\"domain\":\"h.example\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"port\":3333,\"domain\":\"h.example\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"port\":3333,\"domain\":\"h.example\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"port\":3333,\"domain\":\"h.example\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "room",
+      "state": "empty",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "human",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[{\"name\":\"pr-sweep\",\"description\":\"d\",\"instructions\":\"Tidy up PRs\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"cwd\":\"/w\",\"enabled\":true,\"owner\":\"reviewer\",\"executorAgentId\":\"worker\",\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"mixy-daily\",\"instructions\":\"Morning\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"days\":[\"mon\",\"fri\"],\"enabled\":true,\"owner\":\"lead\",\"executorAgentId\":null,\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"once\",\"instructions\":\"Once\",\"time\":\"at 2031-05-06T07:08:09.000Z\",\"at\":\"2031-05-06T07:08:09.000Z\",\"attachments\":[{\"kind\":\"text\",\"name\":\"n.txt\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":7},{\"kind\":\"image\",\"name\":\"i.png\",\"mimeType\":\"image/png\",\"stored\":true,\"size\":0},{\"kind\":\"text\",\"name\":\"z\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":0},{\"kind\":\"text\",\"name\":\"num\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":5},{\"kind\":\"text\",\"name\":\"no\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":0}],\"enabled\":false,\"owner\":\"lead\",\"executorAgentId\":null,\"whenAt\":\"2031-05-06T07:08:09.000Z\"},{\"name\":\"ownerless\",\"instructions\":\"x\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"attachments\":\"not-a-list\",\"enabled\":true,\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"empty-attachments\",\"instructions\":\"x\",\"attachments\":[]}]}"
+    },
+    {
+      "caller": "room",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[{\"name\":\"pr-sweep\",\"description\":\"d\",\"instructions\":\"Tidy up PRs\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"cwd\":\"/w\",\"enabled\":true,\"owner\":\"reviewer\",\"executorAgentId\":\"worker\",\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"mixy-daily\",\"instructions\":\"Morning\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"days\":[\"mon\",\"fri\"],\"enabled\":true,\"owner\":\"lead\",\"executorAgentId\":null,\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"once\",\"instructions\":\"Once\",\"time\":\"at 2031-05-06T07:08:09.000Z\",\"at\":\"2031-05-06T07:08:09.000Z\",\"attachments\":[{\"kind\":\"text\",\"name\":\"n.txt\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":7},{\"kind\":\"image\",\"name\":\"i.png\",\"mimeType\":\"image/png\",\"stored\":true,\"size\":0},{\"kind\":\"text\",\"name\":\"z\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":0},{\"kind\":\"text\",\"name\":\"num\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":5},{\"kind\":\"text\",\"name\":\"no\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":0}],\"enabled\":false,\"owner\":\"lead\",\"executorAgentId\":null,\"whenAt\":\"2031-05-06T07:08:09.000Z\"},{\"name\":\"ownerless\",\"instructions\":\"x\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"attachments\":\"not-a-list\",\"enabled\":true,\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"empty-attachments\",\"instructions\":\"x\",\"attachments\":[]}]}"
+    },
+    {
+      "caller": "human",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[{\"name\":\"pr-sweep\",\"description\":\"d\",\"instructions\":\"Tidy up PRs\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"cwd\":\"/w\",\"enabled\":true,\"owner\":\"reviewer\",\"executorAgentId\":\"worker\",\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"mixy-daily\",\"instructions\":\"Morning\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"days\":[\"mon\",\"fri\"],\"enabled\":true,\"owner\":\"lead\",\"executorAgentId\":null,\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"once\",\"instructions\":\"Once\",\"time\":\"at 2031-05-06T07:08:09.000Z\",\"at\":\"2031-05-06T07:08:09.000Z\",\"attachments\":[{\"kind\":\"text\",\"name\":\"n.txt\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":7},{\"kind\":\"image\",\"name\":\"i.png\",\"mimeType\":\"image/png\",\"stored\":true,\"size\":0},{\"kind\":\"text\",\"name\":\"z\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":0},{\"kind\":\"text\",\"name\":\"num\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":5},{\"kind\":\"text\",\"name\":\"no\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":0}],\"enabled\":false,\"owner\":\"lead\",\"executorAgentId\":null,\"whenAt\":\"2031-05-06T07:08:09.000Z\"},{\"name\":\"ownerless\",\"instructions\":\"x\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"attachments\":\"not-a-list\",\"enabled\":true,\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"empty-attachments\",\"instructions\":\"x\",\"attachments\":[]}]}"
+    },
+    {
+      "caller": "room",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[{\"name\":\"pr-sweep\",\"description\":\"d\",\"instructions\":\"Tidy up PRs\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"cwd\":\"/w\",\"enabled\":true,\"owner\":\"reviewer\",\"executorAgentId\":\"worker\",\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"mixy-daily\",\"instructions\":\"Morning\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"days\":[\"mon\",\"fri\"],\"enabled\":true,\"owner\":\"lead\",\"executorAgentId\":null,\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"once\",\"instructions\":\"Once\",\"time\":\"at 2031-05-06T07:08:09.000Z\",\"at\":\"2031-05-06T07:08:09.000Z\",\"attachments\":[{\"kind\":\"text\",\"name\":\"n.txt\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":7},{\"kind\":\"image\",\"name\":\"i.png\",\"mimeType\":\"image/png\",\"stored\":true,\"size\":0},{\"kind\":\"text\",\"name\":\"z\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":0},{\"kind\":\"text\",\"name\":\"num\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":5},{\"kind\":\"text\",\"name\":\"no\",\"mimeType\":\"text/plain\",\"stored\":true,\"size\":0}],\"enabled\":false,\"owner\":\"lead\",\"executorAgentId\":null,\"whenAt\":\"2031-05-06T07:08:09.000Z\"},{\"name\":\"ownerless\",\"instructions\":\"x\",\"time\":\"0 9 * * 1-5\",\"timezone\":\"Asia/Seoul\",\"attachments\":\"not-a-list\",\"enabled\":true,\"whenCron\":\"0 9 * * 1-5\"},{\"name\":\"empty-attachments\",\"instructions\":\"x\",\"attachments\":[]}]}"
+    },
+    {
+      "caller": "human",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[{\"name\":\"hook\",\"instructions\":\"Summarise\",\"parser\":\"github\",\"enabled\":true,\"owner\":\"reviewer\",\"executorAgentId\":null,\"secretSet\":true},{\"name\":\"quiet\",\"instructions\":\"Pay\",\"parser\":\"stripe\",\"enabled\":false,\"owner\":\"lead\",\"executorAgentId\":null,\"secretSet\":true}],\"listener\":{\"enabled\":false,\"port\":4100,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[{\"name\":\"hook\",\"instructions\":\"Summarise\",\"parser\":\"github\",\"enabled\":true,\"owner\":\"reviewer\",\"executorAgentId\":null,\"secretSet\":true},{\"name\":\"quiet\",\"instructions\":\"Pay\",\"parser\":\"stripe\",\"enabled\":false,\"owner\":\"lead\",\"executorAgentId\":null,\"secretSet\":true}],\"listener\":{\"enabled\":false,\"port\":4100,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[{\"name\":\"hook\",\"instructions\":\"Summarise\",\"parser\":\"github\",\"enabled\":true,\"owner\":\"reviewer\",\"executorAgentId\":null,\"secretSet\":true},{\"name\":\"quiet\",\"instructions\":\"Pay\",\"parser\":\"stripe\",\"enabled\":false,\"owner\":\"lead\",\"executorAgentId\":null,\"secretSet\":true}],\"listener\":{\"enabled\":false,\"port\":4100,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[{\"name\":\"hook\",\"instructions\":\"Summarise\",\"parser\":\"github\",\"enabled\":true,\"owner\":\"reviewer\",\"executorAgentId\":null,\"secretSet\":true},{\"name\":\"quiet\",\"instructions\":\"Pay\",\"parser\":\"stripe\",\"enabled\":false,\"owner\":\"lead\",\"executorAgentId\":null,\"secretSet\":true}],\"listener\":{\"enabled\":false,\"port\":4100,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "room",
+      "state": "busy",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "human",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[{\"name\":\"a\",\"instructions\":\"x\"}]}"
+    },
+    {
+      "caller": "room",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[{\"name\":\"a\",\"instructions\":\"x\"}]}"
+    },
+    {
+      "caller": "human",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[{\"name\":\"a\",\"instructions\":\"x\"}]}"
+    },
+    {
+      "caller": "room",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[{\"name\":\"a\",\"instructions\":\"x\"}]}"
+    },
+    {
+      "caller": "human",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[{\"name\":\"b\",\"instructions\":\"y\"}],\"listener\":{\"enabled\":false,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[{\"name\":\"b\",\"instructions\":\"y\"}],\"listener\":{\"enabled\":false,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[{\"name\":\"b\",\"instructions\":\"y\"}],\"listener\":{\"enabled\":false,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[{\"name\":\"b\",\"instructions\":\"y\"}],\"listener\":{\"enabled\":false,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "room",
+      "state": "bare",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "human",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "room",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "human",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "room",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "human",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":false,\"port\":\"8080\",\"domain\":\"\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":false,\"port\":\"8080\",\"domain\":\"\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":false,\"port\":\"8080\",\"domain\":\"\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":false,\"port\":\"8080\",\"domain\":\"\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "room",
+      "state": "odd",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "human",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "room",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "human",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "room",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "human",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"port\":null,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"port\":null,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"port\":null,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"port\":null,\"domain\":\"\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "room",
+      "state": "oddNull",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "human",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "room",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "human",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "room",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"schedules\",\"entries\":[]}"
+    },
+    {
+      "caller": "human",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"domain\":\"only.example\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"domain\":\"only.example\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"domain\":\"only.example\"}}"
+    },
+    {
+      "caller": "room",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "reply": "{\"domain\":\"webhooks\",\"entries\":[],\"listener\":{\"enabled\":true,\"domain\":\"only.example\"}}"
+    },
+    {
+      "caller": "human",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "room",
+      "state": "noPort",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "human",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "error": "Cannot read properties of undefined (reading 'map')"
+    },
+    {
+      "caller": "room",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "error": "Cannot read properties of undefined (reading 'map')"
+    },
+    {
+      "caller": "human",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "error": "Cannot read properties of undefined (reading 'map')"
+    },
+    {
+      "caller": "room",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "error": "Cannot read properties of undefined (reading 'map')"
+    },
+    {
+      "caller": "human",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "error": "Cannot read properties of undefined (reading 'map')"
+    },
+    {
+      "caller": "room",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "error": "Cannot read properties of undefined (reading 'map')"
+    },
+    {
+      "caller": "human",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "error": "Cannot read properties of undefined (reading 'map')"
+    },
+    {
+      "caller": "room",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "error": "Cannot read properties of undefined (reading 'map')"
+    },
+    {
+      "caller": "human",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "room",
+      "state": "broken",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "human",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "error": "Cannot read properties of null (reading 'map')"
+    },
+    {
+      "caller": "room",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "error": "Cannot read properties of null (reading 'map')"
+    },
+    {
+      "caller": "human",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "error": "Cannot read properties of null (reading 'map')"
+    },
+    {
+      "caller": "room",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "error": "Cannot read properties of null (reading 'map')"
+    },
+    {
+      "caller": "human",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "error": "Cannot read properties of null (reading 'map')"
+    },
+    {
+      "caller": "room",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "error": "Cannot read properties of null (reading 'map')"
+    },
+    {
+      "caller": "human",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "error": "Cannot read properties of null (reading 'map')"
+    },
+    {
+      "caller": "room",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "error": "Cannot read properties of null (reading 'map')"
+    },
+    {
+      "caller": "human",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "room",
+      "state": "brokenNull",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "human",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "error": "status[domain].map is not a function"
+    },
+    {
+      "caller": "room",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "schedules"
+      },
+      "error": "status[domain].map is not a function"
+    },
+    {
+      "caller": "human",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "error": "status[domain].map is not a function"
+    },
+    {
+      "caller": "room",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": true
+      },
+      "error": "status[domain].map is not a function"
+    },
+    {
+      "caller": "human",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "schedules",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "error": "status[domain].map is not a function"
+    },
+    {
+      "caller": "room",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "webhooks"
+      },
+      "error": "status[domain].map is not a function"
+    },
+    {
+      "caller": "human",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "error": "status[domain].map is not a function"
+    },
+    {
+      "caller": "room",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": true
+      },
+      "error": "status[domain].map is not a function"
+    },
+    {
+      "caller": "human",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "room",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": "webhooks",
+        "detail": "true"
+      },
+      "error": "[tool-input-validation] setup.detail must be a boolean"
+    },
+    {
+      "caller": "human",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    },
+    {
+      "caller": "room",
+      "state": "brokenType",
+      "args": {
+        "action": "status",
+        "domain": " webhooks "
+      },
+      "error": "[tool-input-validation] setup.domain must be one of: summary, model, agents, workflow, websearch, output-style, profile, autoclear, compaction, memory, features, local-provider, shell, providers, mcp, skills, plugins, update, onboarding, worktree, network-proxy, capabilities, developer, desktop, appearance, projects, connection, schedules, webhooks, hooks, media"
+    }
+  ]
+}

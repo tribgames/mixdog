@@ -66,4 +66,4 @@ mixdog-mcp = { path = ".", features = ["test-support"] }
 # A throwaway certificate for the fake Gmail servers.
 rcgen = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "test-util"] }

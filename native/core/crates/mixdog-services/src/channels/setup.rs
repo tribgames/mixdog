@@ -2,7 +2,7 @@
 //! `set_automation_enabled`, `run_automation`, `set_webhook_config`): the chat-facing door of
 //! [`ChannelAdmin`], ported from `setup-tool/extended-actions.mjs`, with the access rules of
 //! `services/schedule-access.mjs`. [`AutomationSetup::run`] has the shape of the core's
-//! `SetupActions::run`, so the composition root registers it with a six-line adapter.
+//! `SetupActions::run`; the daemon's `domain_seams::automation_setup` registers it.
 
 use std::sync::Arc;
 
@@ -34,10 +34,11 @@ pub enum AccessScope {
     Headless,
 }
 
-/// `listAgents`: the ids of the agents that exist, where a human may move an automation.
+/// `listAgents`: the ids of the agents that exist, where a human may move an automation. A
+/// listing that fails fails the action, as `await rt.listAgents()` throws in Node.
 #[async_trait]
 pub trait AgentDirectory: Send + Sync {
-    async fn agent_ids(&self) -> Vec<String>;
+    async fn agent_ids(&self) -> Result<Vec<String>, String>;
 }
 
 /// The runtime calls the handlers make (`rt.*` of the Node handlers). `enabled` and `patch`
@@ -225,8 +226,38 @@ impl AutomationSetup {
         owner: &str,
     ) -> Result<(), PortError> {
         let transfer = mixdog_js::js_trim(owner);
-        let agents = if !transfer.is_empty() && *scope == AccessScope::Human { self.agents.agent_ids().await } else { Vec::new() };
+        let agents = if !transfer.is_empty() && *scope == AccessScope::Human {
+            self.agents.agent_ids().await.map_err(failed)?
+        } else {
+            Vec::new()
+        };
         assert_access(scope, kind, action, current, transfer, &agents)
+    }
+
+    /// `automationStatus`: the `schedules` / `webhooks` status domain; the webhooks one adds the
+    /// listener block. A runtime that lists no array for the domain fails as Node's `.map` does.
+    pub async fn status(&self, domain: &str) -> Result<Value, PortError> {
+        let setup = self.admin.get_channel_setup().await.map_err(failed)?;
+        let entries = match setup.get(domain) {
+            Some(Value::Array(rows)) => rows.iter().map(|row| Value::Object(public_automation(row))).collect(),
+            None => return Err(error("Cannot read properties of undefined (reading 'map')")),
+            Some(Value::Null) => return Err(error("Cannot read properties of null (reading 'map')")),
+            Some(_) => return Err(error("status[domain].map is not a function")),
+        };
+        let mut out = Map::new();
+        out.insert("entries".into(), Value::Array(entries));
+        if domain == "webhooks" {
+            let webhook = setup.get("webhook");
+            let field = |key: &str| webhook.and_then(|w| w.get(key));
+            let mut listener = Map::new();
+            listener.insert("enabled".into(), Value::Bool(field("enabled") == Some(&Value::Bool(true))));
+            if let Some(port) = field("port") {
+                listener.insert("port".into(), port.clone());
+            }
+            listener.insert("domain".into(), field("domain").filter(|d| crate::channels::ports::is_truthy(d)).cloned().unwrap_or_else(|| "".into()));
+            out.insert("listener".into(), Value::Object(listener));
+        }
+        Ok(Value::Object(out))
     }
 
     /// One setup action. `thread` is the calling session's id, `scope` its `scheduleCallerScope`.

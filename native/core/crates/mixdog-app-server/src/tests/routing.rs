@@ -9,7 +9,7 @@ use super::reason;
 use super::sample::Samples;
 use super::settle;
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_request_goes_to_the_service_that_claims_its_exact_method() {
     // Two services share the `config` namespace.
     let rig = Rig::routed(&["config/read"], vec![("update", &["config/getUpdateSettings"])]);
@@ -29,7 +29,7 @@ async fn a_request_goes_to_the_service_that_claims_its_exact_method() {
     assert_eq!(reply["result"]["done"], "config/getUpdateSettings:");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_unclaimed_method_is_capability_unavailable_naming_the_method() {
     let rig = Rig::routed(&["config/read"], Vec::new());
     let client = rig.ready(1, json!({}));
