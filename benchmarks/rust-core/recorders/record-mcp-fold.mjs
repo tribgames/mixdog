@@ -6,8 +6,9 @@
 //
 //   unit  — the two functions called directly.
 //   turn  — a turn start as `turn-prepare.mjs foldMcpSurface` runs it (the one-shot flag cleared, the initial fold,
-//           or the late reconcile), followed on the first turn by the request boundary's `refreshDeferredMcpToolCatalog`
-//           (`session/loop/request-boundary.mjs`) over the same registry.
+//           or the late reconcile). The first turn returns after the initial fold (`turn-prepare.mjs:53-57`); its
+//           reconcile is the request boundary's `refreshDeferredMcpToolCatalog` (`session/loop/request-boundary.mjs`),
+//           recorded as a `boundary` step that follows the first `turn` step over the same registry.
 //   migrate — `migrateToolExposureAtBoundary` over a session whose persisted exposure differs from its provider's,
 //           with the request boundary's `delete pendingCacheBreakIntent` after a migration; `transcript` is the
 //           conversation the request is built from (its unanswered tool calls make the boundary unsafe).
@@ -84,18 +85,24 @@ const asBridgeless = (current) => {
 
 // The live tools are the registry's own objects, passed by identity as the real callers pass them (the reconcile's
 // state cache compares them so).
-// `foldMcpSurface` (turn-prepare.mjs) then, on the first turn, the request boundary's reconcile.
+// `foldMcpSurface` (turn-prepare.mjs): the initial fold on the first turn, the late reconcile after it.
 const turn = (current, live) => {
   if (current.deferredInitialRefreshPending) {
     current.deferredInitialRefreshPending = false;
     refreshInitialDeferredMcpSurface(current, live);
-    if (current.deferredProviderMode) reconcileDeferredMcpToolCatalog(current, live);
     return null;
   }
   reconcileDeferredMcpToolCatalog(current, live);
   return null;
 };
+// The request boundary's `refreshDeferredMcpToolCatalog(session)` over a registry holding `live` (a session with no
+// deferred provider mode has no MCP catalog to refresh).
+const boundary = (current, live) => {
+  if (current.deferredProviderMode) reconcileDeferredMcpToolCatalog(current, live);
+  return null;
+};
 const CALLS = {
+  boundary,
   initial: (current, live) => refreshInitialDeferredMcpSurface(current, live),
   reconcile: (current, live) => reconcileDeferredMcpToolCatalog(current, live),
   turn,
@@ -153,8 +160,10 @@ const CASES = [
   ['migrate', 'a session already on its provider is left as it is', session('anthropic-oauth', DEFERRED, measured), [['migrate', [], null, [ask]]]],
   ['migrate', 'a session with no exposure yet is left as it is', session('anthropic-oauth', DEFERRED, (current) => { measured(current); delete current.deferredProviderMode; delete current.toolExposureMode; }), [['migrate', [], { provider: 'openrouter' }, [ask]]]],
   ['turn', 'refresh: a session with no deferred mode is left alone', session('anthropic-oauth', [...DEFERRED, alphaList], (current) => { resumed(current); delete current.deferredProviderMode; }), [['refresh', []]]],
-].map(([suite, name, before, steps]) => {
+].map(([suite, name, before, plan]) => {
   const current = json(before);
+  // A first turn is followed by its request boundary over the same registry.
+  const steps = before.deferredInitialRefreshPending && plan[0][0] === 'turn' ? [plan[0], ['boundary', plan[0][1]], ...plan.slice(1)] : plan;
   return {
     suite,
     name,

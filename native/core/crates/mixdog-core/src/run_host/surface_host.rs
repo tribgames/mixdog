@@ -642,8 +642,8 @@ impl LeadSurfaceHost {
     /// start, and the request boundary's `refreshDeferredMcpToolCatalog` that runs at the turn's first model request.
     ///
     /// * First turn of a fresh thread (`deferredInitialRefreshPending`): the flag is cleared and the live MCP tools are
-    ///   folded into the initial surface (`refreshInitialDeferredMcpSurface`); the boundary then reconciles the late
-    ///   pool against the same registry, which no turn-start step can have moved.
+    ///   folded into the initial surface (`refreshInitialDeferredMcpSurface`), and the turn start ends there
+    ///   (`turn-prepare.mjs:53-57`); the one reconcile of the first turn is the request boundary's (`refresh_mcp`).
     /// * Any later turn: the late pool, connected names and pending delta follow the live registry
     ///   (`reconcileDeferredMcpToolCatalog`).
     ///
@@ -772,8 +772,8 @@ impl LeadSurfaceHost {
             // One-shot: cleared before the fold, so the fold never runs twice.
             session["deferredInitialRefreshPending"] = json!(false);
             surface.refresh_initial_mcp_surface(&mut session, live);
-            // The request boundary's `refreshDeferredMcpToolCatalog` follows, for a session with a deferred mode.
-            if truthy(session.get("deferredProviderMode")) { self.reconcile_cached(thread, &surface, &mut session, live) } else { None }
+            // Node returns here (`turn-prepare.mjs:53-57`): the reconcile of a first turn is the request boundary's.
+            None
         } else {
             self.reconcile_cached(thread, &surface, &mut session, live)
         };

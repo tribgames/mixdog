@@ -739,6 +739,8 @@ fn the_mcp_fold_follows_node() {
             let (next, state) = match step["call"].as_str().expect("call") {
                 "turn" => host.folded_surface(&thread, &header, &live, true),
                 "refresh" => host.folded_surface(&thread, &header, &[], false),
+                // The request boundary over a registry holding `live`.
+                "boundary" => host.folded_surface(&thread, &header, &live, false),
                 other => panic!("{label} step {n}: unknown call {other}"),
             }
             .expect(label);
@@ -841,10 +843,12 @@ async fn the_loops_mcp_refresh_follows_nodes() {
     assert!(rig_bare.threads.patches.lock().unwrap().is_empty());
 }
 
-/// The first turn clears its one-shot flag and writes the fold once: the header afterwards is Node's, and a second
-/// turn start finds nothing more to write.
+/// The first turn clears its one-shot flag and writes the initial fold once, and nothing else before the request
+/// boundary (Node's turn start returns after the fold, `turn-prepare.mjs:53-57`): no reconcile has run, so no state is
+/// remembered and the late pool and connected names are not written yet. The boundary then reconciles exactly once: it
+/// writes what Node's reconcile leaves, and the same registry at the next boundary is skipped by the state cache.
 #[tokio::test]
-async fn the_first_turn_fold_is_written_once() {
+async fn the_first_turn_reconciles_once_at_the_request_boundary() {
     let golden = golden();
     let fold = fold_golden();
     let case = fold["cases"].as_array().expect("cases").iter().find(|case| case["name"] == "first turn: nothing connected").expect("case");
@@ -856,8 +860,16 @@ async fn the_first_turn_fold_is_written_once() {
     assert_eq!(*rig.threads.header.lock().unwrap(), want);
     assert_eq!(want["deferredInitialRefreshPending"], false);
     assert_eq!(rig.threads.patches.lock().unwrap().len(), 1);
-    rig.host.fold_mcp_surface(&thread).await.expect("again");
-    assert_eq!(rig.threads.patches.lock().unwrap().len(), 1, "nothing left to write");
+    assert!(want.get("deferredMcpToolNames").is_none() && want.get("deferredLateToolCatalog").is_none(), "no reconcile output before the boundary");
+    assert!(rig.host.mcp_state.lock().unwrap().is_empty(), "no reconcile has run, so none is remembered");
+    let boundary = header_of(&case["steps"][1]["after"]);
+    assert_ne!(boundary, want, "the boundary's reconcile writes the connected names and the late pool");
+    rig.host.refresh_mcp(&thread).await.expect("boundary");
+    assert_eq!(*rig.threads.header.lock().unwrap(), boundary);
+    assert_eq!(rig.threads.patches.lock().unwrap().len(), 2, "one write for the fold, one for the boundary's reconcile");
+    assert_eq!(rig.host.mcp_state.lock().unwrap().len(), 1, "the reconcile left its state");
+    rig.host.refresh_mcp(&thread).await.expect("next boundary");
+    assert_eq!(rig.threads.patches.lock().unwrap().len(), 2, "the same registry is not reconciled again");
 }
 
 /// The first turn of an empty thread rebuilds it whole, as Node's `reconcileTurnSettings` does for a
