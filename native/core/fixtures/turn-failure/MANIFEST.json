@@ -3,18 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 15588,
+      "bytes": 21883,
       "path": "golden.json",
-      "sha256": "cefb28781448cf0ec9f0c089e60ed99b58979e4726391af3daaf9d66a29c785a"
+      "sha256": "993d572aca36c91d6eaf695942737fe77d93f324b9fc86013eb4a173483358e7"
     }
   ],
   "product": {
     "appsSha256": "c8f72abc147389b830ed4f991290d1744b94a29892bafea6efe9d942f16b22a9",
-    "commit": "51e73b49662e7a94e914055313eeaa80e2af942c",
+    "commit": "4aefe126aa8048fcfdb5c872b2b64cf3659d38c6",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9248,
     "refComparison": {
-      "closestCommit": "51e73b49662e7a94e914055313eeaa80e2af942c",
+      "closestCommit": "4aefe126aa8048fcfdb5c872b2b64cf3659d38c6",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-failure.mjs",
   "set": "turn-failure",
-  "totalBytes": 15588
+  "totalBytes": 21883
 }

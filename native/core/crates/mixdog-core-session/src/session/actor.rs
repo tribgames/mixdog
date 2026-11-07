@@ -385,6 +385,9 @@ struct RunSlot {
     /// The provider of the route the turn started with (`routeMeta.provider`): a route change
     /// during the turn does not move the notices its end raises.
     provider: String,
+    /// That route as the turn's transcript meta states it (`createTranscriptRouteMetadata`: `modelId`, the display
+    /// `model`, `provider`), which the live end of a failure spreads into its row (`routeMeta`, `turn.mjs:139`).
+    route_meta: serde_json::Map<String, Value>,
     /// The pending Goal reminder's revision the turn carries.
     goal_reminder: Option<u64>,
     /// The id of the run's input row.
@@ -415,6 +418,10 @@ struct RunSlot {
 /// What a failed turn's close reads of its run ([`SessionActor::close_failed`]).
 struct FailedClose<'a> {
     error: &'a TurnError,
+    /// The route the turn started with: the live end's route (`turn.routeMeta`, `turn.mjs:555`), which a route change during
+    /// the turn does not move. The durable completion reads the session's route at the close instead (ailedTurnCompletion).
+    start_provider: &'a str,
+    route_meta: &'a serde_json::Map<String, Value>,
     /// The turn's last model row, which the completion is recorded on.
     last: Option<&'a ItemRecord>,
     started_at: i64,
@@ -2038,7 +2045,7 @@ impl SessionActor {
         self.settling = true;
         match error {
             Some(error) => {
-                let failed = FailedClose { error, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &slot.transcript, live: &mut slot.live };
+                let failed = FailedClose { error, start_provider: &slot.provider, route_meta: &slot.route_meta, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &slot.transcript, live: &mut slot.live };
                 self.close_failed(&turn, failed, settle);
             }
             None => self.settle_goal(settle),
@@ -2163,14 +2170,19 @@ impl SessionActor {
             attempt_id: new_id(),
             route: super::failure_record::Route { provider: &provider, model: &model },
         };
-        let record = match super::failure_record::failure_record(failed.error, &facts.route) {
-            Ok(record) => record,
-            Err(malformed) => {
+        // The live end is built on the route the turn started with, the durable completion on the session's route now:
+        // a quota stop names `route.provider`/`route.model` (`routeMeta.model` is the display name of the model id).
+        let model_name = failed.route_meta.get("model").and_then(Value::as_str).unwrap_or_default();
+        let live_route = super::failure_record::Route { provider: failed.start_provider, model: model_name };
+        let records = (super::failure_record::failure_record(failed.error, &live_route), super::failure_record::failure_record(failed.error, &facts.route));
+        let (live_record, record) = match records {
+            (Ok(live), Ok(record)) => (live, record),
+            (Err(malformed), _) | (_, Err(malformed)) => {
                 tracing::error!("the failed turn {} shows no end and settles no quota: {malformed}", turn.as_str());
                 return self.settle_goal(settle);
             }
         };
-        let row = super::live_end::live_end_row(failed.live, &facts, &record, &new_id());
+        let row = super::live_end::live_end_row(failed.live, &facts, failed.route_meta, &live_record, &new_id());
         let end = super::transcript::live_end(row, turn.as_str());
         let amend = failed.last.and_then(|last| self.amend_last_with(last, super::failure_record::failed_completion(&record, &facts)));
         self.show_live_then(turn.clone(), end, None, amend, vec![Effect::TurnClosed { turn: turn.clone(), settle }]);
@@ -2362,6 +2374,16 @@ impl SessionActor {
             return;
         }
         let display = self.row_display(item.role.as_deref(), &item.body);
+        // A provider batch of tool calls opens its cards as the assistant row that holds them is committed
+        // (`openToolCalls`): the live end counts the ones Node would give a card.
+        if item.role.as_deref() == Some("assistant")
+            && let Some(calls) = item.body.get("toolCalls").and_then(Value::as_array)
+        {
+            let now = self.deps.clock.now_ms();
+            if let Some(run) = self.run.as_mut() {
+                run.live.tool_batch(calls, self.deps.builtin_skills.as_ref(), now);
+            }
+        }
         if item.role.as_deref() == Some("tool")
             && let Some(run) = self.run.as_mut()
         {
@@ -2459,10 +2481,6 @@ impl SessionActor {
                 }
                 if matches!(item, ThreadItem::ToolCall { .. }) {
                     self.visible_progress();
-                    let now = self.deps.clock.now_ms();
-                    if let Some(run) = self.run.as_mut() {
-                        run.live.tool_card(now);
-                    }
                 }
                 let note = Note::new(
                     "item/started",
@@ -3944,6 +3962,7 @@ impl SessionActor {
         self.run = Some(RunSlot {
             turn: turn.clone(),
             provider: self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            route_meta: super::live_end::route_meta(self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default(), self.acked.header.get("model").and_then(Value::as_str).unwrap_or_default()),
             input_item: input_iid.clone(),
             automatic: super::goal_lane::automatic(&input_body),
             tool_calls: 0,

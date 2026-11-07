@@ -91,6 +91,7 @@ pub mod runtime_facts;
 mod channel_notification_tests;
 pub mod failure_record;
 mod live_end;
+pub use self::live_end::BuiltinSkills;
 pub mod turn_warm;
 #[cfg(test)]
 mod pending_read_tests;
@@ -103,6 +104,7 @@ pub mod session_title;
 pub mod quota_lane;
 #[cfg(test)]
 mod quota_lane_tests;
+mod usage_metadata;
 pub mod quota_resume_host;
 #[cfg(test)]
 mod quota_resume_host_tests;
@@ -303,6 +305,8 @@ pub struct SessionDeps {
     pub limits: SessionLimits,
     /// The prompt-cache warmer told of each turn's start (`noteTurnForCacheWarm`).
     pub warm: Arc<dyn turn_warm::TurnWarmth>,
+    /// The built-in skills a live turn hides the loads of (`builtinSkillNamesFor`).
+    pub builtin_skills: Arc<dyn BuiltinSkills>,
 }
 
 /// A turn of any origin started on a thread (`session-activity-signal.mjs`

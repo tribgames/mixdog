@@ -41,8 +41,19 @@ impl World {
     }
 }
 
+/// What a template literal makes of a field (`${row.id}`): an absent one reads `undefined`, which
+/// sorts after a real id, so a row keyed by `model` alone comes after the `id` rows.
+fn js_text(field: Option<&Value>) -> String {
+    match field {
+        None => "undefined".to_owned(),
+        Some(Value::String(text)) => text.clone(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// The recorder's `byKey`: `${a.provider}\n${a.id}`.
 fn key(row: &Value) -> String {
-    format!("{}\n{}", row["provider"].as_str().unwrap_or(""), row["id"].as_str().unwrap_or(""))
+    format!("{}\n{}", js_text(row.get("provider")), js_text(row.get("id")))
 }
 
 impl QuickFacts for World {

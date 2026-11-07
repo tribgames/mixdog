@@ -149,6 +149,19 @@ impl SkillCatalog {
         Ok(skills)
     }
 
+    /// The list [`skills`](Self::skills) last collected, when nothing has changed since: no lane job, no wait. For readers that
+    /// cannot await (Node's `skillsStatus()` is an in-memory read); `None` while the list is cold or stale, never a guess.
+    pub fn cached(&self) -> Option<Arc<Vec<Skill>>> {
+        if skills_disabled_by_env() {
+            return Some(Arc::new(Vec::new()));
+        }
+        let generation = *self.changes.borrow();
+        match &**self.cache.load() {
+            Some(cached) if cached.generation == generation => Some(Arc::clone(&cached.skills)),
+            _ => None,
+        }
+    }
+
     /// Runs `job` on the maintenance lane, waiting for room when the lane is full. A job the
     /// lane could not take or finish is an error, never an empty answer.
     async fn run<R, F>(&self, job: F) -> Result<R, CatalogError>

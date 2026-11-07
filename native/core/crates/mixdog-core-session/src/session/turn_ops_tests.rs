@@ -23,6 +23,7 @@ use super::testing::Rig;
 use super::tests::eventually;
 use super::tests::eventually_on;
 use super::tests::idle;
+use super::tests::start_routed_thread;
 use super::tests::start_thread;
 use super::tests::turn;
 
@@ -303,7 +304,7 @@ async fn a_failed_turn_is_retried_once_with_its_prompt_and_its_resume_entry_fini
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
+    let handle = start_routed_thread(&directory).await;
     turn(&handle, "write the report", "op-1").await;
     let id = handle.id.as_str().to_owned();
     let entry = eventually(|| rig.quota.entry(&id)).await;
@@ -353,7 +354,7 @@ async fn quota_failed_thread(rig: &Rig, with_message: bool) -> (Arc<SessionHandl
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
+    let handle = start_routed_thread(&directory).await;
     turn(&handle, "write the report", "op-1").await;
     let id = handle.id.as_str().to_owned();
     let entry = eventually(|| rig.quota.entry(&id)).await;
@@ -441,7 +442,7 @@ async fn a_suspended_goal_is_revived_by_its_retry_and_continues() {
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
+    let handle = start_routed_thread(&directory).await;
     let id = handle.id.as_str().to_owned();
     rig.goals.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship it" })).await.expect("create");
     let goal_id = rig.goals.goal_status(&handle.id).await.expect("status").expect("a goal")["id"].as_str().expect("goal id").to_owned();
@@ -577,7 +578,7 @@ async fn a_retry_of_a_system_turn_and_the_retry_of_that_retry_are_noted_as_syste
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
+    let handle = start_routed_thread(&directory).await;
     turn(&handle, "write the report", "op-1").await;
     let id = handle.id.as_str().to_owned();
     let first = eventually(|| rig.quota.entry(&id)).await;
@@ -733,10 +734,16 @@ async fn a_quota_failed_turn_shows_nodes_end_and_the_settlement_reads_it() {
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
+    let handle = start_routed_thread(&directory).await;
+    // The queued resume is written on the quota store's own lane, after the last frame: the store tells when.
+    let queued = Arc::new(tokio::sync::Notify::new());
+    let _subscription = {
+        let queued = queued.clone();
+        rig.quota.subscribe(move |_| queued.notify_one())
+    };
     turn(&handle, "write the report", "op-1").await;
     let id = handle.id.as_str().to_owned();
-    let entry = eventually_on(&[&rig.feeds.published], || rig.quota.entry(&id)).await;
+    let entry = eventually_on(&[&queued], || rig.quota.entry(&id)).await;
     assert_eq!(entry.to_value()["resetAt"].as_f64(), Some(reset as f64), "the resume waits for the reset the provider named");
 
     let items = eventually_on(&[&rig.feeds.published, &handle.cell.stepped], || {
@@ -799,16 +806,11 @@ async fn play(run: &super::RunStart, clock: &super::testing::FixedClock, script:
             };
             port.usage(report).await.expect("usage");
         }
-        if let Some(call) = step.get("tool") {
-            let item = mixdog_protocol::ThreadItem::ToolCall {
-                id: ItemId::from(format!("call:{}", call["id"].as_str().expect("a call id"))),
-                name: call["name"].as_str().expect("a name").to_owned(),
-                input: call["arguments"].clone(),
-                output: None,
-                run: Default::default(),
-                meta: Default::default(),
-            };
-            port.item_started(item).await.expect("tool call");
+        if let Some(calls) = step.get("tools") {
+            // The batch is on the assistant row the run commits for it, which is where the actor sees its calls.
+            let body = json!({ "role": "assistant", "content": "", "toolCalls": calls });
+            let row = super::ItemCommit { iid: ItemId::from(format!("calls-{n}")), role: Some("assistant".into()), model: true, visible: false, body, prompt: None };
+            port.commit_item(row).await.expect("tool calls");
         }
         // The port's messages are taken in order: once this commit is acked, the step above has been applied.
         let barrier = super::ItemCommit { iid: ItemId::from(format!("barrier-{n}")), role: Some("assistant".into()), model: false, visible: false, body: json!({ "text": "" }), prompt: None };
@@ -818,16 +820,20 @@ async fn play(run: &super::RunStart, clock: &super::testing::FixedClock, script:
 
 /// The live end is built from what the run showed while it ran (`turnDoneItem`, `turn.mjs:573-601`): the spinner's
 /// tokens or the estimate of the text and thinking, the thinking time, the cards, the elapsed time from the turn's start,
-/// and the time it closed. The scripts are the ones Node's real stream handlers were driven with (`fixtures/turn-failure`
-/// `live.streamed` and `live.estimated`), and the item must equal what Node's turndone held.
+/// and the time it closed. The scripts are the ones Node's real stream handlers and tool cards were driven with
+/// (`fixtures/turn-failure` `live.streamed`, `live.estimated` and `live.tools`: merged reads, a task wait, control tools, built-in
+/// and user skill loads, a call with no id), and the item must equal what Node's turndone held.
 #[tokio::test(start_paused = true)]
 async fn the_live_failed_end_holds_what_the_run_showed_as_nodes_turndone_does() {
     let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/turn-failure/golden.json")).unwrap();
     let reset = gold["resetAt"].as_u64().expect("the recorded reset");
-    for name in ["streamed", "estimated"] {
+    for name in ["streamed", "estimated", "tools", "routed"] {
         let live = gold["live"][name].clone();
         let script = live["script"].as_array().expect("a recorded script").clone();
         let rig = Rig::new();
+        // The skills Node's status listed as built in (`skillsStatus`, `source === 'builtin'`), as the turn reads them.
+        let builtin = live["skills"].as_array().expect("the recorded skills").iter().filter(|skill| skill["source"] == "builtin").map(|skill| skill["name"].as_str().expect("a name").to_lowercase());
+        *super::testing::lock(&rig.builtin_skills.0) = Some(builtin.collect());
         let clock = rig.clock.clone();
         let quota = live["turndone"]["quota"].is_object();
         let plays = script.clone();
@@ -845,11 +851,16 @@ async fn the_live_failed_end_holds_what_the_run_showed_as_nodes_turndone_does() 
         }));
         let directory = SessionDirectory::new(rig.deps());
         let handle = start_thread(&directory).await;
+        // The session's route, which Node's turn start stamps into the row (`createTranscriptRouteMetadata`).
+        if let Some(route) = live.get("route") {
+            let params = json!({ "threadId": handle.id, "set": { "provider": route["provider"], "model": route["model"] }, "unset": [] });
+            handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }).await.expect("route");
+        }
         let start = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
         turn(&handle, "write the report", "op-1").await;
         let thread = handle.id.as_str().to_owned();
         let end = eventually_on(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
-        let mixdog_protocol::ThreadItem::TurnEnd { status, elapsed_ms, detail, error_details, error_kind, meta, .. } = end else {
+        let mixdog_protocol::ThreadItem::TurnEnd { status, elapsed_ms, detail, error_details, error_kind, quota, meta, .. } = end else {
             panic!("a turn end");
         };
         let want = &live["turndone"];
@@ -861,6 +872,10 @@ async fn the_live_failed_end_holds_what_the_run_showed_as_nodes_turndone_does() 
         }
         assert_eq!((detail.as_deref(), error_details.as_deref()), (want["detail"].as_str(), want["errorDetails"].as_str()), "{name}");
         assert_eq!(serde_json::to_value(error_kind).unwrap(), want["errorKind"], "{name}");
+        // The row spreads the turn-start route (`routeMeta`), and the quota stop names it.
+        assert_eq!((meta.model_id.as_deref(), meta.model.as_deref(), meta.provider.as_deref()), (want["modelId"].as_str(), want["model"].as_str(), want["provider"].as_str()), "{name}: the route");
+        let stop = json!(quota);
+        assert_eq!((stop["provider"].clone(), stop["model"].clone()), (want["quota"]["provider"].clone(), want["quota"]["model"].clone()), "{name}: the quota stop's route");
     }
 }
 
@@ -1003,4 +1018,58 @@ async fn a_route_change_during_a_turn_does_not_move_its_notice() {
     eventually(|| idle(&handle).then_some(())).await;
     eventually(|| (!super::testing::lock(&rig.notices.0).is_empty()).then_some(())).await;
     assert_eq!(super::testing::lock(&rig.notices.0).clone(), vec!["failed:anthropic-oauth:auth"]);
+}
+
+/// A route change while a turn runs moves the durable failure record and not the live end: the live end's quota stop
+/// names the route the turn started with (`turn.routeMeta`, `turn.mjs:555`; the model by its display name), while the
+/// completion recorded on the last message names the session's route at the close (`session.provider`,
+/// `failedTurnCompletion`, `ask-turn-failure.mjs:28`).
+#[tokio::test(start_paused = true)]
+async fn a_route_change_during_a_quota_failed_turn_moves_the_durable_stop_and_not_the_live_end() {
+    use mixdog_core_run::run_host::model_display::display_model_name;
+
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let open = gate.clone();
+    rig.set_script(Arc::new(move |run| {
+        let open = open.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            open.notified().await;
+            RunOutcome::Failed(super::testing::quota_error(5000))
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let route = |set: Value| {
+        let handle = handle.clone();
+        let params = json!({ "threadId": handle.id, "set": set, "unset": [] });
+        async move {
+            handle
+                .request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") })
+                .await
+                .expect("patch");
+        }
+    };
+    route(json!({ "provider": "anthropic-oauth", "model": "claude-opus-4-1" })).await;
+    turn(&handle, "go", "op-1").await;
+    eventually(|| (!idle(&handle)).then_some(())).await;
+    route(json!({ "provider": "openai", "model": "gpt-5" })).await;
+    gate.notify_one();
+    let thread = handle.id.as_str().to_owned();
+    let end = eventually_on(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
+    let mixdog_protocol::ThreadItem::TurnEnd { quota: Some(live), .. } = end else { panic!("a failed end with a quota stop") };
+    assert_eq!(live.get("provider"), Some(&json!("anthropic-oauth")), "the live end keeps the route the turn started with");
+    assert_eq!(live.get("model"), Some(&json!(display_model_name("claude-opus-4-1", ""))));
+    let durable = eventually(|| {
+        rig.store.records(&handle.id).iter().rev().find_map(|(_, record)| match record {
+            mixdog_store::schema::record::Record::Amend(amend) => match &amend.body {
+                mixdog_store::schema::blob::Slot::Inline(body) => body.pointer("/meta/transcript/completion/quota").cloned(),
+                _ => None,
+            },
+            _ => None,
+        })
+    })
+    .await;
+    assert_eq!((durable["provider"].clone(), durable["model"].clone()), (json!("openai"), json!("gpt-5")), "the completion names the session's route at the close");
 }

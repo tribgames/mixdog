@@ -937,6 +937,8 @@ pub struct Rig {
     pub prewarms: Arc<Prewarms>,
     /// The warmer's turn notes: each turn's `cacheWarmTurnKind` input, and how many ended.
     pub warms: Arc<RecWarmth>,
+    /// The built-in skill names the turns read (None: the status cannot be read).
+    pub builtin_skills: Arc<TestBuiltinSkills>,
     pub ingests: Arc<Ingests>,
     pub closes: Arc<Closes>,
     pub sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
@@ -1180,6 +1182,16 @@ impl Drop for Ended {
     }
 }
 
+/// The built-in skills the rig reports.
+#[derive(Default)]
+pub struct TestBuiltinSkills(pub Mutex<Option<std::collections::HashSet<String>>>);
+
+impl super::BuiltinSkills for TestBuiltinSkills {
+    fn names(&self) -> Option<std::collections::HashSet<String>> {
+        lock(&self.0).clone()
+    }
+}
+
 impl super::turn_warm::TurnWarmth for RecWarmth {
     fn begin(&self, thread: &ThreadId, input: &Value, messages: Option<&Value>) -> Box<dyn Send> {
         lock(&self.begun).push((thread.clone(), input.clone(), messages.cloned()));
@@ -1284,6 +1296,7 @@ impl Rig {
             wakes: mixdog_tools::exec::WakeHub::new(),
             prewarms: Arc::default(),
             warms: Arc::default(),
+            builtin_skills: Arc::default(),
             ingests: Arc::default(),
             closes: Arc::default(),
             sensitive: Arc::default(),
@@ -1362,6 +1375,7 @@ impl Rig {
             },
             limits: SessionLimits::default(),
             warm: self.warms.clone(),
+            builtin_skills: self.builtin_skills.clone(),
         }
     }
 }
