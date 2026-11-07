@@ -9,6 +9,7 @@ use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::ToolDefinition;
+use mixdog_core_api::domain::tool::Freeform;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -397,12 +398,37 @@ fn client_search_tool(tool: &ToolDefinition) -> Value {
     })
 }
 
-fn declare_tools(lowering: ToolLowering, tools: &[ToolDefinition]) -> Vec<Value> {
+/// `isResponsesFreeformTool`: the tool carries a `{ type: "grammar", syntax, definition }` format.
+fn is_freeform(tool: &ToolDefinition) -> bool {
+    tool.freeform.as_ref().is_some_and(Freeform::is_grammar)
+}
+
+/// `toResponsesCustomTool`: the tool as the raw-text `custom` tool, under its grammar. The
+/// description is the freeform one where the definition has it.
+fn custom_tool(tool: &ToolDefinition) -> Value {
+    let freeform = tool.freeform.as_ref().expect("a freeform tool");
+    let description = if freeform.description.is_empty() { &tool.description } else { &freeform.description };
+    json!({
+        "type": "custom",
+        "name": tool.name,
+        "description": description,
+        "format": freeform.grammar,
+    })
+}
+
+/// The tools array entries. With `custom` (the route takes custom tools) a freeform tool goes out
+/// as a `custom` tool after the tool-search check, in every lowering, never deferred
+/// (`toOpenAIResponsesTool`).
+fn declare_tools(lowering: ToolLowering, custom: bool, tools: &[ToolDefinition]) -> Vec<Value> {
     let is_deferred = |tool: &ToolDefinition| tool.defer_loading;
+    let as_custom = |tool: &ToolDefinition| custom && is_freeform(tool);
     match lowering {
         ToolLowering::Function => tools
             .iter()
             .map(|tool| {
+                if !is_tool_search_name(&tool.name) && as_custom(tool) {
+                    return custom_tool(tool);
+                }
                 let name = if is_tool_search_name(&tool.name) { "load_tool" } else { &tool.name };
                 Value::Object(function_tool(tool, name))
             })
@@ -412,6 +438,8 @@ fn declare_tools(lowering: ToolLowering, tools: &[ToolDefinition]) -> Vec<Value>
             .map(|tool| {
                 if is_tool_search_name(&tool.name) {
                     client_search_tool(tool)
+                } else if as_custom(tool) {
+                    custom_tool(tool)
                 } else if is_deferred(tool) {
                     deferred_function_tool(tool)
                 } else {
@@ -429,6 +457,8 @@ fn declare_tools(lowering: ToolLowering, tools: &[ToolDefinition]) -> Vec<Value>
                         has_search = true;
                         out.push(json!({"type": "tool_search"}));
                     }
+                } else if as_custom(tool) {
+                    out.push(custom_tool(tool));
                 } else if is_deferred(tool) {
                     has_deferred = true;
                     out.push(deferred_function_tool(tool));
@@ -486,14 +516,17 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
     }
     let fallback_memo = SchemaMemo::default();
     let mut excluded = Vec::new();
-    let accepted = inputs.schemas.unwrap_or(&fallback_memo).accepted_wire_tools(
+    // A freeform tool goes out as grammar, with no JSON schema to check (`isResponsesFreeformTool`).
+    let custom = profile.input.custom_tools;
+    let accepted = inputs.schemas.unwrap_or(&fallback_memo).accepted_wire_tools_except(
         &request.tools,
         Rule::OpenAi,
         &profile.tool_label,
         &mut |exclusion| excluded.push(exclusion),
+        &|tool| custom && is_freeform(tool),
     );
     let mut tools: Vec<Value> = inputs.extra_tools.to_vec();
-    tools.extend(declare_tools(profile.tools, &accepted));
+    tools.extend(declare_tools(profile.tools, custom, &accepted));
     let summary = profile.reasoning.as_ref().is_some_and(|spec| spec.summary);
     let reasoning = match (inputs.effort, profile.reasoning.as_ref()) {
         // A projected conversation keeps its initial effort here; changes ride

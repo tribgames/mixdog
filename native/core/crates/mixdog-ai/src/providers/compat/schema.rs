@@ -499,9 +499,23 @@ impl SchemaMemo {
         source: &str,
         excluded: &mut dyn FnMut(ToolExclusion),
     ) -> Vec<ToolDefinition> {
+        self.accepted_wire_tools_except(tools, rule, source, excluded, &|_| false)
+    }
+
+    /// [`accepted_wire_tools`](Self::accepted_wire_tools) where a tool `exempt` names is sent as
+    /// written, with no schema check (it goes out without a JSON schema, `isExempt`). A report's
+    /// `index` is the tool's place in `tools` whole.
+    pub fn accepted_wire_tools_except(
+        &self,
+        tools: &[ToolDefinition],
+        rule: Rule,
+        source: &str,
+        excluded: &mut dyn FnMut(ToolExclusion),
+        exempt: &dyn Fn(&ToolDefinition) -> bool,
+    ) -> Vec<ToolDefinition> {
         let mut out = Vec::with_capacity(tools.len());
         for (index, tool) in tools.iter().enumerate() {
-            if tool.input_schema.is_null() {
+            if tool.input_schema.is_null() || exempt(tool) {
                 out.push(tool.clone());
                 continue;
             }
@@ -527,6 +541,7 @@ mod tests {
             description: String::new(),
             input_schema: schema,
             defer_loading: false,
+            freeform: None,
         }
     }
 

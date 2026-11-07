@@ -1,8 +1,8 @@
 //! The request helper of every login flow: one request through the shared
 //! transport read whole, a refusal before a status being a failed login with
-//! the transport's own reason, and the scrubber that keeps secrets out of
-//! failure messages.
+//! the transport's own reason (the scrubber is [`super::scrub`]).
 
+use crate::transport::Exchange;
 use crate::transport::deadlines::TOKEN_EXCHANGE;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::login::LoginFailure;
@@ -45,9 +45,21 @@ pub fn failed(code: &str, message: impl Into<String>) -> LoginFailure {
     }
 }
 
-/// One request; the failure carries code `transport`.
+/// One request under the token-exchange deadline; the failure carries code `transport`.
 pub async fn call(
     http: &dyn HttpSend,
+    method: &str,
+    url: &str,
+    headers: Vec<(&str, String)>,
+    body: Vec<u8>,
+) -> Result<Reply, LoginFailure> {
+    call_under(http, TOKEN_EXCHANGE, method, url, headers, body).await
+}
+
+/// [`call`] under the deadline and redirect rule of the call site in Node.
+pub async fn call_under(
+    http: &dyn HttpSend,
+    exchange: Exchange,
     method: &str,
     url: &str,
     headers: Vec<(&str, String)>,
@@ -65,7 +77,7 @@ pub async fn call(
                     .collect(),
                 body,
             },
-            TOKEN_EXCHANGE,
+            exchange,
         )
         .await
         .map_err(|err| failed("transport", err.message))?;
@@ -78,34 +90,6 @@ pub async fn call(
         headers: read.headers,
         body: read.body,
     })
-}
-
-/// `text` with every secret removed, cut to `limit` UTF-16 units
-/// (`slice(0, limit)`).
-pub fn scrub(text: &str, secrets: &[&str], limit: usize) -> String {
-    let mut out = text.to_owned();
-    for secret in secrets.iter().filter(|s| !s.is_empty()) {
-        out = out.replace(secret, "[redacted]");
-    }
-    mixdog_js::slice_utf16(&out, limit)
-}
-
-#[cfg(test)]
-mod scrub_tests {
-    use super::scrub;
-
-    #[test]
-    fn the_cut_counts_utf16_units_and_a_split_pair_becomes_fffd() {
-        // U+1F600 is two UTF-16 units: a cut of 3 keeps "ab" and half the pair.
-        assert_eq!(scrub("ab\u{1F600}cd", &[], 3), "ab\u{fffd}");
-        assert_eq!(scrub("ab\u{1F600}cd", &[], 4), "ab\u{1F600}");
-        assert_eq!(scrub("ab", &[], 10), "ab");
-    }
-
-    #[test]
-    fn secrets_are_removed_before_the_cut() {
-        assert_eq!(scrub("key=sk-123 tail", &["sk-123"], 14), "key=[redacted]");
-    }
 }
 
 #[cfg(test)]

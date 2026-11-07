@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-muse-code-usage.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 162111,
+      "path": "golden.json",
+      "sha256": "18b4d69732df5f838038c8d9ce8cfe5a8576dab8e6a307f723588b428b2fa5d3"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "d3c316782aea8eda34bb08c180342692d52bfe15",
+      "commitFilesMissingFromTree": 2,
+      "exact": false,
+      "filesDifferingFromCommit": 43481
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-muse-code-usage.mjs",
+  "set": "muse-code-usage",
+  "totalBytes": 162111
+}

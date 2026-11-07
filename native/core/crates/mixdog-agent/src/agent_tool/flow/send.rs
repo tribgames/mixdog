@@ -143,9 +143,9 @@ impl SendFlowImpl {
 
     /// The calling session hands this worker new work: from now on the worker acts as that caller
     /// does. Not for a completion wake, which is the worker's own continuation.
-    pub fn adopt_caller(&self, prepared: &Prepared, notify: &SpawnContext) {
+    pub async fn adopt_caller(&self, prepared: &Prepared, notify: &SpawnContext) -> Result<(), String> {
         let caller = notify.caller_session_id.as_deref().filter(|c| !c.is_empty());
-        self.world.rebind_delegation(&prepared.session_id, caller);
+        self.world.rebind_delegation(&prepared.session_id, caller).await
     }
 
     /// An explicit model on a reused tag goes through the session's own route API, which saves it
@@ -168,7 +168,7 @@ impl SendFlowImpl {
             return Ok(None);
         }
         let Some(config) = self.world.load_config().await? else { return Ok(None) };
-        let candidates = self.world.route_candidates(&config, &agent);
+        let candidates = self.world.route_candidates(&config, &agent).await?;
         let Ok(current) = resolve_agent_spawn_preset(&config, &serde_json::json!({ "agent": agent }), &candidates) else {
             return Ok(None);
         };
@@ -282,7 +282,7 @@ impl SendFlowImpl {
             })
         };
         if self.world.surface_runs(&session) && busy {
-            if let Some(queued) = self.world.enqueue_turn(&session, &prompt, &attachments, context).await {
+            if let Some(queued) = self.world.enqueue_turn(&session, &prompt, &attachments, context).await? {
                 return Ok(queued_view(queued.get("queueDepth").and_then(Value::as_u64)));
             }
         }
@@ -389,8 +389,7 @@ impl SendFlow for Arc<SendFlowImpl> {
     }
 
     async fn adopt_caller(&self, prepared: &Prepared, notify: &Caller) -> Result<(), String> {
-        SendFlowImpl::adopt_caller(self, prepared, &notify.into());
-        Ok(())
+        SendFlowImpl::adopt_caller(self, prepared, &notify.into()).await
     }
 
     async fn dispatch_to_existing_session(&self, prepared: &Prepared, notify: &Caller, options: DispatchOptions) -> Result<AgentReply, String> {

@@ -1,0 +1,39 @@
+{
+  "cases": {
+    "enqueueUnknown": {
+      "error": "agent session is closed"
+    },
+    "setRouteUnknown": {
+      "error": "agent session is closed"
+    },
+    "enqueueClosed": {
+      "error": "agent session is closed"
+    },
+    "setRouteClosed": {
+      "error": "agent session is closed"
+    },
+    "enqueueIdle": {
+      "ok": null
+    },
+    "enqueueBusy": {
+      "ok": {
+        "queueDepth": 1
+      }
+    },
+    "enqueueRefused": {
+      "error": "agent follow-up was not accepted"
+    }
+  },
+  "submitted": [
+    {
+      "content": "next",
+      "mode": "prompt",
+      "priority": "next"
+    },
+    {
+      "content": "again",
+      "mode": "prompt",
+      "priority": "next"
+    }
+  ]
+}

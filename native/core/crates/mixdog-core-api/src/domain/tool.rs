@@ -126,6 +126,23 @@ pub struct Freeform {
     pub grammar: JsonValue,
 }
 
+impl Freeform {
+    /// The freeform half of a definition object: its `freeform` where that is an object, with
+    /// `freeformDescription` (empty when it has none, so the tool's own description is used).
+    pub fn from_definition(definition: &JsonValue) -> Option<Self> {
+        let grammar = definition.get("freeform").filter(|grammar| grammar.is_object())?;
+        let description = definition.get("freeformDescription").and_then(JsonValue::as_str).unwrap_or_default();
+        Some(Self { description: description.to_owned(), grammar: grammar.clone() })
+    }
+
+    /// `isResponsesFreeformTool`: a `{ type: "grammar", syntax, definition }` format.
+    pub fn is_grammar(&self) -> bool {
+        self.grammar.get("type").and_then(JsonValue::as_str) == Some("grammar")
+            && self.grammar.get("syntax").is_some_and(JsonValue::is_string)
+            && self.grammar.get("definition").is_some_and(JsonValue::is_string)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum SurfaceKind {
     Lead,

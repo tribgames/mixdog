@@ -56,9 +56,56 @@ impl RoomDaemon for Daemon {
         self.aborted.lock().unwrap().push(session_id.to_owned());
         Ok(())
     }
-    fn republish(&self, _: &str) {}
     fn republish_catalog(&self) {
         *self.catalog.lock().unwrap() += 1;
+    }
+}
+
+/// The approval calls the room made, the views it published, in order, and the handed-off questions
+/// its members hold (by member).
+#[derive(Default)]
+struct Approvals {
+    answered: StdMutex<Vec<(String, String, Value)>>,
+    questioned: StdMutex<Vec<(String, String)>>,
+    published: StdMutex<Vec<(String, Option<ExchangeView>, Vec<Value>)>>,
+    held: StdMutex<HashMap<String, Vec<Value>>>,
+}
+#[async_trait]
+impl RoomApprovals for Approvals {
+    async fn approve(&self, session_id: &str, answer: ApprovalAnswer) -> Result<bool, String> {
+        self.answered.lock().unwrap().push((session_id.to_owned(), answer.request.0, answer.result));
+        Ok(true)
+    }
+    async fn answer_question(&self, member_session: &str, answer: ApprovalAnswer) -> Result<bool, String> {
+        self.questioned.lock().unwrap().push((member_session.to_owned(), answer.request.0));
+        Ok(true)
+    }
+    fn member_questions(&self, room_id: &str, members: &[String]) -> Vec<Value> {
+        let held = self.held.lock().unwrap();
+        members
+            .iter()
+            .flat_map(|member| {
+                let session = format!("sess_rmem_{room_id}_{member}");
+                held.get(member).cloned().unwrap_or_default().into_iter().map(move |mut q| {
+                    q["roomMember"] = json!(member);
+                    q["memberSessionId"] = json!(session);
+                    q
+                })
+            })
+            .collect()
+    }
+    fn publish_view(&self, room_session_id: &str, view: Option<ExchangeView>, questions: Vec<Value>) {
+        self.published.lock().unwrap().push((room_session_id.to_owned(), view, questions));
+    }
+}
+
+fn decision(approval: &str) -> ApprovalAnswer {
+    ApprovalAnswer {
+        request: mixdog_core_api::ids::ServerRequestId(approval.to_owned()),
+        connection: mixdog_core_api::ids::ConnectionId(1),
+        device: "desktop".into(),
+        connection_kind: serde_json::from_value(json!("desktop")).unwrap(),
+        result: json!({ "approved": true }),
     }
 }
 
@@ -153,6 +200,7 @@ struct Rig {
     live: Arc<LiveRooms>,
     daemon: Arc<Daemon>,
     sessions: Arc<Sessions>,
+    approvals: Arc<Approvals>,
 }
 
 async fn rig(members: &[&str]) -> Rig {
@@ -160,11 +208,12 @@ async fn rig(members: &[&str]) -> Rig {
     let rooms = Arc::new(Rooms::new(Mem(StdMutex::new(RoomDoc::new()))));
     let input = RoomConfigInput { name: "Plan".into(), members: members.iter().map(|m| (*m).into()).collect(), ..Default::default() };
     rooms.create(&input, "room01", 1).await.unwrap();
-    let (daemon, sessions) = (Arc::new(Daemon::default()), Arc::new(Sessions::default()));
+    let (daemon, sessions, approvals) = (Arc::new(Daemon::default()), Arc::new(Sessions::default()), Arc::new(Approvals::default()));
     let live = LiveRooms::new(
         rooms.clone(),
         RoomPorts {
             daemon: daemon.clone(),
+            approvals: approvals.clone(),
             labels: Arc::new(Labels),
             files: Arc::new(Files),
             sessions: sessions.clone(),
@@ -175,7 +224,98 @@ async fn rig(members: &[&str]) -> Rig {
         },
     );
     live.start(&rooms).await.unwrap();
-    Rig { rooms, live, daemon, sessions }
+    Rig { rooms, live, daemon, sessions, approvals }
+}
+
+/// `scheduler.approve` + `decorate`: the speaking member's approval shows on the room log while
+/// the exchange runs; only that approval is answered, through the member's session, and the room
+/// stops showing it; with no exchange running there is nothing to answer.
+#[tokio::test]
+async fn the_room_answers_only_the_approval_its_speaking_member_shows() {
+    let rig = rig(&["a", "b"]).await;
+    rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
+    assert!(!rig.live.approve("sess_room_room01", decision("ap1")).await.unwrap(), "no exchange runs");
+
+    let host = rig.live.host("room01").unwrap();
+    let state = Arc::new(TurnState::new(Arc::new(crate::rooms::calls::Run::default())));
+    host.track(&state);
+    state.start_speaking("a", "A", "typing_1".into());
+    state.set_member_session("sess_rmem_room01_a");
+    state.set_approval(Some(json!({ "id": "ap1", "name": "shell" })));
+    host.republish();
+    let shown = ExchangeView { speaking: "a".into(), speaking_name: "A".into(), typing_id: "typing_1".into(), approval: Some(json!({ "id": "ap1", "name": "shell" })) };
+    assert_eq!(rig.approvals.published.lock().unwrap().last().cloned(), Some(("sess_room_room01".to_owned(), Some(shown), Vec::new())));
+
+    assert!(!rig.live.approve("sess_room_room01", decision("other")).await.unwrap(), "another id is refused");
+    assert!(rig.live.approve("sess_room_room01", decision("ap1")).await.unwrap());
+    assert_eq!(*rig.approvals.answered.lock().unwrap(), [("sess_rmem_room01_a".to_owned(), "ap1".to_owned(), json!({ "approved": true }))]);
+    assert_eq!(state.approval(), None);
+    let after = rig.approvals.published.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(after.1.map(|view| view.approval), Some(None), "published again without the approval");
+    assert!(!rig.live.approve("sess_room_room01", decision("ap1")).await.unwrap(), "never a second answer");
+
+    assert!(host.untrack(&state));
+    host.republish();
+    assert_eq!(rig.approvals.published.lock().unwrap().last().cloned(), Some(("sess_room_room01".to_owned(), None, Vec::new())));
+}
+
+/// A member's approval resolved in its own thread (answered by a client on the room log, the
+/// v2 path): the room stops showing it at once and republishes; another id changes nothing.
+#[tokio::test]
+async fn a_member_approval_resolved_in_its_thread_leaves_the_room_at_once() {
+    let rig = rig(&["a", "b"]).await;
+    rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
+    let host = rig.live.host("room01").unwrap();
+    let state = Arc::new(TurnState::new(Arc::new(crate::rooms::calls::Run::default())));
+    host.track(&state);
+    state.start_speaking("a", "A", "typing_1".into());
+    state.set_member_session("sess_rmem_room01_a");
+    state.set_approval(Some(json!({ "id": "7", "name": "shell" })));
+    let published = || rig.approvals.published.lock().unwrap().len();
+    let before = published();
+    rig.live.member_resolved("room01", "8");
+    assert_eq!((published(), state.approval().is_some()), (before, true), "another approval");
+    rig.live.member_resolved("room01", "7");
+    assert_eq!(state.approval(), None);
+    let (_, view, _) = rig.approvals.published.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(view.map(|view| view.approval), Some(None));
+}
+
+/// `memberQuestions` (`agent-rooms.ts:424-451`): the questions of the sessions the members handed
+/// work to show on the room log, each tagged with its member, whether or not an exchange runs.
+/// One of them is answered through that member's own session, even while another member speaks,
+/// and leaves the card list at once. A changed list is published again (`noteMemberRows`), and
+/// an answered id is forgotten once the member's list drops it.
+#[tokio::test]
+async fn a_handed_off_question_shows_on_the_room_and_is_answered_through_its_member() {
+    let rig = rig(&["a", "b"]).await;
+    rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
+    rig.approvals.held.lock().unwrap().insert("b".into(), vec![json!({ "id": "q1", "kind": "question" }), json!({ "id": "q2", "kind": "question" })]);
+    rig.live.republish_room("room01");
+    let (_, view, questions) = rig.approvals.published.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(view, None, "no exchange runs");
+    let tagged = |id: &str| json!({ "id": id, "kind": "question", "roomMember": "b", "memberSessionId": "sess_rmem_room01_b" });
+    assert_eq!(questions, [tagged("q1"), tagged("q2")]);
+
+    // Another member speaks; the question is still answered through `b`'s own session.
+    let host = rig.live.host("room01").unwrap();
+    let state = Arc::new(TurnState::new(Arc::new(crate::rooms::calls::Run::default())));
+    host.track(&state);
+    state.start_speaking("a", "A", "typing_1".into());
+    state.set_member_session("sess_rmem_room01_a");
+    assert!(rig.live.approve("sess_room_room01", decision("q1")).await.unwrap());
+    assert_eq!(*rig.approvals.questioned.lock().unwrap(), [("sess_rmem_room01_b".to_owned(), "q1".to_owned())]);
+    assert!(rig.approvals.answered.lock().unwrap().is_empty(), "not the speaking member's approval");
+    let (_, _, questions) = rig.approvals.published.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(questions, [tagged("q2")], "the answered card leaves at once");
+
+    // The member's list drops it: the answered id is forgotten, so a new question of that id shows.
+    rig.approvals.held.lock().unwrap().insert("b".into(), vec![json!({ "id": "q2", "kind": "question" })]);
+    rig.live.republish_room("room01");
+    rig.approvals.held.lock().unwrap().insert("b".into(), vec![json!({ "id": "q1", "kind": "question" }), json!({ "id": "q2", "kind": "question" })]);
+    rig.live.republish_room("room01");
+    let (_, _, questions) = rig.approvals.published.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(questions, [tagged("q1"), tagged("q2")]);
 }
 
 #[tokio::test]
@@ -268,6 +408,7 @@ async fn a_restart_marks_a_cut_off_exchange_interrupted_and_stops_its_members() 
         rooms.clone(),
         RoomPorts {
             daemon: daemon.clone(),
+            approvals: Arc::new(Approvals::default()),
             labels: Arc::new(Labels),
             files: Arc::new(Files),
             sessions,

@@ -557,6 +557,7 @@ mod tests {
                 description: "Read a value".into(),
                 input_schema: json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}),
                 defer_loading: false,
+                freeform: None,
             }],
             options: RequestOptions::default(),
         };
@@ -601,6 +602,7 @@ mod tests {
             description: String::new(),
             input_schema: schema,
             defer_loading: false,
+            freeform: None,
         };
         let good = json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]});
         let dangling = json!({"type":"object","properties":{"x":{"$ref":"#/$defs/missing"}}});

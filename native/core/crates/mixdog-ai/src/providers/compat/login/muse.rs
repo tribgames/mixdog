@@ -28,7 +28,8 @@ use crate::oauth::device;
 use crate::oauth::device::Poll;
 use crate::oauth::device::Schedule;
 use crate::oauth::http::failed;
-use crate::oauth::http::scrub;
+use crate::oauth::scrub::muse_excerpt;
+use crate::oauth::scrub::muse_prefix;
 use crate::oauth::start_session;
 use crate::oauth::CredentialFile;
 use crate::providers::compat::creds::MuseCodeCredentials;
@@ -75,7 +76,7 @@ fn device_authorization(reply: &Reply) -> Result<DeviceAuthorization, LoginFailu
     if !reply.ok() {
         return Err(failed(
             "device_auth",
-            format!("device authorization {}: {}", reply.status, scrub(&reply.text(), &[], 300)),
+            format!("device authorization {}: {}", reply.status, muse_prefix(&reply.text(), &[], 300)),
         ));
     }
     let doc = reply.json().unwrap_or(JsonValue::Null);
@@ -117,7 +118,7 @@ fn classify_poll(reply: &Reply, device_code: &str) -> Poll<String> {
         let description = doc.get("error_description").and_then(JsonValue::as_str).unwrap_or("");
         let joined = [error, description].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(": ");
         let shown = if joined.is_empty() { reply.text() } else { joined };
-        scrub(&shown, &[device_code], 300)
+        muse_prefix(&shown, &[device_code], 300)
     };
     if !known && TRANSIENT_STATUSES.contains(&reply.status) {
         return Poll::Transient {
@@ -236,7 +237,7 @@ async fn mint_key(http: &Http, access_token: &str) -> Result<MuseCodeCredentials
     )
     .await?;
     if !reply.ok() {
-        let detail = scrub(mixdog_js::js_trim(&reply.text()), &[access_token], 500);
+        let detail = muse_excerpt(&reply.text(), &[access_token], 500);
         return Err(failed("token_exchange", format!("key request {}: {detail}", reply.status)));
     }
     let doc = reply

@@ -57,6 +57,7 @@ fn lookup_tool() -> ToolDefinition {
             "required": ["key"],
         }),
         defer_loading: false,
+        freeform: None,
     }
 }
 
@@ -888,7 +889,7 @@ mod responses_heads {
     }
 
     fn tool_def(name: &str, description: &str, schema: JsonValue) -> ToolDefinition {
-        ToolDefinition { name: name.into(), description: description.into(), input_schema: schema, defer_loading: false }
+        ToolDefinition { name: name.into(), description: description.into(), input_schema: schema, defer_loading: false, freeform: None }
     }
 
     fn session_tools() -> Vec<ToolDefinition> {
@@ -1791,6 +1792,7 @@ fn a_gemini_model_behind_a_compat_route_is_held_to_googles_rule() {
                 description: t["description"].as_str().expect("description").into(),
                 input_schema: t["inputSchema"].clone(),
                 defer_loading: false,
+                freeform: None,
             })
             .collect();
         request.options.on_tool_excluded = Some(ToolExclusionSink(Arc::new(move |report: ToolExclusionReport| {

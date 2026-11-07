@@ -426,6 +426,7 @@ fn payload_of(input: &Value) -> AgentDispatchPayload {
         task_type: option("taskType"),
         source_type: option("sourceType"),
         brief: payload["options"]["brief"] != false,
+        permission: payload["options"]["permission"].as_str().map(str::to_owned),
         prompt: mixdog_js::value_to_string(&params["prompt"]),
         preset: Some(params["preset"].clone()).filter(|preset| !preset.is_null()),
         cwd: params["cwd"].as_str().map(str::to_owned),
@@ -491,4 +492,19 @@ async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
     verify("run-table-cleared", go(&host, &case("run-table-cleared")["outcome"]["input"]).await);
     let closed = go(&closed_host, &case("host-closed")["outcome"]["input"]).await;
     assert_eq!(closed.get("error"), case("host-closed")["outcome"].get("error"), "host-closed");
+}
+
+/// `session-prep.mjs:75-78`: `opts.permission ?? (isPoolC ? hidden.permission || 'read' : null)`, resolved
+/// like `prepareAgentSession`: the factory's permission wins for a public agent, a hidden role asks for its
+/// own (`read` when it declares none) and an empty option is as good as none.
+#[test]
+fn the_dispatch_permission_is_the_options_else_the_hidden_roles() {
+    let hidden = serde_json::json!({ "permission": "full" });
+    assert_eq!(super::session_permission("my-agent", None, Some("mcp")), Some("mcp".to_owned()));
+    assert_eq!(super::session_permission("my-agent", None, None), None);
+    assert_eq!(super::session_permission("my-agent", Some(&hidden), None), Some("full".to_owned()));
+    assert_eq!(super::session_permission("my-agent", Some(&serde_json::json!({})), None), Some("read".to_owned()));
+    // `??` keeps an empty string, which `resolveAgentSessionPermission` then ignores: only the
+    // internal agent's own declaration (none for `my-agent`) is left.
+    assert_eq!(super::session_permission("my-agent", Some(&hidden), Some("")), None);
 }

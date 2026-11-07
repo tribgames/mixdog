@@ -1,0 +1,2725 @@
+{
+  "domain": "antigravity-usage",
+  "recorder": "benchmarks/rust-core/recorders/record-antigravity-usage.mjs",
+  "now": 1800000000000,
+  "flows": [
+    {
+      "name": "every bucket",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.75,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  },
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.5,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  }
+                ]
+              },
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-argon-wtu-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.9,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  }
+                ]
+              },
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "3p-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.2,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  },
+                  {
+                    "bucketId": "3p-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.1,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 25,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary",
+            "except": [
+              "claude",
+              "gpt",
+              "argon"
+            ]
+          },
+          {
+            "label": "7D",
+            "usedPct": 50,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary",
+            "except": [
+              "claude",
+              "gpt",
+              "argon"
+            ]
+          },
+          {
+            "label": "7D Argon",
+            "usedPct": 10,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "argon"
+            ]
+          },
+          {
+            "label": "5H Claude/GPT",
+            "usedPct": 80,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "claude",
+              "gpt"
+            ]
+          },
+          {
+            "label": "7D Claude/GPT",
+            "usedPct": 90,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "claude",
+              "gpt"
+            ]
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "the Gemini pair alone gates everything",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.75,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  },
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 25,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary"
+          },
+          {
+            "label": "7D",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "the third-party pair claims its models from Gemini",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  },
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              },
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "3p-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary",
+            "except": [
+              "claude",
+              "gpt"
+            ]
+          },
+          {
+            "label": "7D",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary",
+            "except": [
+              "claude",
+              "gpt"
+            ]
+          },
+          {
+            "label": "5H Claude/GPT",
+            "usedPct": 50,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "claude",
+              "gpt"
+            ]
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "a lone third-party weekly bucket",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "3p-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.4,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "7D Claude/GPT",
+            "usedPct": 60,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "claude",
+              "gpt"
+            ]
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "the Argon bucket claims Argon",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              },
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-argon-wtu-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.3,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary",
+            "except": [
+              "argon"
+            ]
+          },
+          {
+            "label": "7D Argon",
+            "usedPct": 70,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "argon"
+            ]
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "Argon alone",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-argon-wtu-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.3
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "7D Argon",
+            "usedPct": 70,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "argon"
+            ]
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "remaining fractions",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0
+                  },
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 1
+                  }
+                ]
+              },
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-argon-wtu-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.123456
+                  },
+                  {
+                    "bucketId": "3p-5h",
+                    "window": "5h",
+                    "remainingFraction": 1.5
+                  },
+                  {
+                    "bucketId": "3p-weekly",
+                    "window": "weekly",
+                    "remainingFraction": -0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 100,
+            "source": "antigravity-quota-summary",
+            "except": [
+              "claude",
+              "gpt",
+              "argon"
+            ]
+          },
+          {
+            "label": "7D",
+            "usedPct": 0,
+            "source": "antigravity-quota-summary",
+            "except": [
+              "claude",
+              "gpt",
+              "argon"
+            ]
+          },
+          {
+            "label": "7D Argon",
+            "usedPct": 87.65,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "argon"
+            ]
+          },
+          {
+            "label": "5H Claude/GPT",
+            "usedPct": 0,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "claude",
+              "gpt"
+            ]
+          },
+          {
+            "label": "7D Claude/GPT",
+            "usedPct": 100,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "claude",
+              "gpt"
+            ]
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "unusable fractions drop the row",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": "0.5"
+                  },
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "weekly",
+                    "remainingFraction": null
+                  },
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "weekly"
+                  },
+                  {
+                    "bucketId": "gemini-argon-wtu-weekly",
+                    "window": "weekly",
+                    "remainingFraction": null
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": []
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "reset forms",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5,
+                    "resetTime": ""
+                  },
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.5,
+                    "resetTime": 12345
+                  }
+                ]
+              },
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-argon-wtu-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.5,
+                    "resetTime": "soon"
+                  },
+                  {
+                    "bucketId": "3p-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5,
+                    "resetTime": "1970-01-01T00:00:00Z"
+                  },
+                  {
+                    "bucketId": "3p-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.5,
+                    "resetTime": "1900000000"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary",
+            "except": [
+              "claude",
+              "gpt",
+              "argon"
+            ]
+          },
+          {
+            "label": "7D",
+            "usedPct": 50,
+            "resetAt": 327403350000000,
+            "source": "antigravity-quota-summary",
+            "except": [
+              "claude",
+              "gpt",
+              "argon"
+            ]
+          },
+          {
+            "label": "7D Argon",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "argon"
+            ]
+          },
+          {
+            "label": "5H Claude/GPT",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "claude",
+              "gpt"
+            ]
+          },
+          {
+            "label": "7D Claude/GPT",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary",
+            "models": [
+              "claude",
+              "gpt"
+            ]
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "a null and a false reset",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5,
+                    "resetTime": null
+                  },
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.5,
+                    "resetTime": false
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          },
+          {
+            "label": "7D",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "the bucket id with the wrong window",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "weekly",
+                    "remainingFraction": 0.5
+                  },
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  },
+                  {
+                    "bucketId": "3p-5h",
+                    "window": "weekly",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": []
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "the first matching bucket wins",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.1,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  }
+                ]
+              },
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.9,
+                    "resetTime": "2027-01-01T00:00:00Z"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 90,
+            "resetAt": 1798761600000,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "buckets across groups",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              },
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-weekly",
+                    "window": "weekly",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          },
+          {
+            "label": "7D",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "odd groups and buckets",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              null,
+              5,
+              [],
+              {
+                "buckets": "x"
+              },
+              {
+                "buckets": [
+                  null,
+                  3,
+                  [],
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "groups is not an array",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": {
+              "a": 1
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": []
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "an empty summary",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": []
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "a null summary",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "text": "null"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": []
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "an array summary",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "text": "[]"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": []
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "not JSON",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "text": "nope"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "Unexpected token 'o', \"nope\" is not valid JSON",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "an empty body",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "text": ""
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "Unexpected end of JSON input",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "rejected token",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 401,
+          "text": "denied"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[antigravity-oauth] retrieveUserQuotaSummary failed: 401 denied",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "server error with a long body",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 500,
+          "text": "boom xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[antigravity-oauth] retrieveUserQuotaSummary failed: 500 boom xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "an error body that names a token",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 403,
+          "text": "{\"error\":\"no\",\"access_token\":\"ya29.secret\",\"n\":1}"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[antigravity-oauth] retrieveUserQuotaSummary failed: 403 {\"error\":\"no\",\"access_token\":\"[REDACTED]\",\"n\":1}",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "an error body with a bearer token",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 500,
+          "text": "Authorization: Bearer abc.def-123 failed"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[antigravity-oauth] retrieveUserQuotaSummary failed: 500 Authorization: Bearer [REDACTED] failed",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "an empty error body",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 503,
+          "text": ""
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[antigravity-oauth] retrieveUserQuotaSummary failed: 503 ",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "transport failure",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "fail": true
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "fetch failed",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "no project id",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "a camelCase project id",
+      "creds": {
+        "access_token": "a",
+        "refresh_token": "r",
+        "expiresAt": 1800003600000,
+        "projectId": "proj-2"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer a"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-2\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "a",
+        "refresh_token": "r",
+        "expiresAt": 1800003600000,
+        "projectId": "proj-2"
+      }
+    },
+    {
+      "name": "expiry in seconds",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "no expiry is not refreshed",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 0,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 0,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "an expiring token is refreshed first",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800000060000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://oauth2.googleapis.com/token",
+          "status": 200,
+          "body": {
+            "access_token": "ya29.access-2",
+            "expires_in": 3600
+          }
+        },
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://oauth2.googleapis.com/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Content-Type",
+              "application/x-www-form-urlencoded"
+            ]
+          ],
+          "body": "<form>",
+          "redirect": "error",
+          "timeoutMs": 30000
+        },
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-2"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-2",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800003600000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "a refresh that fails on a still valid token",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800000060000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://oauth2.googleapis.com/token",
+          "status": 500,
+          "text": "down"
+        },
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "status": 200,
+          "body": {
+            "groups": [
+              {
+                "name": "g",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-5h",
+                    "window": "5h",
+                    "remainingFraction": 0.5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://oauth2.googleapis.com/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Content-Type",
+              "application/x-www-form-urlencoded"
+            ]
+          ],
+          "body": "<form>",
+          "redirect": "error",
+          "timeoutMs": 30000
+        },
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+          "method": "POST",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer ya29.access-1"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/9.9.9 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ]
+          ],
+          "body": "{\"project\":\"proj-1\"}",
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "antigravity-oauth",
+        "model": null,
+        "source": "antigravity-quota-summary",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 50,
+            "source": "antigravity-quota-summary"
+          }
+        ]
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800000060000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "a refresh the server rejects on a still valid token is refused",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800000060000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://oauth2.googleapis.com/token",
+          "status": 400,
+          "text": "{\"error\":\"invalid_grant\"}"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://oauth2.googleapis.com/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Content-Type",
+              "application/x-www-form-urlencoded"
+            ]
+          ],
+          "body": "<form>",
+          "redirect": "error",
+          "timeoutMs": 30000
+        }
+      ],
+      "error": {
+        "message": "[antigravity-oauth] token refresh 400: {\"error\":\"invalid_grant\"}",
+        "status": 400,
+        "reauthRequired": true
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1800000060000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "an expired token and a failing refresh",
+      "creds": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1799999999000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      },
+      "replies": [
+        {
+          "url": "https://oauth2.googleapis.com/token",
+          "status": 500,
+          "text": "down"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://oauth2.googleapis.com/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Content-Type",
+              "application/x-www-form-urlencoded"
+            ]
+          ],
+          "body": "<form>",
+          "redirect": "error",
+          "timeoutMs": 30000
+        }
+      ],
+      "error": {
+        "message": "[antigravity-oauth] token refresh 500: down",
+        "status": 500,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "ya29.access-1",
+        "refresh_token": "refresh-1",
+        "expires_at": 1799999999000,
+        "project_id": "proj-1",
+        "tier_id": "free-tier",
+        "email": "a@b.test",
+        "user_id": "u1"
+      }
+    },
+    {
+      "name": "no credentials file",
+      "creds": null,
+      "replies": [],
+      "wire": [],
+      "error": {
+        "message": "[antigravity-oauth] not signed in — run /login",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": null
+    },
+    {
+      "name": "a file without a refresh token",
+      "creds": {
+        "access_token": "a"
+      },
+      "replies": [],
+      "wire": [],
+      "error": {
+        "message": "[antigravity-oauth] not signed in — run /login",
+        "status": null,
+        "reauthRequired": false
+      },
+      "stored": {
+        "access_token": "a"
+      }
+    }
+  ]
+}

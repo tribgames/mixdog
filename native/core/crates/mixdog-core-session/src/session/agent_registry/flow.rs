@@ -252,6 +252,9 @@ pub struct SessionTurns {
     /// The background shells a stalled turn's stop ended (`takeStoppedShellJobs`); without it a
     /// handoff names none.
     shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
+    /// The registry whose cancellations a turn is admitted against (`registry.assertAdmission`,
+    /// `agent-turns.mjs:96,108,116`); a turn with none is not checked.
+    admission: Option<Arc<AgentRegistry>>,
 }
 
 /// `assistantMessageText(content)`: a string, else the `text`/`output_text` parts joined by a
@@ -297,7 +300,23 @@ fn provider_replay_text(replay: Option<&Value>) -> String {
 
 impl SessionTurns {
     pub fn new(directory: Arc<SessionDirectory>, release: Arc<dyn RuntimeRelease>) -> Self {
-        Self { directory, release, shells: None }
+        Self { directory, release, shells: None, admission: None }
+    }
+
+    /// Admits each turn against the agent registry's cancellations: a turn on a session being
+    /// cancelled, or cancelled since the turn began, is refused with
+    /// `agent session <id> was cancelled during admission`.
+    pub fn with_admission(mut self, registry: Arc<AgentRegistry>) -> Self {
+        self.admission = Some(registry);
+        self
+    }
+
+    /// `registry.assertAdmission(sessionId, epoch)`.
+    fn admitted(&self, session_id: &str, epoch: Option<u64>) -> Result<Option<u64>, TurnError> {
+        match &self.admission {
+            Some(registry) => registry.assert_admission(session_id, epoch).map(Some).map_err(TurnError::new),
+            None => Ok(None),
+        }
     }
 
     /// The shell control the progress watchdog's stop reaps through (the one runtime the turns'
@@ -386,17 +405,23 @@ impl SessionTurns {
     async fn turn(&self, request: TurnRequest, caller_watchdog: bool) -> Result<TurnResult, TurnError> {
         let thread = ThreadId::from(clean_str(&request.session_id).as_str());
         let ctx = CallContext::internal("agent-turn");
+        // `const cancelEpoch = registry.assertAdmission(sessionId)` (`agent-turns.mjs:96`).
+        let epoch = self.admitted(thread.as_str(), None)?;
         let handle = self
             .directory
             .open_handle(&thread, &ctx)
             .await
             .map_err(|error| TurnError::new(format!("agent session {} is unavailable: {error:?}", request.session_id)))?;
+        // After `entryForSession` (`:108`), and again before the turn is submitted (`:116`, after
+        // the transcript length is read).
+        self.admitted(thread.as_str(), epoch)?;
         let submission = request.hooks.submission_id.clone();
         let op = OpId::from(format!("agent-turn:{}", if submission.is_empty() { uuid::Uuid::new_v4().to_string() } else { submission.clone() }));
         let input = TurnInput {
             prompt: PromptContent::Text(request.prompt.clone()),
             options: Some(SubmitOptions { client_submission_id: Some(submission).filter(|id| !id.is_empty()), ..SubmitOptions::default() }),
         };
+        self.admitted(thread.as_str(), epoch)?;
         let (done, outcome) = oneshot::channel();
         *handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()) = Some(AgentStart {
             content: handoff_content(&request.prompt, &request.attachments),

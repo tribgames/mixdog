@@ -94,7 +94,7 @@ pub struct CursorTarget {
     pub conversation_id: String,
 }
 
-fn rpc_headers(access_token: &str, client_version: &str, unary: bool) -> Vec<(String, String)> {
+pub(crate) fn rpc_headers(access_token: &str, client_version: &str, unary: bool) -> Vec<(String, String)> {
     let mut headers = vec![
         (
             "content-type".to_owned(),
@@ -345,7 +345,7 @@ impl WireCodec for CursorCodecStub {
 
 /// Connect framing of a unary `application/proto` answer: some replies are
 /// wrapped in one envelope.
-fn unwrap_unary_body(body: &[u8]) -> &[u8] {
+pub(crate) fn unwrap_unary_body(body: &[u8]) -> &[u8] {
     if body.len() >= 5 {
         let length = u32::from_be_bytes(body[1..5].try_into().expect("4 bytes")) as usize;
         if body[0] & (frame::COMPRESSED | frame::END_STREAM) == 0 && body.len() >= length + 5 {

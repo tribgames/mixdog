@@ -1,0 +1,5881 @@
+{
+  "domain": "muse-code-usage",
+  "recorder": "benchmarks/rust-core/recorders/record-muse-code-usage.mjs",
+  "now": 1800000000000,
+  "flows": [
+    {
+      "name": "both windows",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "extra fields stay in raw, the key does not",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            },
+            "plan": "x",
+            "subs_tier_id": "T",
+            "zeta": 1,
+            "alpha": {
+              "a": 1
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              },
+              "plan": "x",
+              "subs_tier_id": "T",
+              "zeta": 1,
+              "alpha": {
+                "a": 1
+              }
+            },
+            "rawKeys": [
+              "alpha",
+              "is_subs_active",
+              "plan",
+              "subs_tier_id",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id",
+              "zeta"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "tier from the id",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": null,
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            },
+            "subs_tier_id": " tier-7 "
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "tier-7",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "tier-7",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "tier-7",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": null,
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              },
+              "subs_tier_id": " tier-7 "
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_id",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "no tier",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": "  ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            },
+            "subs_tier_id": null
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "resetAt": 1900000000000
+              }
+            ],
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": "  ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              },
+              "subs_tier_id": null
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_id",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "identity falls back to the stored account",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": "  ",
+            "user_email": "",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "stored@b.test",
+            "accountId": "acct-1",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": "  ",
+              "user_email": "",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "identity falls back to the email",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "",
+        "email": ""
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": "",
+            "user_email": " A@B.C ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "a@b.c",
+            "accountId": "a@b.c",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": "",
+              "user_email": " A@B.C ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "no identity at all",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "",
+        "email": ""
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": "",
+            "user_email": "",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": "",
+              "user_email": "",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "stored email when the payload names none",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "stored@b.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "rolling window default",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 10
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "rolling",
+                "label": "W",
+                "longLabel": "Rolling Window",
+                "source": "muse-code-key",
+                "usedPct": 10,
+                "usedFraction": 0.1,
+                "remainingFraction": 0.9,
+                "status": "ok",
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 10
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "rolling window 90 minutes",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 10,
+                "window_duration_mins": 90
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "90m",
+                "label": "90M",
+                "longLabel": "90 Minutes",
+                "source": "muse-code-key",
+                "usedPct": 10,
+                "usedFraction": 0.1,
+                "remainingFraction": 0.9,
+                "status": "ok",
+                "durationMs": 5400000,
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 10,
+                  "window_duration_mins": 90
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "rolling window 60 minutes",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 10,
+                "window_duration_mins": 60
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "60m",
+                "label": "1H",
+                "longLabel": "1 Hour",
+                "source": "muse-code-key",
+                "usedPct": 10,
+                "usedFraction": 0.1,
+                "remainingFraction": 0.9,
+                "status": "ok",
+                "durationMs": 3600000,
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 10,
+                  "window_duration_mins": 60
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "rolling window 1 minute",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 10,
+                "window_duration_mins": 1
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "1m",
+                "label": "1M",
+                "longLabel": "1 Minute",
+                "source": "muse-code-key",
+                "usedPct": 10,
+                "usedFraction": 0.1,
+                "remainingFraction": 0.9,
+                "status": "ok",
+                "durationMs": 60000,
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 10,
+                  "window_duration_mins": 1
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "rolling window 59.6 minutes",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 10,
+                "window_duration_mins": 59.6
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "60m",
+                "label": "1H",
+                "longLabel": "1 Hour",
+                "source": "muse-code-key",
+                "usedPct": 10,
+                "usedFraction": 0.1,
+                "remainingFraction": 0.9,
+                "status": "ok",
+                "durationMs": 3576000,
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 10,
+                  "window_duration_mins": 59.6
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "rolling window 0 and negative minutes",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 10,
+                "window_duration_mins": 0
+              }
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 10,
+                "window_duration_mins": -5
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "rolling",
+                "label": "W",
+                "longLabel": "Rolling Window",
+                "source": "muse-code-key",
+                "usedPct": 10,
+                "usedFraction": 0.1,
+                "remainingFraction": 0.9,
+                "status": "ok",
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 10,
+                  "window_duration_mins": 0
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 400000
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000400000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000400000,
+            "quotaWindows": [
+              {
+                "id": "rolling",
+                "label": "W",
+                "longLabel": "Rolling Window",
+                "source": "muse-code-key",
+                "usedPct": 10,
+                "usedFraction": 0.1,
+                "remainingFraction": 0.9,
+                "status": "ok",
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 10,
+                  "window_duration_mins": -5
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "usage is clamped and warns",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 250,
+                "window_duration_mins": 300
+              },
+              "weekly": {
+                "used_percent": 90
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 100,
+                "usedFraction": 1,
+                "remainingFraction": 0,
+                "status": "exhausted",
+                "durationMs": 18000000,
+                "tier": "Pro"
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 90,
+                "usedFraction": 0.9,
+                "remainingFraction": 0.09999999999999998,
+                "status": "warning",
+                "durationMs": 604800000,
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 250,
+                  "window_duration_mins": 300
+                },
+                "weekly": {
+                  "used_percent": 90
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "exhausted weekly",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "weekly": {
+                "used_percent": 100
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 100,
+                "usedFraction": 1,
+                "remainingFraction": 0,
+                "status": "exhausted",
+                "durationMs": 604800000,
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "weekly": {
+                  "used_percent": 100
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a negative use drops the window",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": -1,
+                "window_duration_mins": 300
+              },
+              "weekly": {
+                "used_percent": 5
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 5,
+                "usedFraction": 0.05,
+                "remainingFraction": 0.95,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": -1,
+                  "window_duration_mins": 300
+                },
+                "weekly": {
+                  "used_percent": 5
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "reset forms",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 1,
+                "window_duration_mins": 60,
+                "resets_at": "garbage"
+              },
+              "weekly": {
+                "used_percent": 1,
+                "resets_at": 999999999999
+              }
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 1,
+                "window_duration_mins": 60,
+                "resets_at": 0
+              },
+              "weekly": {
+                "used_percent": 1,
+                "resets_at": "2027-03-01T10:00:00Z"
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "60m",
+                "label": "1H",
+                "longLabel": "1 Hour",
+                "source": "muse-code-key",
+                "usedPct": 1,
+                "usedFraction": 0.01,
+                "remainingFraction": 0.99,
+                "status": "ok",
+                "durationMs": 3600000,
+                "tier": "Pro"
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 1,
+                "usedFraction": 0.01,
+                "remainingFraction": 0.99,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 999999999999000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 1,
+                  "window_duration_mins": 60,
+                  "resets_at": "garbage"
+                },
+                "weekly": {
+                  "used_percent": 1,
+                  "resets_at": 999999999999
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 400000
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000400000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000400000,
+            "quotaWindows": [
+              {
+                "id": "60m",
+                "label": "1H",
+                "longLabel": "1 Hour",
+                "source": "muse-code-key",
+                "usedPct": 1,
+                "usedFraction": 0.01,
+                "remainingFraction": 0.99,
+                "status": "ok",
+                "durationMs": 3600000,
+                "tier": "Pro"
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 1,
+                "usedFraction": 0.01,
+                "remainingFraction": 0.99,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1803895200000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 1,
+                  "window_duration_mins": 60,
+                  "resets_at": 0
+                },
+                "weekly": {
+                  "used_percent": 1,
+                  "resets_at": "2027-03-01T10:00:00Z"
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "no usage windows",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {}
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "no usage at all",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro "
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "null usage",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": null
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "a string percent invalidates the payload",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": "5"
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "a null reset invalidates the payload",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 5,
+                "resets_at": null
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "an array usage invalidates the payload",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": []
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "a numeric api_key invalidates the payload",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": 5,
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "a null api_key invalidates the payload",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": null,
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "a non-boolean flag invalidates the payload",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": "yes",
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "a text action_url is fine",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            },
+            "action_url": "https://x.test",
+            "require_payment": false,
+            "require_payment_action_url": "u"
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              },
+              "action_url": "https://x.test",
+              "require_payment": false,
+              "require_payment_action_url": "u"
+            },
+            "rawKeys": [
+              "action_url",
+              "is_subs_active",
+              "require_payment",
+              "require_payment_action_url",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a numeric action_url invalidates the payload",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            },
+            "action_url": 5
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "an array body",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": []
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "not JSON",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "text": "nope"
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "inactive subscription, then the cooldown",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": false,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "error": {
+            "message": "[muse-code-oauth] Muse Code subscription is inactive — open /providers in mixdog to sign in again",
+            "status": 403,
+            "reauthRequired": true
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 299999
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000299999,
+          "wire": [],
+          "error": {
+            "message": "[muse-code-oauth] Muse Code subscription is inactive — open /providers in mixdog to sign in again",
+            "status": 403,
+            "reauthRequired": true
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 2
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000300001,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000300001,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "rejected session 401",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 401,
+          "text": "no"
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "error": {
+            "message": "[muse-code-oauth] account session rejected (401) — open /providers in mixdog to sign in again",
+            "status": 401,
+            "reauthRequired": true
+          }
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [],
+          "error": {
+            "message": "[muse-code-oauth] account session rejected (401) — open /providers in mixdog to sign in again",
+            "status": 401,
+            "reauthRequired": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "rejected session 403",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 403,
+          "text": "no"
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "error": {
+            "message": "[muse-code-oauth] account session rejected (403) — open /providers in mixdog to sign in again",
+            "status": 403,
+            "reauthRequired": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "server error, then the cooldown",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 500,
+          "text": "boom"
+        },
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [],
+          "value": null
+        },
+        {
+          "op": "advance",
+          "ms": 300001
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000300001,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000300001,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "transport failure",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "fail": true
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "the last good snapshot survives a failure",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        },
+        {
+          "status": 500,
+          "text": "x"
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 1000
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000001000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000001000,
+          "wire": [],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 300000
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000301000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a rejection clears the last good snapshot",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        },
+        {
+          "status": 401,
+          "text": "x"
+        },
+        {
+          "status": 500,
+          "text": "x"
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000001,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "error": {
+            "message": "[muse-code-oauth] account session rejected (401) — open /providers in mixdog to sign in again",
+            "status": 401,
+            "reauthRequired": true
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 300001
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000300002,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "a success clears the failure",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 500,
+          "text": "x"
+        },
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "weekly": {
+                "used_percent": 7
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        },
+        {
+          "op": "advance",
+          "ms": 300001
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000300001,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000300001,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000300001,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000300001,
+            "quotaWindows": [
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 7,
+                "usedFraction": 0.07,
+                "remainingFraction": 0.9299999999999999,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro"
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "weekly": {
+                  "used_percent": 7
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a changed sign-in drops the cooldown",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 500,
+          "text": "x"
+        },
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        },
+        {
+          "op": "login",
+          "creds": {
+            "accessToken": "meta-token-2",
+            "apiKey": "muse-key-1",
+            "accountId": "acct-1",
+            "email": "stored@b.test"
+          }
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-2"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a changed sign-in drops the last good snapshot",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        },
+        {
+          "status": 500,
+          "text": "x"
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "login",
+          "creds": {
+            "accessToken": "meta-token-2",
+            "apiKey": "muse-key-1",
+            "accountId": "acct-1",
+            "email": "stored@b.test"
+          }
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-2"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "a changed account id drops the state",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 500,
+          "text": "x"
+        },
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        },
+        {
+          "op": "login",
+          "creds": {
+            "accessToken": "meta-token-1",
+            "apiKey": "muse-key-1",
+            "accountId": "acct-2",
+            "email": "stored@b.test"
+          }
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "the same sign-in rewritten keeps the state",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        },
+        {
+          "status": 500,
+          "text": "x"
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "login",
+          "creds": {
+            "accessToken": "meta-token-1",
+            "apiKey": "muse-key-1",
+            "accountId": "acct-1",
+            "email": "stored@b.test"
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000001,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a sign-out nobody read keeps the state",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        },
+        {
+          "status": 500,
+          "text": "x"
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "logout"
+        },
+        {
+          "op": "login",
+          "creds": {
+            "accessToken": "meta-token-1",
+            "apiKey": "muse-key-1",
+            "accountId": "acct-1",
+            "email": "stored@b.test"
+          }
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a sign-out that was read drops the state",
+      "creds": {
+        "accessToken": "meta-token-1",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        },
+        {
+          "status": 500,
+          "text": "x"
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        },
+        {
+          "op": "logout"
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [],
+          "error": {
+            "message": "[muse-code-oauth] credentials not found — open /providers in mixdog to sign in first",
+            "status": null,
+            "reauthRequired": false
+          }
+        },
+        {
+          "op": "login",
+          "creds": {
+            "accessToken": "meta-token-1",
+            "apiKey": "muse-key-1",
+            "accountId": "acct-1",
+            "email": "stored@b.test"
+          }
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer meta-token-1"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "no credentials file",
+      "creds": null,
+      "replies": [],
+      "ops": [
+        {
+          "op": "logout"
+        },
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [],
+          "error": {
+            "message": "[muse-code-oauth] credentials not found — open /providers in mixdog to sign in first",
+            "status": null,
+            "reauthRequired": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "a file without a key",
+      "creds": {
+        "accessToken": "a"
+      },
+      "replies": [],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [],
+          "error": {
+            "message": "[muse-code-oauth] credentials not found — open /providers in mixdog to sign in first",
+            "status": null,
+            "reauthRequired": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "a blank access token",
+      "creds": {
+        "accessToken": "  ",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [],
+          "error": {
+            "message": "[muse-code-oauth] credentials not found — open /providers in mixdog to sign in first",
+            "status": null,
+            "reauthRequired": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "padded credentials are sent as stored",
+      "creds": {
+        "accessToken": " tok ",
+        "apiKey": "muse-key-1",
+        "accountId": "acct-1",
+        "email": "stored@b.test"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": {
+            "api_key": "muse-key-1",
+            "is_subs_active": true,
+            "user_id": " u-9 ",
+            "user_email": " Who@Example.TEST ",
+            "subs_tier_name": " Pro ",
+            "subs_usage": {
+              "window": {
+                "used_percent": 12.345,
+                "window_duration_mins": 300,
+                "resets_at": "2027-01-01T00:00:00Z"
+              },
+              "weekly": {
+                "used_percent": 50,
+                "resets_at": 1900000000
+              }
+            }
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "snapshot",
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.meta.ai/muse-code/key",
+              "method": "POST",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "x-api-version",
+                  "1.0.0"
+                ],
+                [
+                  "Authorization",
+                  "Bearer  tok "
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ]
+              ],
+              "body": "{}",
+              "redirect": "error",
+              "timeoutMs": 20000
+            }
+          ],
+          "value": {
+            "provider": "muse-code-oauth",
+            "model": null,
+            "source": "muse-code-key",
+            "fetchedAt": 1800000000000,
+            "quotaWindows": [
+              {
+                "id": "300m",
+                "label": "5H",
+                "longLabel": "5 Hours",
+                "source": "muse-code-key",
+                "usedPct": 12.35,
+                "usedFraction": 0.12345,
+                "remainingFraction": 0.8765499999999999,
+                "status": "ok",
+                "durationMs": 18000000,
+                "tier": "Pro",
+                "resetAt": 1798761600000
+              },
+              {
+                "id": "1w",
+                "label": "7D",
+                "longLabel": "Weekly",
+                "source": "muse-code-key",
+                "usedPct": 50,
+                "usedFraction": 0.5,
+                "remainingFraction": 0.5,
+                "status": "ok",
+                "durationMs": 604800000,
+                "tier": "Pro",
+                "resetAt": 1900000000000
+              }
+            ],
+            "tier": "Pro",
+            "email": "who@example.test",
+            "accountId": "u-9",
+            "raw": {
+              "is_subs_active": true,
+              "user_id": " u-9 ",
+              "user_email": " Who@Example.TEST ",
+              "subs_tier_name": " Pro ",
+              "subs_usage": {
+                "window": {
+                  "used_percent": 12.345,
+                  "window_duration_mins": 300,
+                  "resets_at": "2027-01-01T00:00:00Z"
+                },
+                "weekly": {
+                  "used_percent": 50,
+                  "resets_at": 1900000000
+                }
+              }
+            },
+            "rawKeys": [
+              "is_subs_active",
+              "subs_tier_name",
+              "subs_usage",
+              "user_email",
+              "user_id"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

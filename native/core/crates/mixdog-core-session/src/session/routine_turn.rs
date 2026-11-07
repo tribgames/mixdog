@@ -76,6 +76,7 @@ impl SessionDirectory {
             content: Value::String(prompt.to_owned()),
             trigger: None,
             hop: (hop > 0).then_some(hop),
+            bot_chain: Vec::new(),
             room_row: None,
             skill_selection: None,
             on_start: Box::new(|| {}),
@@ -103,6 +104,13 @@ impl SessionDirectory {
     /// an idle thread, else rides the queue; false when the thread did not accept it. The turn's
     /// end is read from the session, not awaited.
     pub async fn submit_member_turn(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, room_row: &str) -> bool {
+        self.submit_chained_turn(thread, content, id, hop, &[], room_row).await
+    }
+
+    /// [`Self::submit_member_turn`] for a send that also carries its bot chain
+    /// (`transcriptMeta: { sender: 'lead', hop, botChain }`, `daemon-session-control.mjs:186-195`):
+    /// the turn it starts, or the steering it joins, is in that chain (`bot-hops.mjs:52,70`).
+    pub async fn submit_chained_turn(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], room_row: &str) -> bool {
         let ctx = CallContext::internal("room-turn");
         let Ok(handle) = self.open_handle(thread, &ctx).await else { return false };
         let (done, outcome) = oneshot::channel();
@@ -110,6 +118,7 @@ impl SessionDirectory {
             content: content.clone(),
             trigger: None,
             hop: (hop > 0).then_some(hop),
+            bot_chain: bot_chain.to_vec(),
             room_row: Some(room_row.to_owned()).filter(|row| !row.is_empty()),
             skill_selection: None,
             on_start: Box::new(|| {}),
@@ -151,6 +160,7 @@ impl SessionDirectory {
             content: turn.content.clone(),
             trigger: Some(trigger),
             hop: None,
+            bot_chain: Vec::new(),
             room_row: None,
             skill_selection: Some(turn.skill_selection.clone()),
             on_start,

@@ -1,5 +1,5 @@
 //! The `usage` domain service (`usage-stats-api.mjs`, `provider-usage.mjs`): statistics and the
-//! request log come from the ledger's reader; this service names the sessions behind requests
+//! request log come from the ledger (settled, and its unpriced records refreshed, before a read); this service names the sessions behind requests
 //! and serves the provider quota dashboard.
 
 pub mod dashboard;
@@ -18,7 +18,8 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_ledger::measure::is_conversation_source;
-use mixdog_ledger::reader::UsageReader;
+use mixdog_ledger::error::LedgerError;
+use mixdog_ledger::ledger::UsageLedger;
 use mixdog_ledger::stats::UsageRequestsOptions;
 use mixdog_ledger::stats::UsageStatsOptions;
 use serde_json::Value;
@@ -32,6 +33,19 @@ use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
 
 const DOMAIN: &str = "usage";
+
+/// The usage ledger, asked for at every call as Node asks `getUsageLedger()`: opening it can fail and
+/// the process's ledger path can change, so a service holds this, never one opened ledger.
+pub trait LedgerAccess: Send + Sync {
+    fn ledger(&self) -> Result<Arc<UsageLedger>, LedgerError>;
+}
+
+/// A ledger that is already open.
+impl LedgerAccess for Arc<UsageLedger> {
+    fn ledger(&self) -> Result<Arc<UsageLedger>, LedgerError> {
+        Ok(Arc::clone(self))
+    }
+}
 
 /// Stored session metadata (`title`, `agent`, `ownerSessionId`, `sourceType`) by session id.
 /// WP-SESSION's directory has no such accessor yet.
@@ -65,7 +79,7 @@ fn internal_kind(source: &str) -> String {
 }
 
 pub struct UsageService {
-    reader: Arc<UsageReader>,
+    ledger: Arc<dyn LedgerAccess>,
     sessions: Arc<dyn SessionMetadata>,
     sources: Arc<dyn UsageSources>,
     accounts: AccountStore,
@@ -74,19 +88,21 @@ pub struct UsageService {
 
 impl UsageService {
     pub fn new(
-        reader: Arc<UsageReader>,
+        ledger: Arc<dyn LedgerAccess>,
         sessions: Arc<dyn SessionMetadata>,
         sources: Arc<dyn UsageSources>,
         accounts: AccountStore,
         dashboards: Arc<Dashboards>,
     ) -> Arc<Self> {
-        Arc::new(Self { reader, sessions, sources, accounts, dashboards })
+        Arc::new(Self { ledger, sessions, sources, accounts, dashboards })
     }
 
     async fn get_usage_requests(&self, options: Value) -> Result<Value, CoreError> {
         let options: UsageRequestsOptions =
             serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
-        let mut page = self.reader.usage_requests(options, now_ms()).await.map_err(|e| ledger_failure(e, DOMAIN))?;
+        let ledger = self.ledger.ledger().map_err(|e| ledger_failure(e, DOMAIN))?;
+        // Settled first, so a send's record is in the page requested after it.
+        let mut page = ledger.get_usage_requests(options, now_ms()).await.map_err(|e| ledger_failure(e, DOMAIN))?;
         let requests = page["requests"].as_array().cloned().unwrap_or_default();
         page["requests"] = Value::Array(self.describe(requests).await);
         Ok(page)
@@ -189,7 +205,7 @@ impl DomainService for UsageService {
             "usage/getUsageStats" => {
                 let options: UsageStatsOptions =
                     serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
-                self.reader.usage_stats(options, now_ms()).await.map_err(|e| ledger_failure(e, DOMAIN))?
+                self.ledger.ledger().map_err(|e| ledger_failure(e, DOMAIN))?.get_usage_stats(options, now_ms).await.map_err(|e| ledger_failure(e, DOMAIN))?
             }
             "usage/getUsageRequests" => self.get_usage_requests(options).await?,
             other => return Err(wrong_method(DOMAIN, other)),

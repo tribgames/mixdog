@@ -28,6 +28,12 @@ mod cards;
 pub mod close;
 mod completions;
 mod control;
+#[cfg(test)]
+mod resumed_tools_tests;
+#[cfg(test)]
+mod room_questions_tests;
+#[cfg(test)]
+pub(crate) mod fixture_fs;
 pub mod delete;
 pub mod purge;
 pub mod sub_agent_retention;
@@ -72,6 +78,7 @@ pub mod secret_input;
 pub mod setup_facts;
 pub mod setup_ui;
 pub mod run_stamps;
+pub mod delegation;
 pub mod route_setup;
 mod ops;
 pub mod thread_ops;
@@ -79,6 +86,11 @@ mod outbox;
 mod pending;
 pub mod delivered;
 pub mod pending_read;
+pub mod runtime_facts;
+#[cfg(test)]
+mod channel_notification_tests;
+mod failure_record;
+pub mod turn_warm;
 #[cfg(test)]
 mod pending_read_tests;
 mod reads;
@@ -174,6 +186,8 @@ pub use self::seams::EncodedRecord;
 pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;
 pub use self::seams::NewThreadTools;
+pub use self::seams::ResumedTools;
+pub use self::seams::RoomMemberEvents;
 pub use self::seams::HeadRead;
 pub use self::seams::OpenedLog;
 pub use self::seams::RecordCodec;
@@ -214,6 +228,10 @@ pub struct SessionDeps {
     pub surfaces: Arc<dyn ToolSurfaceSource>,
     /// The tool definitions a `thread/start` thread begins with.
     pub new_tools: Arc<dyn NewThreadTools>,
+    /// The tool surface a stored thread opened for use takes (`_refreshResumedTools`).
+    pub resumed_tools: Arc<dyn ResumedTools>,
+    /// A room member's handed-off questions moved or its approval resolved: its room follows.
+    pub room_members: Arc<dyn RoomMemberEvents>,
     /// Released on user input or a deliverable notification, ending a passive `task wait` or
     /// shell hold of the thread as today.
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
@@ -279,6 +297,8 @@ pub struct SessionDeps {
     pub quota: quota_lane::SessionQuota,
     pub lanes: SessionLanes,
     pub limits: SessionLimits,
+    /// The prompt-cache warmer told of each turn's start (`noteTurnForCacheWarm`).
+    pub warm: Arc<dyn turn_warm::TurnWarmth>,
 }
 
 /// A turn of any origin started on a thread (`session-activity-signal.mjs`

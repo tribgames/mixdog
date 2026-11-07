@@ -1,7 +1,6 @@
 //! `room_turn_prompt` against `fixtures/room-turn/golden.json`, recorded from the real Node
 //! `roomTurnPrompt` by `record-room-turn.mjs`.
 
-use std::path::Path;
 
 use serde_json::Value;
 
@@ -18,8 +17,7 @@ fn strings(value: &Value) -> Vec<String> {
 
 #[test]
 fn builds_what_the_node_function_built_for_each_recorded_case() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-turn/golden.json");
-    let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let golden: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/room-turn/golden.json"))).unwrap();
     let mut failures = Vec::new();
     for case in golden["prompts"].as_array().unwrap() {
         let input = &case["input"];

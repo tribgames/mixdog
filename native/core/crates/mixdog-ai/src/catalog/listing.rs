@@ -22,6 +22,7 @@ use serde_json::json;
 use super::ModelsDev;
 use super::lookup::Lookup;
 use super::lookup::enrich_model;
+use super::lookup::models_dev_provider_id;
 use super::rosters::RosterSnapshot;
 use super::sanitize::Context;
 use super::sanitize::sanitize_model_list;
@@ -78,10 +79,12 @@ impl ListingLookup {
         self.with(|lookup, _| enrich_listed(lookup, provider, rows))
     }
 
-    /// `getModelsDevProviderModelsSync(provider)`: the resident models.dev
-    /// rows of one provider (id → row); `None` before the catalog has loaded.
+    /// `getModelsDevProviderModelsSync(provider)` (`model-catalog.mjs:438`): the resident models.dev
+    /// rows of the provider's models.dev id (`modelsDevProviderId`, so `openai-oauth` reads `openai`),
+    /// id → row; `None` before the catalog has loaded or when the provider has no entry.
     pub fn models_dev_models(&self, provider: &str) -> Option<serde_json::Map<String, Value>> {
-        self.with(|_, models_dev| models_dev?.get(provider)?.get("models")?.as_object().cloned())
+        let id = models_dev_provider_id(provider)?;
+        self.with(|_, models_dev| models_dev?.get(&id)?.get("models")?.as_object().cloned())
     }
 
     /// `getModelMetadataSync(model, provider)?.supportsPromptCaching`: the flag of the resident
@@ -289,6 +292,21 @@ mod tests {
         assert!(lookup.supports_prompt_caching("openai", "cached-model"));
         assert!(!lookup.supports_prompt_caching("openai", "plain-model"));
         assert!(!lookup.supports_prompt_caching("openai", "unknown-model"));
+    }
+
+    #[test]
+    fn the_models_dev_rows_are_read_under_the_mapped_provider_id() {
+        let lookup = ListingLookup::with_models_dev(&json!({
+            "openai": {"models": {"gpt-x": {"id": "gpt-x"}}},
+            "anthropic": {"models": {}},
+        }));
+        let openai = lookup.models_dev_models("openai").unwrap();
+        assert_eq!(openai.keys().collect::<Vec<_>>(), ["gpt-x"]);
+        assert_eq!(lookup.models_dev_models("openai-oauth"), Some(openai), "openai-oauth is read from `openai`");
+        assert_eq!(lookup.models_dev_models("Anthropic-OAuth"), Some(serde_json::Map::new()), "an empty mapped cache is an empty map");
+        assert_eq!(lookup.models_dev_models("google"), None, "a provider the document does not hold");
+        assert_eq!(lookup.models_dev_models(""), None, "no provider maps to no id");
+        assert_eq!(ListingLookup::new().models_dev_models("openai"), None, "a cold catalog");
     }
 
     #[test]

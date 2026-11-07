@@ -80,24 +80,22 @@ pub trait SpawnWorld: Send + Sync {
     async fn load_config(&self) -> Result<Obj, String>;
     /// `cfgMod.loadConfig()` as it stands now, with no flush (a pending card's best effort).
     fn loaded_config(&self) -> Option<Obj>;
-    /// `configuredAgentRouteCandidates(config, agent)`.
-    fn route_candidates(&self, config: &Obj, agent: &str) -> Vec<Value>;
-    /// An agent has a definition (not deleted).
-    fn agent_defined(&self, agent: &str) -> bool;
+    /// `configuredAgentRouteCandidates(config, agent)`. Node reads the bot store synchronously;
+    /// the store is read on an io lane here, so the read can fail to run (`Err`), which says
+    /// nothing about the agent's route.
+    async fn route_candidates(&self, config: &Obj, agent: &str) -> Result<Vec<Value>, String>;
+    /// An agent has a definition (not deleted). The definition files are read on an io lane.
+    async fn agent_defined(&self, agent: &str) -> Result<bool, String>;
     /// `isAgentDisabled(config, agent)`.
     fn agent_disabled(&self, config: &Obj, agent: &str) -> bool;
     /// The definition's `kind`.
-    fn agent_kind(&self, agent: &str) -> Option<String>;
+    async fn agent_kind(&self, agent: &str) -> Result<Option<String>, String>;
     /// `isContactAgentId(agent, kind)`.
     fn is_contact_agent(&self, agent: &str, kind: Option<&str>) -> bool;
     /// The delegation chain `caller_id` acts in and the agent it acts as.
     fn delegation(&self, caller_id: &str) -> Delegation;
     /// The definition's permission, normalized; `None` when it sets none.
-    fn agent_permission(&self, agent: &str) -> Option<Value>;
-    /// The execution root a Lead in a worktree locks its workers to.
-    fn workspace_cwd_lock(&self, owner_ids: &[String]) -> Option<String>;
-    /// Held while a worker is prepared: no Lead workspace transition runs in the meantime.
-    fn enter_worker_spawn(&self, owner_ids: &[String]) -> Box<dyn Send>;
+    async fn agent_permission(&self, agent: &str) -> Result<Option<Value>, String>;
     fn next_tag(&self, agent: &str, context: &SpawnContext) -> String;
     /// `cfgMod.resolveRuntimeSpec(preset, { lane: 'agent', agentId: tag })`.
     fn resolve_runtime_spec(&self, preset: &Value, tag: &str) -> Value;
@@ -121,6 +119,17 @@ pub trait SpawnWorld: Send + Sync {
     fn upsert_worker_row(&self, session: &Value, tag: &str, row: &Obj);
 }
 
+/// The Lead workspace gate a spawn goes through (`admission-gate.mjs`), the session runtime's own:
+/// a spawn is prepared under it and runs in the root a worktree-bound Lead locks its workers to.
+pub trait SpawnAdmission: Send + Sync {
+    /// `getWorkspaceCwdLock(ownerIds)`: the execution root a Lead in a worktree locks its workers to.
+    fn workspace_cwd_lock(&self, owner_ids: &[String]) -> Option<String>;
+    /// `enterWorkerSpawn(ownerIds)`: held while a worker is prepared, so no Lead workspace
+    /// transition runs in the meantime; refused (Node throws) while one of those Leads' workspace
+    /// changes, with the refusal's message.
+    fn enter_worker_spawn(&self, owner_ids: &[String]) -> Result<Box<dyn Send>, String>;
+}
+
 /// A worker session reused by a `send`, and the manager and surface that hold it.
 #[async_trait]
 pub trait SendWorld: Send + Sync {
@@ -134,7 +143,8 @@ pub trait SendWorld: Send + Sync {
     fn is_busy(&self, session_id: &str) -> bool;
     /// `cfgMod.loadConfig()` after the pending writes are flushed; `None` without a config module.
     async fn load_config(&self) -> Result<Option<Obj>, String>;
-    fn route_candidates(&self, config: &Obj, agent: &str) -> Vec<Value>;
+    /// `configuredAgentRouteCandidates(config, agent)`, as [`SpawnWorld::route_candidates`].
+    async fn route_candidates(&self, config: &Obj, agent: &str) -> Result<Vec<Value>, String>;
     /// The surface can change a reused session's model (`setRoute`).
     fn can_set_route(&self) -> bool;
     async fn set_route(&self, session: &Value, route: &Value) -> Result<(), String>;
@@ -142,10 +152,14 @@ pub trait SendWorld: Send + Sync {
     fn update_session_route(&self, session_id: &str, route: &Value, session: &Value, cross_provider: bool);
     /// `mgr.holdSessionRoute(id, route)`: `None` drops the hold.
     fn hold_session_route(&self, session_id: &str, route: Option<&Value>);
-    /// The surface queues a prompt behind the running turn; the queue's own fields on success.
-    async fn enqueue_turn(&self, session: &Value, prompt: &str, attachments: &[Value], context: Option<&Value>) -> Option<Value>;
+    /// The surface queues a prompt behind the running turn; the queue's own fields on success,
+    /// `Ok(None)` when no turn is running any more. A closed session or a refused follow-up is an
+    /// error (`enqueueTurn` throws).
+    async fn enqueue_turn(&self, session: &Value, prompt: &str, attachments: &[Value], context: Option<&Value>) -> Result<Option<Value>, String>;
     /// `mgr.enqueuePendingMessage`: the queue depth; `None` when the manager has no such queue.
     fn enqueue_pending(&self, session_id: &str, prompt: &str, attachments: &[Value]) -> Option<u64>;
     /// The calling session hands the worker new work: from now on it acts as the caller does.
-    fn rebind_delegation(&self, session_id: &str, caller_session_id: Option<&str>);
+    /// Node awaits it before the dispatch (`await sendFlow.adoptCaller`) and its save failure
+    /// fails the send.
+    async fn rebind_delegation(&self, session_id: &str, caller_session_id: Option<&str>) -> Result<(), String>;
 }

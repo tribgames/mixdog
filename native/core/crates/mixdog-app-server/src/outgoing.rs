@@ -78,6 +78,8 @@ pub struct Outgoing {
     next_claim: AtomicU64,
     /// What a recorded claim attaches to the process (see [`ClaimHook`]); set once at start.
     claim_hook: OnceLock<Arc<dyn ClaimHook>>,
+    /// Changes whenever the set of model-proxy claimants does ([mixdog_core_api::ClientEpoch]).
+    epoch: tokio::sync::watch::Sender<u64>,
 }
 
 /// Attaches process state to a host claim for as long as the claim lasts. The composition root
@@ -88,6 +90,12 @@ pub trait ClaimHook: Send + Sync {
     /// a replaced claim, a closed connection and the end of the process drop it, which detaches
     /// what the hook attached.
     fn claimed(&self, serves: &[HostCapability]) -> Option<Box<dyn Any + Send>>;
+}
+
+impl mixdog_core_api::ClientEpoch for Outgoing {
+    fn client_epoch(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.epoch.subscribe()
+    }
 }
 
 impl mixdog_core_api::DesktopPresence for Outgoing {
@@ -140,6 +148,7 @@ impl Outgoing {
             next_host_request: AtomicU64::new(1),
             next_claim: AtomicU64::new(1),
             claim_hook: OnceLock::new(),
+            epoch: tokio::sync::watch::channel(0).0,
         })
     }
 
@@ -157,7 +166,12 @@ impl Outgoing {
     pub(crate) fn unregister(&self, conn: &Connection) {
         self.connections.shard(&conn.id).remove(&conn.id);
         lock(&self.hosts).retain(|claim| claim.conn.id != conn.id);
-        lock(&self.model_proxies).retain(|proxy| proxy.id != conn.id);
+        let mut proxies = lock(&self.model_proxies);
+        let before = proxies.len();
+        proxies.retain(|proxy| proxy.id != conn.id);
+        if proxies.len() != before {
+            self.epoch.send_modify(|epoch| *epoch += 1);
+        }
     }
 
     /// Records `conn`, which declared `capabilities.modelProxy` at `initialize`, as the newest
@@ -166,6 +180,7 @@ impl Outgoing {
         let mut proxies = lock(&self.model_proxies);
         proxies.retain(|proxy| proxy.id != conn.id);
         proxies.push(Arc::clone(conn));
+        self.epoch.send_modify(|epoch| *epoch += 1);
     }
 
     pub(crate) fn connection(&self, id: ConnectionId) -> Option<Arc<Connection>> {

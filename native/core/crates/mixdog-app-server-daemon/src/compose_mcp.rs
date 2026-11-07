@@ -25,6 +25,7 @@ use mixdog_core_agents::setup::McpSetup;
 use mixdog_core_agents::setup::SetupDesktop;
 use mixdog_core_agents::setup::SetupService;
 use mixdog_core_agents::setup::SetupVoice;
+use mixdog_core_agents::setup::StatusReader;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::DomainService;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
@@ -83,6 +84,7 @@ use crate::held_requests::HeldHome;
 use crate::domain_seams::doctor::HooksStatus;
 use crate::hook_rule_setup::HookRuleSetup;
 use crate::hook_rule_setup::hook_rules_path;
+use crate::setup_status::ServiceStatus;
 
 /// What a `requires: browser|computer|terminal|visualize` skill asks: whether the desktop's bridge
 /// for the tool is up (Node reads the bridge discovery file, `builtin-features.mjs`).
@@ -400,6 +402,10 @@ pub struct SetupSeams {
     /// The other owners' setup actions (`SetupService::with_actions` takes one owner at a time;
     /// every owner's goes into the one service).
     pub other_actions: Vec<Arc<dyn SetupActions>>,
+    /// The other owners' `status` readers (`PreDomains::status_readers`, the `agents` reader):
+    /// one `SetupService::with_status` each. A domain is served by one reader, so none repeats a
+    /// domain `mcp_services` registers itself.
+    pub other_status: Vec<Arc<dyn StatusReader>>,
 }
 
 pub struct McpInputs {
@@ -520,10 +526,14 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         .with_actions(Arc::new(HookRuleSetup::new(hook_rules_path(env, data_dir), tokens.maintenance_io, inputs.hooks.clone(), inputs.hook_observer.clone())))
         .with_actions(automation.clone())
         .with_status(automation)
-        .with_actions(Arc::new(DefinitionSetup::new(agents.clone(), callers.clone(), workflow.clone(), skills.clone())));
+        .with_actions(Arc::new(DefinitionSetup::new(agents.clone(), callers.clone(), workflow.clone(), skills.clone())))
+        .with_status(Arc::new(ServiceStatus::new(mcp.clone(), skills.clone(), plugins.clone(), inputs.hooks.clone())));
     let callers_out: Arc<dyn SetupCallers> = callers;
     for owner in &inputs.setup.other_actions {
         setup = setup.with_actions(owner.clone());
+    }
+    for reader in &inputs.setup.other_status {
+        setup = setup.with_status(reader.clone());
     }
     McpComposed { services: vec![mcp.clone(), skills], mcp_domain: mcp, callers: callers_out, setup: Arc::new(setup), agents, glue, catalog }
 }
@@ -870,6 +880,7 @@ mod tests {
                 voice: quiet.clone(),
                 automation: quiet,
                 other_actions: Vec::new(),
+                other_status: Vec::new(),
             },
         });
 

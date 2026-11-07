@@ -13,21 +13,22 @@ use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::room_log::{RoomLog, SessionRoomLog};
 use serde_json::Value;
 
-pub type Republish = Arc<dyn Fn(&str) + Send + Sync>;
 pub type RepublishCatalog = Arc<dyn Fn() + Send + Sync>;
 
+/// A room log's decorated republish is the rooms' [`RoomApprovals::publish_view`]
+/// (`room_approvals::SessionRoomApprovals`), not a daemon call.
+///
+/// [`RoomApprovals::publish_view`]: mixdog_core_rooms::rooms::live::RoomApprovals::publish_view
 pub struct DirectoryRoomDaemon {
     directory: Arc<SessionDirectory>,
     log: SessionRoomLog,
-    republish: Republish,
     republish_catalog: RepublishCatalog,
 }
 
 impl DirectoryRoomDaemon {
-    /// `republish(session_id)` publishes a room log's held snapshot again; `republish_catalog` is
-    /// the room summaries' publish (wp-session-32 `RoomSummaries::republish`).
-    pub fn new(directory: Arc<SessionDirectory>, republish: Republish, republish_catalog: RepublishCatalog) -> Self {
-        Self { log: SessionRoomLog::new(directory.clone()), directory, republish, republish_catalog }
+    /// `republish_catalog` is the room summaries' publish (wp-session-32 `RoomSummaries::republish`).
+    pub fn new(directory: Arc<SessionDirectory>, republish_catalog: RepublishCatalog) -> Self {
+        Self { log: SessionRoomLog::new(directory.clone()), directory, republish_catalog }
     }
 }
 
@@ -68,10 +69,6 @@ impl RoomDaemon for DirectoryRoomDaemon {
         self.directory.interrupt_running_turn(&ThreadId::from(session_id)).map(drop).map_err(failed)
     }
 
-    fn republish(&self, session_id: &str) {
-        (self.republish)(session_id);
-    }
-
     fn republish_catalog(&self) {
         (self.republish_catalog)();
     }
@@ -89,7 +86,7 @@ mod tests {
     use mixdog_core_session::session::testing::Rig;
 
     /// Over the real directory: posted messages read back as rows, the snapshot of an idle session
-    /// is not busy, an abort with no turn running is not an error, and the republish hooks are
+    /// is not busy, an abort with no turn running is not an error, and the catalog republish is
     /// the caller's.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_room_log_reads_back_and_an_idle_member_aborts_quietly() {
@@ -99,12 +96,8 @@ mod tests {
         deps.transcript = Arc::new(RecordTranscript::new());
         let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
         let told = Arc::new(Mutex::new(Vec::<String>::new()));
-        let (sessions, catalog) = (told.clone(), told.clone());
-        let daemon = DirectoryRoomDaemon::new(
-            directory.clone(),
-            Arc::new(move |id: &str| sessions.lock().unwrap().push(format!("view {id}"))),
-            Arc::new(move || catalog.lock().unwrap().push("catalog".into())),
-        );
+        let catalog = told.clone();
+        let daemon = DirectoryRoomDaemon::new(directory.clone(), Arc::new(move || catalog.lock().unwrap().push("catalog".into())));
         let mut header = Header::new();
         header.insert("createdAt".into(), json!(1));
         header.insert("updatedAt".into(), json!(1));
@@ -120,8 +113,7 @@ mod tests {
         assert_eq!(daemon.read_snapshot("sess_room_abc123").await.unwrap()["busy"], json!(false));
         daemon.abort("sess_room_abc123").await.unwrap();
         assert!(daemon.read_snapshot("sess_none").await.is_err());
-        daemon.republish("sess_room_abc123");
         daemon.republish_catalog();
-        assert_eq!(*told.lock().unwrap(), ["view sess_room_abc123", "catalog"]);
+        assert_eq!(*told.lock().unwrap(), ["catalog"]);
     }
 }

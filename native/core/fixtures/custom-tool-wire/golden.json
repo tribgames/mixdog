@@ -1,0 +1,410 @@
+{
+  "inputs": [
+    {
+      "name": "read",
+      "description": "Read a file",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "apply_patch",
+      "title": "Apply Patch",
+      "annotations": {
+        "title": "Apply Patch",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "compressible": false,
+        "compressibleLossless": true
+      },
+      "description": "Edit files with one complete V4A patch in `patch`: every file of the stage in one patch, one file block per target with all its hunks. Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+      "freeformDescription": "Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once (\"+hello\", not \"++hello\"). Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+      "freeform": {
+        "type": "grammar",
+        "syntax": "lark",
+        "definition": "start: begin_patch hunk+ end_patch\nbegin_patch: \"*** Begin Patch\" LF\nend_patch: \"*** End Patch\" LF?\n\nhunk: add_hunk | delete_hunk | update_hunk\nadd_hunk: \"*** Add File: \" filename LF add_line+\ndelete_hunk: \"*** Delete File: \" filename LF\nupdate_hunk: \"*** Update File: \" filename LF change_move? change?\n\nfilename: /(.+)/\nadd_line: \"+\" /(.*)/ LF -> line\n\nchange_move: \"*** Move to: \" filename LF\nchange: (change_context | change_line)+ eof_line?\nchange_context: (\"@@\" | \"@@ \" /(.+)/) LF\nchange_line: (\"+\" | \"-\" | \" \") /(.*)/ LF\neof_line: \"*** End of File\" LF\n\n%import common.LF\n"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "patch": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Complete V4A patch text."
+          }
+        },
+        "required": [
+          "patch"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "load_tool",
+      "description": "Load deferred tools",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "raw_text",
+      "description": "Raw text in",
+      "freeform": {
+        "type": "grammar",
+        "syntax": "lark",
+        "definition": "start: /.+/s\n"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "nope"
+          }
+        }
+      }
+    },
+    {
+      "name": "broken",
+      "description": "Broken schema",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "nope"
+          }
+        }
+      }
+    },
+    {
+      "name": "half",
+      "description": "Half a grammar",
+      "freeform": {
+        "type": "grammar",
+        "syntax": "lark"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "blank_note",
+      "description": "Described",
+      "freeformDescription": "",
+      "freeform": {
+        "type": "grammar",
+        "syntax": "lark",
+        "definition": "start: /.+/s\n"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "cases": [
+    {
+      "name": "codex route",
+      "provider": "openai-oauth",
+      "model": "gpt-5.5",
+      "nativeToolSearch": true,
+      "tools": [
+        {
+          "type": "function",
+          "name": "read",
+          "description": "Read a file",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "strict": false
+        },
+        {
+          "type": "custom",
+          "name": "apply_patch",
+          "description": "Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once (\"+hello\", not \"++hello\"). Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+          "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: begin_patch hunk+ end_patch\nbegin_patch: \"*** Begin Patch\" LF\nend_patch: \"*** End Patch\" LF?\n\nhunk: add_hunk | delete_hunk | update_hunk\nadd_hunk: \"*** Add File: \" filename LF add_line+\ndelete_hunk: \"*** Delete File: \" filename LF\nupdate_hunk: \"*** Update File: \" filename LF change_move? change?\n\nfilename: /(.+)/\nadd_line: \"+\" /(.*)/ LF -> line\n\nchange_move: \"*** Move to: \" filename LF\nchange: (change_context | change_line)+ eof_line?\nchange_context: (\"@@\" | \"@@ \" /(.+)/) LF\nchange_line: (\"+\" | \"-\" | \" \") /(.*)/ LF\neof_line: \"*** End of File\" LF\n\n%import common.LF\n"
+          }
+        },
+        {
+          "type": "tool_search",
+          "execution": "client",
+          "description": "Load deferred tools",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        {
+          "type": "custom",
+          "name": "raw_text",
+          "description": "Raw text in",
+          "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: /.+/s\n"
+          }
+        },
+        {
+          "type": "function",
+          "name": "half",
+          "description": "Half a grammar",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "strict": false
+        },
+        {
+          "type": "custom",
+          "name": "blank_note",
+          "description": "Described",
+          "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: /.+/s\n"
+          }
+        }
+      ],
+      "excluded": [
+        {
+          "name": "broken",
+          "index": 4,
+          "pointer": "/properties/a/type",
+          "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+          "message": "[openai-oauth] tool \"broken\" (tools[4]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+        }
+      ]
+    },
+    {
+      "name": "public API, native tool search",
+      "provider": "openai",
+      "model": "gpt-5.5",
+      "nativeToolSearch": true,
+      "tools": [
+        {
+          "type": "function",
+          "name": "read",
+          "description": "Read a file",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "strict": false
+        },
+        {
+          "type": "custom",
+          "name": "apply_patch",
+          "description": "Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once (\"+hello\", not \"++hello\"). Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+          "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: begin_patch hunk+ end_patch\nbegin_patch: \"*** Begin Patch\" LF\nend_patch: \"*** End Patch\" LF?\n\nhunk: add_hunk | delete_hunk | update_hunk\nadd_hunk: \"*** Add File: \" filename LF add_line+\ndelete_hunk: \"*** Delete File: \" filename LF\nupdate_hunk: \"*** Update File: \" filename LF change_move? change?\n\nfilename: /(.+)/\nadd_line: \"+\" /(.*)/ LF -> line\n\nchange_move: \"*** Move to: \" filename LF\nchange: (change_context | change_line)+ eof_line?\nchange_context: (\"@@\" | \"@@ \" /(.+)/) LF\nchange_line: (\"+\" | \"-\" | \" \") /(.*)/ LF\neof_line: \"*** End of File\" LF\n\n%import common.LF\n"
+          }
+        },
+        {
+          "type": "tool_search",
+          "execution": "client",
+          "description": "Load deferred tools",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        {
+          "type": "custom",
+          "name": "raw_text",
+          "description": "Raw text in",
+          "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: /.+/s\n"
+          }
+        },
+        {
+          "type": "function",
+          "name": "half",
+          "description": "Half a grammar",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "strict": false
+        },
+        {
+          "type": "custom",
+          "name": "blank_note",
+          "description": "Described",
+          "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: /.+/s\n"
+          }
+        }
+      ],
+      "excluded": [
+        {
+          "name": "broken",
+          "index": 4,
+          "pointer": "/properties/a/type",
+          "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+          "message": "[openai] tool \"broken\" (tools[4]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+        }
+      ]
+    },
+    {
+      "name": "public API, before native tool search",
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "nativeToolSearch": false,
+      "tools": [
+        {
+          "type": "function",
+          "name": "read",
+          "description": "Read a file",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "strict": false
+        },
+        {
+          "type": "custom",
+          "name": "apply_patch",
+          "description": "Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once (\"+hello\", not \"++hello\"). Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+          "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: begin_patch hunk+ end_patch\nbegin_patch: \"*** Begin Patch\" LF\nend_patch: \"*** End Patch\" LF?\n\nhunk: add_hunk | delete_hunk | update_hunk\nadd_hunk: \"*** Add File: \" filename LF add_line+\ndelete_hunk: \"*** Delete File: \" filename LF\nupdate_hunk: \"*** Update File: \" filename LF change_move? change?\n\nfilename: /(.+)/\nadd_line: \"+\" /(.*)/ LF -> line\n\nchange_move: \"*** Move to: \" filename LF\nchange: (change_context | change_line)+ eof_line?\nchange_context: (\"@@\" | \"@@ \" /(.+)/) LF\nchange_line: (\"+\" | \"-\" | \" \") /(.*)/ LF\neof_line: \"*** End of File\" LF\n\n%import common.LF\n"
+          }
+        },
+        {
+          "type": "function",
+          "name": "load_tool",
+          "description": "Load deferred tools",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "strict": false
+        },
+        {
+          "type": "custom",
+          "name": "raw_text",
+          "description": "Raw text in",
+          "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: /.+/s\n"
+          }
+        },
+        {
+          "type": "function",
+          "name": "half",
+          "description": "Half a grammar",
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "strict": false
+        },
+        {
+          "type": "custom",
+          "name": "blank_note",
+          "description": "Described",
+          "format": {
+            "type": "grammar",
+            "syntax": "lark",
+            "definition": "start: /.+/s\n"
+          }
+        }
+      ],
+      "excluded": [
+        {
+          "name": "broken",
+          "index": 4,
+          "pointer": "/properties/a/type",
+          "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+          "message": "[openai] tool \"broken\" (tools[4]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+        }
+      ]
+    }
+  ]
+}

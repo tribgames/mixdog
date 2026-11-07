@@ -40,8 +40,11 @@ use mixdog_core_run::run_host::route_chain::resolve_session_mode;
 /// (`cross_provider`, applied only when the route changed), and the pending workspace re-root
 /// with the `# Session` block rebuild. `header` already carries the new route fields; `previous`
 /// is the route (`provider`, `model`) the session ran before.
+/// Async: a new route's tool surface is resolved from a skill list collected at the change, as
+/// Node's `_prepareResumeTools` collects inside the call.
+#[async_trait::async_trait]
 pub trait RouteChange: Send + Sync {
-    fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool) -> HeaderChange;
+    async fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool) -> HeaderChange;
 
     /// A cleared conversation's environment reset (Node's resetSessionBp3Environment), as the header
     /// change the clear writes in its own patch.
@@ -318,7 +321,7 @@ impl SessionRouteAdapter {
         }
         let mut change = route_fields(&header, &route);
         let routed = applied(&header, &change);
-        let derived = self.change.route_change(&routed, &route, &previous, cross_provider);
+        let derived = self.change.route_change(&routed, &route, &previous, cross_provider).await;
         // The prompt half: a staged workspace change applies on a new route, and the
         // `# Session` block is rebuilt for the session's cwd.
         let changed = route_changed(&route, &previous);
@@ -452,8 +455,9 @@ mod tests {
     }
 
     struct Change(Mutex<Vec<(Value, Value, bool)>>);
+    #[async_trait::async_trait]
     impl RouteChange for Change {
-        fn route_change(&self, header: &Header, _route: &Route, previous: &Route, cross: bool) -> HeaderChange {
+        async fn route_change(&self, header: &Header, _route: &Route, previous: &Route, cross: bool) -> HeaderChange {
             self.0.lock().unwrap().push((Value::Object(header.clone()), Value::Object(previous.clone()), cross));
             HeaderChange { set: obj(json!({ "contextWindow": 200_000 })), unset: vec!["contextUsageSnapshot".into()] }
         }
@@ -520,8 +524,9 @@ mod tests {
     }
 
     struct NullWire;
+    #[async_trait::async_trait]
     impl RouteChange for NullWire {
-        fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool) -> HeaderChange {
+        async fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool) -> HeaderChange {
             HeaderChange { set: obj(json!({ "wireRoute": null })), unset: Vec::new() }
         }
         fn environment_reset(&self, _: &Header) -> HeaderChange {

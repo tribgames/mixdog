@@ -117,6 +117,8 @@ pub(crate) struct RoutineStart {
     pub trigger: Option<serde_json::Value>,
     /// `transcriptMeta.hop`: how deep in bot-descended turns the one that asked for this is.
     pub hop: Option<u32>,
+    /// 	ranscriptMeta.botChain: the bots that handed the message on, sender last.
+    pub bot_chain: Vec<String>,
     /// 	ranscriptMeta.roomRow: the room's newest user row the prompt shows (a member's turn).
     pub room_row: Option<String>,
     /// The trusted text the turn's skills are selected from.
@@ -171,6 +173,8 @@ pub(crate) struct ControlCell {
     pub agent_start: Mutex<Option<AgentStart>>,
     /// Routine turns queued on this thread and not started yet, by submission id.
     pub routine_starts: Mutex<std::collections::HashMap<String, RoutineStart>>,
+    /// `session.turnHop` / `session.turnBotChain`: stamped when a turn starts, in memory only.
+    pub turn_chain: super::delegation::TurnState,
     /// The session's "Allow for this session" grants: in memory, one set per loaded session.
     pub grants: Arc<mixdog_tools::policy::SessionGrants>,
     pub ctl_tx: mpsc::Sender<Ctl>,

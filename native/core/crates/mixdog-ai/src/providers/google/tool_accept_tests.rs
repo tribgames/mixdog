@@ -30,6 +30,7 @@ fn tools(case: &Value) -> Vec<ToolDefinition> {
             description: t["description"].as_str().expect("description").into(),
             input_schema: t["inputSchema"].clone(),
             defer_loading: false,
+            freeform: None,
         })
         .collect()
 }

@@ -76,6 +76,7 @@ fn definitions(case: &Value) -> Vec<ToolDefinition> {
             description: t["description"].as_str().expect("description").into(),
             input_schema: t["inputSchema"].clone(),
             defer_loading: t["deferLoading"] == Value::Bool(true),
+            freeform: None,
         })
         .collect()
 }
@@ -98,6 +99,7 @@ fn a_registered_union_goes_out_in_its_nested_form() {
                 description: t["description"].as_str().expect("description").into(),
                 input_schema: t["inputSchema"].clone(),
                 defer_loading: false,
+                freeform: None,
             })
             .collect();
         let provider = case["provider"].as_str().expect("provider");

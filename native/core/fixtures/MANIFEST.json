@@ -137,6 +137,15 @@
       "totalBytes": 28159
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-channel-router.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "channel-router/MANIFEST.json",
+      "manifestSha256": "fc4ba3b82ffb614cea9ad0dcdc7c1201e5beb86bb9de0f11c47da6f106c5f942",
+      "recorder": "benchmarks/rust-core/recorders/record-channel-router.mjs",
+      "set": "channel-router",
+      "totalBytes": 7926
+    },
+    {
       "command": "node <repo>/benchmarks/rust-core/recorders/record-channel-settings.mjs --tree <tree> --out golden.json",
       "fileCount": 1,
       "manifest": "channel-settings/MANIFEST.json",
@@ -297,6 +306,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-event-pipeline.mjs",
       "set": "event-pipeline",
       "totalBytes": 54823
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-failed-completion.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "failed-completion/MANIFEST.json",
+      "manifestSha256": "549c807593b676f5e501831baa87d11410394c16cb1c650f59fd9bb32fad3786",
+      "recorder": "benchmarks/rust-core/recorders/record-failed-completion.mjs",
+      "set": "failed-completion",
+      "totalBytes": 4995
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-failed-turn-rewind.mjs --tree <tree>",

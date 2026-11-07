@@ -4,7 +4,6 @@
 //! chaining loop here is the scheduler's (`RoomCalls::start`).
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -19,8 +18,7 @@ use crate::rooms::turn_host::{MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 use crate::rooms::turn_prompt::RoomPrompt;
 
 fn golden() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-exchange/golden.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/room-exchange/golden.json"))).unwrap()
 }
 
 type Log = Arc<Mutex<Vec<Value>>>;

@@ -149,6 +149,8 @@ crate::notification_definitions! {
     ThreadPromptHistoryUpdated => "thread/promptHistory/updated" (ThreadSectionParams<PromptHistoryChange>) @thread,
     ThreadRemoteUpdated => "thread/remote/updated" (ThreadSectionParams<bool>) @thread,
     ThreadSetupUiRequestUpdated => "thread/setupUiRequest/updated" (ThreadSectionParams<Option<SetupUiRequest>>) @thread,
+    /// Section `roomView`: a group room log's view while the room runs (`decorateRoomSnapshot`).
+    ThreadRoomViewUpdated => "thread/roomView/updated" (ThreadSectionParams<Option<ThreadRoomView>>) @thread,
     /// Section `reviewDiff`, key = thread id.
     ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @thread,
     // ---- connection-scoped

@@ -66,7 +66,7 @@ async fn session_usage_equals_what_nodes_get_session_usage_answered() {
         .collect();
     std::fs::write(accounts_dir.join("provider-accounts.json"), json!({ "version": 1, "providers": pools }).to_string()).unwrap();
     let accounts = AccountStore::new(accounts_dir, CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
-    let service = SessionUsageService::new(ledger, accounts);
+    let service = SessionUsageService::new(Arc::new(Arc::new(ledger)), accounts);
 
     for (session, scoped) in golden["accountScopedIds"].as_object().unwrap() {
         assert_eq!(&account_scoped_session_id("anthropic-oauth", "7d1f3c52-0a4e-4b8e-9c61-2f5a6b3d8e10", session), scoped.as_str().unwrap());

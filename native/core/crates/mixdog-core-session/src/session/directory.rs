@@ -207,6 +207,12 @@ impl SessionDirectory {
         super::thread_ops::ThreadOps::new(self.inner.clone())
     }
 
+    /// `turnBotChainOf(session)`: the bot chain of the turn the loaded thread is in; empty for a
+    /// thread not loaded.
+    pub fn turn_bot_chain(&self, id: &ThreadId) -> Vec<String> {
+        self.handle(id).map(|handle| handle.cell.turn_chain.bots()).unwrap_or_default()
+    }
+
     /// The concrete handle of a loaded thread.
     pub fn handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         self.inner.loaded(id)
@@ -525,20 +531,33 @@ impl SessionDirectory {
     /// `enqueueCompletion`: the completion joins the owner's queue; a thread not loaded is
     /// opened for it (and, not live, is never woken by it).
     pub(crate) async fn queue_completion(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, text: String) {
+        self.queue_notice(owner, surface, task_id, status, text, None).await;
+    }
+
+    /// `submitSession(.. mode: 'task-notification', origin: 'channel')` of the channel session
+    /// router (`channel-session-router.mjs:19-29`): the text joins the thread's queue by the
+    /// same path as a completion. A submit starts its turn on a thread it had to open too.
+    /// False when the thread could not be opened or is gone.
+    pub async fn queue_channel_notification(&self, owner: &ThreadId, text: String) -> bool {
+        self.queue_notice(owner, "", "", "", text, Some(super::completions::ORIGIN_CHANNEL)).await
+    }
+
+    async fn queue_notice(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, text: String, origin: Option<&'static str>) -> bool {
         let msg = |live| Inbox::TaskNotification {
             surface: surface.to_owned(),
             task_id: task_id.to_owned(),
             status: status.to_owned(),
             text: text.clone(),
+            origin,
             live,
         };
         if let Some(handle) = self.inner.loaded(owner) {
-            let _ = handle.inbox.send(msg(true)).await;
-            return;
+            return handle.inbox.send(msg(true)).await.is_ok();
         }
         let ctx = CallContext::internal("task-notification");
-        if let Ok(handle) = self.inner.open(owner, &ctx).await {
-            let _ = handle.inbox.send(msg(false)).await;
+        match self.inner.open(owner, &ctx).await {
+            Ok(handle) => handle.inbox.send(msg(origin.is_some())).await.is_ok(),
+            Err(_) => false,
         }
     }
 }
@@ -704,6 +723,12 @@ impl DirInner {
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
                         let result = me.load(&thread, prewarm).await;
+                        // `resumeSession`'s `_refreshResumedTools`: a thread opened for use (not
+                        // for a delete or an op record) takes its tool surface as it resolves now,
+                        // before any caller gets it.
+                        if prewarm && let Ok(handle) = &result {
+                            me.refresh_resumed_tools(handle).await;
+                        }
                         {
                             let mut shard = lock(me.shard(&thread));
                             match &result {
@@ -728,6 +753,25 @@ impl DirInner {
                 Ok(value) => value.clone().expect("waited for Some"),
                 Err(_) => Err(CoreError::ThreadClosing { thread_id: id.clone() }),
             },
+        }
+    }
+
+    /// Writes the opened thread's refreshed tool surface ([`super::ResumedTools`]) as one header
+    /// patch; a write that fails is logged and the stored surface stays, as an unresolvable one does.
+    async fn refresh_resumed_tools(&self, handle: &Arc<SessionHandle>) {
+        let header = handle.cell.header.load_full();
+        let Some(change) = self.deps.resumed_tools.refreshed(&handle.id, &header).await else { return };
+        if change.set.is_empty() && change.unset.is_empty() {
+            return;
+        }
+        let request = CoreRequest {
+            method: Method("thread/header/patch"),
+            params: json!({ "threadId": handle.id.as_str(), "set": change.set, "unset": change.unset }),
+            op: None,
+            ctx: CallContext::internal("resume-tools"),
+        };
+        if let Err(error) = mixdog_core_api::ThreadHandle::request(handle.as_ref(), request).await {
+            tracing::warn!(?error, thread = handle.id.as_str(), "the resumed thread's tool surface was not written");
         }
     }
 
@@ -788,8 +832,16 @@ impl DirInner {
         ))
     }
 
-    /// P §8.3: a sub-agent's requests show on its parent's surface.
+    /// P §8.3: a sub-agent's requests show on its parent's surface. A room member's requests show
+    /// on its room's log (Node's room log carries the speaking member's `toolApproval`,
+    /// `agent-room-turn.ts:278`, `agent-room-views.ts:89`), so a client on the log receives them
+    /// and its response decides them in the member's thread (P §8.4).
     fn lineage_of(&self, id: &ThreadId, header: &Header) -> Lineage {
+        if let Some(member) = mixdog_core_base::rooms::ids::room_member_of_session(id.as_str())
+            && let Some(log) = mixdog_core_base::rooms::ids::room_session_id(&member.room_id)
+        {
+            return Lineage { surface: ThreadId::from(log), chain: Vec::new() };
+        }
         let Some(parent) = header
             .get("parentSessionId")
             .and_then(Value::as_str)
@@ -849,6 +901,7 @@ impl DirInner {
         let cell = Arc::new(ControlCell {
             thread: id.clone(),
             run: Default::default(),
+            turn_chain: Default::default(),
             queued: Default::default(),
             queue: arc_swap::ArcSwap::from_pointee(state.queue.clone()),
             approvals: Default::default(),

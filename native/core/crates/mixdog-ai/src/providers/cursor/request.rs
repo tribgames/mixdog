@@ -569,6 +569,7 @@ mod tests {
                         description: String::new(),
                         input_schema: serde_json::json!({"type": "object", "properties": {"key": {"type": "string"}}}),
                         defer_loading: false,
+                        freeform: None,
                     })
                     .collect(),
                 options: RequestOptions { tool_choice: choice, ..RequestOptions::default() },
@@ -610,6 +611,7 @@ mod tests {
                         description: t["description"].as_str().expect("description").into(),
                         input_schema: t["inputSchema"].clone(),
                         defer_loading: false,
+                        freeform: None,
                     })
                     .collect(),
                 options: RequestOptions {

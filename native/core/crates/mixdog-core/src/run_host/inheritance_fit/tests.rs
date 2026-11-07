@@ -95,6 +95,7 @@ fn tools_of(target: &Value) -> Vec<ToolDefinition> {
             description: tool["description"].as_str().unwrap().to_owned(),
             input_schema: tool["inputSchema"].clone(),
             defer_loading: tool["deferLoading"] == Value::Bool(true),
+            freeform: None,
         })
         .collect()
 }

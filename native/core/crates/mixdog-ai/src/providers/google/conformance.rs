@@ -143,6 +143,7 @@ fn fixture_request(model: &str) -> ModelRequest {
             description: "Read a value".into(),
             input_schema: json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}),
             defer_loading: false,
+            freeform: None,
         }],
         options: RequestOptions::default(),
     }

@@ -131,6 +131,43 @@ pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &H
             session[key] = Value::Array(filter_model_edit_tool_names(&names, &model).into_iter().map(Value::String).collect());
         }
     }
+    exposure_change(surface, clock, header, session, hidden_agent)
+}
+
+/// `_refreshResumedTools(session, sessionId, preset)` (`session-lifecycle.mjs:598-620`): the
+/// prepared tools and spec, then `applyAgentToolExposure(session, { existing: true })`, as the
+/// header change of a resumed session. The tools the stored list had that the new surface does not
+/// offer (its catalog included) are logged, as Node warns.
+pub fn resumed_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, prepared: PreparedTools, hidden_agent: bool) -> HeaderChange {
+    let old: Vec<String> = header.get("tools").and_then(Value::as_array).map(|tools| tools.iter().map(|t| clean(t.get("name"))).collect()).unwrap_or_default();
+    let mut session = Value::Object(header.clone());
+    session["toolSpec"] = prepared.tool_spec;
+    session["tools"] = prepared.tools;
+    let change = exposure_change(surface, clock, header, session.clone(), hidden_agent);
+    let mut after = session;
+    for key in &change.unset {
+        after.as_object_mut().expect("session object").shift_remove(key);
+    }
+    for (key, value) in &change.set {
+        after[key] = value.clone();
+    }
+    let available: Vec<String> = ["tools", "deferredToolCatalog"]
+        .iter()
+        .flat_map(|key| after.get(*key).and_then(Value::as_array).cloned().unwrap_or_default())
+        .map(|tool| clean(tool.get("name")))
+        .filter(|name| !name.is_empty())
+        .collect();
+    let missing: Vec<&String> = old.iter().filter(|name| !available.contains(name)).collect();
+    if !missing.is_empty() {
+        let names: Vec<&str> = missing.iter().map(|name| name.as_str()).collect();
+        tracing::warn!("[session] Warning: {} tools no longer available: {}", missing.len(), names.join(", "));
+    }
+    change
+}
+
+/// `applyAgentToolExposure(session, { existing: true })` over `session` (the header with its new
+/// tools), as the header change from `header`; a changed exposure is marked migrated.
+fn exposure_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, mut session: Value, hidden_agent: bool) -> HeaderChange {
     let changed = apply_agent_tool_exposure(surface, &mut session, hidden_agent);
     let mut change = header_diff(header, session.as_object().expect("session object"));
     if changed {
@@ -149,6 +186,14 @@ pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &H
     change
 }
 
+/// `_prepareResumeTools(session, preset)`: the tool list the session resolves to on its new route,
+/// read from a skill list collected now (Node collects inside the call). `None`: the tools could
+/// not be resolved; the stored ones stay.
+#[async_trait::async_trait]
+pub trait PrepareTools: Send + Sync {
+    async fn prepare(&self, header: &Header) -> Option<PreparedTools>;
+}
+
 /// The route facts of the running host: the catalog's context windows, the configured cache
 /// policy and the tool surface a route change rebuilds.
 pub struct AiRouteFacts {
@@ -157,12 +202,13 @@ pub struct AiRouteFacts {
     pub auto_clear: Arc<dyn Fn() -> Value + Send + Sync>,
     pub surface_host: Arc<dyn SurfaceHost>,
     pub clock: Arc<dyn Clock>,
-    /// `_prepareResumeTools` for the header's new route; `None` keeps the stored tools.
-    pub prepare_tools: Arc<dyn Fn(&Header) -> Option<PreparedTools> + Send + Sync>,
+    /// `_prepareResumeTools` for the header's new route (`resume_tools::ResumeTools`).
+    pub prepare_tools: Arc<dyn PrepareTools>,
     /// `getHiddenAgent(agent)`.
     pub hidden_agent: Arc<dyn Fn(Option<&str>) -> bool + Send + Sync>,
 }
 
+#[async_trait::async_trait]
 impl RouteFacts for AiRouteFacts {
     fn context_meta(&self, provider: &str, model: &str, seed: &Value) -> Option<ContextMeta> {
         session_context_meta(&self.catalog, provider, model, seed)
@@ -172,10 +218,23 @@ impl RouteFacts for AiRouteFacts {
         session_provider_cache_opts(provider, session_id, agent, header, &(self.auto_clear)())
     }
 
-    fn surface_change(&self, header: &Header, _previous: &Route) -> HeaderChange {
+    async fn surface_change(&self, header: &Header, _previous: &Route) -> HeaderChange {
+        let prepared = self.prepare_tools.prepare(header).await;
         let surface = ToolSurface { host: self.surface_host.as_ref(), clock: self.clock.as_ref() };
         let agent = header.get("agent").and_then(Value::as_str);
-        route_surface_change(&surface, self.clock.as_ref(), header, (self.prepare_tools)(header), (self.hidden_agent)(agent))
+        route_surface_change(&surface, self.clock.as_ref(), header, prepared, (self.hidden_agent)(agent))
+    }
+}
+
+/// `SessionDeps.resumed_tools`: `_refreshResumedTools(session, sessionId, session.preset || 'full')`
+/// with the same producer a route change uses.
+#[async_trait::async_trait]
+impl mixdog_core_session::session::ResumedTools for AiRouteFacts {
+    async fn refreshed(&self, _thread: &mixdog_core_api::ids::ThreadId, header: &Header) -> Option<HeaderChange> {
+        let prepared = self.prepare_tools.prepare(header).await?;
+        let surface = ToolSurface { host: self.surface_host.as_ref(), clock: self.clock.as_ref() };
+        let agent = header.get("agent").and_then(Value::as_str);
+        Some(resumed_surface_change(&surface, self.clock.as_ref(), header, prepared, (self.hidden_agent)(agent)))
     }
 }
 

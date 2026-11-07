@@ -25,6 +25,7 @@ use crate::oauth::RefreshFailure;
 use crate::oauth::Redirect;
 use crate::oauth::classify_refresh_failure;
 use crate::oauth::http;
+use crate::oauth::scrub::oauth_body_summary;
 use crate::transport::HttpSend;
 
 pub const AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
@@ -147,10 +148,12 @@ impl PkceProvider for OpenAiLogin {
         if !reply.ok() {
             return Err(match classify_refresh_failure(Some(reply.status), &reply.body) {
                 RefreshFailure::Definitive => LoginFailure::Denied,
-                _ => failed(
-                    "token_exchange",
-                    &http::scrub(&format!("[openai-oauth] token exchange {}", reply.status), &[code, verifier], 200),
-                ),
+                _ => {
+                    // `oauthHttpError`: `<operation> <status>: <redacted body>`.
+                    let summary = oauth_body_summary(&reply.text(), &[code, verifier]);
+                    let detail = if summary.is_empty() { String::new() } else { format!(": {summary}") };
+                    failed("token_exchange", &format!("[openai-oauth] token exchange {}{detail}", reply.status))
+                }
             });
         }
         let json = reply.json().unwrap_or(Value::Null);

@@ -3,7 +3,6 @@
 //! order, and the state left behind.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -15,8 +14,7 @@ use crate::rooms::calls::Run;
 use crate::rooms::turn_host::{Failure, MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 
 fn golden() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-post/golden.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/room-post/golden.json"))).unwrap()
 }
 
 type Calls = Arc<Mutex<Vec<Value>>>;

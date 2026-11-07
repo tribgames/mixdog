@@ -155,7 +155,7 @@ impl HiddenRoleRunner {
             preset: preset.clone(),
             runtime_spec,
             context,
-            permission: session_permission(hidden.as_ref()),
+            permission: session_permission(agent, hidden.as_ref(), request.default_permission.as_deref()),
             cwd: cwd.clone(),
             source_type: non_empty(&request.source_type),
             source_name: non_empty(&request.source_name).or_else(|| non_empty(&request.default_source_name)),
@@ -399,14 +399,12 @@ fn resolve_preset(explicit: Option<&Value>, agent: &str, config: &Map<String, Va
     Ok((preset, label))
 }
 
-/// `resolveAgentSessionPermission(agent, hidden.permission || 'read')` for a hidden role (a role
-/// declared read-only is locked to it), none for a public agent.
-fn session_permission(hidden: Option<&Value>) -> Option<String> {
-    let hidden = hidden?;
-    Some(match hidden.get("permission").and_then(Value::as_str).filter(|permission| !permission.is_empty()) {
-        Some("read") | None => "read".to_owned(),
-        Some(other) => other.to_owned(),
-    })
+/// `resolveAgentSessionPermission(agent, opts.permission ?? (isPoolC ? hidden.permission || 'read' : null))`
+/// (`session-prep.mjs:75-78`): a hidden role asks for its declared permission, `read` when it
+/// declares none, and a role declared read-only is locked to it; a public agent asks for none.
+fn session_permission(agent: &str, hidden: Option<&Value>, option: Option<&str>) -> Option<String> {
+    let asked = option.or_else(|| hidden.map(|hidden| hidden.get("permission").and_then(Value::as_str).filter(|permission| !permission.is_empty()).unwrap_or("read")));
+    super::agent_spawn_world::resolve_agent_session_permission(agent, asked)
 }
 
 /// `resolveHiddenRoleSchemaAllowedTools`: an explicit allowlist, else the role's tool-schema profile.
@@ -443,6 +441,7 @@ struct Options {
     task_type: &'static str,
     source_type: &'static str,
     brief: bool,
+    permission: Option<String>,
 }
 
 /// What a registered run holds until it leaves the table (see [`RunWatch::started`]).
@@ -508,7 +507,7 @@ impl InlineAgentDispatch {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .entry(payload.agent.to_owned())
-            .or_insert(Options { task_type: payload.task_type, source_type: payload.source_type, brief: payload.brief })
+            .or_insert(Options { task_type: payload.task_type, source_type: payload.source_type, brief: payload.brief, permission: payload.permission })
             .clone();
         let request = DispatchRequest {
             agent: payload.agent.to_owned(),
@@ -519,6 +518,7 @@ impl InlineAgentDispatch {
             idle_timeout_ms: payload.idle_timeout_ms.filter(|ms| ms.is_finite() && *ms > 0.0).map(f64::floor),
             task_type: Some(options.task_type.to_owned()),
             source_type: Some(options.source_type.to_owned()),
+            default_permission: options.permission,
             ..DispatchRequest::default()
         };
         dispatch(self.runner.as_ref(), &request, &controller).await.map_err(|error| error.to_string())

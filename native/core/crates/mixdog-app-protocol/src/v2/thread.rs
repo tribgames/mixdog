@@ -348,6 +348,9 @@ pub struct ThreadState {
     /// ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup_ui_request: Option<SetupUiRequest>,
+    /// A group room log's view while the room runs (`thread/roomView/updated`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room_view: Option<ThreadRoomView>,
     /// The composer's Up-arrow recall (today's `promptHistoryList`, Node's merged list): the
     /// thread's user prompts over the whole transcript plus the per-folder saved prompt
     /// history of its cwd, newest first, trimmed, at most `PROMPT_HISTORY_LIMIT` (50), one
@@ -944,6 +947,28 @@ pub struct SetupUiRequest {
     pub id: String,
     #[ts(type = "number")]
     pub at: i64,
+}
+
+/// A group room's log as its views see it while the room runs (Node `agent-room-views.ts`
+/// `decorateRoomSnapshot`, pushed with the room's session state): the client lays it over the
+/// room log thread's own fields. Absent when the room has no exchange state and no handed-off
+/// questions.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadRoomView {
+    /// The room has an exchange state: the log reads busy (so the composer offers stop).
+    pub busy: bool,
+    /// The speaking member's pending approval, as Node's queue presents it (`toolApproval`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_approval: Option<JsonValue>,
+    /// The typing row naming who speaks (`{ kind: 'notice', id, tone: 'info', text, room: { kind:
+    /// 'typing', speaker, name } }`), shown after the transcript.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typing: Option<JsonValue>,
+    /// The questions of sessions the members handed work to, while they wait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff_questions: Option<Vec<JsonValue>>,
 }
 
 /// Params of the `thread/<section>/updated` notifications: one typed section of the projection.

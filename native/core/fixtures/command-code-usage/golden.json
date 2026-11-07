@@ -1,0 +1,1312 @@
+{
+  "domain": "command-code-usage",
+  "recorder": "benchmarks/rust-core/recorders/record-command-code-usage.mjs",
+  "now": 1800000000000,
+  "flows": [
+    {
+      "name": "both windows",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "user_1",
+        "userName": "n"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":100,\"used\":25,\"resetAt\":1900000000000},\"weekly\":{\"cap\":1000,\"used\":500,\"resetAt\":1900000001000}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 25,
+            "usedFraction": 0.25,
+            "remainingFraction": 0.75,
+            "status": "ok",
+            "durationMs": 18000000,
+            "resetAt": 1900000000000
+          },
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 50,
+            "usedFraction": 0.5,
+            "remainingFraction": 0.5,
+            "status": "ok",
+            "durationMs": 604800000,
+            "resetAt": 1900000001000
+          }
+        ],
+        "accountId": "user_1"
+      }
+    },
+    {
+      "name": "the answer wrapped in data",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "user_1"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"data\":{\"windowLimits\":{\"fiveHour\":{\"cap\":100,\"used\":10,\"resetAt\":1900000000000}}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 18000000,
+            "resetAt": 1900000000000
+          }
+        ],
+        "accountId": "user_1"
+      }
+    },
+    {
+      "name": "no user id",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":100,\"used\":10}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 18000000
+          }
+        ]
+      }
+    },
+    {
+      "name": "blank user id",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "  "
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":100,\"used\":10}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 18000000
+          }
+        ]
+      }
+    },
+    {
+      "name": "only the weekly window",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"weekly\":{\"cap\":8,\"used\":8,\"resetAt\":1900000000000}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 100,
+            "usedFraction": 1,
+            "remainingFraction": 0,
+            "status": "exhausted",
+            "durationMs": 604800000,
+            "resetAt": 1900000000000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "warning at 90 percent",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":100,\"used\":90},\"weekly\":{\"cap\":100,\"used\":89.99}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 90,
+            "usedFraction": 0.9,
+            "remainingFraction": 0.09999999999999998,
+            "status": "warning",
+            "durationMs": 18000000
+          },
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 89.99,
+            "usedFraction": 0.8998999999999999,
+            "remainingFraction": 0.10010000000000008,
+            "status": "ok",
+            "durationMs": 604800000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "exhausted and over the cap",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":100,\"used\":100},\"weekly\":{\"cap\":100,\"used\":250}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 100,
+            "usedFraction": 1,
+            "remainingFraction": 0,
+            "status": "exhausted",
+            "durationMs": 18000000
+          },
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 100,
+            "usedFraction": 1,
+            "remainingFraction": 0,
+            "status": "exhausted",
+            "durationMs": 604800000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "fractional percent rounds to two places",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":3,\"used\":1},\"weekly\":{\"cap\":7,\"used\":2}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 33.33,
+            "usedFraction": 0.33333333333333326,
+            "remainingFraction": 0.6666666666666667,
+            "status": "ok",
+            "durationMs": 18000000
+          },
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 28.57,
+            "usedFraction": 0.2857142857142857,
+            "remainingFraction": 0.7142857142857143,
+            "status": "ok",
+            "durationMs": 604800000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "numeric strings count",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":\"200\",\"used\":\"50\"},\"weekly\":{\"cap\":\" 10 \",\"used\":\"1\"}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 25,
+            "usedFraction": 0.25,
+            "remainingFraction": 0.75,
+            "status": "ok",
+            "durationMs": 18000000
+          },
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 604800000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "a zero or negative cap, a negative use, no entry",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":0,\"used\":0},\"weekly\":{\"cap\":100,\"used\":-1}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": null
+    },
+    {
+      "name": "null, boolean and text values",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":null,\"used\":5},\"weekly\":{\"cap\":\"x\",\"used\":1}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": null
+    },
+    {
+      "name": "a boolean cap and a missing use",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":true,\"used\":0},\"weekly\":{\"cap\":10}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 0,
+            "usedFraction": 0,
+            "remainingFraction": 1,
+            "status": "ok",
+            "durationMs": 18000000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "reset in seconds",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":10,\"used\":1,\"resetAt\":1900000000},\"weekly\":{\"cap\":10,\"used\":1,\"resetAt\":999999999999}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 18000000,
+            "resetAt": 1900000000000
+          },
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 604800000,
+            "resetAt": 999999999999000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "reset as ISO text and numeric text",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":10,\"used\":1,\"resetAt\":\"2030-01-01T00:00:00Z\"},\"weekly\":{\"cap\":10,\"used\":1,\"resetAt\":\"1900000000\"}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 18000000,
+            "resetAt": 1893456000000
+          },
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 604800000,
+            "resetAt": 1900000000000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "reset zero, negative, garbage",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":10,\"used\":1,\"resetAt\":0},\"weekly\":{\"cap\":10,\"used\":1,\"resetAt\":\"soon\"}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 18000000
+          },
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 604800000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "reset null",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":10,\"used\":1,\"resetAt\":null},\"weekly\":{\"cap\":10,\"used\":1,\"resetAt\":-5}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 18000000
+          },
+          {
+            "id": "1w",
+            "label": "7D",
+            "longLabel": "Weekly",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 604800000
+          }
+        ],
+        "accountId": "u"
+      }
+    },
+    {
+      "name": "no window limits",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"data\":{}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": null
+    },
+    {
+      "name": "an empty object",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": null
+    },
+    {
+      "name": "a null body",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "null"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": null
+    },
+    {
+      "name": "an array body",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "[]"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": null
+    },
+    {
+      "name": "invalid JSON",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "not json"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[command-code-oauth] /alpha/billing/credits returned invalid JSON",
+        "status": null,
+        "reauthRequired": false
+      }
+    },
+    {
+      "name": "rejected key",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 401,
+        "text": "denied cc_key_ABCDEF0123456789"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[command-code-oauth] API key rejected (401) — open /providers in mixdog to sign in again: denied [REDACTED]",
+        "status": 401,
+        "reauthRequired": true
+      }
+    },
+    {
+      "name": "rejected key without detail",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 401,
+        "text": ""
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[command-code-oauth] API key rejected (401) — open /providers in mixdog to sign in again",
+        "status": 401,
+        "reauthRequired": true
+      }
+    },
+    {
+      "name": "server error with a detail",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 500,
+        "text": "  boom cc_key_ABCDEF0123456789 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  "
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[command-code-oauth] /alpha/billing/credits 500: boom [REDACTED] xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "status": 500,
+        "reauthRequired": false
+      }
+    },
+    {
+      "name": "server error without a body",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 503,
+        "text": ""
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[command-code-oauth] /alpha/billing/credits 503",
+        "status": 503,
+        "reauthRequired": false
+      }
+    },
+    {
+      "name": "forbidden",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 403,
+        "text": "{\"error\":\"no\"}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "[command-code-oauth] /alpha/billing/credits 403: {\"error\":\"no\"}",
+        "status": 403,
+        "reauthRequired": false
+      }
+    },
+    {
+      "name": "transport failure",
+      "creds": {
+        "apiKey": "cc_key_ABCDEF0123456789",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "fail": true
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "error": {
+        "message": "fetch failed",
+        "status": null,
+        "reauthRequired": false
+      }
+    },
+    {
+      "name": "no credentials file",
+      "creds": null,
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":10,\"used\":1}}}"
+      },
+      "wire": [],
+      "error": {
+        "message": "[command-code-oauth] credentials not found — open /providers in mixdog to sign in first",
+        "status": null,
+        "reauthRequired": false
+      }
+    },
+    {
+      "name": "a file without a key",
+      "creds": {
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":10,\"used\":1}}}"
+      },
+      "wire": [],
+      "error": {
+        "message": "[command-code-oauth] credentials not found — open /providers in mixdog to sign in first",
+        "status": null,
+        "reauthRequired": false
+      }
+    },
+    {
+      "name": "a blank key",
+      "creds": {
+        "apiKey": "   ",
+        "userId": "u"
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":10,\"used\":1}}}"
+      },
+      "wire": [],
+      "error": {
+        "message": "[command-code-oauth] credentials not found — open /providers in mixdog to sign in first",
+        "status": null,
+        "reauthRequired": false
+      }
+    },
+    {
+      "name": "a padded key is trimmed",
+      "creds": {
+        "apiKey": "  cc_key_ABCDEF0123456789  ",
+        "userId": " u2 "
+      },
+      "reply": {
+        "status": 200,
+        "text": "{\"windowLimits\":{\"fiveHour\":{\"cap\":10,\"used\":1}}}"
+      },
+      "wire": [
+        {
+          "url": "https://api.commandcode.ai/alpha/billing/credits",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer cc_key_ABCDEF0123456789"
+            ]
+          ],
+          "redirect": "error",
+          "timeoutMs": 15000
+        }
+      ],
+      "snapshot": {
+        "provider": "command-code-oauth",
+        "model": null,
+        "source": "command-code-credits",
+        "fetchedAt": 1800000000000,
+        "quotaWindows": [
+          {
+            "id": "5h",
+            "label": "5H",
+            "longLabel": "5 Hours",
+            "source": "command-code-credits",
+            "usedPct": 10,
+            "usedFraction": 0.1,
+            "remainingFraction": 0.9,
+            "status": "ok",
+            "durationMs": 18000000
+          }
+        ],
+        "accountId": "u2"
+      }
+    }
+  ]
+}

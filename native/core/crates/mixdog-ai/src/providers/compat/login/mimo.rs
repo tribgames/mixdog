@@ -27,7 +27,7 @@ use crate::oauth::loopback;
 use crate::oauth::loopback::Handled;
 use crate::oauth::loopback::Request;
 use crate::oauth::loopback::Response;
-use crate::oauth::http::scrub;
+use crate::oauth::scrub::scrubbed_excerpt;
 use crate::oauth::start_session;
 use crate::oauth::CredentialFile;
 use crate::oauth::Probe;
@@ -75,7 +75,7 @@ pub async fn probe_token_plan(http: &Http, api_key: &str) -> Result<&'static str
                 if reply.status != 401 {
                     all_rejected = false;
                 }
-                let detail = scrub(mixdog_js::js_trim(&reply.text()), &[api_key], 300);
+                let detail = scrubbed_excerpt(&reply.text(), &[api_key], 300);
                 last = failed("token_plan", format!("Token Plan check failed ({}): {detail}", reply.status));
             }
             Err(fault) => {

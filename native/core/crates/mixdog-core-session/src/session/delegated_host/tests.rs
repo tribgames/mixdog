@@ -3,7 +3,6 @@
 //! withdrawals the fake queues saw, in order.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -161,8 +160,7 @@ fn step(rig: &Arc<Rig>, call: &[Value]) -> Value {
 
 #[tokio::test]
 async fn every_scripted_step_does_what_the_node_host_did() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/delegated-host/golden.json");
-    let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let golden: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/delegated-host/golden.json"))).unwrap();
     let mut failures = Vec::new();
     for scenario in golden["scenarios"].as_array().unwrap() {
         let rig = rig();

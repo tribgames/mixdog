@@ -32,7 +32,7 @@ async fn a_stop_ends_the_retries_of_its_session_only_and_the_snapshot_is_left_fo
     cleanups.cancel_hook()(Some("worker-1"));
     run.await.unwrap();
     assert_eq!(cleanups.running(), 0);
-    assert!(path.exists());
+    assert!(crate::session::fixture_fs::exists(&path).unwrap());
     drop(lease);
 }
 

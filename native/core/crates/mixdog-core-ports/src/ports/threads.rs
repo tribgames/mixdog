@@ -73,4 +73,7 @@ pub enum Section {
     /// The setup tool's desktop request waiting for a claim; `None` once it is claimed or its
     /// window ended.
     SetupUiRequest(Option<SetupUiRequest>),
+    /// A group room log's view while the room runs; `None` once the room has neither an
+    /// exchange state nor handed-off questions.
+    RoomView(Option<mixdog_app_protocol::v2::thread::ThreadRoomView>),
 }

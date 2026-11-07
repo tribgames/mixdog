@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 
 use super::quota_usage::{ChannelError, QuotaChannel};
 
-const EXECUTE: Method = Method("model/proxy/execute");
+pub(super) const EXECUTE: Method = Method("model/proxy/execute");
 /// `modelProxyErrorFromWire`: an error record that cannot be read, and one without a message.
 const UNREADABLE_FAILURE: &str = "model proxy call failed on the desktop client";
 const EMPTY_FAILURE: &str = "model proxy call failed";
@@ -39,12 +39,12 @@ impl HostQuotaChannel {
     }
 }
 
-fn message_of(failure: ProxyFailure) -> String {
+pub(super) fn message_of(failure: ProxyFailure) -> String {
     if failure.message.is_empty() { EMPTY_FAILURE.to_owned() } else { failure.message }
 }
 
 /// The message of the PC's failed call: the `ProxyFailure` its JSON-RPC error carries as data.
-fn failure_message(data: Option<Value>) -> String {
+pub(super) fn failure_message(data: Option<Value>) -> String {
     data.and_then(|data| serde_json::from_value::<ProxyFailure>(data).ok()).map_or_else(|| UNREADABLE_FAILURE.to_owned(), message_of)
 }
 

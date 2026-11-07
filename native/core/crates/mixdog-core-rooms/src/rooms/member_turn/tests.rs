@@ -3,7 +3,6 @@
 //! covered call ended, and the state left behind.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -17,8 +16,7 @@ use crate::rooms::turn_host::{Failure, MemberLabel, RoomRecord, RoomTurnHost, Tu
 use crate::rooms::turn_prompt::RoomPrompt;
 
 fn golden() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-member-turn/golden.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/room-member-turn/golden.json"))).unwrap()
 }
 
 type Log = Arc<Mutex<Vec<Value>>>;

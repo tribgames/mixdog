@@ -45,6 +45,7 @@ pub fn schema_verdict(header: &Header, tool: &Value) -> Verdict {
         description: tool.get("description").and_then(Value::as_str).unwrap_or_default().to_owned(),
         input_schema: tool.get("inputSchema").cloned().unwrap_or(Value::Null),
         defer_loading: false,
+        freeform: None,
     };
     // `{ name, pointer, reason }`: where the wire's rule refuses the tool's schema, if it does.
     // Gemini tells an absent `inputSchema` (the tool is sent without one) from an explicit null

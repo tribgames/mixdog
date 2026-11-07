@@ -1,0 +1,376 @@
+{
+  "services": [
+    {
+      "name": "mcp: no servers",
+      "args": {
+        "action": "status",
+        "domain": "mcp"
+      },
+      "runtime": {
+        "mcpStatus": {
+          "servers": []
+        }
+      },
+      "text": "{\"domain\":\"mcp\",\"connectedCount\":0,\"servers\":[]}"
+    },
+    {
+      "name": "mcp: empty status object",
+      "args": {
+        "action": "status",
+        "domain": "mcp"
+      },
+      "runtime": {
+        "mcpStatus": {}
+      },
+      "text": "{\"domain\":\"mcp\",\"connectedCount\":0,\"servers\":[]}"
+    },
+    {
+      "name": "mcp: a plain server, defaults for every missing field",
+      "args": {
+        "action": "status",
+        "domain": "mcp"
+      },
+      "runtime": {
+        "mcpStatus": {
+          "connectedCount": "2",
+          "servers": [
+            {
+              "name": "bare"
+            }
+          ]
+        }
+      },
+      "text": "{\"domain\":\"mcp\",\"connectedCount\":2,\"servers\":[{\"name\":\"bare\",\"enabled\":true,\"connected\":false,\"transport\":\"\",\"toolCount\":0,\"source\":\"\",\"error\":null,\"scope\":null}]}"
+    },
+    {
+      "name": "mcp: transport from type, count text, errors and warnings",
+      "args": {
+        "action": "status",
+        "domain": "mcp",
+        "detail": true
+      },
+      "runtime": {
+        "mcpStatus": {
+          "connectedCount": 1,
+          "servers": [
+            {
+              "name": "srv",
+              "enabled": true,
+              "connected": true,
+              "toolCount": "7",
+              "source": "user",
+              "type": "http",
+              "error": "boom",
+              "warnings": [
+                "w1",
+                "w2"
+              ],
+              "scope": [
+                "/a",
+                "/b"
+              ]
+            },
+            {
+              "name": "off",
+              "enabled": false,
+              "connected": "yes",
+              "transport": "stdio",
+              "toolCount": 3,
+              "scope": "all",
+              "warnings": []
+            }
+          ],
+          "warnings": [
+            "top warning"
+          ],
+          "declarationErrors": [
+            {
+              "file": "x.json",
+              "error": "bad"
+            }
+          ]
+        }
+      },
+      "text": "{\"domain\":\"mcp\",\"connectedCount\":1,\"servers\":[{\"name\":\"srv\",\"enabled\":true,\"connected\":true,\"transport\":\"http\",\"toolCount\":7,\"source\":\"user\",\"error\":\"boom\",\"warnings\":[\"w1\",\"w2\"],\"scope\":[\"/a\",\"/b\"]},{\"name\":\"off\",\"enabled\":false,\"connected\":false,\"transport\":\"stdio\",\"toolCount\":3,\"source\":\"\",\"error\":null,\"scope\":null}],\"warnings\":[\"top warning\"],\"declarationErrors\":[{\"file\":\"x.json\",\"error\":\"bad\"}]}"
+    },
+    {
+      "name": "mcp: plugin-owned servers and a connector with accounts",
+      "args": {
+        "action": "status",
+        "domain": "mcp"
+      },
+      "runtime": {
+        "mcpStatus": {
+          "connectedCount": 2,
+          "servers": [
+            {
+              "name": "plug",
+              "enabled": false,
+              "connected": true,
+              "transport": "stdio",
+              "toolCount": 3,
+              "source": "user",
+              "owner": {
+                "kind": "plugin",
+                "id": "codex",
+                "key": "codex:plug"
+              },
+              "disabledReason": "plugin disabled"
+            },
+            {
+              "name": "plug2",
+              "enabled": true,
+              "connected": true,
+              "transport": "stdio",
+              "toolCount": 3,
+              "source": "user",
+              "owner": {
+                "kind": "plugin",
+                "id": "codex",
+                "key": "codex:two"
+              }
+            },
+            {
+              "name": "other",
+              "enabled": true,
+              "connected": true,
+              "transport": "stdio",
+              "toolCount": 3,
+              "source": "user",
+              "owner": {
+                "kind": "user",
+                "id": "x"
+              }
+            },
+            {
+              "name": "gmail",
+              "enabled": true,
+              "connected": true,
+              "transport": "stdio",
+              "toolCount": 3,
+              "source": "user",
+              "connector": "gmail",
+              "accounts": [
+                {
+                  "name": "gmail",
+                  "email": "a@x.test"
+                },
+                {
+                  "name": "gmail-2",
+                  "authRequired": true,
+                  "error": "sign in again"
+                },
+                {
+                  "name": "gmail-3",
+                  "email": "",
+                  "authRequired": false,
+                  "error": ""
+                }
+              ]
+            },
+            {
+              "name": "noaccounts",
+              "enabled": true,
+              "connected": true,
+              "transport": "stdio",
+              "toolCount": 3,
+              "source": "user",
+              "connector": "linear",
+              "accounts": []
+            },
+            {
+              "name": "notlist",
+              "enabled": true,
+              "connected": true,
+              "transport": "stdio",
+              "toolCount": 3,
+              "source": "user",
+              "accounts": "x"
+            }
+          ]
+        }
+      },
+      "text": "{\"domain\":\"mcp\",\"connectedCount\":2,\"servers\":[{\"name\":\"plug\",\"enabled\":false,\"connected\":true,\"transport\":\"stdio\",\"toolCount\":3,\"source\":\"user\",\"plugin\":\"codex\",\"pluginServer\":\"codex:plug\",\"disabledReason\":\"plugin disabled\",\"error\":null,\"scope\":null},{\"name\":\"plug2\",\"enabled\":true,\"connected\":true,\"transport\":\"stdio\",\"toolCount\":3,\"source\":\"user\",\"plugin\":\"codex\",\"pluginServer\":\"codex:two\",\"disabledReason\":null,\"error\":null,\"scope\":null},{\"name\":\"other\",\"enabled\":true,\"connected\":true,\"transport\":\"stdio\",\"toolCount\":3,\"source\":\"user\",\"error\":null,\"scope\":null},{\"name\":\"gmail\",\"enabled\":true,\"connected\":true,\"transport\":\"stdio\",\"toolCount\":3,\"source\":\"user\",\"error\":null,\"scope\":null,\"connector\":\"gmail\",\"accounts\":[{\"name\":\"gmail\",\"email\":\"a@x.test\"},{\"name\":\"gmail-2\",\"email\":\"\",\"authRequired\":true,\"error\":\"sign in again\"},{\"name\":\"gmail-3\",\"email\":\"\"}]},{\"name\":\"noaccounts\",\"enabled\":true,\"connected\":true,\"transport\":\"stdio\",\"toolCount\":3,\"source\":\"user\",\"error\":null,\"scope\":null,\"connector\":\"linear\",\"accounts\":[]},{\"name\":\"notlist\",\"enabled\":true,\"connected\":true,\"transport\":\"stdio\",\"toolCount\":3,\"source\":\"user\",\"error\":null,\"scope\":null}]}"
+    },
+    {
+      "name": "skills: list and disabled names",
+      "args": {
+        "action": "status",
+        "domain": "skills"
+      },
+      "runtime": {
+        "skillsStatus": {
+          "skills": [
+            {
+              "name": "a",
+              "source": "user"
+            }
+          ],
+          "cwd": "/p"
+        },
+        "getDisabledSkills": {
+          "disabled": [
+            "a",
+            "b"
+          ]
+        }
+      },
+      "text": "{\"domain\":\"skills\",\"skills\":[{\"name\":\"a\",\"source\":\"user\"}],\"cwd\":\"/p\",\"disabled\":[\"a\",\"b\"]}"
+    },
+    {
+      "name": "skills: nothing disabled",
+      "args": {
+        "action": "status",
+        "domain": "skills"
+      },
+      "runtime": {
+        "skillsStatus": {
+          "skills": []
+        },
+        "getDisabledSkills": {
+          "disabled": []
+        }
+      },
+      "text": "{\"domain\":\"skills\",\"skills\":[],\"disabled\":[]}"
+    },
+    {
+      "name": "skills: no disabled answer",
+      "args": {
+        "action": "status",
+        "domain": "skills",
+        "detail": true
+      },
+      "runtime": {
+        "skillsStatus": {
+          "skills": [],
+          "z": 1
+        },
+        "getDisabledSkills": {}
+      },
+      "text": "{\"domain\":\"skills\",\"skills\":[],\"z\":1,\"disabled\":[]}"
+    },
+    {
+      "name": "skills: the status already has a disabled key, which keeps its place",
+      "args": {
+        "action": "status",
+        "domain": "skills"
+      },
+      "runtime": {
+        "skillsStatus": {
+          "disabled": [
+            "old"
+          ],
+          "skills": [
+            1
+          ]
+        },
+        "getDisabledSkills": {
+          "disabled": [
+            "new"
+          ]
+        }
+      },
+      "text": "{\"domain\":\"skills\",\"disabled\":[\"new\"],\"skills\":[1]}"
+    },
+    {
+      "name": "plugins: passed through as it is",
+      "args": {
+        "action": "status",
+        "domain": "plugins"
+      },
+      "runtime": {
+        "pluginsStatus": {
+          "plugins": [
+            {
+              "id": "codex",
+              "enabled": true,
+              "servers": [
+                "a"
+              ]
+            }
+          ],
+          "warnings": []
+        }
+      },
+      "text": "{\"domain\":\"plugins\",\"plugins\":[{\"id\":\"codex\",\"enabled\":true,\"servers\":[\"a\"]}],\"warnings\":[]}"
+    },
+    {
+      "name": "plugins: an empty status",
+      "args": {
+        "action": "status",
+        "domain": "plugins",
+        "detail": true
+      },
+      "runtime": {
+        "pluginsStatus": {}
+      },
+      "text": "{\"domain\":\"plugins\"}"
+    }
+  ],
+  "hooks": [
+    {
+      "name": "no hooks file",
+      "file": null,
+      "args": {
+        "action": "status",
+        "domain": "hooks"
+      },
+      "text": "{\"domain\":\"hooks\",\"enabled\":true,\"configMode\":\"legacy\",\"rulesPath\":\"{data}\\\\hooks.json\",\"ruleCount\":0,\"rules\":[],\"configuredEvents\":[],\"configSources\":[],\"errors\":[],\"note\":\"No hook rules configured; lifecycle and tool events are recorded in observer mode.\"}"
+    },
+    {
+      "name": "array document with a rule that has an argument edit",
+      "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\"\n  },\n  {\n    \"tool\": \"bash*\",\n    \"action\": \"modify\",\n    \"match\": \"rm -rf\",\n    \"patch\": {\n      \"dry\": true,\n      \"apiToken\": \"sekret\"\n    },\n    \"enabled\": false\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\"\n  }\n]",
+      "args": {
+        "action": "status",
+        "domain": "hooks"
+      },
+      "text": "{\"domain\":\"hooks\",\"enabled\":true,\"configMode\":\"legacy\",\"rulesPath\":\"{data}\\\\hooks.json\",\"ruleCount\":3,\"rules\":[{\"index\":0,\"enabled\":true,\"tool\":\"read\",\"action\":\"deny\",\"match\":null,\"cwd\":null,\"reason\":\"no reads\",\"hasArgumentEdit\":false},{\"index\":1,\"enabled\":false,\"tool\":\"bash*\",\"action\":\"modify\",\"match\":\"rm -rf\",\"cwd\":null,\"reason\":null,\"hasArgumentEdit\":true},{\"index\":2,\"enabled\":true,\"tool\":\"edit\",\"action\":\"ask\",\"match\":[\"a\",\"b\"],\"cwd\":\"/work\",\"reason\":\"check edits\",\"hasArgumentEdit\":false}],\"configuredEvents\":[],\"configSources\":[\"{data}\\\\hooks.json\"],\"errors\":[],\"note\":\"Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments.\"}"
+    },
+    {
+      "name": "toolBefore document with detail",
+      "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"reason\": \"no reads\"\n    },\n    {\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"patch\": {\n        \"dry\": true,\n        \"apiToken\": \"sekret\"\n      },\n      \"enabled\": false\n    },\n    {\n      \"name\": \"edit\",\n      \"decision\": \"ask\",\n      \"contains\": [\n        \"a\",\n        \"b\"\n      ],\n      \"message\": \"check edits\",\n      \"cwd\": \"/work\"\n    }\n  ],\n  \"note\": \"x\"\n}",
+      "args": {
+        "action": "status",
+        "domain": "hooks",
+        "detail": true
+      },
+      "text": "{\"domain\":\"hooks\",\"enabled\":true,\"configMode\":\"legacy\",\"rulesPath\":\"{data}\\\\hooks.json\",\"ruleCount\":3,\"rules\":[{\"index\":0,\"enabled\":true,\"tool\":\"read\",\"action\":\"deny\",\"match\":null,\"cwd\":null,\"reason\":\"no reads\",\"hasArgumentEdit\":false},{\"index\":1,\"enabled\":false,\"tool\":\"bash*\",\"action\":\"modify\",\"match\":\"rm -rf\",\"cwd\":null,\"reason\":null,\"hasArgumentEdit\":true},{\"index\":2,\"enabled\":true,\"tool\":\"edit\",\"action\":\"ask\",\"match\":[\"a\",\"b\"],\"cwd\":\"/work\",\"reason\":\"check edits\",\"hasArgumentEdit\":false}],\"configuredEvents\":[],\"configSources\":[\"{data}\\\\hooks.json\"],\"errors\":[],\"note\":\"Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments.\"}"
+    },
+    {
+      "name": "rules with unusual fields",
+      "file": "[\n  {\n    \"tools\": [\n      \"a\",\n      \"b\"\n    ],\n    \"decision\": \"deny\",\n    \"contains\": \"x\",\n    \"message\": \"m\"\n  },\n  {\n    \"action\": \"\",\n    \"tool\": \"\"\n  },\n  {\n    \"enabled\": 0,\n    \"action\": \"deny\"\n  },\n  1\n]",
+      "args": {
+        "action": "status",
+        "domain": "hooks"
+      },
+      "text": "{\"domain\":\"hooks\",\"enabled\":true,\"configMode\":\"legacy\",\"rulesPath\":\"{data}\\\\hooks.json\",\"ruleCount\":3,\"rules\":[{\"index\":0,\"enabled\":true,\"tool\":[\"a\",\"b\"],\"action\":\"deny\",\"match\":\"x\",\"cwd\":null,\"reason\":\"m\",\"hasArgumentEdit\":false},{\"index\":1,\"enabled\":true,\"tool\":\"\",\"action\":\"allow\",\"match\":null,\"cwd\":null,\"reason\":null,\"hasArgumentEdit\":false},{\"index\":2,\"enabled\":true,\"tool\":\"*\",\"action\":\"deny\",\"match\":null,\"cwd\":null,\"reason\":null,\"hasArgumentEdit\":false}],\"configuredEvents\":[],\"configSources\":[\"{data}\\\\hooks.json\"],\"errors\":[],\"note\":\"Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments.\"}"
+    },
+    {
+      "name": "a standard hooks document",
+      "file": "{\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"echo\"\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"echo done\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+      "args": {
+        "action": "status",
+        "domain": "hooks"
+      },
+      "text": "{\"domain\":\"hooks\",\"enabled\":true,\"configMode\":\"standard\",\"rulesPath\":\"{data}\\\\hooks.json\",\"ruleCount\":0,\"rules\":[],\"configuredEvents\":[\"PreToolUse\",\"Stop\"],\"configSources\":[\"{data}\\\\hooks.json\"],\"errors\":[],\"note\":\"Standard Mixdog hooks active for events: PreToolUse, Stop.\"}"
+    },
+    {
+      "name": "a file that is not JSON",
+      "file": "{ not json",
+      "args": {
+        "action": "status",
+        "domain": "hooks"
+      },
+      "text": "{\"domain\":\"hooks\",\"enabled\":true,\"configMode\":\"legacy\",\"rulesPath\":\"{data}\\\\hooks.json\",\"ruleCount\":0,\"rules\":[],\"configuredEvents\":[],\"configSources\":[],\"errors\":[{\"file\":\"{data}\\\\hooks.json\",\"error\":\"Expected property name or '}' in JSON at position 2 (line 1 column 3)\"}],\"note\":\"No hook rules configured; lifecycle and tool events are recorded in observer mode.\"}"
+    },
+    {
+      "name": "an empty file",
+      "file": "",
+      "args": {
+        "action": "status",
+        "domain": "hooks"
+      },
+      "text": "{\"domain\":\"hooks\",\"enabled\":true,\"configMode\":\"legacy\",\"rulesPath\":\"{data}\\\\hooks.json\",\"ruleCount\":0,\"rules\":[],\"configuredEvents\":[],\"configSources\":[],\"errors\":[{\"file\":\"{data}\\\\hooks.json\",\"error\":\"the file holds no data (empty or NUL-filled)\"}],\"note\":\"No hook rules configured; lifecycle and tool events are recorded in observer mode.\"}"
+    }
+  ]
+}

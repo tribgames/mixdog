@@ -14,7 +14,10 @@ use std::sync::LazyLock;
 use mixdog_js::{js_trim, JsRegex};
 use serde_json::Value;
 
+use mixdog_core_config::config::hidden_agents::hidden_agents;
+use mixdog_store::agent_mode::session_mode_of;
 use super::tool_surface::unused_model_edit_tool_name;
+use super::tool_pool::model_surface::workflow_disallows_agent_tool;
 
 static FRONTMATTER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)", ""));
 static FRONTMATTER_STRIP: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)", ""));
@@ -298,6 +301,22 @@ pub trait RulesPolicy: Send + Sync {
     fn delegation_disabled(&self, session: &Value, owner_is_agent: bool) -> bool;
 }
 
+/// The runtime's [RulesPolicy]: the hidden-agent table (getHiddenAgent) and the workflow the session holds now.
+pub struct ConfigRulesPolicy;
+
+impl RulesPolicy for ConfigRulesPolicy {
+    fn hidden_agent(&self, agent: Option<&str>) -> bool {
+        agent.is_some_and(|agent| hidden_agents().contains(agent))
+    }
+
+    /// `!ownerIsAgent && workflowDisallowsAgentTool(source?.workflow, { agentMode: Boolean(source) && isAgentModeSession(source) })`
+    /// (`session-tool-surface.mjs:23-28`); a session with no workflow object allows the tool, as `workflowDisallowsAgentTool(undefined)` does.
+    fn delegation_disabled(&self, session: &Value, owner_is_agent: bool) -> bool {
+        let agent_mode = session.as_object().is_some_and(|header| session_mode_of(header) == "agent");
+        !owner_is_agent && session.get("workflow").is_some_and(|workflow| workflow_disallows_agent_tool(workflow, agent_mode))
+    }
+}
+
 fn truthy_text(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null | Value::Bool(false)) => false,
@@ -440,5 +459,27 @@ mod tests {
         assert_eq!(session["messages"][0]["content"], base("openai", "gpt-5"));
         assert_eq!(session["messages"][1]["content"], base("anthropic", "claude-3-5-sonnet"));
         assert!(!refresh_rule_variants(&mut session, &root, "claude-3-5-sonnet", Some("anthropic"), &Policy));
+    }
+
+    /// `delegationDisabled`: a lead whose workflow names no agent has no `agent` tool; an agent-owned session is never asked, and a session with no workflow keeps it.
+    #[test]
+    fn delegation_is_disabled_by_the_workflow_the_session_holds() {
+        let none = json!({ "workflow": { "agentsConfigured": true, "agents": [] } });
+        assert!(ConfigRulesPolicy.delegation_disabled(&none, false));
+        assert!(!ConfigRulesPolicy.delegation_disabled(&none, true));
+        assert!(!ConfigRulesPolicy.delegation_disabled(&json!({ "workflow": { "agentsConfigured": true, "agents": ["a"] } }), false));
+        assert!(!ConfigRulesPolicy.delegation_disabled(&json!({}), false));
+        // Agent mode with a workflow that delegates to no one.
+        let solo = json!({ "sessionMode": "agent", "workflow": { "delegatesAgents": false } });
+        assert!(ConfigRulesPolicy.delegation_disabled(&solo, false));
+        assert!(!ConfigRulesPolicy.delegation_disabled(&json!({ "sessionMode": "coding", "workflow": { "delegatesAgents": false } }), false));
+    }
+
+    #[test]
+    fn a_hidden_agent_is_one_the_table_lists() {
+        let listed = hidden_agents().into_iter().next().expect("the table lists hidden agents");
+        assert!(ConfigRulesPolicy.hidden_agent(Some(&listed)));
+        assert!(!ConfigRulesPolicy.hidden_agent(Some("no-such-agent")));
+        assert!(!ConfigRulesPolicy.hidden_agent(None));
     }
 }

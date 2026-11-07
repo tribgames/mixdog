@@ -1,0 +1,606 @@
+{
+  "domain": "statusline-usage",
+  "recorder": "benchmarks/rust-core/recorders/record-statusline-usage.mjs",
+  "registered": [
+    "openai-oauth",
+    "anthropic-oauth",
+    "grok-oauth",
+    "cursor-oauth",
+    "cursor-api",
+    "openai",
+    "anthropic",
+    "gemini",
+    "my-oauth-custom",
+    "Open-OAuth",
+    " openai-oauth "
+  ],
+  "cases": [
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": "gpt-5"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "openai-oauth",
+            "model": "gpt-5"
+          },
+          "provider": "openai-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": "gpt-5"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": " anthropic-oauth ",
+        "model": " claude-sonnet "
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "anthropic-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "anthropic-oauth",
+            "model": "claude-sonnet"
+          },
+          "provider": "anthropic-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": " anthropic-oauth ",
+        "model": " claude-sonnet "
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "anthropic-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "grok-oauth",
+        "model": ""
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "grok-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "grok-oauth",
+            "model": ""
+          },
+          "provider": "grok-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": "grok-oauth",
+        "model": ""
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "grok-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "grok-oauth"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "grok-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "grok-oauth",
+            "model": ""
+          },
+          "provider": "grok-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": "grok-oauth"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "grok-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "cursor-oauth",
+        "model": "auto"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "cursor-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "cursor-oauth",
+            "model": "auto"
+          },
+          "provider": "cursor-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": "cursor-oauth",
+        "model": "auto"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "cursor-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "cursor-api",
+        "model": "auto"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "cursor-api",
+        "model": "auto"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "gemini",
+        "model": "g"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "gemini",
+        "model": "g"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "my-oauth-custom",
+        "model": "m"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "my-oauth-custom"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "my-oauth-custom",
+            "model": "m"
+          },
+          "provider": "my-oauth-custom",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": "my-oauth-custom",
+        "model": "m"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "my-oauth-custom"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "Open-OAuth",
+        "model": "m"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "Open-OAuth",
+        "model": "m"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "OPENAI-OAUTH",
+        "model": "m"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "OPENAI-OAUTH",
+        "model": "m"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": " openai-oauth ",
+        "model": "m"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "openai-oauth",
+            "model": "m"
+          },
+          "provider": "openai-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": " openai-oauth ",
+        "model": "m"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "",
+        "model": "m"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "",
+        "model": "m"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "model": "m"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "model": "m"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": null,
+        "model": "m"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": null,
+        "model": "m"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": 5,
+        "model": "m"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": 5,
+        "model": "m"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": 7
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "openai-oauth",
+            "model": "7"
+          },
+          "provider": "openai-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": 7
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": null
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "openai-oauth",
+            "model": ""
+          },
+          "provider": "openai-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": null
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": [
+          "a",
+          "b"
+        ]
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "openai-oauth",
+            "model": "a,b"
+          },
+          "provider": "openai-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": [
+          "a",
+          "b"
+        ]
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": {
+          "id": "x"
+        }
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": [
+        {
+          "route": {
+            "provider": "openai-oauth",
+            "model": "[object Object]"
+          },
+          "provider": "openai-oauth",
+          "logIsFunction": true
+        }
+      ]
+    },
+    {
+      "route": {
+        "provider": "openai-oauth",
+        "model": {
+          "id": "x"
+        }
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "openai-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "unregistered-oauth",
+        "model": "m"
+      },
+      "registered": true,
+      "returned": "undefined",
+      "asked": [
+        "unregistered-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {
+        "provider": "unregistered-oauth",
+        "model": "m"
+      },
+      "registered": false,
+      "returned": "undefined",
+      "asked": [
+        "unregistered-oauth"
+      ],
+      "calls": []
+    },
+    {
+      "route": {},
+      "registered": true,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    },
+    {
+      "route": {},
+      "registered": false,
+      "returned": "undefined",
+      "asked": [],
+      "calls": []
+    }
+  ]
+}

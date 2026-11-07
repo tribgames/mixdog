@@ -34,6 +34,7 @@ fn definitions(tools: &[Value]) -> Vec<ToolDefinition> {
             description: t["description"].as_str().expect("description").to_owned(),
             input_schema: t["inputSchema"].clone(),
             defer_loading: t["deferLoading"] == Value::Bool(true),
+            freeform: None,
         })
         .collect()
 }

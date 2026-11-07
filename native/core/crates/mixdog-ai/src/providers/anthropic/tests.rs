@@ -122,6 +122,7 @@ fn tools() -> Vec<ToolDefinition> {
             "required": ["key"],
         }),
         defer_loading: false,
+        freeform: None,
     }]
 }
 

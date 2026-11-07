@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::thread::SortDirection;
 use mixdog_app_protocol::v2::thread::ThreadListParams;
 use mixdog_app_protocol::v2::thread::ThreadListResponse;
+use mixdog_app_protocol::v2::thread::ThreadRoomView;
 use mixdog_app_protocol::v2::thread::ThreadSummaryUpdatedParams;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
@@ -221,12 +222,19 @@ impl ThreadListService {
 pub struct RoomSummaries {
     list: Arc<ThreadListService>,
     app: Arc<mixdog_core_base::state::SectionFeedState>,
-    pass: tokio::sync::Mutex<()>,
+    /// The room log threads, whose `roomView` section a room's republish sets.
+    directory: Arc<super::SessionDirectory>,
+    /// One pass at a time, in the order they were asked for.
+    pass: Arc<mixdog_rt::SerialChain>,
 }
 
 impl RoomSummaries {
-    pub fn new(list: Arc<ThreadListService>, app: Arc<mixdog_core_base::state::SectionFeedState>) -> Arc<Self> {
-        Arc::new(Self { list, app, pass: tokio::sync::Mutex::new(()) })
+    pub fn new(
+        list: Arc<ThreadListService>,
+        app: Arc<mixdog_core_base::state::SectionFeedState>,
+        directory: Arc<super::SessionDirectory>,
+    ) -> Arc<Self> {
+        Arc::new(Self { list, app, directory, pass: mixdog_rt::SerialChain::new() })
     }
 
     /// The room service's republish input (`SessionRoomHost::new(.., republish)`): starts a pass,
@@ -237,11 +245,32 @@ impl RoomSummaries {
     }
 
     /// `deps.republish(roomSessionId)`: the room view of one room changed (a member started or
-    /// stopped speaking, the speaking member's approval came or went). Its log row goes out
-    /// again, carrying the room summary as it stands (`running`, `lastSpeaker`, ...), on the same
-    /// serialized path as [`Self::publish`].
-    pub async fn publish_room(&self, room_thread: &ThreadId) {
-        let _pass = self.pass.lock().await;
+    /// stopped speaking, the speaking member's approval came or went, the handed-off questions
+    /// moved). Node publishes the room log's session state decorated with it
+    /// (`session-host.ts` `snapshotWithShellJobs` → `agentRooms.decorate`, pushed on
+    /// `mixdog:session-state`); here the decoration is the log thread's `roomView` section
+    /// (`thread/roomView/updated`, in every snapshot), which the client lays over the thread's
+    /// own fields. A view is set on the log thread, loaded for it, so a later subscriber reads it
+    /// from the snapshot; a cleared view goes only to a loaded log (a fresh load has none). The
+    /// log row goes out again too, carrying the room summary as it stands. Serialized with
+    /// [`Self::publish`].
+    pub async fn publish_room(&self, room_thread: &ThreadId, view: Option<ThreadRoomView>) {
+        let _pass = self.pass.acquire().await;
+        let handle = match &view {
+            Some(_) => match self.directory.open_handle(room_thread, &mixdog_core_api::call::CallContext::internal("room-view")).await {
+                Ok(handle) => Some(handle),
+                Err(error) => {
+                    tracing::warn!(?error, thread = room_thread.as_str(), "room view: the room log could not be opened");
+                    None
+                }
+            },
+            None => self.directory.handle(room_thread),
+        };
+        if let Some(handle) = handle
+            && let Err(error) = handle.set_section(mixdog_core_ports::ports::threads::Section::RoomView(view)).await
+        {
+            tracing::warn!(?error, thread = room_thread.as_str(), "room view: not published");
+        }
         match self.list.summary(room_thread).await {
             Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
             Ok(None) => {}
@@ -251,7 +280,7 @@ impl RoomSummaries {
 
     /// One pass: every room's log row, published.
     pub async fn publish(&self) {
-        let _pass = self.pass.lock().await;
+        let _pass = self.pass.acquire().await;
         let threads = match self.list.rooms.room_threads().await {
             Ok(threads) => threads,
             Err(error) => {
@@ -437,13 +466,60 @@ mod tests {
         let source: Arc<dyn FeedSource> = feed.clone();
         let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
         mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
-        let summaries = RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)));
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(crate::session::SessionDirectory::new(rig.deps()));
+        let summaries = RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), directory);
 
         summaries.publish().await;
         let sent: Vec<String> = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).collect();
         assert_eq!(sent.len(), 1, "{sent:?}");
         assert!(sent[0].contains(r#""id":"sess_room_room01""#) && sent[0].contains(r#""agentRoom":{"id":"room01"}"#), "{}", sent[0]);
         assert!(sent[0].contains(r#""title":"Room one""#), "{}", sent[0]);
+    }
+
+    /// A room's republish sets its log thread's `roomView` (opening the log for it), so the
+    /// thread feed carries `thread/roomView/updated` and every later snapshot the view; a cleared
+    /// view removes it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_room_republish_sets_the_room_view_on_its_log_thread() {
+        use mixdog_core_api::mock::MockFeed;
+        use mixdog_core_api::mock::MockLimits;
+        use mixdog_store::schema::record::Header;
+
+        let golden = golden();
+        let data = tempfile::tempdir().expect("data dir");
+        let list = Arc::new(ThreadListService::new(service(data.path(), &golden).await.store, Arc::new(Busy), Arc::new(NoRooms)));
+        let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), MockLimits::default()));
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(crate::session::SessionDirectory::new(rig.deps()));
+        let thread = ThreadId::from("sess_room_room09".to_owned());
+        let mut header = Header::new();
+        header.insert("createdAt".into(), json!(1));
+        header.insert("updatedAt".into(), json!(1));
+        directory.create_with_id(thread.clone(), header, json!({})).await.expect("room log");
+        let summaries = RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), directory.clone());
+
+        let view = ThreadRoomView {
+            busy: true,
+            tool_approval: Some(json!({ "id": "7", "name": "ask_user", "kind": "question" })),
+            typing: Some(json!({ "kind": "notice", "id": "room-typing-n1", "tone": "info", "text": "Git Hub…", "room": { "kind": "typing", "speaker": "gh.bot", "name": "Git Hub" } })),
+            handoff_questions: None,
+        };
+        summaries.publish_room(&thread, Some(view.clone())).await;
+        let shown = crate::session::tests::eventually(|| {
+            directory.handle(&thread).and_then(|handle| handle.cell.view.load_full().state.room_view.clone())
+        })
+        .await;
+        assert_eq!(shown, view);
+        let sent: Vec<Value> =
+            rig.feeds.frames(thread.as_str()).into_iter().filter(|(_, method, _)| method == "thread/roomView/updated").map(|(_, _, params)| params["value"].clone()).collect();
+        assert_eq!(sent, vec![serde_json::to_value(&view).unwrap()]);
+
+        summaries.publish_room(&thread, None).await;
+        crate::session::tests::eventually(|| {
+            directory.handle(&thread).filter(|handle| handle.cell.view.load_full().state.room_view.is_none()).map(drop)
+        })
+        .await;
     }
 
     /// A cursor that does not decode is Node's `EINVALIDCURSOR` failure; a text search or another

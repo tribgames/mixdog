@@ -54,7 +54,7 @@ fn request() -> p::ModelRequest {
     p::ModelRequest {
         model: "gpt-5".into(),
         messages: vec![user, assistant],
-        tools: vec![p::ToolDefinition { name: "read".into(), description: "d".into(), input_schema: json!({ "type": "object" }), defer_loading: true }],
+        tools: vec![p::ToolDefinition { name: "read".into(), description: "d".into(), input_schema: json!({ "type": "object" }), defer_loading: true, freeform: None }],
         options,
     }
 }
@@ -198,8 +198,8 @@ impl WireRouter for Wires {
 struct Config;
 #[async_trait]
 impl ProviderConfigSource for Config {
-    async fn public(&self) -> (BTreeMap<String, w::ProxyProviderInfo>, bool) {
-        (BTreeMap::new(), true)
+    async fn public(&self) -> (Vec<(String, w::ProxyProviderInfo)>, bool) {
+        (Vec::new(), true)
     }
 }
 
@@ -348,7 +348,7 @@ async fn the_other_calls_are_answered_on_the_pc() {
     assert!(usable);
     let route = ask(w::ProxyCall::ResolveWireRoute { provider: "mock".into(), model: "m".into(), context: w::ProxyRouteContext { agent: true, legacy: false } }).await.unwrap();
     assert_eq!(route, w::ProxyAnswer::Route { route: Some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Family, profile_id: "mock:messages".into() }) });
-    assert!(matches!(ask(w::ProxyCall::ProviderConfig).await.unwrap(), w::ProxyAnswer::ProviderConfig { ready: true, .. }));
+    assert!(matches!(ask(w::ProxyCall::ProviderConfig).await.unwrap(), w::ProxyAnswer::ProviderConfig { ready: Some(true), .. }));
     assert!(ask(w::ProxyCall::QuotaUsable { provider: "absent".into(), model: "x".into() }).await.is_err());
     // A cached listing answers from the PC's catalog.
     let w::ProxyAnswer::Models { models } = ask(w::ProxyCall::ListModels { provider: "mock".into(), refresh: false }).await.unwrap() else { panic!() };

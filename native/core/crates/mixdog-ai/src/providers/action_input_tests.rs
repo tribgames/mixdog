@@ -88,6 +88,7 @@ fn a_claude_models_declarations_are_the_ones_node_builds() {
                 description: t["description"].as_str().expect("description").into(),
                 input_schema: t["inputSchema"].clone(),
                 defer_loading: false,
+                freeform: None,
             })
             .collect();
         let mut excluded = Vec::new();

@@ -562,3 +562,184 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     assert_eq!(applied, super::turn_ops::CompactionCommit::Applied);
     eventually(|| (handle.live_header().header().get("compaction")?.get("compactCount") == Some(&json!(8))).then_some(())).await;
 }
+
+/// `failedTurnProvenance` (`ask-session.mjs:198-201`): a retry of a system-caused turn (a restored
+/// message with `meta.source` and the failed completion) is noted to the warmer as system, and its
+/// row carries that provenance as `meta.provenance` (`turnPromptSourceFor`, `ask-turn-execute.mjs:27-34`)
+/// so the retry of the retry is system too. The completions come from the actor's own write when a turn
+/// fails (`attachFailedTurnCompletion`), none is seeded.
+#[tokio::test(start_paused = true)]
+async fn a_retry_of_a_system_turn_and_the_retry_of_that_retry_are_noted_as_system() {
+    use super::ItemCommit;
+    use mixdog_ai::warmer::plan::TurnKind;
+    use mixdog_ai::warmer::plan::turn_kind;
+    use mixdog_core_api::ids::ItemId;
+
+    let rig = Rig::new();
+    let stamped: Arc<std::sync::Mutex<Vec<Value>>> = Arc::default();
+    let log = stamped.clone();
+    rig.set_script(Arc::new(move |run| {
+        let log = log.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let n = {
+                let mut seen = super::testing::lock(&log);
+                seen.push(run.input_body.pointer("/meta/provenance").cloned().unwrap_or(Value::Null));
+                seen.len()
+            };
+            if n >= 3 {
+                return RunOutcome::Completed(Default::default());
+            }
+            // The first failed turn is a restored system-caused message; its completion, and the
+            // retry row's, are written by the actor when the turn fails (`attachFailedTurnCompletion`).
+            if n == 1 {
+                let body = json!({ "role": "user", "content": "go on", "meta": { "source": "task-notification", "transcript": { "messageId": "m1" } } });
+                run.port.commit_item(ItemCommit { iid: ItemId::from("m1-row"), role: Some("user".into()), model: true, visible: false, body, prompt: None }).await.expect("commit");
+            }
+            let end = json!({
+                "type": "turnEnd", "id": format!("end-{}", run.turn), "status": "failed", "elapsedMs": 5,
+                "quota": { "provider": "anthropic", "model": "m", "resetAt": 5000 },
+                "meta": { "turnId": run.turn, "ext": { "attemptId": run.turn } },
+            });
+            run.port
+                .commit_item(ItemCommit { iid: ItemId::from(format!("end-{}", run.turn)), role: Some("assistant".into()), model: false, visible: true, body: json!({ "shownItem": end }), prompt: None })
+                .await
+                .expect("commit");
+            let provider = mixdog_protocol::ProviderErrorDetail { provider: "anthropic".into(), status: Some(429), kind: "quota_exhausted".into(), delivery: None };
+            RunOutcome::Failed(mixdog_protocol::TurnError { message: "quota".into(), data: json!({}), provider_error: Some(provider) })
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "write the report", "op-1").await;
+    let id = handle.id.as_str().to_owned();
+    let first = eventually(|| rig.quota.entry(&id)).await;
+    eventually(|| idle(&handle).then_some(())).await;
+
+    retry_when_settled(&handle, &first.turn_key, "r-1s").await;
+    eventually(|| (super::testing::lock(&stamped).len() == 2).then_some(())).await;
+    eventually(|| idle(&handle).then_some(())).await;
+    let second = eventually(|| rig.quota.entry(&id).filter(|entry| entry.turn_key != first.turn_key)).await;
+    retry_when_settled(&handle, &second.turn_key, "r-2s").await;
+    eventually(|| (super::testing::lock(&stamped).len() == 3).then_some(())).await;
+
+    let provenance = json!({ "source": "task-notification" });
+    assert_eq!(*super::testing::lock(&stamped), [Value::Null, provenance.clone(), provenance], "each retry row carries the failed turn's provenance");
+    let begun = super::testing::lock(&rig.warms.begun).clone();
+    let kinds: Vec<TurnKind> = begun.iter().map(|(_, input, messages)| turn_kind(input, messages.as_ref())).collect();
+    assert_eq!(kinds, [TurnKind::Return, TurnKind::System, TurnKind::System], "the prompt is a return, both retries are system");
+}
+
+/// A failed turn gets `meta.transcript.completion` on its last message (`attachFailedTurnCompletion`,
+/// `ask-turn-settle.mjs:85-96`) and a plain `turn/start` carrying the retry flags stamps the row with the
+/// failed turn's provenance like the lane's retry does (`ask-session.mjs:199`).
+#[tokio::test(start_paused = true)]
+async fn a_failed_turn_records_its_completion_and_a_plain_retry_start_carries_the_provenance() {
+    use super::ItemCommit;
+    use mixdog_core_api::ids::ItemId;
+
+    let rig = Rig::new();
+    let stamped: Arc<std::sync::Mutex<Vec<Value>>> = Arc::default();
+    let log = stamped.clone();
+    rig.set_script(Arc::new(move |run| {
+        let log = log.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let n = {
+                let mut seen = super::testing::lock(&log);
+                seen.push(run.input_body.pointer("/meta/provenance").cloned().unwrap_or(Value::Null));
+                seen.len()
+            };
+            if n > 1 {
+                return RunOutcome::Completed(Default::default());
+            }
+            let body = json!({ "role": "user", "content": "go on", "meta": { "source": "task-notification", "transcript": { "messageId": "m1" } } });
+            run.port.commit_item(ItemCommit { iid: ItemId::from("m1-row"), role: Some("user".into()), model: true, visible: false, body, prompt: None }).await.expect("commit");
+            let end = json!({
+                "type": "turnEnd", "id": format!("end-{}", run.turn), "status": "failed", "elapsedMs": 5, "verb": "Thought",
+                "quota": { "provider": "anthropic", "model": "m", "resetAt": 5000 },
+                "meta": { "turnId": run.turn, "at": 7, "ext": { "attemptId": "att-1" } },
+            });
+            run.port
+                .commit_item(ItemCommit { iid: ItemId::from(format!("end-{}", run.turn)), role: Some("assistant".into()), model: false, visible: true, body: json!({ "shownItem": end }), prompt: None })
+                .await
+                .expect("commit");
+            let provider = mixdog_protocol::ProviderErrorDetail { provider: "anthropic".into(), status: Some(429), kind: "quota_exhausted".into(), delivery: None };
+            RunOutcome::Failed(mixdog_protocol::TurnError { message: "quota".into(), data: json!({}), provider_error: Some(provider) })
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "write the report", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    eventually(|| (super::testing::lock(&stamped).len() == 1).then_some(())).await;
+
+    let context = directory.model_context(&handle.id);
+    let messages = loop {
+        let rows: Vec<Value> = context.read().await.expect("context").into_iter().map(|(_, message)| message).collect();
+        if rows.iter().any(|message| message.pointer("/meta/transcript/completion").is_some()) {
+            break rows;
+        }
+        tokio::task::yield_now().await;
+    };
+    assert_eq!(
+        messages.last().expect("rows").pointer("/meta/transcript/completion"),
+        Some(&json!({ "status": "failed", "attemptId": "att-1", "at": 7, "verb": "Thought", "elapsedMs": 5, "quota": { "provider": "anthropic", "model": "m", "resetAt": 5000 } })),
+        "the failed turn's last message records its end"
+    );
+
+    call(&handle, "turn/start", json!({ "input": { "prompt": "go on", "options": { "retryFailedTurn": true, "retryTurnId": "m1" } } }), "op-retry").await.expect("started");
+    eventually(|| (super::testing::lock(&stamped).len() == 2).then_some(())).await;
+    assert_eq!(super::testing::lock(&stamped)[1], json!({ "source": "task-notification" }), "the plain retry's row carries the failed turn's provenance");
+}
+
+/// A turn that fails with no end item of its own (a workspace admission refusal, a provider error the run
+/// never showed) still records its end on its last message, built from the failure
+/// (`failedTurnCompletion`, `ask-turn-failure.mjs:26-45`; the text fields are Node's own,
+/// `fixtures/failed-completion`), and the history shows that end once: the row's completion is the only
+/// source, as in Node's restore (`transcript_rows::metadata`).
+#[tokio::test(start_paused = true)]
+async fn a_failure_without_an_end_item_records_its_end_and_the_history_shows_it_once() {
+    let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/failed-completion/golden.json")).unwrap();
+    let want = &gold["cases"][0];
+    assert_eq!(want["message"], "boom");
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            RunOutcome::Failed(mixdog_protocol::TurnError { message: "boom".into(), data: json!({}), provider_error: None })
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "write the report", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+
+    let context = directory.model_context(&handle.id);
+    let messages = loop {
+        let rows: Vec<Value> = context.read().await.expect("context").into_iter().map(|(_, message)| message).collect();
+        if rows.iter().any(|message| message.pointer("/meta/transcript/completion").is_some()) {
+            break rows;
+        }
+        tokio::task::yield_now().await;
+    };
+    let mut completion = messages.last().expect("rows").pointer("/meta/transcript/completion").cloned().expect("completion");
+    assert!(completion["attemptId"].as_str().is_some_and(|id| !id.is_empty()), "a fresh attempt id");
+    completion.as_object_mut().expect("object").shift_remove("attemptId");
+    assert_eq!(
+        completion,
+        json!({ "status": "failed", "at": 1000, "verb": "Thought", "elapsedMs": 0, "detail": want["detail"], "errorDetails": want["errorDetails"], "errorKind": want["errorKind"] })
+    );
+
+    let ends: Vec<_> = directory
+        .history_items(&handle.id)
+        .await
+        .expect("history")
+        .into_iter()
+        .filter_map(|item| match item {
+            mixdog_protocol::ThreadItem::TurnEnd { status, detail, .. } => Some((status, detail)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ends, [(mixdog_protocol::TurnEndStatus::Failed, Some("boom".to_owned()))], "one turn end, from the row's completion");
+}

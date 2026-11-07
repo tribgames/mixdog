@@ -21,6 +21,7 @@ use mixdog_core_session::session::route_session::route_changed;
 use mixdog_core_session::session::route_session::RouteChange;
 
 /// What a route change reads from the provider registry and the cache policy.
+#[async_trait::async_trait]
 pub trait RouteFacts: Send + Sync {
     /// The model's context window, `None` when the provider is not registered (`getProvider`
     /// answers nothing) or the session has no model. `seed` is `contextSeedForRouteUpdate`.
@@ -33,8 +34,9 @@ pub trait RouteFacts: Send + Sync {
 
     /// The tool surface, rules variant and deferred-tool fields a new route rebuilds
     /// (`_prepareResumeTools`, `applyAgentToolExposure`, `_refreshSessionRuleVariantsForModel`).
-    /// Nothing until that surface is ported.
-    fn surface_change(&self, _header: &Header, _previous: &Route) -> HeaderChange {
+    /// Async: the tools are resolved from a skill list collected now. Nothing by default (facts
+    /// that rebuild no surface).
+    async fn surface_change(&self, _header: &Header, _previous: &Route) -> HeaderChange {
         HeaderChange { set: Map::new(), unset: Vec::new() }
     }
 }
@@ -133,7 +135,7 @@ impl RunHostRouteChange {
 
     /// `resetSessionForRouteChange`: a new provider/model starts a fresh cache chain, usage baseline
     /// and tool surface.
-    fn reset(&self, header: &Header, previous: &Route, change: &mut HeaderChange) {
+    async fn reset(&self, header: &Header, previous: &Route, change: &mut HeaderChange) {
         let provider = text(header.get("provider"));
         set(change, "promptCacheKey", json!(provider_cache_key(provider)));
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
@@ -151,7 +153,7 @@ impl RunHostRouteChange {
         unset(change, "_providerPrefixGuardState");
         // The new route resolves its own wire before its first request.
         set(change, "wireRoute", Value::Null);
-        merge(change, self.facts.surface_change(header, previous));
+        merge(change, self.facts.surface_change(header, previous).await);
     }
 
     /// `invalidateContextUsageSnapshot` and `invalidateProviderContextBaseline` (WP-COMPACT's
@@ -167,6 +169,7 @@ impl RunHostRouteChange {
         }
     }}
 
+#[async_trait::async_trait]
 impl RouteChange for RunHostRouteChange {
     /// A cleared conversation's environment reset (Node's resetSessionBp3Environment), as the header
     /// change the clear writes in its own patch.
@@ -175,12 +178,12 @@ impl RouteChange for RunHostRouteChange {
         crate::run_host::prompt_session::reset_environment(header, &blocks).change
     }
 
-    fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool) -> HeaderChange {
+    async fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool) -> HeaderChange {
         let route_changed = route_changed(route, previous);
         let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
         self.context_window(header, route, route_changed, &mut change);
         if route_changed {
-            self.reset(header, previous, &mut change);
+            self.reset(header, previous, &mut change).await;
             if cross_provider {
                 Self::invalidate(&mut change);
             }
@@ -199,6 +202,7 @@ mod tests {
     use super::*;
 
     struct Facts;
+    #[async_trait::async_trait]
     impl RouteFacts for Facts {
         fn context_meta(&self, _: &str, _: &str, _: &Value) -> Option<ContextMeta> {
             None
@@ -232,8 +236,8 @@ mod tests {
 
     /// Node's `updateSessionRoute` on four route changes of one session: the fields the golden names,
     /// after the route's own fields and this change are applied to the stored header.
-    #[test]
-    fn a_route_change_leaves_the_header_as_node_does() {
+    #[tokio::test]
+    async fn a_route_change_leaves_the_header_as_node_does() {
         let golden: Value = serde_json::from_str(include_str!("golden/route_change.json")).expect("fixture");
         let cases: [(&str, Value, bool); 4] = [
             ("same_model_tune", json!({ "fast": true }), false),
@@ -251,7 +255,7 @@ mod tests {
             for (key, value) in &route {
                 header.insert(key.clone(), value.clone());
             }
-            let result = change.route_change(&header, &route, &previous, cross);
+            let result = change.route_change(&header, &route, &previous, cross).await;
             for key in &result.unset {
                 header.shift_remove(key);
             }

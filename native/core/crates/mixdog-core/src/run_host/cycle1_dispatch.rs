@@ -57,6 +57,9 @@ pub struct AgentDispatchPayload {
     pub source_type: &'static str,
     /// `options.brief`: `false` returns the synthesis uncapped.
     pub brief: bool,
+    /// `options.permission`: the permission the dispatcher asks for (`session-prep.mjs:75`). The
+    /// broker's options never name one.
+    pub permission: Option<String>,
     pub prompt: String,
     /// `params.preset`: absent when falsy.
     pub preset: Option<Value>,
@@ -92,6 +95,7 @@ impl Cycle1Dispatch {
             task_type: "maintenance",
             source_type: "memory-cycle",
             brief: false,
+            permission: None,
             prompt: prompt.to_owned(),
             preset: request.preset.clone().filter(|preset| mixdog_ai::service::admin_route::truthy(Some(preset))),
             cwd: None,

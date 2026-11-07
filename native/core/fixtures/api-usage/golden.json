@@ -1,0 +1,5522 @@
+{
+  "domain": "api-usage",
+  "recorder": "benchmarks/rust-core/recorders/record-api-usage.mjs",
+  "now": 1800000000000,
+  "flows": [
+    {
+      "name": "deepseek balance",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "ds-key"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer ds-key"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 12.3457,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": true,
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 12.3457,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": true,
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "deepseek unavailable account",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "ds-key"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer ds-key"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 0,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 0,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "deepseek without a USD balance",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "ds-key"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer ds-key"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "deepseek key from the keychain",
+      "provider": "deepseek",
+      "env": {},
+      "remote": false,
+      "secrets": {
+        "agent.deepseek.apiKey": "vault-ds"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer vault-ds"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 5,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 5,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "deepseek without a key",
+      "provider": "deepseek",
+      "env": {},
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "deepseek rejected key",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "ds-key"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer ds-key"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 401,
+              "message": "Authentication Fails"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "deepseek server error",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "ds-key"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer ds-key"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "error": {
+            "message": "usage fetch failed (500)",
+            "status": 500
+          }
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "deepseek transport failure",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "ds-key"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer ds-key"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "error": {
+            "message": "fetch failed",
+            "status": null
+          }
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "deepseek not found without a body",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "ds-key"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer ds-key"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 404,
+              "message": "usage fetch failed (404)"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "a fresh snapshot is served without a request",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "k"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 299999
+        },
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000299999,
+          "wire": [],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        },
+        {
+          "op": "cached",
+          "allowStale": false,
+          "now": 1800000299999,
+          "wire": [],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 2
+        },
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000300001,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "error": {
+            "message": "fetch failed",
+            "status": null
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "force asks again",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "k"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        },
+        {
+          "op": "fetch",
+          "force": true,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 2,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        },
+        {
+          "op": "cached",
+          "now": 1800000000000,
+          "wire": [],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 2,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 2,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "a stale snapshot is read when stale is allowed",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "k"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 3599999
+        },
+        {
+          "op": "cached",
+          "now": 1800003599999,
+          "wire": [],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        },
+        {
+          "op": "cached",
+          "allowStale": false,
+          "now": 1800003599999,
+          "wire": [],
+          "value": null
+        },
+        {
+          "op": "advance",
+          "ms": 2
+        },
+        {
+          "op": "cached",
+          "now": 1800003600001,
+          "wire": [],
+          "value": null
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "provider ids are folded",
+      "provider": " DeepSeek ",
+      "env": {
+        "DEEPSEEK_API_KEY": "k"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 3,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        },
+        {
+          "op": "cached",
+          "now": 1800000000000,
+          "wire": [],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 3,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 3,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "an unknown provider",
+      "provider": "mystery",
+      "env": {},
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": null
+        },
+        {
+          "op": "cached",
+          "now": 1800000000000,
+          "wire": [],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "a failed lookup leaves the cache alone",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "k"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        },
+        {
+          "op": "fetch",
+          "force": true,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.deepseek.com/user/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "error": {
+            "message": "usage fetch failed (503)",
+            "status": 503
+          }
+        },
+        {
+          "op": "cached",
+          "now": 1800000000000,
+          "wire": [],
+          "value": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "source": "deepseek-balance",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "deepseek-balance"
+            },
+            "available": false,
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai credit grants",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 12.5,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000,
+            "creditGrants": {
+              "usedUsd": 7.5,
+              "limitUsd": 20,
+              "nextExpiry": 1900000000000
+            }
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 12.5,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000,
+            "creditGrants": {
+              "usedUsd": 7.5,
+              "limitUsd": 20,
+              "nextExpiry": 1900000000000
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "openai credit grants without totals",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 3,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 3,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai credit grants with camelCase totals",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000,
+            "creditGrants": {
+              "usedUsd": 2,
+              "limitUsd": 3,
+              "nextExpiry": 1900000000000
+            }
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000,
+            "creditGrants": {
+              "usedUsd": 2,
+              "limitUsd": 3,
+              "nextExpiry": 1900000000000
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "openai grants tried with the session key first",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o",
+        "OPENAI_USAGE_SESSION_KEY": "sess-1"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-1"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai session key from the keychain",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {
+        "agent.openai.usageSessionKey": "vault-sess"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer vault-sess"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 4,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 4,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai dashboard billing",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o",
+        "OPENAI_DASHBOARD_SESSION_KEY": "sess-2"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-2"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/subscription",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-2"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/usage?start_date=2026-12-15&end_date=2027-01-15",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-2"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-dashboard-billing",
+            "balance": {
+              "source": "openai-dashboard-billing",
+              "usedUsd": 25.5,
+              "limitUsd": 100,
+              "remainingUsd": 74.5
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-dashboard-billing",
+            "balance": {
+              "source": "openai-dashboard-billing",
+              "usedUsd": 25.5,
+              "limitUsd": 100,
+              "remainingUsd": 74.5
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai dashboard with only a limit",
+      "provider": "openai",
+      "env": {
+        "OPENAI_SESSION_KEY": "sess-3"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-3"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/subscription",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-3"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/usage?start_date=2026-12-15&end_date=2027-01-15",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-3"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-dashboard-billing",
+            "balance": {
+              "source": "openai-dashboard-billing",
+              "limitUsd": 50
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-dashboard-billing",
+            "balance": {
+              "source": "openai-dashboard-billing",
+              "limitUsd": 50
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai dashboard with only usage",
+      "provider": "openai",
+      "env": {
+        "MIXDOG_OPENAI_USAGE_SESSION_KEY": "sess-4"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-4"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/subscription",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-4"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/usage?start_date=2026-12-15&end_date=2027-01-15",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sess-4"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-dashboard-billing",
+            "balance": {
+              "source": "openai-dashboard-billing",
+              "usedUsd": 1
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-dashboard-billing",
+            "balance": {
+              "source": "openai-dashboard-billing",
+              "usedUsd": 1
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai organization costs",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-organization-costs",
+            "balance": {
+              "usedUsd": 6.25,
+              "source": "openai-organization-costs"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-organization-costs",
+            "balance": {
+              "usedUsd": 6.25,
+              "source": "openai-organization-costs"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai costs without an amount fall to completion usage",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/usage/completions?start_time=1797321600&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-organization-usage-completions",
+            "tokenUsage": {
+              "inputTokens": 11,
+              "outputTokens": 5,
+              "cachedInputTokens": 2,
+              "requests": 3,
+              "source": "openai-organization-usage-completions"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-organization-usage-completions",
+            "tokenUsage": {
+              "inputTokens": 11,
+              "outputTokens": 5,
+              "cachedInputTokens": 2,
+              "requests": 3,
+              "source": "openai-organization-usage-completions"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai costs forbidden fall to completion usage",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/usage/completions?start_time=1797321600&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-organization-usage-completions",
+            "tokenUsage": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedInputTokens": 0,
+              "requests": 0,
+              "source": "openai-organization-usage-completions"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-organization-usage-completions",
+            "tokenUsage": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedInputTokens": 0,
+              "requests": 0,
+              "source": "openai-organization-usage-completions"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai completion usage with no data",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/usage/completions?start_time=1797321600&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "openai costs server error",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "error": {
+            "message": "usage fetch failed (500)",
+            "status": 500
+          }
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "openai completion usage rejected",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "sk-o"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/v1/organization/usage/completions?start_time=1797321600&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer sk-o"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 401,
+              "message": "bad key"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "openai without any key",
+      "provider": "openai",
+      "env": {},
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "anthropic without an admin key",
+      "provider": "anthropic",
+      "env": {},
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": {
+            "provider": "anthropic",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Set ANTHROPIC_ADMIN_API_KEY for usage/cost report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "anthropic": {
+            "provider": "anthropic",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Set ANTHROPIC_ADMIN_API_KEY for usage/cost report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "anthropic cost report",
+      "provider": "anthropic",
+      "env": {
+        "ANTHROPIC_ADMIN_API_KEY": "adm-1"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer adm-1"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 17.5,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "anthropic": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 17.5,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "anthropic cost report with no rows",
+      "provider": "anthropic",
+      "env": {
+        "ANTHROPIC_ADMIN_API_KEY": "adm-1"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer adm-1"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 0,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "anthropic": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 0,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "anthropic cost report without data",
+      "provider": "anthropic",
+      "env": {
+        "ANTHROPIC_ADMIN_API_KEY": "adm-1"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer adm-1"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "anthropic",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Anthropic cost report returned no usage data"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "anthropic": {
+            "provider": "anthropic",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Anthropic cost report returned no usage data"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "anthropic bearer rejected then x-api-key",
+      "provider": "anthropic",
+      "env": {
+        "ANTHROPIC_ADMIN_API_KEY": "adm-1"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer adm-1"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "x-api-key",
+                  "adm-1"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 1,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "anthropic": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 1,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "anthropic every attempt rejected",
+      "provider": "anthropic",
+      "env": {
+        "ANTHROPIC_ADMIN_API_KEY": "adm-1",
+        "ANTHROPIC_API_KEY": "api-2"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer adm-1"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "x-api-key",
+                  "adm-1"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer api-2"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "x-api-key",
+                  "api-2"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "anthropic",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 401,
+              "message": "first"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "anthropic": {
+            "provider": "anthropic",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 401,
+              "message": "first"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "anthropic admin keys are tried in order and deduplicated",
+      "provider": "anthropic",
+      "env": {
+        "ANTHROPIC_ADMIN_API_KEY": "same",
+        "MIXDOG_ANTHROPIC_ADMIN_API_KEY": " same ",
+        "ANTHROPIC_ADMIN_KEY": "third",
+        "ANTHROPIC_API_KEY": "same"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer same"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "x-api-key",
+                  "same"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer third"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "x-api-key",
+                  "third"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 0.01,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "anthropic": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 0.01,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "anthropic server error",
+      "provider": "anthropic",
+      "env": {
+        "ANTHROPIC_ADMIN_API_KEY": "adm-1"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer adm-1"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "error": {
+            "message": "usage fetch failed (500)",
+            "status": 500
+          }
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "gemini key valid",
+      "provider": "gemini",
+      "env": {
+        "GEMINI_API_KEY": "g key/1"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://generativelanguage.googleapis.com/v1beta/models?key=g%20key%2F1",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "gemini",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Gemini API key valid; balance/usage is AI Studio or Cloud Billing only"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "gemini": {
+            "provider": "gemini",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Gemini API key valid; balance/usage is AI Studio or Cloud Billing only"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "gemini key rejected",
+      "provider": "gemini",
+      "env": {
+        "GEMINI_API_KEY": "gk"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://generativelanguage.googleapis.com/v1beta/models?key=gk",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "gemini",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 400,
+              "message": "API key not valid."
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "gemini": {
+            "provider": "gemini",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 400,
+              "message": "API key not valid."
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "gemini transport failure",
+      "provider": "gemini",
+      "env": {
+        "GEMINI_API_KEY": "gk"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://generativelanguage.googleapis.com/v1beta/models?key=gk",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "gemini",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "fetch failed"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "gemini": {
+            "provider": "gemini",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "fetch failed"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "gemini error object without a message",
+      "provider": "gemini",
+      "env": {
+        "GEMINI_API_KEY": "gk"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://generativelanguage.googleapis.com/v1beta/models?key=gk",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "gemini",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 500,
+              "message": "{\"code\":500,\"status\":\"INTERNAL\"}"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "gemini": {
+            "provider": "gemini",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 500,
+              "message": "{\"code\":500,\"status\":\"INTERNAL\"}"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "gemini without a key",
+      "provider": "gemini",
+      "env": {},
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "xai prepaid balance",
+      "provider": "xai",
+      "env": {
+        "XAI_MANAGEMENT_API_KEY": "mgmt",
+        "XAI_TEAM_ID": "team/1"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://management-api.x.ai/v1/billing/teams/team%2F1/prepaid/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer mgmt"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "xai prepaid balance forms",
+      "provider": "xai",
+      "env": {
+        "XAI_MANAGEMENT_API_KEY": "mgmt",
+        "XAI_TEAM_ID": "t"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer mgmt"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "xai-management-prepaid-balance",
+            "balance": {
+              "remainingUsd": 123.45,
+              "currency": "USD",
+              "source": "xai-management-prepaid-balance"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "xai-management-prepaid-balance",
+            "balance": {
+              "remainingUsd": 123.45,
+              "currency": "USD",
+              "source": "xai-management-prepaid-balance"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai prepaid balance nested",
+      "provider": "xai",
+      "env": {
+        "XAI_MANAGEMENT_API_KEY": "mgmt",
+        "XAI_TEAM_ID": "t"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer mgmt"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "xai-management-prepaid-balance",
+            "balance": {
+              "remainingUsd": 7.5,
+              "currency": "USD",
+              "source": "xai-management-prepaid-balance"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "xai-management-prepaid-balance",
+            "balance": {
+              "remainingUsd": 7.5,
+              "currency": "USD",
+              "source": "xai-management-prepaid-balance"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai prepaid balance unreadable",
+      "provider": "xai",
+      "env": {
+        "XAI_MANAGEMENT_API_KEY": "mgmt",
+        "XAI_TEAM_ID": "t"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer mgmt"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "xai prepaid forbidden",
+      "provider": "xai",
+      "env": {
+        "XAI_MANAGEMENT_API_KEY": "mgmt",
+        "XAI_TEAM_ID": "t"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer mgmt"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 403,
+              "message": "no access"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "xai prepaid server error",
+      "provider": "xai",
+      "env": {
+        "XAI_MANAGEMENT_API_KEY": "mgmt",
+        "XAI_TEAM_ID": "t"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer mgmt"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "error": {
+            "message": "usage fetch failed (502)",
+            "status": 502
+          }
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "xai public usage probe",
+      "provider": "xai",
+      "env": {
+        "XAI_API_KEY": "xk"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.x.ai/v1/usage",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer xk"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 3.25,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 3.25,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai public probe falls to the second url",
+      "provider": "xai",
+      "env": {
+        "GROK_API_KEY": "xk"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.x.ai/v1/usage",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer xk"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.x.ai/v1/rate_limits",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer xk"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 2,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 2,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai public probe unsupported data",
+      "provider": "xai",
+      "env": {
+        "XAI_API_KEY": "xk"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.x.ai/v1/usage",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer xk"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "xAI public usage probe returned unsupported data from https://api.x.ai/v1/usage"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "xAI public usage probe returned unsupported data from https://api.x.ai/v1/usage"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai public probes all fail",
+      "provider": "xai",
+      "env": {
+        "MIXDOG_AGENT_XAI_APIKEY": "xk"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.x.ai/v1/usage",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer xk"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.x.ai/v1/rate_limits",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer xk"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 429,
+              "message": "slow down"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 429,
+              "message": "slow down"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai nothing configured",
+      "provider": "xai",
+      "env": {},
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": {
+            "provider": "xai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai management key without a team",
+      "provider": "xai",
+      "env": {
+        "XAI_MANAGEMENT_API_KEY": "mgmt",
+        "XAI_API_KEY": "xk"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.x.ai/v1/usage",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer xk"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "a snapshot another process wrote",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "k"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "balance": {
+              "remainingUsd": 9
+            },
+            "cachedAt": 1799999990000
+          },
+          "openai": {
+            "provider": "openai",
+            "source": "x",
+            "cachedAt": 1799999990000
+          },
+          "gemini": {
+            "unavailable": {
+              "message": "x"
+            },
+            "cachedAt": 1799999600000
+          }
+        }
+      },
+      "replies": [],
+      "ops": [
+        {
+          "op": "cached",
+          "now": 1800000000000,
+          "wire": [],
+          "value": {
+            "provider": "deepseek",
+            "balance": {
+              "remainingUsd": 9
+            },
+            "cachedAt": 1799999990000
+          }
+        },
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": {
+            "provider": "deepseek",
+            "balance": {
+              "remainingUsd": 9
+            },
+            "cachedAt": 1799999990000
+          }
+        },
+        {
+          "op": "cached",
+          "allowStale": "gemini-skip",
+          "now": 1800000000000,
+          "wire": [],
+          "value": {
+            "provider": "deepseek",
+            "balance": {
+              "remainingUsd": 9
+            },
+            "cachedAt": 1799999990000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "deepseek": {
+            "provider": "deepseek",
+            "balance": {
+              "remainingUsd": 9
+            },
+            "cachedAt": 1799999990000
+          },
+          "openai": {
+            "provider": "openai",
+            "source": "x",
+            "cachedAt": 1799999990000
+          },
+          "gemini": {
+            "unavailable": {
+              "message": "x"
+            },
+            "cachedAt": 1799999600000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai key: standard, MIXDOG_AGENT and alias all set",
+      "provider": "xai",
+      "env": {
+        "XAI_API_KEY": "k-std",
+        "MIXDOG_AGENT_XAI_APIKEY": "k-own",
+        "GROK_API_KEY": "k-alias"
+      },
+      "remote": false,
+      "secrets": {
+        "agent.xai.apiKey": "k-vault"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.x.ai/v1/usage",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k-std"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai key: MIXDOG_AGENT beats the alias",
+      "provider": "xai",
+      "env": {
+        "MIXDOG_AGENT_XAI_APIKEY": "k-own",
+        "GROK_API_KEY": "k-alias"
+      },
+      "remote": false,
+      "secrets": {
+        "agent.xai.apiKey": "k-vault"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.x.ai/v1/usage",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k-own"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai key: the alias beats the keychain",
+      "provider": "xai",
+      "env": {
+        "GROK_API_KEY": "k-alias"
+      },
+      "remote": false,
+      "secrets": {
+        "agent.xai.apiKey": "k-vault"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.x.ai/v1/usage",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k-alias"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai key: an empty standard name falls through",
+      "provider": "xai",
+      "env": {
+        "XAI_API_KEY": "",
+        "MIXDOG_AGENT_XAI_APIKEY": "k-own"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.x.ai/v1/usage",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k-own"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "xai-public-usage-probe",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "xai-public-usage-probe"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "xai key: remote-client mode has no agent key",
+      "provider": "xai",
+      "env": {
+        "XAI_API_KEY": "k-std",
+        "GROK_API_KEY": "k-alias"
+      },
+      "remote": true,
+      "secrets": {
+        "agent.xai.apiKey": "k-vault"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "https://api.x.ai/v1/usage",
+          "status": 200,
+          "body": {
+            "credit_balance": 1
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": {
+            "provider": "xai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "xai": {
+            "provider": "xai",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": null,
+              "message": "Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai key: standard beats MIXDOG_AGENT and the keychain",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "k-std",
+        "MIXDOG_AGENT_OPENAI_APIKEY": "k-own"
+      },
+      "remote": false,
+      "secrets": {
+        "agent.openai.apiKey": "k-vault"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k-std"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai key: MIXDOG_AGENT beats the keychain",
+      "provider": "openai",
+      "env": {
+        "MIXDOG_AGENT_OPENAI_APIKEY": "k-own"
+      },
+      "remote": false,
+      "secrets": {
+        "agent.openai.apiKey": "k-vault"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k-own"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "openai key: remote-client mode has no agent key",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "k-std"
+      },
+      "remote": true,
+      "secrets": {
+        "agent.openai.apiKey": "k-vault"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 200,
+          "body": {
+            "total_available": 1
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "anthropic key: the stored agent key follows the admin keys",
+      "provider": "anthropic",
+      "env": {
+        "ANTHROPIC_API_KEY": "k-std",
+        "ANTHROPIC_ADMIN_KEY": "k-admin"
+      },
+      "remote": false,
+      "secrets": {
+        "agent.anthropic.apiKey": "k-vault"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k-admin"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 1,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "anthropic": {
+            "provider": "anthropic",
+            "source": "anthropic-cost-report",
+            "balance": {
+              "usedUsd": 1,
+              "source": "anthropic-cost-report"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "anthropic key: remote-client mode keeps the admin keys only",
+      "provider": "anthropic",
+      "env": {
+        "ANTHROPIC_API_KEY": "k-std",
+        "ANTHROPIC_ADMIN_KEY": "k-admin"
+      },
+      "remote": true,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
+          "body": {}
+        },
+        {
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "Authorization",
+                  "Bearer k-admin"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "anthropic-version",
+                  "2023-06-01"
+                ],
+                [
+                  "x-api-key",
+                  "k-admin"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "anthropic",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 401,
+              "message": "usage fetch failed (401)"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "anthropic": {
+            "provider": "anthropic",
+            "source": "provider-api-unavailable",
+            "unavailable": {
+              "status": 401,
+              "message": "usage fetch failed (401)"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "gemini key: remote-client mode has no agent key",
+      "provider": "gemini",
+      "env": {
+        "GEMINI_API_KEY": "k-std"
+      },
+      "remote": true,
+      "secrets": {
+        "agent.gemini.apiKey": "k-vault"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?key=k-std",
+          "status": 200,
+          "body": {
+            "models": []
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "deepseek key: remote-client mode has no agent key",
+      "provider": "deepseek",
+      "env": {
+        "DEEPSEEK_API_KEY": "k-std"
+      },
+      "remote": true,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "https://api.deepseek.com/user/balance",
+          "status": 200,
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "USD",
+                "total_balance": "5"
+              }
+            ]
+          }
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [],
+          "value": null
+        }
+      ],
+      "stored": null
+    },
+    {
+      "name": "session key: every env name set",
+      "provider": "openai",
+      "env": {
+        "OPENAI_USAGE_SESSION_KEY": "s1",
+        "OPENAI_DASHBOARD_SESSION_KEY": "s2",
+        "OPENAI_SESSION_KEY": "s3",
+        "MIXDOG_OPENAI_USAGE_SESSION_KEY": "s4",
+        "MIXDOG_AGENT_OPENAI_USAGESESSIONKEY": "s5"
+      },
+      "remote": false,
+      "secrets": {
+        "agent.openai.usageSessionKey": "s6"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s1"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "session key: the dashboard name is next",
+      "provider": "openai",
+      "env": {
+        "OPENAI_DASHBOARD_SESSION_KEY": "s2",
+        "OPENAI_SESSION_KEY": "s3",
+        "MIXDOG_OPENAI_USAGE_SESSION_KEY": "s4",
+        "MIXDOG_AGENT_OPENAI_USAGESESSIONKEY": "s5"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s2"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "session key: OPENAI_SESSION_KEY is third",
+      "provider": "openai",
+      "env": {
+        "OPENAI_SESSION_KEY": "s3",
+        "MIXDOG_OPENAI_USAGE_SESSION_KEY": "s4",
+        "MIXDOG_AGENT_OPENAI_USAGESESSIONKEY": "s5"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s3"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "session key: the MIXDOG name beats the account name",
+      "provider": "openai",
+      "env": {
+        "MIXDOG_OPENAI_USAGE_SESSION_KEY": "s4",
+        "MIXDOG_AGENT_OPENAI_USAGESESSIONKEY": "s5"
+      },
+      "remote": false,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s4"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "session key: the account env name beats the keychain",
+      "provider": "openai",
+      "env": {
+        "MIXDOG_AGENT_OPENAI_USAGESESSIONKEY": "s5"
+      },
+      "remote": false,
+      "secrets": {
+        "agent.openai.usageSessionKey": "s6"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s5"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "session key: empty env names fall through to the keychain",
+      "provider": "openai",
+      "env": {
+        "OPENAI_USAGE_SESSION_KEY": "",
+        "OPENAI_SESSION_KEY": ""
+      },
+      "remote": false,
+      "secrets": {
+        "agent.openai.usageSessionKey": "s6"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s6"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "session key: remote-client mode still reads the env",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "k-std",
+        "OPENAI_USAGE_SESSION_KEY": "s1"
+      },
+      "remote": true,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s1"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "session key: remote-client mode still reads the keychain",
+      "provider": "openai",
+      "env": {
+        "OPENAI_API_KEY": "k-std"
+      },
+      "remote": true,
+      "secrets": {
+        "agent.openai.usageSessionKey": "s6"
+      },
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s6"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-credit-grants",
+            "balance": {
+              "remainingUsd": 1,
+              "currency": "USD",
+              "source": "openai-credit-grants"
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    },
+    {
+      "name": "session key: remote-client mode with a session key only, dashboard",
+      "provider": "openai",
+      "env": {
+        "OPENAI_DASHBOARD_SESSION_KEY": "s2"
+      },
+      "remote": true,
+      "secrets": {},
+      "seed": null,
+      "replies": [
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        },
+        {
+          "url": "\u0000consumed",
+          "status": 200,
+          "body": {}
+        }
+      ],
+      "ops": [
+        {
+          "op": "fetch",
+          "force": false,
+          "now": 1800000000000,
+          "wire": [
+            {
+              "url": "https://api.openai.com/dashboard/billing/credit_grants",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s2"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/subscription",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s2"
+                ]
+              ],
+              "redirect": null
+            },
+            {
+              "url": "https://api.openai.com/dashboard/billing/usage?start_date=2026-12-15&end_date=2027-01-15",
+              "method": "GET",
+              "headers": [
+                [
+                  "Accept",
+                  "application/json"
+                ],
+                [
+                  "Authorization",
+                  "Bearer s2"
+                ]
+              ],
+              "redirect": null
+            }
+          ],
+          "value": {
+            "provider": "openai",
+            "source": "openai-dashboard-billing",
+            "balance": {
+              "source": "openai-dashboard-billing",
+              "usedUsd": 2.5,
+              "limitUsd": 100,
+              "remainingUsd": 97.5
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      ],
+      "stored": {
+        "version": 1,
+        "updatedAt": 1800000000000,
+        "snapshots": {
+          "openai": {
+            "provider": "openai",
+            "source": "openai-dashboard-billing",
+            "balance": {
+              "source": "openai-dashboard-billing",
+              "usedUsd": 2.5,
+              "limitUsd": 100,
+              "remainingUsd": 97.5
+            },
+            "cachedAt": 1800000000000
+          }
+        }
+      }
+    }
+  ]
+}

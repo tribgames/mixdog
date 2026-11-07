@@ -33,6 +33,7 @@ fn tool(name: &JsonValue) -> ToolDefinition {
         description: "d".to_owned(),
         input_schema: serde_json::json!({"type": "object"}),
         defer_loading: false,
+        freeform: None,
     }
 }
 

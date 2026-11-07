@@ -157,6 +157,7 @@ impl ToolSet {
                     description: spec.description.clone(),
                     input_schema: spec.input_schema.clone(),
                     defer_loading: false,
+                    freeform: tool.freeform().cloned(),
                 }
             })
             .collect()

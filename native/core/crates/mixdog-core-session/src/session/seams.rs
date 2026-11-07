@@ -467,6 +467,28 @@ pub trait NewThreadTools: Send + Sync + 'static {
     async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String>;
 }
 
+/// What a room member's thread tells the room it sits in. Each call carries the room id and comes
+/// after the thread's view carries the change.
+pub trait RoomMemberEvents: Send + Sync + 'static {
+    /// `noteMemberRows` (`agent-rooms.ts:424-433`): the handed-off questions the member holds
+    /// moved (its approvals section's `handoffQuestions`), so the room is published again.
+    fn questions_moved(&self, room_id: &str);
+    /// The member's approval `approval_id` resolved: answered by a client on the room log (where
+    /// a member's requests are shown, P §8.3) or anywhere else, or ended otherwise. The room stops
+    /// showing it at once, as `scheduler.approve` does after its answer (`state.approval = null;
+    /// deps.republish`, `agent-room-scheduler.ts:285-286`).
+    fn approval_resolved(&self, room_id: &str, approval_id: &str);
+}
+
+/// `_refreshResumedTools(session, sessionId, preset)` of `resumeSession` (`session-lifecycle.mjs:598-620`):
+/// a stored thread opened for use takes the tool surface its stored fields resolve to now
+/// (`toolSpec`, `tools`, the agent exposure). `None`: nothing to write, or the surface could not be
+/// resolved (the stored one stays, the cause logged).
+#[async_trait::async_trait]
+pub trait ResumedTools: Send + Sync + 'static {
+    async fn refreshed(&self, thread: &ThreadId, header: &Header) -> Option<mixdog_store::schema::record::HeaderChange>;
+}
+
 /// Today's `prewarmSessionAutoEffort(session, provider)`: starts the effort judge's model load
 /// when a session is created or opened, so its first judged turn does not wait for it.
 /// Fire-and-forget and infallible; the judge applies its own skip rules (Auto effort off, the

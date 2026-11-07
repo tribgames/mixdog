@@ -63,6 +63,9 @@ const SECTIONS: Readonly<Record<string, SectionDef>> = {
   // The setup tool's desktop request (`{ id, at }`, Node's session store `setupUiRequest`), held by the thread until a window
   // claims it or its claim window ends; a snapshot carries it as a replay does.
   'thread/setupUiRequest/updated': { stateKey: 'setupUiRequest', field: 'setupUiRequest' },
+  // A group room log's view while the room runs (`{ busy, toolApproval?, typing?, handoffQuestions? }`, Node's
+  // `decorateRoomSnapshot`): not a field of its own, laid over the log's fields by `desktopSessionState`.
+  'thread/roomView/updated': { stateKey: 'roomView', field: 'roomView' },
 };
 
 /** Up-arrow recall holds at most this many prompts (`PROMPT_HISTORY_LIMIT`). */
@@ -263,6 +266,23 @@ export function desktopSessionState(fold: SessionFold, requests: readonly Server
     out.toolApproval = approvalCard(first.r);
     out.toolApprovalsWaiting = pending.length - 1;
   }
+  return withRoomView(out);
+}
+
+/** A room log's `roomView` laid over its state as Node's `decorateRoomSnapshot` decorates the room's session state
+ *  (`agent-room-views.ts`): busy while the room has an exchange state, the speaking member's `toolApproval`, the handed-off
+ *  questions, and the typing row after the transcript. `roomView` itself is not a `DesktopSessionState` field. */
+function withRoomView(out: Obj): Obj {
+  const view = out.roomView;
+  delete out.roomView;
+  if (!view || typeof view !== 'object' || Array.isArray(view)) return out;
+  const room = view as Obj;
+  if (Array.isArray(room.handoffQuestions) && room.handoffQuestions.length) out.handoffQuestions = room.handoffQuestions;
+  if (room.busy !== true) return out;
+  out.busy = true;
+  if (room.toolApproval && typeof room.toolApproval === 'object') out.toolApproval = room.toolApproval;
+  const items = Array.isArray(out.items) ? (out.items as Json[]) : [];
+  if (room.typing && typeof room.typing === 'object') out.items = [...items, room.typing];
   return out;
 }
 

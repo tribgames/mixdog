@@ -6,11 +6,12 @@
 //! it. It serves the exchange as [`RoomHosts`] and the continue request's log read as
 //! [`RoomRowsSource`].
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use async_trait::async_trait;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_core_base::rooms::ids::room_id_of_session;
 use mixdog_core_base::rooms::ids::room_member_session_id;
 use mixdog_core_base::rooms::ids::room_session_id;
 use mixdog_rt::SerialChain;
@@ -27,6 +28,7 @@ use super::row_message::{normalize_room_row, room_row_message};
 use super::runner::RoomRowsSource;
 use super::service::{new_room_id, route_params};
 use super::sessions::{AgentCatalog, SessionOps};
+use super::turn_post::approval_id;
 use super::supervisor::{SupervisorInput, parse_room_decision, supervisor_prompt};
 use super::turn_host::{MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 use super::turn_prompt::RoomPrompt;
@@ -46,12 +48,48 @@ pub trait RoomDaemon: Send + Sync {
     async fn room_rows(&self, session_id: &str) -> Result<Vec<Value>, String>;
     /// A member's turn; false when the daemon did not accept it.
     async fn submit(&self, session_id: &str, prompt: &RoomPrompt, options: &SubmitOptions) -> Result<bool, String>;
-    /// The member's session as the turn wait reads it.
+    /// The member's session as the turn wait reads it, with the `toolApproval` it shows
+    /// (`agent-room-turn.ts:270`, `:278`).
     async fn read_snapshot(&self, session_id: &str) -> Result<Value, String>;
     async fn abort(&self, session_id: &str) -> Result<(), String>;
-    /// Publish the room log's held snapshot again.
-    fn republish(&self, session_id: &str);
     fn republish_catalog(&self);
+}
+
+/// What a room's running exchange lays over its log for the views: `decorateRoomSnapshot`'s
+/// `state` (`speaking`, `speakingName`, `typingId`, `approval`; `agent-room-views.ts:63-91`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExchangeView {
+    pub speaking: String,
+    pub speaking_name: String,
+    pub typing_id: String,
+    /// The speaking member's `toolApproval`, as its snapshot showed it.
+    pub approval: Option<Value>,
+}
+
+/// A client's answer to a request the room shows (the core's server-request decision; the
+/// approval or question is `request`). Named apart from the supervisor's [`Decision`].
+pub type ApprovalAnswer = mixdog_core_api::thread::Decision;
+
+/// The approval calls a room makes for its members, and the publish that shows their approvals
+/// (`AgentRoomDeps`, `agent-rooms.ts:95-134`).
+#[async_trait]
+pub trait RoomApprovals: Send + Sync {
+    /// `deps.approve(memberSession, approvalId, decision)` (`agent-rooms.ts:115`, called from
+    /// `agent-room-scheduler.ts:284`): the answer to the approval `session_id` shows, the
+    /// approval being `answer.request`. False when the member does not show that approval.
+    async fn approve(&self, session_id: &str, answer: ApprovalAnswer) -> Result<bool, String>;
+    /// `deps.approve(asked.memberSessionId, approvalId, decision)` for a handed-off question
+    /// (`agent-rooms.ts:443`): answered through the member's own copy, which hands the answer to
+    /// the asking session. False when the member holds no such copy (answered elsewhere first).
+    async fn answer_question(&self, member_session: &str, answer: ApprovalAnswer) -> Result<bool, String>;
+    /// The handed-off questions of `room_id`'s members (`roomHandoffQuestionsOf`,
+    /// `agent-room-views.ts:28-56`): each member session's `handoffQuestions`, every question with
+    /// an id tagged with `roomMember` (the member) and `memberSessionId` (its session).
+    fn member_questions(&self, room_id: &str, members: &[String]) -> Vec<Value>;
+    /// `deps.republish(roomSessionId)` (`agent-rooms.ts:124-125`): the room log published again
+    /// through `decorate` (`agent-rooms.ts:453-456`): the running exchange's `view` (`None` when
+    /// none runs) and the members' handed-off questions.
+    fn publish_view(&self, room_session_id: &str, view: Option<ExchangeView>, questions: Vec<Value>);
 }
 
 /// The members as the room names them (`memberLabels`): display name, route, description and
@@ -77,6 +115,7 @@ pub type FailRelays = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 pub struct RoomPorts {
     pub daemon: Arc<dyn RoomDaemon>,
+    pub approvals: Arc<dyn RoomApprovals>,
     pub labels: Arc<dyn RoomLabels>,
     pub files: Arc<dyn RoomFiles>,
     pub sessions: Arc<dyn SessionOps>,
@@ -114,6 +153,9 @@ struct Live {
     tracked: Mutex<Option<Arc<TurnState>>>,
     /// Rows this host posted, in log order.
     recent: Mutex<Vec<Value>>,
+    /// Handed-off questions answered through the room: their cards leave at once, before the
+    /// member's own list confirms it (`agent-rooms.ts:444-449`).
+    answered: Mutex<HashSet<String>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -142,6 +184,7 @@ impl Live {
             }),
             tracked: Mutex::new(None),
             recent: Mutex::new(Vec::new()),
+            answered: Mutex::new(HashSet::new()),
         }
     }
 
@@ -210,6 +253,59 @@ impl LiveRooms {
             }
         }));
         Arc::new(Self { shared })
+    }
+
+    /// `rooms.approve(sessionId, approvalId, decision)` (`agent-rooms.ts:439-451`): a request the
+    /// room log `room_session_id` shows, the request being `answer.request`.
+    /// - **A handed-off question** of a member: answered through that member's own copy, whether
+    ///   or not it speaks now. Its card leaves at once, and the room is published again.
+    /// - **Any other request** is the speaking member's approval (`scheduler.approve`,
+    ///   `agent-room-scheduler.ts:280-288`). False when no exchange runs, nobody speaks or the room
+    ///   shows another approval. Answered, the room stops showing it and is published again.
+    pub async fn approve(&self, room_session_id: &str, answer: ApprovalAnswer) -> Result<bool, String> {
+        let Some(room_id) = room_id_of_session(room_session_id) else { return Ok(false) };
+        let Some(live) = lock(&self.shared.live).get(&room_id).cloned() else { return Ok(false) };
+        let view = View { shared: self.shared.clone(), live: live.clone(), room_id };
+        let asked = view.questions().into_iter().find(|question| question.get("id").and_then(Value::as_str) == Some(answer.request.as_str()));
+        if let Some(asked) = asked {
+            let member = asked.get("memberSessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let id = answer.request.0.clone();
+            let accepted = self.shared.ports.approvals.answer_question(&member, answer).await?;
+            lock(&live.answered).insert(id);
+            view.republish();
+            return Ok(accepted);
+        }
+        let Some(state) = lock(&live.tracked).clone() else { return Ok(false) };
+        let member = state.member_session();
+        if member.is_empty() || approval_id(state.approval().as_ref()) != answer.request.0 {
+            return Ok(false);
+        }
+        let accepted = self.shared.ports.approvals.approve(&member, answer).await?;
+        state.set_approval(None);
+        view.republish();
+        Ok(accepted)
+    }
+
+    /// The speaking member's approval `resolved` resolved in its own thread: answered by a
+    /// client on the room log, which receives a member's requests (P §8.3, §8.4), or anywhere
+    /// else. The room stops showing it and is published again, as `scheduler.approve` does after
+    /// its answer (`agent-room-scheduler.ts:285-286`). Another id, or no exchange, changes nothing.
+    pub fn member_resolved(&self, room_id: &str, resolved: &str) {
+        let Some(live) = lock(&self.shared.live).get(room_id).cloned() else { return };
+        let Some(state) = lock(&live.tracked).clone() else { return };
+        if approval_id(state.approval().as_ref()) != resolved {
+            return;
+        }
+        state.set_approval(None);
+        View { shared: self.shared.clone(), live, room_id: room_id.to_owned() }.republish();
+    }
+
+    /// `noteMemberRows` for one room (`agent-rooms.ts:424-433`): its members' handed-off questions
+    /// changed, so the room is published again. A room not hosted (or not bound yet) has nothing to
+    /// show.
+    pub fn republish_room(&self, room_id: &str) {
+        let Some(live) = lock(&self.shared.live).get(room_id).cloned() else { return };
+        View { shared: self.shared.clone(), live, room_id: room_id.to_owned() }.republish();
     }
 
     /// Hands the scheduler's relay queue to the rooms (`failRelays`). Until then no room is hosted.
@@ -338,6 +434,16 @@ impl View {
     fn members(&self) -> Vec<String> {
         lock(&self.live.record).members.clone()
     }
+
+    /// `memberQuestions.get(roomId)`: the members' handed-off questions, less those answered
+    /// through the room. An answered id is forgotten once the member's list no longer has it.
+    fn questions(&self) -> Vec<Value> {
+        let listed = self.shared.ports.approvals.member_questions(&self.room_id, &self.members());
+        let id = |question: &Value| question.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let mut answered = lock(&self.live.answered);
+        answered.retain(|gone| listed.iter().any(|question| id(question) == *gone));
+        listed.into_iter().filter(|question| !answered.contains(&id(question))).collect()
+    }
 }
 
 #[async_trait]
@@ -358,8 +464,15 @@ impl RoomTurnHost for View {
         new_room_id(self.now())
     }
 
+    /// `deps.republish(roomSessionId)` through `decorate`: the log with what the running exchange
+    /// shows (`scheduler.state(roomId)`, the tracked state; nothing when none runs) and its
+    /// members' handed-off questions.
     fn republish(&self) {
-        self.shared.ports.daemon.republish(&self.session_id());
+        let view = lock(&self.live.tracked).as_ref().map(|state| {
+            let (speaking, speaking_name, typing_id) = state.speaking();
+            ExchangeView { speaking, speaking_name, typing_id, approval: state.approval() }
+        });
+        self.shared.ports.approvals.publish_view(&self.session_id(), view, self.questions());
     }
 
     fn log(&self, line: &str) {
