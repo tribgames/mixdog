@@ -13,6 +13,7 @@ import {
   SECTION_READ_DESKTOP_OPERATIONS,
   REPLY_DESKTOP_OPERATIONS,
   UNROUTED_DESKTOP_OPERATIONS,
+  RETIRED_DESKTOP_OPERATIONS,
   createOperationLane,
   routeDesktopOperation,
 } from './desktop-operation-route.ts';
@@ -720,4 +721,169 @@ test('readScopedEditorSettings sends root and rel as the editor handler passes t
   });
   // Without rel nothing is invented: the core answers invalidParams, as it should for a call the editor never makes.
   assert.deepEqual(routeDesktopOperation('readScopedEditorSettings', [U, R]).params, { root: R });
+});
+// ---- section reads and retired operations (desktop-ops-new-b) ----------------------------------------------------
+
+const REMOTE_SECTION = {
+  info: { relay: { clientUrl: 'u', token: 't', clients: [] }, enabled: true, connected: true },
+  settings: { enabled: true, name: 'pc' },
+  claims: [{ claimId: 'c1' }],
+  clients: [],
+  controllerKeys: [{ clientId: 'a', publicKey: 'k', unpaired: false }],
+  owedKeys: { keys: ['k2'], unknown: 0 },
+  pairCode: null,
+  pushRegistered: [],
+  disabled: false,
+};
+
+/** A lane over a connection that holds `sections` (name -> value) and answers `answers` (method -> reply). */
+function sectionLane(sections, answers = {}) {
+  const calls = [];
+  const lane = createOperationLane({
+    protocol: {
+      notify: () => {},
+      snapshot: () => ({
+        status: 'ready',
+        entries: Object.entries(sections).map(([section, value]) => ({ section, key: null, revision: 1, value })),
+      }),
+      call: async (method, params) => {
+        calls.push({ method, params });
+        return answers[method];
+      },
+    },
+  });
+  return { lane, calls };
+}
+
+test('the remote operations read the held remote section and request nothing', async () => {
+  const { lane, calls } = sectionLane({ remote: REMOTE_SECTION });
+  assert.equal(await lane.invoke('remoteAccessSettings', []), REMOTE_SECTION.settings);
+  assert.equal(await lane.invoke('remoteAccessListClaims', []), REMOTE_SECTION.claims);
+  assert.equal(await lane.invoke('remoteAccessControllerKeys', []), REMOTE_SECTION.controllerKeys);
+  assert.equal(await lane.invoke('remoteAccessOwedControllerKeys', []), REMOTE_SECTION.owedKeys);
+  assert.deepEqual(calls, []);
+});
+
+test('termActivity answers the [{id, state}] list Node read through readTerminalActivityEvent', async () => {
+  const { readTerminalActivityEvent } = await import('../../shared/terminal-activity.ts');
+  const { lane } = sectionLane({ terminalActivity: { t1: 'running', t2: 'finished' } });
+  const events = await lane.invoke('termActivity', []);
+  assert.deepEqual(events, [{ id: 't1', state: 'running' }, { id: 't2', state: 'finished' }]);
+  assert.deepEqual(events.map(readTerminalActivityEvent), events);
+  assert.deepEqual(await sectionLane({ terminalActivity: {} }).lane.invoke('termActivity', []), []);
+});
+
+test('a section the core has not pushed is sectionUnavailable, a value without the member is refused', async () => {
+  await assert.rejects(sectionLane({}).lane.invoke('remoteAccessSettings', []), { code: 'sectionUnavailable' });
+  await assert.rejects(sectionLane({ remote: {} }).lane.invoke('remoteAccessSettings', []), /no settings/);
+});
+
+test('a stubbed remote section (held value null) is read whole with its list method remoteAccess/state', async () => {
+  const { lane, calls } = sectionLane({ remote: null }, { 'remoteAccess/state': REMOTE_SECTION });
+  assert.equal(await lane.invoke('remoteAccessListClaims', []), REMOTE_SECTION.claims);
+  assert.equal(await lane.invoke('remoteAccessOwedControllerKeys', []), REMOTE_SECTION.owedKeys);
+  assert.deepEqual(calls, [
+    { method: 'remoteAccess/state', params: {} },
+    { method: 'remoteAccess/state', params: {} },
+  ]);
+  // A section that is not stubbed is never paged.
+  const whole = sectionLane({ remote: REMOTE_SECTION });
+  await whole.lane.invoke('remoteAccessSettings', []);
+  assert.deepEqual(whole.calls, []);
+});
+
+test('remoteAccess/state and remoteAccess/activate are protocol methods of the Rust schema', () => {
+  assert.deepEqual(paramsSchema('remoteAccess/state').properties ?? {}, {});
+  assert.deepEqual(paramsSchema('remoteAccess/activate').required, ['opId']);
+});
+
+// What Node's `remoteAccessInfo(activate)` answered in each remote-access state, recorded from the real service over a
+// fake relay (fixtures/remote-info-node-states.json). `before` is the `remote` section the Rust core holds in that
+// state; `after` the value `remoteAccess/activate` answers (the state once `start(true)` ran).
+const NOT_RUNNING = { relay: { clientUrl: '', token: '', clients: [] }, enabled: false };
+const LIVE = (connected) => ({ relay: { clientUrl: '<url>', token: '<token>', clients: [] }, enabled: true, connected });
+const held = (info, disabled) => ({ ...REMOTE_SECTION, info, disabled });
+const NODE_STATES = {
+  'fresh-no-relay-url': { before: held(NOT_RUNNING, false), after: held(NOT_RUNNING, false) },
+  'fresh-live-relay-read-then-activate': { before: held(NOT_RUNNING, false), after: held(LIVE(false), false) },
+  'fresh-live-relay-disabled': { before: held(NOT_RUNNING, true), after: held(NOT_RUNNING, true) },
+  'activated-live-relay': { before: held(LIVE(false), false), after: held(LIVE(true), false) },
+  'activated-disabled': { before: held(NOT_RUNNING, true), after: held(NOT_RUNNING, true) },
+  'activated-unreachable-relay': { before: held(NOT_RUNNING, false), after: held(NOT_RUNNING, false) },
+  'activated-no-relay-url': { before: held(NOT_RUNNING, false), after: held(NOT_RUNNING, false) },
+};
+const recorded = JSON.parse(readFileSync(new URL('./fixtures/remote-info-node-states.json', import.meta.url), 'utf8'));
+
+test('every state Node was recorded in has a section state here', () => {
+  assert.deepEqual(Object.keys(NODE_STATES).sort(), Object.keys(recorded.states).sort());
+});
+
+for (const [name, state] of Object.entries(recorded.states)) {
+  test(`remoteAccessInfo in "${name}" answers what Node answered, and activates exactly when Node did`, async () => {
+    const { before, after } = NODE_STATES[name];
+    // The lane's state evolves as the core's does: the activating op moves the held section to `after`.
+    let current = before;
+    const calls = [];
+    const lane = createOperationLane({
+      protocol: {
+        notify: () => {},
+        snapshot: () => ({ status: 'ready', entries: [{ section: 'remote', key: null, revision: 1, value: current }] }),
+        call: async (method) => {
+          // The relay has not answered a listing yet in `before`: the core's listing finds the same state.
+          if (method === 'remoteAccess/state') return current;
+          calls.push(method);
+          assert.equal(method, 'remoteAccess/activate');
+          current = after;
+          return after;
+        },
+      },
+    });
+    for (const step of state.steps) {
+      const sent = calls.length;
+      assert.deepEqual(await lane.invoke('remoteAccessInfo', [step.activate]), step.result, `${name} activate=${step.activate}`);
+      // Node's start(true) ran for every explicit read, except while the user had switched access off.
+      assert.equal(calls.length - sent, step.activate && !before.disabled ? 1 : 0, `${name} activate=${step.activate}: activating op`);
+    }
+  });
+}
+
+test('a window asking while the leg is up but has not answered a listing makes the core list again, as Node did', async () => {
+  const unanswered = { ...REMOTE_SECTION, info: LIVE(false) };
+  const answered = { ...REMOTE_SECTION, info: LIVE(true) };
+  const calls = [];
+  const lane = createOperationLane({
+    protocol: {
+      notify: () => {},
+      snapshot: () => ({ status: 'ready', entries: [{ section: 'remote', key: null, revision: 1, value: unanswered }] }),
+      call: async (method) => (calls.push(method), answered),
+    },
+  });
+  const descriptor = await lane.invoke('remoteAccessInfo', [false]);
+  assert.deepEqual(calls, ['remoteAccess/state']);
+  assert.equal(descriptor.enabled, true);
+  assert.equal('connected' in descriptor, false);
+  // Already answered, switched off or not running: nothing is asked.
+  for (const info of [LIVE(true), NOT_RUNNING]) {
+    const quiet = sectionLane({ remote: { ...REMOTE_SECTION, info, disabled: true } });
+    await quiet.lane.invoke('remoteAccessInfo', [false]);
+    assert.deepEqual(quiet.calls, []);
+  }
+});
+test('retired operations are spec map rows with no request of their own, and the lane refuses them', async () => {
+  const targets = new Map(operations.map((row) => [row.name, row.target.kind]));
+  for (const name of RETIRED_DESKTOP_OPERATIONS) {
+    assert.ok(['internal', 'hostRequest', 'notification'].includes(targets.get(name)), name);
+    const { lane, calls } = sectionLane({});
+    await assert.rejects(lane.invoke(name, []), { code: 'operationRetired' }, name);
+    assert.deepEqual(calls, []);
+  }
+  assert.equal(RETIRED_DESKTOP_OPERATIONS.length, 10);
+});
+
+test('the section operations are spec map section rows of their section', () => {
+  const targets = new Map(operations.map((row) => [row.name, row.target]));
+  for (const name of ['remoteAccessInfo', 'remoteAccessSettings', 'remoteAccessListClaims', 'remoteAccessControllerKeys', 'remoteAccessOwedControllerKeys', 'termActivity']) {
+    assert.equal(targets.get(name).kind, 'section', name);
+    assert.ok(['remote', 'terminalActivity'].includes(targets.get(name).target), name);
+  }
 });

@@ -4123,6 +4123,24 @@ crate::client_request_definitions! {
         mutation: op(RemoteAccess),
         origins: [Local, Ssh, Relay],
     },
+    /// Activate remote access, an explicit user action (Node `remote.start(true)`), and answer the full `remote` section value as it stands afterwards.
+    RemoteAccessActivate => "remoteAccess/activate" {
+        params: RemoteAccessActivateParams,
+        result: JsonValue,
+        scope: global("remoteAccess"),
+        class: C2,
+        mutation: op(RemoteAccess),
+        origins: [Local, Ssh],
+    },
+    /// The full `remote` section value: the list method of the section when it is published as a stub.
+    RemoteAccessState => "remoteAccess/state" {
+        params: RemoteAccessStateParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// UI-originated in-app browser control; forwarded as `host/browser/command`.
     BrowserCommand => "browser/command" {
         params: BrowserCommandParams,

@@ -40,6 +40,9 @@ pub struct RemoteSectionValue {
     /// Ids of the paired clients holding a native push registration (what Node's
     /// `pushRegistrations()` listed): the notification settings' "can be notified", sorted.
     pub push_registered: Vec<String>,
+    /// The user switched remote access off (`AccessSettings::disabled`); unlike `settings.enabled` it is false for an
+    /// install that never chose. Node's `remoteAccessInfo` answers the "off" descriptor only for this.
+    pub disabled: bool,
 }
 
 impl Default for RemoteSectionValue {
@@ -53,6 +56,7 @@ impl Default for RemoteSectionValue {
             owed_keys: OwedAccess { keys: Vec::new(), unknown: 0 },
             pair_code: None,
             push_registered: Vec::new(),
+            disabled: false,
         }
     }
 }

@@ -1,0 +1,142 @@
+{
+  "recordedWith": "tools/record-info.mjs: the real createDesktopService (no stubs) over a fake relay, modules from the harness node-tree plus the desktop-only dependencies installed apart; remoteAccessInfo(activate) per state; url and token masked",
+  "states": {
+    "fresh-no-relay-url": {
+      "relay": "off",
+      "activated": false,
+      "disabledBefore": false,
+      "steps": [
+        {
+          "activate": false,
+          "result": null,
+          "activatedFileAfter": false
+        },
+        {
+          "activate": true,
+          "result": null,
+          "activatedFileAfter": false
+        }
+      ]
+    },
+    "fresh-live-relay-read-then-activate": {
+      "relay": "live",
+      "activated": false,
+      "disabledBefore": false,
+      "steps": [
+        {
+          "activate": false,
+          "result": null,
+          "activatedFileAfter": false
+        },
+        {
+          "activate": true,
+          "result": null,
+          "activatedFileAfter": true
+        }
+      ]
+    },
+    "fresh-live-relay-disabled": {
+      "relay": "live",
+      "activated": false,
+      "disabledBefore": true,
+      "steps": [
+        {
+          "activate": false,
+          "result": {
+            "relay": {
+              "clientUrl": "",
+              "token": "",
+              "clients": []
+            },
+            "enabled": false
+          },
+          "activatedFileAfter": false
+        },
+        {
+          "activate": true,
+          "result": {
+            "relay": {
+              "clientUrl": "",
+              "token": "",
+              "clients": []
+            },
+            "enabled": false
+          },
+          "activatedFileAfter": false
+        }
+      ]
+    },
+    "activated-live-relay": {
+      "relay": "live",
+      "activated": true,
+      "disabledBefore": false,
+      "steps": [
+        {
+          "activate": false,
+          "result": null,
+          "activatedFileAfter": true
+        },
+        {
+          "activate": true,
+          "result": {
+            "relay": {
+              "clientUrl": "<url>",
+              "token": "<token>",
+              "clients": []
+            },
+            "enabled": true
+          },
+          "activatedFileAfter": true
+        }
+      ]
+    },
+    "activated-disabled": {
+      "relay": "live",
+      "activated": true,
+      "disabledBefore": true,
+      "steps": [
+        {
+          "activate": false,
+          "result": {
+            "relay": {
+              "clientUrl": "",
+              "token": "",
+              "clients": []
+            },
+            "enabled": false
+          },
+          "activatedFileAfter": true
+        }
+      ]
+    },
+    "activated-unreachable-relay": {
+      "relay": "dead",
+      "activated": true,
+      "disabledBefore": false,
+      "steps": [
+        {
+          "activate": false,
+          "result": null,
+          "activatedFileAfter": true
+        },
+        {
+          "activate": true,
+          "result": null,
+          "activatedFileAfter": true
+        }
+      ]
+    },
+    "activated-no-relay-url": {
+      "relay": "off",
+      "activated": true,
+      "disabledBefore": false,
+      "steps": [
+        {
+          "activate": false,
+          "result": null,
+          "activatedFileAfter": true
+        }
+      ]
+    }
+  }
+}

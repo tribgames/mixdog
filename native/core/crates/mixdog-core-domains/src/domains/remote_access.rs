@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::params::{
-    RemoteAccessDeliverScreenControllerKeyParams, RemoteAccessRegisterNativePushParams, RemoteAccessRemoveNativePushParams,
+    RemoteAccessActivateParams, RemoteAccessDeliverScreenControllerKeyParams, RemoteAccessRegisterNativePushParams, RemoteAccessRemoveNativePushParams,
     RemoteAccessRegisterPushSubscriptionParams, RemoteAccessRemovePushSubscriptionParams,
     RemoteAccessPairCodeParams, RemoteAccessResolveClaimParams, RemoteAccessRevokeClientParams, RemoteAccessSetClientAliasParams,
     RemoteAccessSetEnabledParams, RemoteAccessSetNameParams, RemoteAccessSettleOwedControllerKeysParams,
@@ -113,6 +113,36 @@ impl RemoteAccessService {
                     Ok(Value::Null)
                 },
                 || async { Ok(Value::Null) },
+            )
+            .await
+    }
+
+    /// The whole `remote` section value (`RemoteSectionValue`, camelCase): what a client that holds the section as a stub reads.
+    fn state_value(&self) -> Result<Value, CoreError> {
+        serde_json::to_value(self.runtime.section_value()).map_err(|error| failed(DOMAIN, error.to_string()))
+    }
+
+    /// A window asking: the client list is asked for first when the leg has not answered one (what `descriptor()` did).
+    async fn state(&self, _req: &CoreRequest) -> Result<Reply, CoreError> {
+        self.runtime.list_if_unanswered().await;
+        Ok(Reply::Value(self.state_value()?))
+    }
+
+    /// Node's `remoteAccessInfo` with `activate`: `remote.start(true)`. A start that fails is not this call's failure (Node
+    /// caught it, reported `remote-access-status {status: "failed"}` and scheduled the retry; the runtime does the same), so
+    /// the answer is the state as it stands, which shows the relay not live.
+    async fn activate(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+        let _params: RemoteAccessActivateParams = decode(req)?;
+        self.ops
+            .run(
+                req,
+                None,
+                || async {
+                    let _ = self.runtime.start(true).await;
+                    self.runtime.list_if_unanswered().await;
+                    self.state_value()
+                },
+                || async { self.state_value() },
             )
             .await
     }
@@ -297,6 +327,8 @@ impl DomainService for RemoteAccessService {
             "remoteAccess/setName" => self.set_name(&req).await,
             "remoteAccess/setClientAlias" => self.set_client_alias(&req).await,
             "remoteAccess/rotate" => self.rotate(&req).await,
+            "remoteAccess/activate" => self.activate(&req).await,
+            "remoteAccess/state" => self.state(&req).await,
             "remoteAccess/resolveClaim" => self.resolve_claim(&req).await,
             "remoteAccess/pairCode" => self.pair_code(&req).await,
             "remoteAccess/revokeClient" => self.revoke_client(&req).await,
@@ -317,6 +349,8 @@ impl DomainService for RemoteAccessService {
             "remoteAccess/setName",
             "remoteAccess/setClientAlias",
             "remoteAccess/rotate",
+            "remoteAccess/activate",
+            "remoteAccess/state",
             "remoteAccess/resolveClaim",
             "remoteAccess/pairCode",
             "remoteAccess/revokeClient",
@@ -420,6 +454,26 @@ mod tests {
         assert!(matches!(conflict, Err(CoreError::OpIdConflict { .. })));
     }
 
+    #[tokio::test]
+    async fn state_is_the_whole_remote_section_and_activate_answers_it_without_activating_a_relay_less_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let (service, _) = rig(dir.path()).await;
+        value(&service, request("remoteAccess/setName", with_op(json!({ "name": "Desk" }), 1), Some(1))).await.unwrap();
+        let state = value(&service, request("remoteAccess/state", json!({}), None)).await.unwrap();
+        assert_eq!(state["settings"]["name"], json!("Desk"));
+        for member in ["info", "settings", "claims", "clients", "controllerKeys", "owedKeys", "pairCode", "disabled"] {
+            assert!(state.get(member).is_some(), "the section value has {member}");
+        }
+        // Node: with no relay URL `start(true)` returns before it activates anything, and the answer is the state.
+        let activated = value(&service, request("remoteAccess/activate", with_op(json!({}), 2), Some(2))).await.unwrap();
+        assert_eq!(activated, state);
+        assert!(!dir.path().join("remote-activated.json").exists());
+        // Only the user's own switch-off is `disabled`: an install that never chose is not off.
+        assert_eq!(state["disabled"], json!(false));
+        value(&service, request("remoteAccess/setEnabled", with_op(json!({ "enabled": false }), 3), Some(3))).await.unwrap();
+        let off = value(&service, request("remoteAccess/state", json!({}), None)).await.unwrap();
+        assert_eq!(off["disabled"], json!(true));
+    }
     #[tokio::test]
     async fn the_web_push_methods_refuse_with_todays_sentence_while_the_relay_is_off() {
         let dir = tempfile::tempdir().unwrap();

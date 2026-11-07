@@ -59,6 +59,7 @@ pub mod session_sweep;
 pub mod shell_name;
 pub mod signals;
 pub mod system_proxy_claim;
+pub mod terminal_folder_release;
 pub mod startup;
 pub mod stop_watch;
 pub mod sweep_store;
