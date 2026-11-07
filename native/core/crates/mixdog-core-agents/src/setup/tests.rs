@@ -317,15 +317,27 @@ async fn the_quota_switch_is_the_quota_auto_resume_key_and_off_drops_pending_res
     for entry in quota {
         let dir = tempfile::tempdir().unwrap();
         let stored = if entry["stored"].is_null() { json!({}) } else { entry["stored"].clone() };
-        // Node's recorded section held the switch at `quotaResume.autoResume`; the core keeps it at `quotaAutoResume`.
+        // Node's recorded section held the switch at `quotaResume.autoResume` beside its other keys. The core keeps the switch at
+        // `quotaAutoResume` and leaves the rest of the section where it is (the migration moves only the switch), so the
+        // stored section is seeded split the way the migration leaves it.
+        let mut rest = stored.as_object().cloned().unwrap_or_default();
+        let switch = rest.shift_remove("autoResume");
         let mut document = json!({ "agent": {}, "desktop": { "zoom": 1 } });
-        if let Some(switch) = stored.get("autoResume") {
-            document["quotaAutoResume"] = switch.clone();
+        if !rest.is_empty() {
+            document["quotaResume"] = Value::Object(rest);
+        }
+        if let Some(switch) = switch {
+            document["quotaAutoResume"] = switch;
         }
         let (service, config, store) = settings_service(dir.path(), document, &world, entry["pending"].as_bool().unwrap()).await;
         let got = settings_call(&service, &entry["args"]).await.unwrap();
         assert_eq!(got, entry["result"]["answer"], "{entry}");
-        assert_eq!(config.get("quotaAutoResume"), entry["section"].get("autoResume").cloned(), "{entry}");
+        // Node's whole section, every extra key included, is what the two places hold together.
+        let mut section = config.get("quotaResume").and_then(|rest| rest.as_object().cloned()).unwrap_or_default();
+        if let Some(switch) = config.get("quotaAutoResume") {
+            section.insert("autoResume".into(), switch);
+        }
+        assert_eq!(Value::Object(section), entry["section"], "{entry}");
         assert_eq!(store.list().len() as u64, entry["entries"].as_u64().unwrap(), "{entry}");
     }
 }
