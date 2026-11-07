@@ -947,41 +947,57 @@ async fn drive(
         Ok(agents) => agents,
         Err(error) => return RunOutcome::Failed(error),
     };
-    let mode_instructions = match super::turn_reminders::carried_mode(&header) {
-        Some(mode) => match parts.orchestration_instructions(&mode).await {
-            Ok(text) => Some(text),
-            Err(error) => return RunOutcome::Failed(error),
-        },
-        None => None,
-    };
-    let prompt_content = input_body.get("content").cloned().unwrap_or(Value::Null);
-    let facts = super::turn_reminders::Facts {
-        header: &header,
-        prior: &prior,
-        prompt: &prompt_content,
-        genuine: !injected,
-        current_agents: current_agents.as_deref(),
-        mode_instructions: mode_instructions.as_deref(),
-        goal: goal_reminder.as_ref().map(|reminder| reminder.content.as_str()),
-        hidden_agent: config.hidden_agent,
-        now_ms: clock.now_ms() as f64,
-    };
-    let reminders = match super::turn_reminders::build(&facts) {
-        Ok(reminders) => reminders,
-        Err(text) => return failed(text, input_body),
-    };
-    if !reminders.block.is_empty() {
+    // A retried failed turn resends its own message as it is (`retainedUserTurn`, `ask-turn-execute.mjs:38-69`): it
+    // keeps the reminders it was built with, learns the agents changed since, and acknowledges its settings notice only.
+    let (carried, revisions) = if super::turn_reminders::is_retained(&input_body) {
+        match super::turn_reminders::resubmit(&input_body, &header, &prior, current_agents.as_deref()) {
+            Ok(resent) => resent,
+            Err(text) => return failed(text, input_body),
+        }
+    } else {
+        let mode_instructions = match super::turn_reminders::carried_mode(&header) {
+            Some(mode) => match parts.orchestration_instructions(&mode).await {
+                Ok(text) => Some(text),
+                Err(error) => return RunOutcome::Failed(error),
+            },
+            None => None,
+        };
+        // `promptContentText(prompt)`: a stored text attachment is read from the store; one that cannot be read fails the turn.
+        let prompt_content = input_body.get("content").cloned().unwrap_or(Value::Null);
+        let prompt_text = match with_blobs(&*blobs, move |store| super::turn_reminders::prompt_content_text(&prompt_content, store)).await {
+            Ok(Ok(text)) => text,
+            Ok(Err(text)) => return failed(text, input_body),
+            Err(error) => return failed(error.to_string(), input_body),
+        };
+        let facts = super::turn_reminders::Facts {
+            header: &header,
+            prior: &prior,
+            prompt_text: &prompt_text,
+            genuine: !injected,
+            current_agents: current_agents.as_deref(),
+            mode_instructions: mode_instructions.as_deref(),
+            goal: goal_reminder.as_ref().map(|reminder| reminder.content.as_str()),
+            hidden_agent: config.hidden_agent,
+            now_ms: clock.now_ms() as f64,
+        };
+        let reminders = match super::turn_reminders::build(&facts) {
+            Ok(reminders) => reminders,
+            Err(text) => return failed(text, input_body),
+        };
         let Some(carried) = reminders.carry(&input_body) else {
             return failed("the turn's input row cannot carry the turn's reminders".to_owned(), input_body);
         };
+        (carried, reminders.revisions)
+    };
+    if carried != input_body {
         let mut sent = stored.clone();
         sent.push((input_item.clone(), carried.clone()));
         if port.context_rewound(sent).await.is_err() {
             return failed("the turn's reminders could not be saved with the turn's input", Value::Null);
         }
-        carried_notice.carry(reminders.revisions);
         input_body = carried;
     }
+    carried_notice.carry(revisions);
     let input = match message_of(&input_body) {
         Ok(input) => input,
         Err(error) => return failed(format!("the turn's input row is not a model message: {error}"), input_body),

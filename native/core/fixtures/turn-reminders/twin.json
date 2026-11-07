@@ -62,6 +62,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Please continue with the plan."
@@ -265,6 +267,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Workflow Changed\nThis conversation now runs the Review workflow. The system prompt's Active Workflow, orchestration mode and available agents are still Default's: they no longer apply; follow Review's below instead. This replaces every earlier Workflow Changed reminder in this conversation.\nNot available in Review (calls are refused): `edit`.\nReview adds `web_search`: not among your directly defined tools yet; load it with `load_tool` before the first call.\nReview allows `computer`, but this session cannot use them; a new session can.\nAgents already started under Default keep running with their own instructions; new delegation follows Review.\n\n# Active Workflow: Review\n\nReview only.\n</system-reminder>",
@@ -530,6 +534,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Workflow Changed\nThis conversation now runs the Default workflow, the one the system prompt carries: its Active Workflow, orchestration mode, available agents and tools apply. This replaces every earlier Workflow Changed reminder in this conversation.\nAgents already started under Review keep running with their own instructions; new delegation follows Default.\n</system-reminder>",
@@ -756,6 +762,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Workflow Changed\nThis conversation now runs the Default workflow, the one the system prompt carries: its Active Workflow, orchestration mode, available agents and tools apply. This replaces every earlier Workflow Changed reminder in this conversation.\nAgents already started under the previous workflow keep running with their own instructions; new delegation follows Default.\n</system-reminder>",
@@ -984,6 +992,8 @@
         ],
         "modeInstructions": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one."
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Orchestration Mode Changed\nThis conversation now uses the Focused orchestration mode. The system prompt's Orchestration Mode no longer applies; follow Focused's below instead. This replaces every earlier Orchestration Mode Changed reminder in this conversation.\n`agent`: not among your directly defined tools yet; load it with `load_tool` before the first call.\nAgents already started keep running with their own instructions; new delegation follows Focused.\n\n# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n</system-reminder>",
@@ -1217,6 +1227,8 @@
         ],
         "modeInstructions": "# Orchestration Mode: Solo\n\nLead executes all work directly and never delegates on its own judgment.\nOnly when the user explicitly asks for delegation, load the deferred `agent`\ntool and brief each agent as the Lead rules describe."
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Orchestration Mode Changed\nThis conversation now uses the Solo orchestration mode, the one the system prompt carries. This replaces every earlier Orchestration Mode Changed reminder in this conversation.\nAgents already started keep running with their own instructions; new delegation follows Solo.\n\n# Orchestration Mode: Solo\n\nLead executes all work directly and never delegates on its own judgment.\nOnly when the user explicitly asks for delegation, load the deferred `agent`\ntool and brief each agent as the Lead rules describe.\n</system-reminder>",
@@ -1433,6 +1445,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nNew agents are now available to delegate to with `agent`:\n- Scout (scout): Looks around.\n- Plain (plain)\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>",
@@ -1665,6 +1679,8 @@
         "currentAgents": [],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Reviewer (reviewer)\n- Worker (worker)\nNo agents are enabled now: do the work yourself until one is enabled.\n</system-reminder>",
@@ -1926,6 +1942,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue."
@@ -2170,6 +2188,8 @@
         "currentAgents": null,
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue."
@@ -2390,6 +2410,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Working Folder Changed\nThe working folder is now /work/new. This replaces the Cwd and environment facts given earlier in this conversation; relative paths and shell commands resolve here.\nKeep the conversation goals and decisions, but treat earlier file contents, search results and Git observations as historical, not as evidence of this checkout. Check the target project instructions and Git status, and re-read the files needed for the next edit before continuing. A folder change alone does not transfer uncommitted changes.\nUncommitted changes were moved into the worktree; ignored files (dependencies, build output, env files) were not.\nFor continued work, substitute /work/new for the project root /work/old in paths mentioned earlier; absolute paths are not remapped automatically. Re-read affected files before editing them.\n- Cwd: /work/new — the active Project root\n- Shell: bash\n- Git: clean\n\nThe instruction files below replace all previously provided instruction files.\n\n# Instruction Files\n\nBe careful.\n\nThe core memory below replaces all previously provided core memory.\n\n# Core Memory\nNew memory.\n</system-reminder>",
@@ -2653,6 +2675,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Working Folder Changed\nThe working folder is now /work/other. This replaces the Cwd and environment facts given earlier in this conversation; relative paths and shell commands resolve here.\nKeep the conversation goals and decisions, but treat earlier file contents, search results and Git observations as historical, not as evidence of this checkout. Check the target project instructions and Git status, and re-read the files needed for the next edit before continuing. A folder change alone does not transfer uncommitted changes.\n</system-reminder>",
@@ -2905,6 +2929,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue."
@@ -3138,6 +3164,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n# Worktree Prepared\nLinked 2 files; installed dependencies.\n</system-reminder>",
@@ -3347,6 +3375,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "what time is it now?\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>",
@@ -3552,6 +3582,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "오늘 날짜가 뭐야?\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>",
@@ -3770,6 +3802,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": [
@@ -3992,6 +4026,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "# Additional context\nIt is today.\n\n# Task\nFix it."
@@ -4254,6 +4290,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n<deferred_tools_delta>\nAdded deferred tools:\n- mcp__alpha: Alpha tools\n- web_search: Search the web bnow/b with spaces.\n- Zeta: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\nRemoved deferred tools:\n- mcp__beta\n- mcp__gamma\n- old_tool\n</deferred_tools_delta>\n</system-reminder>",
@@ -4568,6 +4606,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n<deferred_tools_delta>\nRemoved deferred tools:\n- mcp__alpha: 1 tool removed\n- mcp__beta\n</deferred_tools_delta>\n</system-reminder>",
@@ -4819,6 +4859,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n<todo_state>\nContext was compacted; your todo list (exact wordings):\n0/2\nTasks\n  [>] Write it\n  [ ] Test it\n</todo_state>\n</system-reminder>",
@@ -5104,6 +5146,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Continue.\n\n<system-reminder>\n<deferred_tools_delta>\nAdded deferred tools:\n- web_search: Search the web.\n</deferred_tools_delta>\n</system-reminder>\n\n<system-reminder>\n<todo_state>\nContext was compacted; your todo list (exact wordings):\n0/1\nTasks\n  [>] Write it\n</todo_state>\n</system-reminder>",
@@ -5293,6 +5337,1565 @@
       }
     },
     {
+      "name": "a-pasted-text-asks-the-time",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ]
+      },
+      "turn": {
+        "prompt": [
+          {
+            "type": "text",
+            "text": "See below."
+          },
+          {
+            "type": "text",
+            "attachmentRef": "d9ace543793a28b9cb77332a7720187bdde03952c553eee2588ca07b29c576c1",
+            "sizeBytes": 19
+          }
+        ],
+        "context": null,
+        "turnPromptSource": null,
+        "currentAgents": [
+          {
+            "id": "reviewer",
+            "name": "Reviewer",
+            "line": "- Reviewer (reviewer): Reads diffs."
+          },
+          {
+            "id": "worker",
+            "name": "Worker",
+            "line": "- Worker (worker): Implements."
+          }
+        ],
+        "modeInstructions": null
+      },
+      "blobs": {
+        "d9ace543793a28b9cb77332a7720187bdde03952c553eee2588ca07b29c576c1": {
+          "state": "text",
+          "text": "what time is it now"
+        }
+      },
+      "error": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "See below."
+          },
+          {
+            "type": "text",
+            "attachmentRef": "d9ace543793a28b9cb77332a7720187bdde03952c553eee2588ca07b29c576c1",
+            "sizeBytes": 19
+          },
+          {
+            "type": "text",
+            "text": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        ],
+        "meta": {
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        }
+      },
+      "revisions": {
+        "deferred": null,
+        "goal": null,
+        "workflow": null,
+        "settings": null,
+        "orchestration": null,
+        "workspace": null,
+        "setup": null
+      },
+      "contents": {
+        "workflow": null,
+        "orchestration": null,
+        "agentListing": null,
+        "workspace": null,
+        "deferred": null,
+        "goal": null
+      },
+      "afterBuild": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      },
+      "after": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      }
+    },
+    {
+      "name": "a-file-asks-the-date",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ]
+      },
+      "turn": {
+        "prompt": [
+          {
+            "type": "text",
+            "attachmentRef": "915c9553e1895c1b7bc5aba57af85f60ea0a43e3d488678fa1b24db88aa0cac1",
+            "sizeBytes": 32,
+            "textKind": "file",
+            "filename": "notes <a>\"b'.txt"
+          }
+        ],
+        "context": null,
+        "turnPromptSource": null,
+        "currentAgents": [
+          {
+            "id": "reviewer",
+            "name": "Reviewer",
+            "line": "- Reviewer (reviewer): Reads diffs."
+          },
+          {
+            "id": "worker",
+            "name": "Worker",
+            "line": "- Worker (worker): Implements."
+          }
+        ],
+        "modeInstructions": null
+      },
+      "blobs": {
+        "915c9553e1895c1b7bc5aba57af85f60ea0a43e3d488678fa1b24db88aa0cac1": {
+          "state": "text",
+          "text": "Meeting notes: tomorrow at nine."
+        }
+      },
+      "error": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "attachmentRef": "915c9553e1895c1b7bc5aba57af85f60ea0a43e3d488678fa1b24db88aa0cac1",
+            "sizeBytes": 32,
+            "textKind": "file",
+            "filename": "notes <a>\"b'.txt"
+          },
+          {
+            "type": "text",
+            "text": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        ],
+        "meta": {
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        }
+      },
+      "revisions": {
+        "deferred": null,
+        "goal": null,
+        "workflow": null,
+        "settings": null,
+        "orchestration": null,
+        "workspace": null,
+        "setup": null
+      },
+      "contents": {
+        "workflow": null,
+        "orchestration": null,
+        "agentListing": null,
+        "workspace": null,
+        "deferred": null,
+        "goal": null
+      },
+      "afterBuild": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      },
+      "after": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      }
+    },
+    {
+      "name": "a-file-without-a-name",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ]
+      },
+      "turn": {
+        "prompt": [
+          {
+            "type": "text",
+            "attachmentRef": "3f985a1ae5fa694376c641bcfd5d789e43c3fd262d0d96dff440d9411ffe04fe",
+            "sizeBytes": 6,
+            "textKind": "file"
+          }
+        ],
+        "context": null,
+        "turnPromptSource": null,
+        "currentAgents": [
+          {
+            "id": "reviewer",
+            "name": "Reviewer",
+            "line": "- Reviewer (reviewer): Reads diffs."
+          },
+          {
+            "id": "worker",
+            "name": "Worker",
+            "line": "- Worker (worker): Implements."
+          }
+        ],
+        "modeInstructions": null
+      },
+      "blobs": {
+        "3f985a1ae5fa694376c641bcfd5d789e43c3fd262d0d96dff440d9411ffe04fe": {
+          "state": "text",
+          "text": "today?"
+        }
+      },
+      "error": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "attachmentRef": "3f985a1ae5fa694376c641bcfd5d789e43c3fd262d0d96dff440d9411ffe04fe",
+            "sizeBytes": 6,
+            "textKind": "file"
+          },
+          {
+            "type": "text",
+            "text": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        ],
+        "meta": {
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        }
+      },
+      "revisions": {
+        "deferred": null,
+        "goal": null,
+        "workflow": null,
+        "settings": null,
+        "orchestration": null,
+        "workspace": null,
+        "setup": null
+      },
+      "contents": {
+        "workflow": null,
+        "orchestration": null,
+        "agentListing": null,
+        "workspace": null,
+        "deferred": null,
+        "goal": null
+      },
+      "afterBuild": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      },
+      "after": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      }
+    },
+    {
+      "name": "an-attachment-says-nothing-temporal",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ]
+      },
+      "turn": {
+        "prompt": [
+          {
+            "type": "text",
+            "text": "Review this."
+          },
+          {
+            "type": "text",
+            "attachmentRef": "f99dc8cbd970d33b49f7a96cffa120094470c0a7d2b41a57a1fb6d7fe4915fe6",
+            "sizeBytes": 16
+          }
+        ],
+        "context": null,
+        "turnPromptSource": null,
+        "currentAgents": [
+          {
+            "id": "reviewer",
+            "name": "Reviewer",
+            "line": "- Reviewer (reviewer): Reads diffs."
+          },
+          {
+            "id": "worker",
+            "name": "Worker",
+            "line": "- Worker (worker): Implements."
+          }
+        ],
+        "modeInstructions": null
+      },
+      "blobs": {
+        "f99dc8cbd970d33b49f7a96cffa120094470c0a7d2b41a57a1fb6d7fe4915fe6": {
+          "state": "text",
+          "text": "plain words only"
+        }
+      },
+      "error": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Review this."
+          },
+          {
+            "type": "text",
+            "attachmentRef": "f99dc8cbd970d33b49f7a96cffa120094470c0a7d2b41a57a1fb6d7fe4915fe6",
+            "sizeBytes": 16
+          }
+        ]
+      },
+      "revisions": {
+        "deferred": null,
+        "goal": null,
+        "workflow": null,
+        "settings": null,
+        "orchestration": null,
+        "workspace": null,
+        "setup": null
+      },
+      "contents": {
+        "workflow": null,
+        "orchestration": null,
+        "agentListing": null,
+        "workspace": null,
+        "deferred": null,
+        "goal": null
+      },
+      "afterBuild": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      },
+      "after": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      }
+    },
+    {
+      "name": "an-image-and-an-attachment",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ]
+      },
+      "turn": {
+        "prompt": [
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/png",
+              "data": "AAAA"
+            }
+          },
+          {
+            "type": "text",
+            "attachmentRef": "1f42f877ebbd1a527ffc1d545952ea43413cc64245b3575b55c0964faf6462b5",
+            "sizeBytes": 19
+          }
+        ],
+        "context": null,
+        "turnPromptSource": null,
+        "currentAgents": [
+          {
+            "id": "reviewer",
+            "name": "Reviewer",
+            "line": "- Reviewer (reviewer): Reads diffs."
+          },
+          {
+            "id": "worker",
+            "name": "Worker",
+            "line": "- Worker (worker): Implements."
+          }
+        ],
+        "modeInstructions": null
+      },
+      "blobs": {
+        "1f42f877ebbd1a527ffc1d545952ea43413cc64245b3575b55c0964faf6462b5": {
+          "state": "text",
+          "text": "current date please"
+        }
+      },
+      "error": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/png",
+              "data": "AAAA"
+            }
+          },
+          {
+            "type": "text",
+            "attachmentRef": "1f42f877ebbd1a527ffc1d545952ea43413cc64245b3575b55c0964faf6462b5",
+            "sizeBytes": 19
+          },
+          {
+            "type": "text",
+            "text": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        ],
+        "meta": {
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        }
+      },
+      "revisions": {
+        "deferred": null,
+        "goal": null,
+        "workflow": null,
+        "settings": null,
+        "orchestration": null,
+        "workspace": null,
+        "setup": null
+      },
+      "contents": {
+        "workflow": null,
+        "orchestration": null,
+        "agentListing": null,
+        "workspace": null,
+        "deferred": null,
+        "goal": null
+      },
+      "afterBuild": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      },
+      "after": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      }
+    },
+    {
+      "name": "a-reference-with-a-bad-digest-is-plain-text",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ]
+      },
+      "turn": {
+        "prompt": [
+          {
+            "type": "text",
+            "text": "tomorrow",
+            "attachmentRef": "XYZ"
+          }
+        ],
+        "context": null,
+        "turnPromptSource": null,
+        "currentAgents": [
+          {
+            "id": "reviewer",
+            "name": "Reviewer",
+            "line": "- Reviewer (reviewer): Reads diffs."
+          },
+          {
+            "id": "worker",
+            "name": "Worker",
+            "line": "- Worker (worker): Implements."
+          }
+        ],
+        "modeInstructions": null
+      },
+      "blobs": {},
+      "error": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "tomorrow",
+            "attachmentRef": "XYZ"
+          },
+          {
+            "type": "text",
+            "text": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        ],
+        "meta": {
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>"
+          }
+        }
+      },
+      "revisions": {
+        "deferred": null,
+        "goal": null,
+        "workflow": null,
+        "settings": null,
+        "orchestration": null,
+        "workspace": null,
+        "setup": null
+      },
+      "contents": {
+        "workflow": null,
+        "orchestration": null,
+        "agentListing": null,
+        "workspace": null,
+        "deferred": null,
+        "goal": null
+      },
+      "afterBuild": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      },
+      "after": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ],
+        "todoCheck": {
+          "reminders": 0,
+          "awaitingProgress": false,
+          "auditAsked": false
+        }
+      }
+    },
+    {
+      "name": "an-attachment-that-is-gone",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ]
+      },
+      "turn": {
+        "prompt": [
+          {
+            "type": "text",
+            "attachmentRef": "abababababababababababababababababababababababababababababababab",
+            "sizeBytes": 5
+          }
+        ],
+        "context": null,
+        "turnPromptSource": null,
+        "currentAgents": [
+          {
+            "id": "reviewer",
+            "name": "Reviewer",
+            "line": "- Reviewer (reviewer): Reads diffs."
+          },
+          {
+            "id": "worker",
+            "name": "Worker",
+            "line": "- Worker (worker): Implements."
+          }
+        ],
+        "modeInstructions": null
+      },
+      "blobs": {
+        "abababababababababababababababababababababababababababababababab": {
+          "state": "missing"
+        }
+      },
+      "error": "ENOENT"
+    },
+    {
+      "name": "an-attachment-that-was-tampered-with",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          }
+        ]
+      },
+      "turn": {
+        "prompt": [
+          {
+            "type": "text",
+            "text": "Hi."
+          },
+          {
+            "type": "text",
+            "attachmentRef": "c299d96f8c06ca04c6808adcc8d9c26745f772539726f884f0672abc716fa455",
+            "sizeBytes": 23
+          }
+        ],
+        "context": null,
+        "turnPromptSource": null,
+        "currentAgents": [
+          {
+            "id": "reviewer",
+            "name": "Reviewer",
+            "line": "- Reviewer (reviewer): Reads diffs."
+          },
+          {
+            "id": "worker",
+            "name": "Worker",
+            "line": "- Worker (worker): Implements."
+          }
+        ],
+        "modeInstructions": null
+      },
+      "blobs": {
+        "c299d96f8c06ca04c6808adcc8d9c26745f772539726f884f0672abc716fa455": {
+          "state": "invalid"
+        }
+      },
+      "error": "ATTACHMENT_INTEGRITY"
+    },
+    {
       "name": "todo-start-for-a-brief",
       "session": {
         "id": "sess_x",
@@ -5360,6 +6963,8 @@
         "currentAgents": null,
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Do the three things.\n\n<system-reminder>\nIf this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.\n</system-reminder>",
@@ -5586,6 +7191,8 @@
         "currentAgents": null,
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "A task finished.",
@@ -5811,6 +7418,8 @@
         "currentAgents": null,
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Do the three things."
@@ -6054,6 +7663,8 @@
         "currentAgents": null,
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Do it."
@@ -6266,6 +7877,8 @@
         "currentAgents": null,
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Do it."
@@ -6490,6 +8103,8 @@
         ],
         "modeInstructions": null
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "Do it."
@@ -6832,6 +8447,8 @@
         ],
         "modeInstructions": "# Orchestration Mode: Swarm\n\nDelegate every independent scope to its own agent; a scope is one\nverifiable deliverable, not a bundle of steps. Treat disjoint file or\nmodule sets as independent and merge scopes only on a true output\ndependency.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one."
       },
+      "blobs": {},
+      "error": null,
       "message": {
         "role": "user",
         "content": "what is the current time\n\n<system-reminder>\n# Workflow Changed\nThis conversation now runs the Default workflow, the one the system prompt carries: its Active Workflow, orchestration mode, available agents and tools apply. This replaces every earlier Workflow Changed reminder in this conversation.\nAgents already started under Review keep running with their own instructions; new delegation follows Default.\n</system-reminder>\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>\n\n<system-reminder>\n# Orchestration Mode Changed\nThis conversation now uses the Swarm orchestration mode, the one the system prompt carries. This replaces every earlier Orchestration Mode Changed reminder in this conversation.\nAgents already started keep running with their own instructions; new delegation follows Swarm.\n\n# Orchestration Mode: Swarm\n\nDelegate every independent scope to its own agent; a scope is one\nverifiable deliverable, not a bundle of steps. Treat disjoint file or\nmodule sets as independent and merge scopes only on a true output\ndependency.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\nIf the plan has only one implementation scope, Lead executes it directly.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. Run builds and tests side by side only as far as the\nmachine's load allows; a check that measures timing or performance gets the\nmachine to itself.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Reviewer (reviewer)\n</system-reminder>\n\n<system-reminder>\n# Working Folder Changed\nThe working folder is now /work/new. This replaces the Cwd and environment facts given earlier in this conversation; relative paths and shell commands resolve here.\nKeep the conversation goals and decisions, but treat earlier file contents, search results and Git observations as historical, not as evidence of this checkout. Check the target project instructions and Git status, and re-read the files needed for the next edit before continuing. A folder change alone does not transfer uncommitted changes.\n- Cwd: /work/new\n</system-reminder>\n\n<system-reminder>\n# Worktree Prepared\nDone.\n</system-reminder>\n\n<system-reminder>\n# Current Time\nLocal: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z\n</system-reminder>\n\n<system-reminder>\n<deferred_tools_delta>\nAdded deferred tools:\n- web_search: Search.\n</deferred_tools_delta>\n</system-reminder>\n\n<system-reminder>\nIf this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.\n</system-reminder>",
@@ -7183,6 +8800,936 @@
       }
     }
   ],
+  "retained": [
+    {
+      "name": "retry-with-the-same-agents-resends-the-message-as-it-is",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          },
+          {
+            "role": "user",
+            "content": "Fix it.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>",
+            "meta": {
+              "transcript": {
+                "messageId": "m9",
+                "at": 1,
+                "completion": {
+                  "status": "failed",
+                  "at": 2
+                }
+              },
+              "agentListing": {
+                "added": [],
+                "removed": [
+                  {
+                    "id": "worker",
+                    "name": "Worker"
+                  }
+                ]
+              },
+              "promptSettingsNoticeRevision": 1,
+              "runtimeUserContext": {
+                "prefix": "",
+                "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>"
+              }
+            }
+          }
+        ],
+        "promptSettings": {
+          "revision": "4e2ef6cd6d77dad1",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "d5e8aeedd587af8a",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes tea.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "responseLanguage": null,
+        "promptSettingsNoticeRevision": 1,
+        "promptSettingsNotice": {
+          "revision": 1,
+          "record": {
+            "revision": "1cdefa3f85ce9646",
+            "hashes": {
+              "meta": "1c827442945176ce",
+              "workflow": "9cd37a078051220d",
+              "orchestration": "e3b0c44298fc1c14",
+              "skills": "e3b0c44298fc1c14",
+              "instructionFiles": "e3b0c44298fc1c14",
+              "coreMemory": "5dc8b6c96feb19c6",
+              "language": "e3b0c44298fc1c14"
+            },
+            "texts": {
+              "meta": "# Output Style: Simple\n\nBe brief.",
+              "orchestration": "",
+              "orchestrationMode": "",
+              "instructionFiles": "",
+              "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+              "skills": [],
+              "instructionFilesMode": "all"
+            }
+          },
+          "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+          "emitted": [
+            "coreMemory"
+          ],
+          "partial": {},
+          "fresh": [
+            "coreMemory"
+          ]
+        },
+        "updatedAt": 1794064800123
+      },
+      "index": 6,
+      "currentAgents": [
+        {
+          "id": "reviewer",
+          "name": "Reviewer",
+          "line": "- Reviewer (reviewer): Reads diffs."
+        }
+      ],
+      "resent": {
+        "role": "user",
+        "content": "Fix it.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>",
+        "meta": {
+          "transcript": {
+            "messageId": "m9",
+            "at": 1,
+            "completion": {
+              "status": "failed",
+              "at": 2
+            }
+          },
+          "agentListing": {
+            "added": [],
+            "removed": [
+              {
+                "id": "worker",
+                "name": "Worker"
+              }
+            ]
+          },
+          "promptSettingsNoticeRevision": 1,
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>"
+          }
+        }
+      },
+      "settings": 1
+    },
+    {
+      "name": "retry-with-agents-changed-since-adds-the-list-reminder",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          },
+          {
+            "role": "user",
+            "content": "Fix it.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>",
+            "meta": {
+              "transcript": {
+                "messageId": "m9",
+                "at": 1,
+                "completion": {
+                  "status": "failed",
+                  "at": 2
+                }
+              },
+              "agentListing": {
+                "added": [],
+                "removed": [
+                  {
+                    "id": "worker",
+                    "name": "Worker"
+                  }
+                ]
+              },
+              "promptSettingsNoticeRevision": 1,
+              "runtimeUserContext": {
+                "prefix": "",
+                "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>"
+              }
+            }
+          }
+        ],
+        "promptSettings": {
+          "revision": "4e2ef6cd6d77dad1",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "d5e8aeedd587af8a",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes tea.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "responseLanguage": null,
+        "promptSettingsNoticeRevision": 1,
+        "promptSettingsNotice": {
+          "revision": 1,
+          "record": {
+            "revision": "1cdefa3f85ce9646",
+            "hashes": {
+              "meta": "1c827442945176ce",
+              "workflow": "9cd37a078051220d",
+              "orchestration": "e3b0c44298fc1c14",
+              "skills": "e3b0c44298fc1c14",
+              "instructionFiles": "e3b0c44298fc1c14",
+              "coreMemory": "5dc8b6c96feb19c6",
+              "language": "e3b0c44298fc1c14"
+            },
+            "texts": {
+              "meta": "# Output Style: Simple\n\nBe brief.",
+              "orchestration": "",
+              "orchestrationMode": "",
+              "instructionFiles": "",
+              "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+              "skills": [],
+              "instructionFilesMode": "all"
+            }
+          },
+          "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+          "emitted": [
+            "coreMemory"
+          ],
+          "partial": {},
+          "fresh": [
+            "coreMemory"
+          ]
+        },
+        "updatedAt": 1794064800123
+      },
+      "index": 6,
+      "currentAgents": [
+        {
+          "id": "reviewer",
+          "name": "Reviewer",
+          "line": "- Reviewer (reviewer): Reads diffs."
+        },
+        {
+          "id": "scout",
+          "name": "Scout",
+          "line": "- Scout (scout): Looks around."
+        }
+      ],
+      "resent": {
+        "role": "user",
+        "content": "Fix it.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nNew agents are now available to delegate to with `agent`:\n- Scout (scout): Looks around.\n</system-reminder>",
+        "meta": {
+          "transcript": {
+            "messageId": "m9",
+            "at": 1,
+            "completion": {
+              "status": "failed",
+              "at": 2
+            }
+          },
+          "promptSettingsNoticeRevision": 1,
+          "agentListing": {
+            "added": [
+              {
+                "id": "scout",
+                "name": "Scout"
+              }
+            ],
+            "removed": [
+              {
+                "id": "worker",
+                "name": "Worker"
+              }
+            ]
+          },
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nNew agents are now available to delegate to with `agent`:\n- Scout (scout): Looks around.\n</system-reminder>"
+          }
+        }
+      },
+      "settings": 1
+    },
+    {
+      "name": "retry-with-blocks-and-agents-changed",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Fix it."
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "image/png",
+                  "data": "AAAA"
+                }
+              },
+              {
+                "type": "text",
+                "text": "\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>"
+              }
+            ],
+            "meta": {
+              "transcript": {
+                "messageId": "m9",
+                "at": 1,
+                "completion": {
+                  "status": "failed",
+                  "at": 2
+                }
+              },
+              "agentListing": {
+                "added": [],
+                "removed": [
+                  {
+                    "id": "worker",
+                    "name": "Worker"
+                  }
+                ]
+              },
+              "runtimeUserContext": {
+                "prefix": "",
+                "suffix": "\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>"
+              }
+            }
+          }
+        ]
+      },
+      "index": 6,
+      "currentAgents": [
+        {
+          "id": "scout",
+          "name": "Scout",
+          "line": "- Scout (scout): Looks around."
+        }
+      ],
+      "resent": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Fix it."
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/png",
+              "data": "AAAA"
+            }
+          },
+          {
+            "type": "text",
+            "text": "\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nNew agents are now available to delegate to with `agent`:\n- Scout (scout): Looks around.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Reviewer (reviewer)\n</system-reminder>"
+          }
+        ],
+        "meta": {
+          "transcript": {
+            "messageId": "m9",
+            "at": 1,
+            "completion": {
+              "status": "failed",
+              "at": 2
+            }
+          },
+          "agentListing": {
+            "added": [
+              {
+                "id": "scout",
+                "name": "Scout"
+              }
+            ],
+            "removed": [
+              {
+                "id": "reviewer",
+                "name": "Reviewer"
+              },
+              {
+                "id": "worker",
+                "name": "Worker"
+              }
+            ]
+          },
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nNew agents are now available to delegate to with `agent`:\n- Scout (scout): Looks around.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Reviewer (reviewer)\n</system-reminder>"
+          }
+        }
+      },
+      "settings": null
+    },
+    {
+      "name": "retry-of-a-message-without-reminders",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          },
+          {
+            "role": "user",
+            "content": "Fix it.",
+            "meta": {
+              "transcript": {
+                "messageId": "m9",
+                "at": 1,
+                "completion": {
+                  "status": "failed",
+                  "at": 2
+                }
+              }
+            }
+          }
+        ]
+      },
+      "index": 6,
+      "currentAgents": [
+        {
+          "id": "reviewer",
+          "name": "Reviewer",
+          "line": "- Reviewer (reviewer): Reads diffs."
+        },
+        {
+          "id": "scout",
+          "name": "Scout",
+          "line": "- Scout (scout): Looks around."
+        }
+      ],
+      "resent": {
+        "role": "user",
+        "content": "Fix it.\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nNew agents are now available to delegate to with `agent`:\n- Scout (scout): Looks around.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>",
+        "meta": {
+          "transcript": {
+            "messageId": "m9",
+            "at": 1,
+            "completion": {
+              "status": "failed",
+              "at": 2
+            }
+          },
+          "agentListing": {
+            "added": [
+              {
+                "id": "scout",
+                "name": "Scout"
+              }
+            ],
+            "removed": [
+              {
+                "id": "worker",
+                "name": "Worker"
+              }
+            ]
+          },
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nNew agents are now available to delegate to with `agent`:\n- Scout (scout): Looks around.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>"
+          }
+        }
+      },
+      "settings": null
+    },
+    {
+      "name": "retry-of-a-message-without-reminders-and-no-change",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          },
+          {
+            "role": "user",
+            "content": "Fix it.",
+            "meta": {
+              "transcript": {
+                "messageId": "m9",
+                "at": 1,
+                "completion": {
+                  "status": "failed",
+                  "at": 2
+                }
+              }
+            }
+          }
+        ]
+      },
+      "index": 6,
+      "currentAgents": [
+        {
+          "id": "reviewer",
+          "name": "Reviewer",
+          "line": "- Reviewer (reviewer): Reads diffs."
+        },
+        {
+          "id": "worker",
+          "name": "Worker",
+          "line": "- Worker (worker): Implements."
+        }
+      ],
+      "resent": {
+        "role": "user",
+        "content": "Fix it.",
+        "meta": {
+          "transcript": {
+            "messageId": "m9",
+            "at": 1,
+            "completion": {
+              "status": "failed",
+              "at": 2
+            }
+          }
+        }
+      },
+      "settings": null
+    },
+    {
+      "name": "retry-with-a-stale-runtime-context",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          },
+          {
+            "role": "user",
+            "content": "Fix it. (edited)",
+            "meta": {
+              "agentListing": {
+                "added": [],
+                "removed": [
+                  {
+                    "id": "reviewer",
+                    "name": "Reviewer"
+                  }
+                ]
+              },
+              "runtimeUserContext": {
+                "prefix": "",
+                "suffix": "\n\nold reminder"
+              },
+              "transcript": {
+                "messageId": "m9",
+                "at": 1,
+                "completion": {
+                  "status": "failed",
+                  "at": 2
+                }
+              }
+            }
+          }
+        ]
+      },
+      "index": 6,
+      "currentAgents": [
+        {
+          "id": "reviewer",
+          "name": "Reviewer",
+          "line": "- Reviewer (reviewer): Reads diffs."
+        },
+        {
+          "id": "scout",
+          "name": "Scout",
+          "line": "- Scout (scout): Looks around."
+        }
+      ],
+      "resent": {
+        "role": "user",
+        "content": "Fix it. (edited)\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nNew agents are now available to delegate to with `agent`:\n- Reviewer (reviewer): Reads diffs.\n- Scout (scout): Looks around.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>",
+        "meta": {
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\n# Available Agents Changed\nThis updates the Available Agents list in the system prompt and every earlier Available Agents Changed reminder.\nNew agents are now available to delegate to with `agent`:\n- Reviewer (reviewer): Reads diffs.\n- Scout (scout): Looks around.\nThese agents are no longer available; an `agent` call naming one is refused:\n- Worker (worker)\n</system-reminder>"
+          },
+          "transcript": {
+            "messageId": "m9",
+            "at": 1,
+            "completion": {
+              "status": "failed",
+              "at": 2
+            }
+          },
+          "agentListing": {
+            "added": [
+              {
+                "id": "scout",
+                "name": "Scout"
+              }
+            ],
+            "removed": [
+              {
+                "id": "worker",
+                "name": "Worker"
+              }
+            ]
+          }
+        }
+      },
+      "settings": null
+    },
+    {
+      "name": "retry-of-a-worker-gets-no-list",
+      "session": {
+        "id": "sess_x",
+        "provider": "custom-a",
+        "model": "m",
+        "effort": "medium",
+        "contextWindow": 200000,
+        "cwd": "/work/old",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+        "bp3EnvironmentContext": "- Cwd: /work/old — the active Project root\n- Shell: bash",
+        "workflow": {
+          "id": "default",
+          "name": "Default"
+        },
+        "orchestrationMode": "swarm",
+        "messages": [
+          {
+            "role": "system",
+            "content": "BP1 rules"
+          },
+          {
+            "role": "system",
+            "content": "BP2 stable"
+          },
+          {
+            "role": "system",
+            "content": "# Active Workflow: Default\n\nWork.\n\n---\n\n# Available Agents\n\n- Reviewer (reviewer): Reads diffs.\n- Worker (worker): Implements.",
+            "cacheTier": "tier3"
+          },
+          {
+            "role": "system",
+            "content": "# Session\nCwd: /work/old\n\n---\n\n- Cwd: /work/old — the active Project root",
+            "cacheTier": "env"
+          },
+          {
+            "role": "user",
+            "content": "Earlier question.",
+            "meta": {
+              "transcript": {
+                "messageId": "m1"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Earlier answer."
+          },
+          {
+            "role": "user",
+            "content": "Fix it.",
+            "meta": {
+              "transcript": {
+                "messageId": "m9",
+                "at": 1,
+                "completion": {
+                  "status": "failed",
+                  "at": 2
+                }
+              }
+            }
+          }
+        ]
+      },
+      "index": 6,
+      "currentAgents": null,
+      "resent": {
+        "role": "user",
+        "content": "Fix it.",
+        "meta": {
+          "transcript": {
+            "messageId": "m9",
+            "at": 1,
+            "completion": {
+              "status": "failed",
+              "at": 2
+            }
+          }
+        }
+      },
+      "settings": null
+    }
+  ],
   "clock": [
     {
       "zone": "Asia/Seoul",
@@ -7451,6 +9998,546 @@
     },
     {
       "zone": "Pacific/Auckland",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "Asia/Kolkata",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 20:50:00 Asia/Calcutta (UTC+05:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kolkata",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 20:50:00 Asia/Calcutta (UTC+05:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kolkata",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "Asia/Kolkata",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 20:50:00 Asia/Calcutta (UTC+05:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kolkata",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 20:50:00 Asia/Calcutta (UTC+05:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kolkata",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 20:50:00 Asia/Calcutta (UTC+05:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kolkata",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 20:50:00 Asia/Calcutta (UTC+05:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kolkata",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 20:50:00 Asia/Calcutta (UTC+05:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kolkata",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 21:05:00 Asia/Katmandu (UTC+05:45)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 21:05:00 Asia/Katmandu (UTC+05:45)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 21:05:00 Asia/Katmandu (UTC+05:45)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 21:05:00 Asia/Katmandu (UTC+05:45)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 21:05:00 Asia/Katmandu (UTC+05:45)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 21:05:00 Asia/Katmandu (UTC+05:45)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 21:05:00 Asia/Katmandu (UTC+05:45)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "Europe/Kyiv",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 17:20:00 Europe/Kiev (UTC+02:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Europe/Kyiv",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 17:20:00 Europe/Kiev (UTC+02:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Europe/Kyiv",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "Europe/Kyiv",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 17:20:00 Europe/Kiev (UTC+02:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Europe/Kyiv",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 17:20:00 Europe/Kiev (UTC+02:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Europe/Kyiv",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 17:20:00 Europe/Kiev (UTC+02:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Europe/Kyiv",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 17:20:00 Europe/Kiev (UTC+02:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Europe/Kyiv",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 17:20:00 Europe/Kiev (UTC+02:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Europe/Kyiv",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "Etc/UTC",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 15:20:00 UTC (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Etc/UTC",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 15:20:00 UTC (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Etc/UTC",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "Etc/UTC",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 15:20:00 UTC (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Etc/UTC",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 15:20:00 UTC (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Etc/UTC",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 15:20:00 UTC (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Etc/UTC",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 15:20:00 UTC (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Etc/UTC",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 15:20:00 UTC (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Etc/UTC",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "GMT",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 15:20:00 +00:00 (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "GMT",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 15:20:00 +00:00 (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "GMT",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "GMT",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 15:20:00 +00:00 (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "GMT",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 15:20:00 +00:00 (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "GMT",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 15:20:00 +00:00 (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "GMT",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 15:20:00 +00:00 (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "GMT",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 15:20:00 +00:00 (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "GMT",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "ROK",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "ROK",
+      "prompt": "today",
+      "block": "Local: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "ROK",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "ROK",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "ROK",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "ROK",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "ROK",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "ROK",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-08 00:20:00 Asia/Seoul (UTC+09:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "ROK",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 22:20:00 Asia/Saigon (UTC+07:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 22:20:00 Asia/Saigon (UTC+07:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 22:20:00 Asia/Saigon (UTC+07:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 22:20:00 Asia/Saigon (UTC+07:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 22:20:00 Asia/Saigon (UTC+07:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 22:20:00 Asia/Saigon (UTC+07:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 22:20:00 Asia/Saigon (UTC+07:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Ho_Chi_Minh",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "Asia/Yangon",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 21:50:00 Asia/Rangoon (UTC+06:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Yangon",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 21:50:00 Asia/Rangoon (UTC+06:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Yangon",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "Asia/Yangon",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 21:50:00 Asia/Rangoon (UTC+06:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Yangon",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 21:50:00 Asia/Rangoon (UTC+06:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Yangon",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 21:50:00 Asia/Rangoon (UTC+06:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Yangon",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 21:50:00 Asia/Rangoon (UTC+06:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Yangon",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 21:50:00 Asia/Rangoon (UTC+06:30)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Asia/Yangon",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "Atlantic/Faroe",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 15:20:00 Atlantic/Faeroe (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Atlantic/Faroe",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 15:20:00 Atlantic/Faeroe (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Atlantic/Faroe",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "Atlantic/Faroe",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 15:20:00 Atlantic/Faeroe (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Atlantic/Faroe",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 15:20:00 Atlantic/Faeroe (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Atlantic/Faroe",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 15:20:00 Atlantic/Faeroe (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Atlantic/Faroe",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 15:20:00 Atlantic/Faeroe (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Atlantic/Faroe",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 15:20:00 Atlantic/Faeroe (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Atlantic/Faroe",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "America/Argentina/Buenos_Aires",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 12:20:00 America/Buenos_Aires (UTC-03:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "America/Argentina/Buenos_Aires",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 12:20:00 America/Buenos_Aires (UTC-03:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "America/Argentina/Buenos_Aires",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "America/Argentina/Buenos_Aires",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 12:20:00 America/Buenos_Aires (UTC-03:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "America/Argentina/Buenos_Aires",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 12:20:00 America/Buenos_Aires (UTC-03:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "America/Argentina/Buenos_Aires",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 12:20:00 America/Buenos_Aires (UTC-03:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "America/Argentina/Buenos_Aires",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 12:20:00 America/Buenos_Aires (UTC-03:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "America/Argentina/Buenos_Aires",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 12:20:00 America/Buenos_Aires (UTC-03:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "America/Argentina/Buenos_Aires",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "Pacific/Chuuk",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-08 01:20:00 Pacific/Truk (UTC+10:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Pacific/Chuuk",
+      "prompt": "today",
+      "block": "Local: 2026-11-08 01:20:00 Pacific/Truk (UTC+10:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Pacific/Chuuk",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "Pacific/Chuuk",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-08 01:20:00 Pacific/Truk (UTC+10:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Pacific/Chuuk",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-08 01:20:00 Pacific/Truk (UTC+10:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Pacific/Chuuk",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-08 01:20:00 Pacific/Truk (UTC+10:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Pacific/Chuuk",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-08 01:20:00 Pacific/Truk (UTC+10:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Pacific/Chuuk",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-08 01:20:00 Pacific/Truk (UTC+10:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Pacific/Chuuk",
+      "prompt": "timeless",
+      "block": ""
+    },
+    {
+      "zone": "Antarctica/Troll",
+      "prompt": "what time is it",
+      "block": "Local: 2026-11-07 15:20:00 Antarctica/Troll (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Antarctica/Troll",
+      "prompt": "today",
+      "block": "Local: 2026-11-07 15:20:00 Antarctica/Troll (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Antarctica/Troll",
+      "prompt": "hello",
+      "block": ""
+    },
+    {
+      "zone": "Antarctica/Troll",
+      "prompt": "Tomorrow?",
+      "block": "Local: 2026-11-07 15:20:00 Antarctica/Troll (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Antarctica/Troll",
+      "prompt": "지금 몇 시야",
+      "block": "Local: 2026-11-07 15:20:00 Antarctica/Troll (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Antarctica/Troll",
+      "prompt": "yesterday at noon",
+      "block": "Local: 2026-11-07 15:20:00 Antarctica/Troll (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Antarctica/Troll",
+      "prompt": "the weekday of release",
+      "block": "Local: 2026-11-07 15:20:00 Antarctica/Troll (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Antarctica/Troll",
+      "prompt": "current   DATE",
+      "block": "Local: 2026-11-07 15:20:00 Antarctica/Troll (UTC+00:00)\nUTC: 2026-11-07T15:20:00.123Z"
+    },
+    {
+      "zone": "Antarctica/Troll",
       "prompt": "timeless",
       "block": ""
     }

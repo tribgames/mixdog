@@ -164,19 +164,27 @@ pub(crate) struct Retained {
     pub attempt_id: Option<String>,
     /// The completions the message has recorded, the failure being retried last (`retainedUserTurn`).
     pub previous_completions: Vec<Value>,
+    /// The meta the message's reminders left on it, which the resent message keeps (`REMINDER_META`).
+    pub reminders: serde_json::Map<String, Value>,
 }
 
+/// The meta keys a user turn's reminders leave on its message (`buildUserTurn`, `ask-turn-prepare.mjs:221-229`,
+/// `withRuntimeUserContext`): the retained message is resent as it is, so they ride its retry row.
+pub const REMINDER_META: [&str; 3] = ["agentListing", "promptSettingsNoticeRevision", "runtimeUserContext"];
+
 /// What the retry row keeps of the failed message it resends (`retainedUserTurn`, `ask-turn-execute.mjs:38-61`):
-/// its message id, and every failed completion it has recorded, as `meta.transcript.previousCompletions`.
+/// its message id, every failed completion it has recorded, as `meta.transcript.previousCompletions`, and the meta
+/// its reminders left.
 #[derive(Clone)]
 pub(crate) struct Prior {
     pub message_id: String,
     pub completions: Vec<Value>,
+    pub reminders: serde_json::Map<String, Value>,
 }
 
 impl Retained {
     pub(crate) fn prior(&self) -> Prior {
-        Prior { message_id: self.message_id.clone(), completions: self.previous_completions.clone() }
+        Prior { message_id: self.message_id.clone(), completions: self.previous_completions.clone(), reminders: self.reminders.clone() }
     }
 }
 
@@ -194,6 +202,7 @@ pub(crate) fn retained_retry_input(messages: &[Value]) -> Option<Retained> {
         message_id: value_to_string(id.expect("checked")),
         attempt_id: transcript.and_then(|t| t.pointer("/completion/attemptId")).and_then(Value::as_str).map(str::to_owned),
         previous_completions: previous_completions(transcript.expect("checked")),
+        reminders: REMINDER_META.iter().filter_map(|key| message.pointer(&format!("/meta/{key}")).map(|value| ((*key).to_owned(), value.clone()))).collect(),
     })
 }
 

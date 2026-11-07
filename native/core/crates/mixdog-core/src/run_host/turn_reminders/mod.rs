@@ -9,6 +9,8 @@
 mod clock;
 mod deferred;
 mod listing;
+mod retained;
+mod zone_names;
 #[cfg(test)]
 mod tests;
 
@@ -20,7 +22,10 @@ use mixdog_store::schema::record::Header;
 use serde_json::Value;
 
 pub use self::listing::AgentEntry;
+pub use self::clock::prompt_content_text;
 pub use self::listing::agent_list_entries;
+pub use self::retained::is_retained;
+pub use self::retained::resubmit;
 
 /// The name of the todo tool (`TODO_TOOL.name`).
 const TODO_TOOL: &str = "todo";
@@ -31,8 +36,8 @@ pub struct Facts<'a> {
     pub header: &'a Header,
     /// The conversation's stored rows before this turn (the system prefix is the header's).
     pub prior: &'a [Value],
-    /// `input.prompt`: the human's words as the user message carries them, before any reminder.
-    pub prompt: &'a Value,
+    /// `promptContentText(input.prompt)`: the human's words as text, before any reminder.
+    pub prompt_text: &'a str,
     /// `!turnPromptSource?.source`: a real prompt, not a Goal turn or a task notification.
     pub genuine: bool,
     /// `currentAgents`: the agents enabled at the turn's start; `None` for a session that gets no agent list reminder.
@@ -113,7 +118,7 @@ pub fn build(facts: &Facts<'_>) -> Result<Reminders, String> {
         revisions.setup = setup.revision;
         push(setup.content);
     }
-    let time = clock::block(facts.prompt, facts.now_ms);
+    let time = clock::block(facts.prompt_text, facts.now_ms);
     if !time.is_empty() {
         push(format!("<system-reminder>\n# Current Time\n{time}\n</system-reminder>"));
     }

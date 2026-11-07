@@ -4303,6 +4303,10 @@ impl SessionActor {
         if let Some(prior) = self.retry_prior.take() {
             body["meta"]["transcript"]["messageId"] = json!(prior.message_id);
             body["meta"]["transcript"]["previousCompletions"] = Value::Array(prior.completions);
+            // The message is resent as it is: its reminders ride it (`drive` reads them back, `turn_reminders::resubmit`).
+            for (key, value) in prior.reminders {
+                body["meta"][key.as_str()] = value;
+            }
         }
         let input_body = body.clone();
         let hidden = std::mem::take(&mut self.retry_hidden);

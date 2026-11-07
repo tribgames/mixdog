@@ -8,7 +8,12 @@ use chrono::DateTime;
 use chrono::Utc;
 use mixdog_js::JsRegex;
 use mixdog_js::time;
+use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_protocol::message_class::user_text::ReadError;
+use mixdog_protocol::message_class::user_text::attachment_text;
 use serde_json::Value;
+
+use super::zone_names::RENAMED;
 
 /// `promptNeedsDateReminder`.
 static DATE_WORDS: LazyLock<JsRegex> = LazyLock::new(|| {
@@ -26,22 +31,57 @@ static TIME_WORDS: LazyLock<JsRegex> = LazyLock::new(|| {
     )
 });
 
-/// `promptContentText(content)` for text and image blocks; an attachment reference is not resolved here.
-fn prompt_content_text(content: &Value) -> String {
+/// `MAX_ATTACHMENT_BLOB_BYTES` (`attachments/limits.mjs:9`): a larger blob is invalid.
+const MAX_ATTACHMENT_BLOB_BYTES: u64 = 64 * 1024 * 1024;
+
+/// `isAttachmentReference(part)`: `attachmentRef` is 64 lower-case hex digits.
+fn attachment_ref(part: &Value) -> Option<&str> {
+    part.get("attachmentRef").and_then(Value::as_str).filter(|hex| hex.len() == 64 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+}
+
+/// `attachmentTextForPart(part)` of a text part: a reference reads its blob (`readAttachmentText`: a missing, invalid,
+/// oversize or tampered blob throws, which fails the turn) and a file is wrapped with its name.
+fn text_part(part: &Value, blobs: &dyn Blobs) -> Result<String, String> {
+    let Some(hex) = attachment_ref(part) else { return Ok(part.get("text").and_then(Value::as_str).unwrap_or_default().to_owned()) };
+    let stored = match blobs.text_within(hex, MAX_ATTACHMENT_BLOB_BYTES) {
+        Ok(Some(text)) => text,
+        Ok(None) => return Err(format!("prompt attachment {hex} is invalid")),
+        Err(ReadError::Missing) => return Err(format!("prompt attachment {hex} is missing")),
+        Err(ReadError::Other) => return Err(format!("prompt attachment {hex} is invalid")),
+    };
+    Ok(attachment_text(&stored, part.get("textKind").and_then(Value::as_str), part.get("filename").and_then(Value::as_str)))
+}
+
+/// `promptContentText(content)` (`prompt-utils.mjs:12`): a string, or the parts' text joined by a newline, a stored
+/// text attachment read from the store, an image as `[Image]`.
+pub fn prompt_content_text(content: &Value, blobs: &dyn Blobs) -> Result<String, String> {
     match content {
-        Value::String(text) => text.clone(),
-        Value::Array(parts) => parts
-            .iter()
-            .map(|part| match part {
-                Value::String(text) => text.clone(),
-                part if part.get("type").and_then(Value::as_str) == Some("image") => "[Image]".to_owned(),
-                part => part.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(),
-            })
-            .filter(|text| !text.is_empty())
-            .collect::<Vec<String>>()
-            .join("\n"),
-        Value::Null => String::new(),
-        other => mixdog_js::value_to_string(other),
+        Value::String(text) => Ok(text.clone()),
+        Value::Array(parts) => {
+            let mut texts: Vec<String> = Vec::new();
+            for part in parts {
+                let text = match part {
+                    Value::String(text) => text.clone(),
+                    part if part.get("type").and_then(Value::as_str) == Some("text") => text_part(part, blobs)?,
+                    part if part.get("type").and_then(Value::as_str) == Some("image") => "[Image]".to_owned(),
+                    part => part.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                };
+                if !text.is_empty() {
+                    texts.push(text);
+                }
+            }
+            Ok(texts.join("\n"))
+        }
+        Value::Null => Ok(String::new()),
+        other => Ok(mixdog_js::value_to_string(other)),
+    }
+}
+
+/// The zone name Node prints for a tz-database name: ICU's canonical id (`Asia/Kolkata` reads `Asia/Calcutta`).
+fn printed_zone(name: &str) -> &str {
+    match RENAMED.binary_search_by(|(known, _)| (*known).cmp(name)) {
+        Ok(at) => RENAMED[at].1,
+        Err(_) => name,
     }
 }
 
@@ -60,7 +100,7 @@ pub fn timestamp(now_ms: f64) -> String {
         local.hour,
         local.minute,
         local.second,
-        time::local_zone().name(),
+        printed_zone(time::local_zone().name()),
         sign,
         minutes / 60,
         minutes % 60,
@@ -68,10 +108,10 @@ pub fn timestamp(now_ms: f64) -> String {
     )
 }
 
-/// `buildCurrentTimeBlock(prompt)`: the timestamp when the prompt asks about a date or the time, else empty.
-pub fn block(prompt: &Value, now_ms: f64) -> String {
-    let content = prompt_content_text(prompt);
-    let text = mixdog_js::js_to_lowercase(&mixdog_js::js_words(&content).collect::<Vec<&str>>().join(" "));
+/// `buildCurrentTimeBlock(prompt)`: the timestamp when the prompt (`content`, its text as `promptContentText` reads it)
+/// asks about a date or the time, else empty.
+pub fn block(content: &str, now_ms: f64) -> String {
+    let text = mixdog_js::js_to_lowercase(&mixdog_js::js_words(content).collect::<Vec<&str>>().join(" "));
     if text.is_empty() || !(TIME_WORDS.is_match(&text) || DATE_WORDS.is_match(&text)) {
         return String::new();
     }
