@@ -112,6 +112,7 @@ pub mod quota_lane;
 mod quota_lane_tests;
 mod usage_books;
 mod usage_metadata;
+pub mod goal_recovery_host;
 pub mod quota_resume_host;
 #[cfg(test)]
 mod quota_resume_host_tests;
