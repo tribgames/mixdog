@@ -53,7 +53,7 @@ pub(super) fn is_agent_owner(session: &Value) -> bool {
     session.get("owner").map(|o| clean(Some(o)).to_lowercase()).as_deref() == Some("agent")
 }
 
-fn load_tool_def(host: &dyn SurfaceHost) -> LoadToolDef {
+pub(super) fn load_tool_def(host: &dyn SurfaceHost) -> LoadToolDef {
     host.bridge_tools().iter().find(|t| t.get("name").and_then(Value::as_str) == Some("load_tool")).map_or_else(
         || LoadToolDef { description: String::new(), input_schema: Value::Null },
         LoadToolDef::from_def,

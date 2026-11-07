@@ -348,6 +348,14 @@ impl RunParts for HostRunParts {
         Ok(Some(ToolSet::with_builtins(tools, builtins).for_agent(agent)))
     }
 
+    async fn request_snapshot(&self, thread: &ThreadId, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: Vec<Value>) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, TurnError> {
+        let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
+        let header = directory.live_header(thread).header();
+        let provider = mixdog_js::js_trim(text(&header, "provider")).to_lowercase();
+        let referenced = native.iter().flat_map(|record| super::context_world::native_references(Some(record), &provider)).collect();
+        Ok(super::context_world::snapshot_tools(&header, tools, referenced, &provider))
+    }
+
     fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
         self.services.seams.stall_cap_idle_seconds(agent)
     }

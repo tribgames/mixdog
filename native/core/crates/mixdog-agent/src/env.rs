@@ -689,6 +689,17 @@ pub trait McpCatalog: Send + Sync {
     async fn tools(&self) -> Option<crate::tools::ToolSet> {
         None
     }
+
+    /// `snapshotProviderRequestTools`: the candidate request tools (the session's, in order) as the session's
+    /// deferred state makes them available, the catalog tools its native tool search discovered added marked
+    /// `defer_loading`. `messages`: the transcript the request is built from.
+    async fn snapshot(
+        &self,
+        tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+        _messages: &[crate::message::AgentMessage],
+    ) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+        tools
+    }
 }
 
 /// Todo / goal reminders around the end of a turn. State lives with the

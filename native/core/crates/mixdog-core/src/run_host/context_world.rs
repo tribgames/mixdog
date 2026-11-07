@@ -88,7 +88,11 @@ fn available(header: &serde_json::Map<String, Value>, name: &str) -> bool {
 /// `messageToolReferences`: the tool names a message's native tool search referenced, when it ran
 /// on this provider (or the other first-party Anthropic one).
 fn message_tool_references(row: &Value, provider: &str) -> Vec<String> {
-    let native = row.get("nativeToolSearch");
+    native_references(row.get("nativeToolSearch"), provider)
+}
+
+/// `messageToolReferences` over a message's `nativeToolSearch` record.
+pub(super) fn native_references(native: Option<&Value>, provider: &str) -> Vec<String> {
     let source = mixdog_js::js_trim(native.and_then(|n| n.get("provider")).and_then(Value::as_str).unwrap_or_default()).to_lowercase();
     let anthropic = |p: &str| matches!(p, "anthropic" | "anthropic-oauth");
     if !source.is_empty() && source != provider && !(anthropic(&source) && anthropic(provider)) {
@@ -103,14 +107,21 @@ fn message_tool_references(row: &Value, provider: &str) -> Vec<String> {
 /// the session discovered (`deferredDiscoveredTools`, tool references in the transcript, and the
 /// one anchor that keeps tool-search mode in the cached prefix), each marked `defer_loading`.
 pub(super) fn request_definitions(header: &serde_json::Map<String, Value>, docs: &[Value], rows: &[Value], provider: &str) -> Vec<ToolDefinition> {
+    let provider = mixdog_js::js_trim(provider).to_lowercase();
+    let base = docs.iter().filter(|doc| doc.is_object()).map(definition).collect();
+    let referenced = rows.iter().flat_map(|row| message_tool_references(row, &provider)).collect();
+    snapshot_tools(header, base, referenced, &provider)
+}
+
+/// The same snapshot over tool definitions the caller already holds (`base`, in session order) and the tool names
+/// the transcript's native tool searches referenced: the run's request takes it at every request boundary.
+pub(super) fn snapshot_tools(header: &serde_json::Map<String, Value>, base: Vec<ToolDefinition>, referenced: Vec<String>, provider: &str) -> Vec<ToolDefinition> {
     let mut names = HashSet::new();
-    let mut out: Vec<ToolDefinition> = docs
-        .iter()
-        .filter(|doc| doc.is_object())
-        .filter_map(|doc| {
-            let tool = definition(doc);
+    let mut out: Vec<ToolDefinition> = base
+        .into_iter()
+        .filter(|tool| {
             let name = mixdog_js::js_trim(&tool.name).to_owned();
-            (!name.is_empty() && available(header, &tool.name) && names.insert(name)).then_some(tool)
+            !name.is_empty() && available(header, &tool.name) && names.insert(name)
         })
         .collect();
     let provider = mixdog_js::js_trim(provider).to_lowercase();
@@ -123,9 +134,7 @@ pub(super) fn request_definitions(header: &serde_json::Map<String, Value>, docs:
     let catalog_of = |key: &str| header.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
     let catalog = catalog_of("deferredToolCatalog");
     let mut discovered: HashSet<String> = parse_tool_selection(header.get("deferredDiscoveredTools")).into_iter().collect();
-    for row in rows {
-        discovered.extend(message_tool_references(row, &provider));
-    }
+    discovered.extend(referenced);
     // `deferredModeAnchor`.
     let anchor = catalog.iter().find_map(|tool| {
         let name = mixdog_js::js_trim(tool.get("name").and_then(Value::as_str)?);
@@ -369,5 +378,32 @@ mod tests {
         assert_eq!(compared, 15);
         let host = LiveContextStatus::new(Arc::new(world(&golden["cases"][1])));
         assert_eq!(host.context_status(Some(ThreadId::from("absent".to_owned())), None).await.expect("status"), Value::Null);
+    }
+
+    /// `snapshotProviderRequestTools` as Node recorded it (`fixtures/request-tools`): the session's tools as its
+    /// connected MCP names leave them available, once each, and for a native Anthropic-family session the catalog tools
+    /// it discovered (and the anchor) added marked `defer_loading`.
+    #[test]
+    fn the_request_snapshot_follows_node() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/request-tools/golden.json")).expect("request tools golden");
+        let (mut steps, mut deferred) = (0, 0);
+        for case in golden["cases"].as_array().expect("cases") {
+            for (n, step) in case["steps"].as_array().expect("steps").iter().enumerate() {
+                let header = step["header"].as_object().expect("header");
+                let (docs, rows) = (step["tools"].as_array().expect("tools"), step["messages"].as_array().expect("messages"));
+                let got = request_definitions(header, docs, rows, header.get("provider").and_then(Value::as_str).unwrap_or_default());
+                let want: Vec<(String, String, Value, bool)> = step["candidate"]
+                    .as_array()
+                    .expect("candidate")
+                    .iter()
+                    .map(|t| (t["name"].as_str().unwrap().to_owned(), t["description"].as_str().unwrap().to_owned(), t["inputSchema"].clone(), t["deferLoading"] == true))
+                    .collect();
+                let got: Vec<(String, String, Value, bool)> = got.into_iter().map(|t| (t.name, t.description, t.input_schema, t.defer_loading)).collect();
+                assert_eq!(got, want, "{} (step {n})", case["name"]);
+                deferred += got.iter().filter(|t| t.3).count();
+                steps += 1;
+            }
+        }
+        assert!(steps > 30 && deferred > 0);
     }
 }

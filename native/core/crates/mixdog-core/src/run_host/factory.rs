@@ -169,6 +169,12 @@ pub trait RunParts: Send + Sync + 'static {
         Ok(None)
     }
 
+    /// `snapshotProviderRequestTools` over `tools` and the native tool searches (`nativeToolSearch`) of the
+    /// transcript the request is built from; a host with no deferred catalog keeps `tools`.
+    async fn request_snapshot(&self, _thread: &ThreadId, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, _native: Vec<Value>) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, TurnError> {
+        Ok(tools)
+    }
+
     /// `getHiddenAgent(agent).stallCap.idleSeconds`: an internal agent's own idle budget, which
     /// the progress watchdog honours.
     fn stall_cap_idle_seconds(&self, _agent: Option<&str>) -> Option<i64> {
@@ -653,6 +659,17 @@ impl mixdog_agent::env::McpCatalog for ThreadMcp {
             Err(error) => {
                 tracing::warn!("[mcp] request tools could not be rebuilt: {error:?}");
                 None
+            }
+        }
+    }
+
+    async fn snapshot(&self, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+        let native: Vec<Value> = messages.iter().filter_map(|m| m.message.native_tool_search.clone()).collect();
+        match self.parts.request_snapshot(&self.thread, tools.clone(), native).await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::warn!("[mcp] request tools could not be snapshotted: {error:?}");
+                tools
             }
         }
     }
