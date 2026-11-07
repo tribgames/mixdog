@@ -3302,6 +3302,33 @@
       ],
       "type": "object"
     },
+    "ThreadRoomView": {
+      "description": "A group room's log as its views see it while the room runs (Node `agent-room-views.ts` `decorateRoomSnapshot`, pushed with the room's session state): the client lays it over the room log thread's own fields. Absent when the room has no exchange state and no handed-off questions.",
+      "properties": {
+        "busy": {
+          "description": "The room has an exchange state: the log reads busy (so the composer offers stop).",
+          "type": "boolean"
+        },
+        "handoffQuestions": {
+          "description": "The questions of sessions the members handed work to, while they wait.",
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "toolApproval": {
+          "description": "The speaking member's pending approval, as Node's queue presents it (`toolApproval`)."
+        },
+        "typing": {
+          "description": "The typing row naming who speaks (`{ kind: 'notice', id, tone: 'info', text, room: { kind: 'typing', speaker, name } }`), shown after the transcript."
+        }
+      },
+      "required": [
+        "busy"
+      ],
+      "type": "object"
+    },
     "ThreadRoute": {
       "properties": {
         "autoEffort": {
@@ -3508,6 +3535,28 @@
           "anyOf": [
             {
               "$ref": "#/definitions/SetupUiRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadSectionParams_for_Nullable_ThreadRoomView": {
+      "description": "Params of the `thread/<section>/updated` notifications: one typed section of the projection.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadRoomView"
             },
             {
               "type": "null"
@@ -3755,6 +3804,17 @@
             "boolean",
             "null"
           ]
+        },
+        "roomView": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadRoomView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A group room log's view while the room runs (`thread/roomView/updated`)."
         },
         "route": {
           "anyOf": [
@@ -5697,6 +5757,25 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadSectionParams_for_Nullable_SetupUiRequest"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Section `roomView`: a group room log's view while the room runs (`decorateRoomSnapshot`).",
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/roomView/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSectionParams_for_Nullable_ThreadRoomView"
         }
       },
       "required": [
