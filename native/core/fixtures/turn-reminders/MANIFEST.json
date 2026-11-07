@@ -3,18 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 265113,
+      "bytes": 365261,
       "path": "twin.json",
-      "sha256": "4e06ab0dd1e22251908a0691c0bc2769b4c015ae63be83d6205f5f1b1d44ef1f"
+      "sha256": "3f166599a27d0a4d29c55be3d044d5bf6503745315a8e0ec28459f739b97c673"
     }
   ],
   "product": {
     "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
-    "commit": "bf52be20e0049ca8d8d1ae9cc3a40c45ada67a33",
+    "commit": "295a25042853755100ebc6c5a17247c5d786027c",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9252,
     "refComparison": {
-      "closestCommit": "bf52be20e0049ca8d8d1ae9cc3a40c45ada67a33",
+      "closestCommit": "295a25042853755100ebc6c5a17247c5d786027c",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-reminders.mjs",
   "set": "turn-reminders",
-  "totalBytes": 265113
+  "totalBytes": 365261
 }

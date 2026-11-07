@@ -7,11 +7,27 @@ use mixdog_core_session::session::goal_reminder;
 use mixdog_core_session::session::reminders as staged;
 use mixdog_js::time::Tz;
 use mixdog_js::time::with_local_zone;
+use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_protocol::message_class::user_text::ReadError;
 use mixdog_store::schema::record::HeaderChange;
 use serde_json::Value;
 use serde_json::json;
 
 use super::*;
+
+/// The attachment store as Node's read left it for each reference the case names.
+struct Store<'a>(&'a Value);
+
+impl Blobs for Store<'_> {
+    fn text_within(&self, hex: &str, max_bytes: u64) -> Result<Option<String>, ReadError> {
+        let blob = &self.0[hex];
+        match blob["state"].as_str() {
+            Some("text") => Ok(Some(blob["text"].as_str().expect("text").to_owned()).filter(|text| text.len() as u64 <= max_bytes)),
+            Some("missing") => Err(ReadError::Missing),
+            _ => Err(ReadError::Other),
+        }
+    }
+}
 
 fn twin() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/turn-reminders/twin.json")).expect("twin.json")
@@ -82,7 +98,7 @@ struct Turn {
     goal: Option<goal_reminder::GoalReminder>,
     snapshot: HeaderChange,
     genuine: bool,
-    prompt: Value,
+    prompt_text: String,
 }
 
 fn turn_of(case: &Value, now: i64) -> Turn {
@@ -92,14 +108,15 @@ fn turn_of(case: &Value, now: i64) -> Turn {
     let (goal, snapshot) = goal_reminder::snapshot(&header, None, &todo, now);
     // The host answers `orchestrationInstructions(mode)` for the mode a pending notice needs it for.
     let instructions = carried_mode(&header).map(|_| recorded["modeInstructions"].as_str().expect("the recorded instructions").to_owned());
-    Turn { agents: entries(&recorded["currentAgents"]), genuine: recorded["turnPromptSource"].is_null(), prompt: recorded["prompt"].clone(), header, prior, instructions, goal, snapshot }
+    let prompt_text = clock::prompt_content_text(&recorded["prompt"], &Store(&case["blobs"])).expect("the prompt reads");
+    Turn { agents: entries(&recorded["currentAgents"]), genuine: recorded["turnPromptSource"].is_null(), prompt_text, header, prior, instructions, goal, snapshot }
 }
 
 fn built(turn: &Turn, now: i64) -> Reminders {
     let facts = Facts {
         header: &turn.header,
         prior: &turn.prior,
-        prompt: &turn.prompt,
+        prompt_text: &turn.prompt_text,
         genuine: turn.genuine,
         current_agents: turn.agents.as_deref(),
         mode_instructions: turn.instructions.as_deref(),
@@ -116,7 +133,7 @@ fn every_recorded_turn_carries_the_reminders_node_sent_in_node_order() {
     let now = now_ms(&twin);
     let cases = twin["cases"].as_array().expect("cases");
     assert!(cases.len() > 20);
-    for case in cases {
+    for case in cases.iter().filter(|case| case["error"].is_null()) {
         let name = case["name"].as_str().expect("name");
         let turn = turn_of(case, now);
         let reminders = with_local_zone(Tz::Asia__Seoul, || built(&turn, now));
@@ -141,7 +158,7 @@ fn every_recorded_turn_carries_the_reminders_node_sent_in_node_order() {
 fn each_reminder_reads_what_node_read() {
     let twin = twin();
     let now = now_ms(&twin);
-    for case in twin["cases"].as_array().expect("cases") {
+    for case in twin["cases"].as_array().expect("cases").iter().filter(|case| case["error"].is_null()) {
         let name = case["name"].as_str().expect("name");
         let turn = turn_of(case, now);
         let text = |content: Option<String>| content.map_or(Value::Null, Value::String);
@@ -171,7 +188,7 @@ fn an_accepted_turn_acknowledges_what_it_carried_and_leaves_the_record_as_node_d
         }
         Value::Object(record)
     };
-    for case in twin["cases"].as_array().expect("cases") {
+    for case in twin["cases"].as_array().expect("cases").iter().filter(|case| case["error"].is_null()) {
         let name = case["name"].as_str().expect("name");
         let turn = turn_of(case, now);
         let reminders = with_local_zone(Tz::Asia__Seoul, || built(&turn, now));
@@ -211,8 +228,39 @@ fn the_current_time_reminder_reads_the_zone_as_node_did() {
     assert!(rows.len() > 30);
     for row in rows {
         let zone: Tz = row["zone"].as_str().expect("zone").parse().expect("a zone");
-        let prompt = json!(row["prompt"].as_str().expect("prompt"));
-        let got = with_local_zone(zone, || clock::block(&prompt, now));
+        let prompt = row["prompt"].as_str().expect("prompt");
+        let got = with_local_zone(zone, || clock::block(prompt, now));
         assert_eq!(got, row["block"].as_str().expect("block"), "{} {}", row["zone"], row["prompt"]);
+    }
+}
+
+#[test]
+fn a_prompt_whose_attachment_cannot_be_read_fails_the_turn_as_it_failed_in_node() {
+    let twin = twin();
+    let failed: Vec<&Value> = twin["cases"].as_array().expect("cases").iter().filter(|case| !case["error"].is_null()).collect();
+    assert!(!failed.is_empty());
+    for case in failed {
+        let got = clock::prompt_content_text(&case["turn"]["prompt"], &Store(&case["blobs"]));
+        assert!(got.is_err(), "{}: Node failed with {}", case["name"], case["error"]);
+    }
+
+}
+
+#[test]
+fn a_retried_turn_resends_its_message_and_acknowledges_only_its_settings_notice() {
+    let twin = twin();
+    let retained = twin["retained"].as_array().expect("retained");
+    assert!(retained.len() > 5);
+    for case in retained {
+        let name = case["name"].as_str().expect("name");
+        let (header, rows) = split(&case["session"]);
+        let index = case["index"].as_u64().expect("index") as usize;
+        // `index` counts the system rows; the history before the message is what the retry sees.
+        let skipped = case["session"]["messages"].as_array().expect("messages").iter().filter(|message| message["role"] == "system").count();
+        let (prior, message) = (&rows[..index - skipped], &rows[index - skipped]);
+        let agents = entries(&case["currentAgents"]);
+        let (resent, revisions) = resubmit(message, &header, prior, agents.as_deref()).unwrap_or_else(|text| panic!("{name}: {text}"));
+        assert_eq!(&resent, &case["resent"], "{name}: the message the retry sends");
+        assert_eq!(revisions, Revisions { settings: case["settings"].as_i64(), ..Revisions::default() }, "{name}: only the settings notice is acknowledged");
     }
 }

@@ -9,7 +9,7 @@
 // The clock cases record `buildCurrentTimeBlock` in several zones.
 //
 //   node benchmarks/rust-core/recorders/record-turn-reminders.mjs --tree <dir with node_modules>
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -58,6 +58,8 @@ const modeNotice = await importFrom(tree, `${manager}/orchestration-mode-switch-
 const delta = await importFrom(tree, `${core}/deferred-tool-delta.mjs`);
 const goalReminder = await importFrom(tree, `${core}/goal-reminder.mjs`);
 const orchestration = await importFrom(tree, `${core}/orchestration.mjs`);
+const listing = await importFrom(tree, `${manager}/agent-listing-notice.mjs`);
+const attachments = await importFrom(tree, 'src/runtime/attachments/store.mjs');
 
 const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 const BP3_SEPARATOR = '\n\n---\n\n';
@@ -287,6 +289,24 @@ add('deferred-delta-before-the-goal-slot', () => {
   return s;
 }, { prompt: 'Continue.', currentAgents: CATALOG });
 
+// Stored text attachments: a reference part reads its blob (`attachmentTextForPart`, `attachments/store.mjs:445`).
+const attach = (text, extra = {}) => ({ type: 'text', ...attachments.storeAttachmentBuffer(Buffer.from(text)), ...extra });
+const tampered = attach('what time is it, really');
+writeFileSync(attachments.attachmentFilePath(tampered.attachmentRef), 'other bytes');
+// Node keeps verified blobs in memory; the cases below are about what is on disk.
+attachments.clearAttachmentBufferCache();
+const ATTACHED = [
+  ['a-pasted-text-asks-the-time', [{ type: 'text', text: 'See below.' }, attach('what time is it now')]],
+  ['a-file-asks-the-date', [attach('Meeting notes: tomorrow at nine.', { textKind: 'file', filename: 'notes <a>"b\'.txt' })]],
+  ['a-file-without-a-name', [attach('today?', { textKind: 'file' })]],
+  ['an-attachment-says-nothing-temporal', [{ type: 'text', text: 'Review this.' }, attach('plain words only')]],
+  ['an-image-and-an-attachment', [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }, attach('current date please')]],
+  ['a-reference-with-a-bad-digest-is-plain-text', [{ type: 'text', text: 'tomorrow', attachmentRef: 'XYZ' }]],
+  ['an-attachment-that-is-gone', [{ type: 'text', attachmentRef: 'ab'.repeat(32), sizeBytes: 5 }]],
+  ['an-attachment-that-was-tampered-with', [{ type: 'text', text: 'Hi.' }, tampered]],
+];
+for (const [name, prompt] of ATTACHED) add(name, () => withHistory(session()), { prompt, currentAgents: CATALOG });
+
 const agentSession = (extra = {}) =>
   withHistory(
     session({
@@ -338,17 +358,37 @@ async function record(item) {
   const input = item.make();
   stampTime(input);
   const live = clone(input);
-  const prepared = await prepare.buildUserTurn({
-    session: live,
-    prompt: clone(item.turn.prompt),
-    context: item.turn.context,
-    explicitPrefetch: null,
-    turnSignal: new AbortController().signal,
-    transcriptMeta: null,
-    turnPromptSource: item.turn.turnPromptSource,
-    effortConfiguration: null,
-    currentAgents: clone(item.turn.currentAgents),
-  });
+  // What the store holds for each attachment the prompt names, as the Rust store answers it.
+  const blobs = {};
+  for (const part of Array.isArray(item.turn.prompt) ? item.turn.prompt : []) {
+    if (!attachments.isAttachmentReference(part)) continue;
+    try {
+      blobs[part.attachmentRef] = { state: 'text', text: attachments.readAttachmentBuffer(part).toString('utf8') };
+    } catch (error) {
+      blobs[part.attachmentRef] = { state: error.code === 'ENOENT' ? 'missing' : 'invalid' };
+    }
+  }
+  attachments.clearAttachmentBufferCache();
+  let prepared;
+  let failure = null;
+  try {
+    prepared = await prepare.buildUserTurn({
+      session: live,
+      prompt: clone(item.turn.prompt),
+      context: item.turn.context,
+      explicitPrefetch: null,
+      turnSignal: new AbortController().signal,
+      transcriptMeta: null,
+      turnPromptSource: item.turn.turnPromptSource,
+      effortConfiguration: null,
+      currentAgents: clone(item.turn.currentAgents),
+    });
+  } catch (error) {
+    failure = error.code ?? error.message;
+  }
+  if (failure) {
+    return { name: item.name, session: input, turn: { prompt: item.turn.prompt, context: null, turnPromptSource: null, currentAgents: item.turn.currentAgents ?? null, modeInstructions: null }, blobs, error: failure };
+  }
   const afterBuild = clone(live);
   // ask-turn-settle.mjs:148-164, in Node's order.
   if (prepared.deferredToolDelta) delta.acknowledgePendingDeferredToolDelta(live, prepared.deferredToolDelta.revision);
@@ -372,6 +412,8 @@ async function record(item) {
       // What the host supplies a carried orchestration notice with (`orchestrationInstructions(mode)`).
       modeInstructions: input.orchestrationModeSwitch?.to ? orchestration.orchestrationInstructions(input.orchestrationModeSwitch.to) : null,
     },
+    blobs,
+    error: null,
     message: prepared.userTurnMessage,
     revisions: {
       deferred: revision(prepared.deferredToolDelta),
@@ -398,10 +440,62 @@ async function record(item) {
 const cases = [];
 for (const item of CASES) cases.push(await record(item));
 
-// buildCurrentTimeBlock in other zones (its offset is read from the zone's long-offset name). The zones are the ones ICU
-// names as the tz database does; for a zone it renames (`Asia/Kolkata` reads `Asia/Calcutta`) Rust prints the database name.
+// A retried failed turn (`retainedUserTurn`, `ask-turn-execute.mjs:38-69`): the failed message is resubmitted over the history
+// before it; `withAgentListingNotice` (`agent-listing-notice.mjs:87`) adds what changed in the agent list. The message is a real
+// `buildUserTurn` output (or a plain one), failed, then resent with the agents now enabled.
+const SCOUT = agentEntry('scout', 'Scout', 'Looks around.');
+const RETAINED = [];
+async function retain(name, { build = null, message = null, now, blocks = false }) {
+  const base = withHistory(session());
+  build?.stage?.(base);
+  let sent = message;
+  if (build) {
+    const live = clone(base);
+    const prepared = await prepare.buildUserTurn({
+      session: live,
+      prompt: blocks ? [{ type: 'text', text: 'Fix it.' }, IMAGE] : 'Fix it.',
+      context: undefined,
+      explicitPrefetch: null,
+      turnSignal: new AbortController().signal,
+      transcriptMeta: { messageId: 'm9' },
+      turnPromptSource: undefined,
+      effortConfiguration: null,
+      currentAgents: clone(build.told),
+    });
+    sent = prepared.userTurnMessage;
+  }
+  sent = clone(sent);
+  sent.meta = { ...sent.meta, transcript: { messageId: 'm9', at: 1, completion: { status: 'failed', at: 2 } } };
+  const stored = clone(base);
+  stored.messages.push(sent);
+  const index = stored.messages.length - 1;
+  const resent = listing.withAgentListingNotice(stored, index, clone(sent), clone(now));
+  stampTime(stored);
+  RETAINED.push({
+    name,
+    session: stored,
+    index,
+    currentAgents: now ?? null,
+    resent,
+    settings: sent.meta.promptSettingsNoticeRevision || null,
+  });
+}
+const stageSettings = (s) => {
+  s.promptSettings = promptSettings.promptSettingsRecord(SETTINGS);
+  promptSettings.stagePromptSettingsNotice(s, { ...SETTINGS, coreMemory: '# Core Memory\nName: Sam\nLikes coffee.' });
+};
+await retain('retry-with-the-same-agents-resends-the-message-as-it-is', { build: { told: [CATALOG[0]], stage: stageSettings }, now: [CATALOG[0]] });
+await retain('retry-with-agents-changed-since-adds-the-list-reminder', { build: { told: [CATALOG[0]], stage: stageSettings }, now: [CATALOG[0], SCOUT] });
+await retain('retry-with-blocks-and-agents-changed', { build: { told: [CATALOG[0]] }, now: [SCOUT], blocks: true });
+await retain('retry-of-a-message-without-reminders', { message: { role: 'user', content: 'Fix it.' }, now: [CATALOG[0], SCOUT] });
+await retain('retry-of-a-message-without-reminders-and-no-change', { message: { role: 'user', content: 'Fix it.' }, now: CATALOG });
+await retain('retry-with-a-stale-runtime-context', { message: { role: 'user', content: 'Fix it. (edited)', meta: { agentListing: { added: [], removed: [{ id: 'reviewer', name: 'Reviewer' }] }, runtimeUserContext: { prefix: '', suffix: '\n\nold reminder' } } }, now: [CATALOG[0], SCOUT] });
+await retain('retry-of-a-worker-gets-no-list', { build: { told: undefined }, now: undefined });
+
+// buildCurrentTimeBlock in other zones (its offset is read from the zone's long-offset name). The renamed ones are the zones
+// ICU prints under another name than the tz database (`Asia/Kolkata` reads `Asia/Calcutta`).
 const CLOCK = [];
-for (const zone of ['Asia/Seoul', 'UTC', 'America/New_York', 'Australia/Adelaide', 'America/St_Johns', 'Pacific/Auckland']) {
+for (const zone of ['Asia/Seoul', 'UTC', 'America/New_York', 'Australia/Adelaide', 'America/St_Johns', 'Pacific/Auckland', 'Asia/Kolkata', 'Asia/Kathmandu', 'Europe/Kyiv', 'Etc/UTC', 'GMT', 'ROK', 'Asia/Ho_Chi_Minh', 'Asia/Yangon', 'Atlantic/Faroe', 'America/Argentina/Buenos_Aires', 'Pacific/Chuuk', 'Antarctica/Troll']) {
   process.env.TZ = zone;
   for (const prompt of ['what time is it', 'today', 'hello', 'Tomorrow?', '지금 몇 시야', 'yesterday at noon', 'the weekday of release', 'current   DATE', 'timeless']) {
     CLOCK.push({ zone, prompt, block: promptUtils.buildCurrentTimeBlock(prompt) });
@@ -409,7 +503,7 @@ for (const zone of ['Asia/Seoul', 'UTC', 'America/New_York', 'Australia/Adelaide
 }
 process.env.TZ = 'Asia/Seoul';
 
-writeJson(join(stage, 'twin.json'), { now: NOW, ignored: ['messages', 'todo', 'todoCheck'], cases, clock: CLOCK });
+writeJson(join(stage, 'twin.json'), { now: NOW, ignored: ['messages', 'todo', 'todoCheck'], cases, retained: RETAINED, clock: CLOCK });
 writeSetManifest(stage, {
   set: 'turn-reminders',
   recorder: 'benchmarks/rust-core/recorders/record-turn-reminders.mjs',
@@ -418,4 +512,4 @@ writeSetManifest(stage, {
 });
 commitStage(stage, outDir);
 rmSync(work, { recursive: true, force: true });
-console.log(`turn-reminders: ${cases.length} cases, ${CLOCK.length} clock rows -> ${outDir}`);
+console.log(`turn-reminders: ${cases.length} cases, ${RETAINED.length} retries, ${CLOCK.length} clock rows -> ${outDir}`);
