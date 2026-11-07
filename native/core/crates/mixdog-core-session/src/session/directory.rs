@@ -132,6 +132,8 @@ pub(crate) struct DirInner {
     goal_events: Mutex<Option<mixdog_core_goal::goal::Subscription>>,
     /// What each runtime's teardown does for the agents its session owns (`OwnerTeardown`).
     owner_teardown: std::sync::OnceLock<Arc<dyn OwnerTeardown>>,
+    /// What each runtime's teardown does to its own session (`ExitClose`).
+    exit_close: std::sync::OnceLock<Arc<dyn ExitClose>>,
     /// Cancels the staged-originals deadline timer when the directory goes.
     _prune: tokio_util::sync::DropGuard,
     /// Woken whenever a thread leaves the directory (a test waits on `handle(..)` turning `None`).
@@ -188,6 +190,14 @@ pub trait OwnerTeardown: Send + Sync {
     async fn teardown(&self, owner: &ThreadId, reason: &str);
 }
 
+/// What a runtime's teardown does to the session it holds: `closeOwnSession` (`teardown/session-close.mjs:42-60`)
+/// closes it with the teardown's reason, tombstoning an empty scratch session and detaching any other
+/// (`closeSession(id, reason, { tombstone: isScratchSession(session) })`), which bumps the record's generation.
+#[async_trait]
+pub trait ExitClose: Send + Sync {
+    async fn close_on_exit(&self, thread: &ThreadId, reason: &str);
+}
+
 /// A loaded log as the actor starts from it.
 struct Opened {
     state: SessionState,
@@ -210,6 +220,7 @@ impl SessionDirectory {
             creating: Default::default(),
             goal_events: Mutex::new(None),
             owner_teardown: std::sync::OnceLock::new(),
+            exit_close: std::sync::OnceLock::new(),
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
@@ -512,6 +523,11 @@ impl SessionDirectory {
         self.inner.owner_teardown.set(hook).map_err(|_| "the owner teardown is already bound")
     }
 
+    /// Binds what a runtime's teardown does to its own session; once.
+    pub fn set_exit_close(&self, hook: Arc<dyn ExitClose>) -> Result<(), &'static str> {
+        self.inner.exit_close.set(hook).map_err(|_| "the exit close is already bound")
+    }
+
     /// [`Self::shutdown_for`] with the reason of a daemon stop.
     pub async fn shutdown(&self) {
         self.shutdown_for("daemon shutdown").await;
@@ -520,7 +536,7 @@ impl SessionDirectory {
     /// Core shutdown (today's `teardown.mjs:192`): first, as each runtime's `close(reason)` does
     /// when the reason is a process exit (`teardown.mjs:226-237`), every loaded session's agents
     /// are closed (`OwnerTeardown`, bounded at `CLOSE_ALL_DEADLINE_MS`, 5000 ms, per session);
-    /// then every loaded thread stops (a live run is cancelled) and its memory ingest is awaited,
+    /// then every loaded thread is closed as its runtime's own session ([`ExitClose`]); then every loaded thread stops (a live run is cancelled) and its memory ingest is awaited,
     /// all of them together bounded at 2500 ms.
     pub async fn shutdown_for(&self, reason: &str) {
         if is_process_exit_reason(reason)
@@ -529,6 +545,15 @@ impl SessionDirectory {
             for owner in self.loaded_ids() {
                 if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
                     tracing::warn!(owner = owner.as_str(), "agent teardown overran its deadline");
+                }
+            }
+        }
+        // Teardown's `closeOwnSession` (`teardown.mjs:258`), after the agents' close and for any reason: each runtime's
+        // own session is closed with the stop's reason before the runtime stops.
+        if let Some(hook) = self.inner.exit_close.get() {
+            for owner in self.loaded_ids() {
+                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
+                    tracing::warn!(owner = owner.as_str(), "the session close at exit overran its deadline");
                 }
             }
         }

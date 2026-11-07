@@ -86,6 +86,88 @@ fn tombstone(recorded: &Map<String, Value>, reason: &str, now: i64) -> Map<Strin
     fields
 }
 
+/// The header fields `bumpSessionGenerationAttempt` records over `recorded`, at `now`
+/// (`lifecycle-barriers.mjs:272-283`): the generation moves on without a tombstone, so the record stays
+/// resumable; `owner_close` (the agent tool's owner close) also stamps `ownerClosedAt`.
+pub(crate) fn detach_fields(recorded: &Map<String, Value>, reason: &str, owner_close: bool, now: i64) -> Map<String, Value> {
+    let generation = recorded.get("generation").and_then(Value::as_f64).unwrap_or(0.0) + 1.0;
+    let mut fields = Map::new();
+    fields.insert("generation".into(), mixdog_js::json_number(generation));
+    fields.insert("updatedAt".into(), json!(now));
+    fields.insert("detachedReason".into(), json!(reason));
+    if owner_close {
+        fields.insert("ownerClosedAt".into(), json!(now));
+    }
+    fields
+}
+
+/// The keys a detach computes its fields from (and so expects unchanged when they land).
+const DETACH_KEYS: [&str; 5] = ["generation", "updatedAt", "detachedReason", "ownerClosedAt", "closed"];
+
+/// `bumpSessionGenerationAttempt(id, reason, { ownerClose })`: the detach fields written against the header they were
+/// computed from. `Ok(false)`: no such session.
+pub(crate) async fn write_detach(threads: &dyn ThreadState, thread: &ThreadId, reason: &str, owner_close: bool, now: i64) -> Result<bool, PortError> {
+    loop {
+        let recorded = match threads.header(thread).await {
+            Ok(header) => header,
+            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let set = detach_fields(&recorded, reason, owner_close, now);
+        let expect = DETACH_KEYS.into_iter().map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null))).collect();
+        match threads.patch_header_if(thread, expect, set, Vec::new()).await {
+            Ok(None) => return Ok(true),
+            // Another write moved the header meanwhile: computed again from what it holds now.
+            Ok(Some(_)) => continue,
+            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// `_dropsAgainst(recorder, { expectedGeneration })` (`store.mjs:149-153`): the record's lifecycle outranks a copy
+/// issued for an older ownership. A tombstone at least as new as `expected`, or a generation past it (detached and
+/// taken over since), drops the save; a save that names no generation is never dropped.
+pub fn drops_against(recorded: &Map<String, Value>, expected: Option<f64>) -> bool {
+    let Some(expected) = expected else { return false };
+    let generation = recorded.get("generation").and_then(Value::as_f64).unwrap_or(0.0);
+    if recorded.get("closed") == Some(&json!(true)) {
+        return generation >= expected;
+    }
+    generation > expected
+}
+
+/// What a fenced header write came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Saved {
+    Written,
+    /// Refused: the record moved past the generation the write was issued for (`SAVE_OUTCOME_DROPPED`).
+    Dropped,
+}
+
+/// A header write issued for `expected_generation` (`saveSessionAsync(session, { expectedGeneration })`): refused
+/// when the record is past that generation ([`drops_against`]), judged against the header the write then lands on.
+pub async fn patch_header_fenced(
+    threads: &dyn ThreadState,
+    thread: &ThreadId,
+    expected_generation: Option<f64>,
+    set: Map<String, Value>,
+    unset: Vec<String>,
+) -> Result<Saved, PortError> {
+    loop {
+        let recorded = threads.header(thread).await?;
+        if drops_against(&recorded, expected_generation) {
+            return Ok(Saved::Dropped);
+        }
+        let expect = ["generation", "closed"].into_iter().map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null))).collect();
+        match threads.patch_header_if(thread, expect, set.clone(), unset.clone()).await? {
+            None => return Ok(Saved::Written),
+            // The lifecycle moved meanwhile: judged again against it.
+            Some(_) => continue,
+        }
+    }
+}
+
 /// The reason the idle sweep closes with (`markSessionClosed(id, 'idle-sweep', ..)`,
 /// `sweep-row.mjs:136`).
 pub const IDLE_SWEEP_REASON: &str = "idle-sweep";
@@ -199,13 +281,39 @@ impl SessionClose {
                 return false;
             }
         }
-        stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "session-close").await;
-        self.directory.deps().side.forget(&thread, true);
-        self.providers.release_session(session_id);
-        if let Some(handle) = self.directory.handle(&thread) {
+        self.teardown(&thread, reason).await;
+        true
+    }
+
+    /// `closeSession(id, reason, { tombstone: false, ownerClose })`: the generation moves on first
+    /// (`bumpSessionGenerationAttempt`), then the work stops as in a tombstoning close. The record stays open and
+    /// resumable. True once the bump landed, or when there is no such session; false when it was not written.
+    pub async fn detach(&self, session_id: &str, reason: &str, owner_close: bool) -> bool {
+        if session_id.is_empty() {
+            return false;
+        }
+        let thread = ThreadId::from(session_id);
+        match write_detach(&self.threads, &thread, reason, owner_close, self.directory.deps().clock.now_ms()).await {
+            Ok(true) => {}
+            Ok(false) => return true,
+            Err(error) => {
+                tracing::warn!("[agent-close] session={session_id} reason={reason} tombstone=false FAILED durable lifecycle barrier: {error:?}");
+                return false;
+            }
+        }
+        self.teardown(&thread, reason).await;
+        true
+    }
+
+    /// What a landed close does to the runtime: its work stops, its side checkouts and provider
+    /// connections go and the actor learns the thread is closed.
+    async fn teardown(&self, thread: &ThreadId, reason: &str) {
+        stop_session_work(&self.directory, &*self.shells, &self.read_state, thread, reason, "session-close").await;
+        self.directory.deps().side.forget(thread, true);
+        self.providers.release_session(thread.as_str());
+        if let Some(handle) = self.directory.handle(thread) {
             let _ = handle.cell.ctl_tx.send(Ctl::Closed).await;
         }
-        true
     }
 
     /// The tombstone, written against the header it was computed from; `Ok(false)`: absent.
@@ -232,12 +340,161 @@ impl SessionClose {
     }
 }
 
+/// Teardown's `closeOwnSession` (`teardown/session-close.mjs:42-60`): the session is closed with the stop's
+/// reason, tombstoned while it is an empty scratch session and detached otherwise.
+#[async_trait::async_trait]
+impl super::directory::ExitClose for SessionClose {
+    async fn close_on_exit(&self, thread: &ThreadId, reason: &str) {
+        let committed = match mixdog_core_ports::ports::memory_source::ThreadMessages::messages(&self.threads, thread).await {
+            Ok(messages) => messages,
+            Err(PortError::NotFound { .. }) => return,
+            Err(error) => {
+                tracing::warn!("[session-close] {thread}: its messages could not be read at exit: {error:?}");
+                return;
+            }
+        };
+        let live: Vec<Value> = self.directory.handle(thread).map(|handle| (**handle.cell.turn_messages.borrow()).clone()).unwrap_or_default();
+        let closed = if super::thread_switches::is_scratch(thread.as_str(), &committed, &live) {
+            self.close(thread.as_str(), reason).await
+        } else {
+            self.detach(thread.as_str(), reason, false).await
+        };
+        if !closed {
+            tracing::warn!("[session-close] {thread}: not closed at exit (reason={reason})");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn obj(value: Value) -> Map<String, Value> {
         value.as_object().cloned().expect("an object")
+    }
+
+    const TWIN: &str = include_str!("../../../../fixtures/session-lifecycle/twin.json");
+    const LIFECYCLE_KEYS: [&str; 9] = ["generation", "updatedAt", "detachedReason", "ownerClosedAt", "closed", "closedReason", "status", "cancelStatus", "cancelledAt"];
+
+    /// The clock of recorded call window `step` (0 is the session's creation, step `n` its `n`th barrier).
+    fn clock_of(step: i64) -> i64 {
+        1000 * (step + 1)
+    }
+
+    /// A recorded lifecycle header with its `{ "step": n }` stamps read as the clock of that call.
+    fn resolved(recorded: &Value) -> Map<String, Value> {
+        recorded
+            .as_object()
+            .expect("a lifecycle")
+            .iter()
+            .map(|(key, value)| (key.clone(), value.get("step").and_then(Value::as_i64).map_or_else(|| value.clone(), |step| json!(clock_of(step)))))
+            .collect()
+    }
+
+    fn lifecycle(header: &Map<String, Value>) -> Map<String, Value> {
+        LIFECYCLE_KEYS.iter().filter_map(|key| header.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect()
+    }
+
+    /// Node's recorded barriers (`bumpSessionGenerationAttempt`, `markSessionClosedAttempt`) over the real session
+    /// store: each step leaves the lifecycle header the Rust fields make from the same header and clock.
+    #[test]
+    fn the_barriers_leave_what_node_recorded() {
+        let twin: Value = serde_json::from_str(TWIN).expect("twin.json");
+        let cases = twin["barriers"].as_array().expect("barriers");
+        assert_eq!(cases.len(), 7);
+        for case in cases {
+            let name = case["name"].as_str().expect("name");
+            let steps = case["steps"].as_array().expect("steps");
+            let mut header = resolved(&steps[0]["before"]);
+            for (index, step) in steps.iter().enumerate() {
+                let now = clock_of(index as i64 + 1);
+                let (reason, op) = (step["reason"].as_str().expect("reason"), step["op"].as_str().expect("op"));
+                assert_eq!(lifecycle(&header), resolved(&step["before"]), "{name} step {index}: the header the step starts from");
+                let fields = match op {
+                    "detach" => detach_fields(&header, reason, step["ownerClose"] == json!(true), now),
+                    _ => tombstone(&header, reason, now),
+                };
+                header.extend(fields);
+                assert_eq!(lifecycle(&header), resolved(&step["after"]), "{name} step {index} ({op} {reason})");
+                assert_eq!(header["generation"], step["generation"], "{name} step {index}: the generation the barrier resolves");
+            }
+        }
+    }
+
+    /// `_dropsAgainst` over Node's recorded saves: the same record and expected generation drop or land alike.
+    #[test]
+    fn a_stale_save_is_refused_as_node_refuses_it() {
+        let twin: Value = serde_json::from_str(TWIN).expect("twin.json");
+        let cases = twin["fence"].as_array().expect("fence");
+        assert_eq!(cases.len(), 16);
+        let mut refused = 0;
+        for case in cases {
+            let recorded = obj(json!({ "generation": case["recorded"]["generation"], "closed": case["recorded"]["closed"] }));
+            let dropped = drops_against(&recorded, case["expected"].as_f64());
+            assert_eq!(dropped, case["dropped"] == json!(true), "{} expected {}", case["state"], case["expected"]);
+            refused += usize::from(dropped);
+        }
+        assert_eq!(refused, 5, "a refused save is in the recording");
+    }
+
+    /// A thread header kept in memory, written the way the session actor writes it: a patch lands only while its
+    /// `expect` holds. `conflict_once`: another write moves the header under the first patch.
+    #[derive(Default)]
+    struct Cell {
+        header: std::sync::Mutex<Map<String, Value>>,
+        conflict_once: std::sync::atomic::AtomicBool,
+    }
+
+    #[async_trait::async_trait]
+    impl ThreadState for Cell {
+        async fn header(&self, _: &ThreadId) -> Result<mixdog_store::schema::record::Header, PortError> {
+            Ok(self.header.lock().unwrap().clone())
+        }
+        async fn patch_header(&self, _: &ThreadId, set: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
+            self.header.lock().unwrap().extend(set);
+            Ok(())
+        }
+        async fn patch_header_if(&self, _: &ThreadId, expect: Map<String, Value>, set: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+            let mut header = self.header.lock().unwrap();
+            if self.conflict_once.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                header.insert("generation".into(), json!(5));
+            }
+            let now: Map<String, Value> = expect.keys().map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
+            if now != expect {
+                return Ok(Some(now));
+            }
+            header.extend(set);
+            Ok(None)
+        }
+        async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), PortError> {
+            Ok(())
+        }
+    }
+
+    /// A detach lands against the header it was computed from (computed again when another write moved it), and a
+    /// save issued for the generation before it is refused while one issued for the new generation lands.
+    #[tokio::test]
+    async fn a_detach_fences_the_save_issued_before_it() {
+        let thread = ThreadId::from("sess_a");
+        let cell = Cell::default();
+        assert!(write_detach(&cell, &thread, "no live session clients", false, 7).await.unwrap());
+        let header = cell.header.lock().unwrap().clone();
+        assert_eq!(
+            Value::Object(header),
+            json!({ "generation": 1, "updatedAt": 7, "detachedReason": "no live session clients" }),
+            "the fields Node's first detach records"
+        );
+
+        let late = obj(json!({ "title": "late" }));
+        assert_eq!(patch_header_fenced(&cell, &thread, Some(0.0), late.clone(), Vec::new()).await.unwrap(), Saved::Dropped);
+        assert!(cell.header.lock().unwrap().get("title").is_none(), "the refused save wrote nothing");
+        assert_eq!(patch_header_fenced(&cell, &thread, Some(1.0), late, Vec::new()).await.unwrap(), Saved::Written);
+        assert_eq!(cell.header.lock().unwrap()["title"], json!("late"));
+
+        cell.conflict_once.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(write_detach(&cell, &thread, "SIGTERM", true, 9).await.unwrap());
+        let header = cell.header.lock().unwrap().clone();
+        assert_eq!((header["generation"].clone(), header["ownerClosedAt"].clone()), (json!(6), json!(9)), "computed again from the header another write moved");
     }
 
     /// `markSessionClosedAttempt`'s first close, re-close and cancel status rule.

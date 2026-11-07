@@ -1000,7 +1000,7 @@ impl ContextTarget for GaugeTarget {
 
 /// `isScratchSession(session)`: an agent's home thread or a room's thread never is; any other
 /// is while it holds no user conversation and no completed turn.
-fn is_scratch(thread: &str, committed: &[Value], live: &[Value]) -> bool {
+pub(crate) fn is_scratch(thread: &str, committed: &[Value], live: &[Value]) -> bool {
     if !mixdog_store::agent_mode::agent_id_of_home_session(thread).is_empty() || mixdog_core_base::rooms::ids::is_room_thread_session_id(thread) {
         return false;
     }
