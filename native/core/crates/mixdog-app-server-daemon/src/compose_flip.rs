@@ -969,7 +969,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let workflow_config = pre.workflow_config.clone();
     let output_styles = pre.output_styles.clone();
 
-    // The one quota auto-resume switch (config `quotaResume.autoResume`, on unless `false`). It is built here, ahead of the goals
+    // The one quota auto-resume switch (config key `quotaAutoResume`, on unless `false`). It is built here, ahead of the goals
     // that `SessionQuota::over_config` needs, because the providers status reader (step 7) reads it too: `SessionQuota { goals, auto_resume }`
     // below takes this same closure, as does the resume timer, so every reader sees one switch (wp-session-22 `auto_resume_enabled`).
     let auto_resume: Arc<dyn Fn() -> bool + Send + Sync> = {
@@ -1094,7 +1094,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 let mut readers = pre.status_readers.clone();
                 readers.push(Arc::new(crate::domain_seams::media_status::MediaStatus::new(pre.media_store.clone()))); // wp-svc-misc-29 `MediaStatus` (`domains() = ["media"]`), built over the media store
                 readers.push(Arc::new(mixdog_core_agents::setup::AgentsStatus::new(agents.clone(), pre.late.clone(), route_positions.clone()))); // wp-agent: `status agents`
-                // `status providers` (wp-ai-admin-5): pushed into `other_status`, never `with_status` on a built service; `config` is the `QuotaAutoResumeSetting` (`quotaResume.autoResume !== false`, wp-ai-admin-20).
+                // `status providers` (wp-ai-admin-5): pushed into `other_status`, never `with_status` on a built service; `config` is the `QuotaAutoResumeSetting` (`quotaAutoResume !== false`, wp-ai-admin-20).
                 readers.push(Arc::new(mixdog_core::run_host::provider_status_reader::ProvidersStatusReader::new(mixdog_core_domains::domains::ai_admin::provider_status::ProvidersStatus::new(
                     provider_setup.clone(),
                     provider_admin.clone(),
@@ -1802,7 +1802,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         config: config_seams.clone(),
         // `SessionDeps`, built once the run factory exists. Every field is a constructor read from the tree;
         // a `compile_error!` names the input that is not wired yet (all of them mine unless an owner is named).
-        // wp-session-22: `auto_resume` is `quota_lane::auto_resume_enabled` (config `quotaResume.autoResume`, on unless `false`).
+        // wp-session-22: `auto_resume` is `quota_lane::auto_resume_enabled` (config `quotaAutoResume`, on unless `false`).
         // The resume timer takes this same closure, so the sessions and the timer read one switch.
         deps: Box::new({
             // `deps` is a `move` closure: it takes its own clones, so the composition below still holds every one of these.

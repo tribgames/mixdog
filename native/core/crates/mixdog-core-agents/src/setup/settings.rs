@@ -30,8 +30,8 @@ pub trait UpdateSettings: Send + Sync {
     async fn set_auto_update(&self, enabled: bool) -> Result<Value, PortError>;
 }
 
-/// `setQuotaAutoResumeEnabled(enabled)`: the global switch is the config file's `quotaResume`
-/// section; turning it off drops every pending resume.
+/// `setQuotaAutoResumeEnabled(enabled)`: the global switch is the config key `quotaAutoResume`; turning it off drops
+/// every pending resume.
 pub struct QuotaAutoResume {
     config: Config,
     store: Arc<QuotaResumeStore>,
@@ -45,9 +45,7 @@ impl QuotaAutoResume {
     async fn set(&self, enabled: bool) -> Result<bool, PortError> {
         self.config
             .update(move |doc| {
-                let mut section = doc.get("quotaResume").and_then(Value::as_object).cloned().unwrap_or_default();
-                section.insert("autoResume".into(), Value::Bool(enabled));
-                doc.insert("quotaResume".into(), Value::Object(section));
+                doc.insert("quotaAutoResume".into(), Value::Bool(enabled));
                 Ok(())
             })
             .await

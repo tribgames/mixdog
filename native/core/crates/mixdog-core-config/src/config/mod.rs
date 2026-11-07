@@ -106,6 +106,8 @@ pub const PUBLISHED_SUBTREES: &[&str] = &[
     // Notification preferences: the storage half of `notification-preferences.ts`, which this
     // store absorbs (DS §3).
     "notifications",
+    // The quota auto-resume switch (`getQuotaAutoResume`; written with `config/value/write`, `desktop-services.md` A2/D1).
+    "quotaAutoResume",
 ];
 
 #[derive(Debug)]
