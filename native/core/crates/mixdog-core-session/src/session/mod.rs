@@ -184,6 +184,7 @@ pub use self::run::ItemCommit;
 pub use self::run::RunError;
 pub use self::run::RunPort;
 pub use self::run::SteerInput;
+pub use self::run::CompactUsageReport;
 pub use self::run::UsageReport;
 pub use self::seams::AgentTurn;
 pub use self::seams::AppendPosition;

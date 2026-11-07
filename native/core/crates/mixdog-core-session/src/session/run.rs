@@ -228,7 +228,7 @@ pub(crate) enum ProducerMsg {
         compaction: Compaction,
         /// The header fields the compaction sets with it (a manual compaction's `compaction`
         /// record, its reset reading, its re-armed reminders), written in the one meta record
-        /// that counts the compaction. `None`: the record counts one more `compactCount`.
+        /// that counts the compaction. `None`: the pass' own telemetry counts it.
         header: Option<mixdog_store::schema::record::HeaderChange>,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
@@ -255,10 +255,21 @@ pub(crate) enum RunShown {
     Pass(Box<mixdog_agent::env::CompactPass>),
     /// A tool call's arguments streamed or completed in the provider stream (markSessionStreamDelta('tool')).
     ToolStream,
+    /// The summary model's usage of a compaction pass (ccumulateCompactUsage).
+    CompactUsage(CompactUsageReport),
     /// The ask's end (`applyAskTerminalUsageTotals`, `recordProviderContextBaseline`).
     Settled(Settled),
     /// A hosted web search's spend (`onNativeWebSearchUsage`): the delta `reportNativeWebSearchUsage` hands the turn.
     SearchUsage(Value),
+}
+
+/// What a compaction pass's summary model used (ccumulateCompactUsage).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompactUsageReport {
+    pub iteration: u32,
+    pub usage: mixdog_core_api::domain::provider::Usage,
+    pub reasoning_tokens: Option<u64>,
+    pub reasoning_tokens_complete: bool,
 }
 
 /// The request the loop is about to send, as its pre-send check judged it.
@@ -507,6 +518,11 @@ impl RunPort {
     pub async fn send_check(&self, check: SendCheck) -> Result<(), RunError> {
         self.prepare_meters(&check.messages).await;
         self.shown(RunShown::Check(check)).await
+    }
+
+    /// The summary model's usage of a compaction pass: a usage report of the turn.
+    pub async fn compact_usage(&self, report: CompactUsageReport) -> Result<(), RunError> {
+        self.shown(RunShown::CompactUsage(report)).await
     }
 
     /// A tool call's arguments streamed or completed: semantic model progress.

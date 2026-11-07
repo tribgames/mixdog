@@ -14,6 +14,7 @@ use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ItemKind;
+use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
@@ -748,7 +749,10 @@ impl WireDecoder for CursorDecoder {
                 }
                 return Err(self.incomplete("Cursor stream ended before turnEnded"));
             }
+            let announced = self.pending.len();
             self.message(&frame.payload, &mut events)?;
+            // Each announced call is one chat chunk with `tool_calls` in Node's stream sink (`cursor-wire-stream-messages.mjs`).
+            events.extend((announced..self.pending.len()).map(|_| StreamEvent::Progress(ProgressKind::Tool)));
         }
         // Never hand over a batch with a partial frame still buffered.
         if !self.terminal && self.boundary_ready && !self.pending.is_empty() && self.frames.buffered() == 0 {

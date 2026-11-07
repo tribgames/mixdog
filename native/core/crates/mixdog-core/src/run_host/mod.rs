@@ -99,6 +99,7 @@ pub mod thinking_binding;
 pub mod auto_effort;
 pub mod turn_judge;
 pub mod run_seams;
+pub mod compaction_follow;
 pub mod prompt_session;
 #[cfg(test)]
 mod prompt_session_tests;

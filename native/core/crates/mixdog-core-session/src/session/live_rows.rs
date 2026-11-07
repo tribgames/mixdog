@@ -206,6 +206,24 @@ pub(crate) fn compact_event_detail(event: &CompactEvent) -> String {
     parts.join(" · ")
 }
 
+/// The delta `accumulateCompactUsage` reports for a compaction pass's summary (`pre-send-compact.mjs`), key for key:
+/// no request facts, the source `fresh_context_compact`. The turn and epoch are the session's (`usage_books`).
+pub(crate) fn compact_usage_delta(session_id: &str, report: &super::run::CompactUsageReport, ts: i64) -> Value {
+    let usage = &report.usage;
+    json!({
+        "sessionId": session_id,
+        "iterationIndex": report.iteration,
+        "deltaInput": usage.input_tokens,
+        "deltaOutput": usage.output_tokens,
+        "reasoningTokens": report.reasoning_tokens,
+        "reasoningTokensComplete": report.reasoning_tokens_complete,
+        "deltaCachedRead": usage.cache_read_tokens,
+        "deltaCacheWrite": usage.cache_write_tokens,
+        "source": "fresh_context_compact",
+        "ts": ts,
+    })
+}
+
 /// `usageDeltaEvent` of one model call, in Node's key order. The provider facts Rust's `Usage`
 /// does not carry read as Node's defaults: the prompt and its cache split are known, and the
 /// context figures are the billed ones (`contextInputTokens ?? inputTokens`).
@@ -243,7 +261,7 @@ pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts
         "contextPromptTokens": report.delta_prompt,
         "contextCachedReadTokens": usage.cache_read_tokens,
         "contextCacheWriteTokens": usage.cache_write_tokens,
-        "contextMeasuredTokens": null,
+        "contextMeasuredTokens": mixdog_agent::compact::pressure::measured_context_tokens(usage),
         "sendTools": tools,
         "ts": ts,
     })

@@ -230,14 +230,19 @@ pub fn pass_change(header: &Header, pass: &CompactPass, books: &Books<'_>, now: 
 
 /// `usage` in the shape of Node's normalized usage record.
 fn usage_record(usage: &Usage) -> Value {
-    json!({
+    let mut record = json!({
         "inputTokens": usage.input_tokens,
         "outputTokens": usage.output_tokens,
         "cachedTokens": usage.cache_read_tokens,
         "cacheWriteTokens": usage.cache_write_tokens,
         "reasoningTokens": usage.reasoning_tokens,
         "reasoningTokensComplete": usage.reasoning_complete(),
-    })
+    });
+    // `normalizeUsage` keeps the provider-measured occupancy beside the counts.
+    if let Some(context) = super::measured_context_tokens(usage) {
+        record["contextTokens"] = json!(context);
+    }
+    record
 }
 
 /// What the ask's settlement reads of a finished run (`result` of `settleAskTurn`).

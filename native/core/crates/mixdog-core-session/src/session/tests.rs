@@ -2010,13 +2010,12 @@ async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books()
 }
 
 
-/// A turn starts on the compaction the saved settings give the session (`syncSessionCompaction`), the first streamed
-/// text stamps the disk-side heartbeat (`markSessionStreamDelta`) once and not again within a minute, and a report that
+/// A turn does not re-sync the session's compaction with the saved settings (that is the install and the config-change
+/// events' work), the first streamed text stamps the disk-side heartbeat (`markSessionStreamDelta`) once and not again within a minute, and a report that
 /// prices the transcript has the meters prepared first (`MediaMeter::prepare`).
 #[tokio::test(start_paused = true)]
-async fn a_turn_follows_the_saved_compaction_stamps_its_heartbeat_and_prepares_its_meters() {
+async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_without_a_compaction_sync() {
     let rig = Rig::new();
-    *lock(&rig.compaction.synced) = Some(json!({ "auto": true, "onModelChange": true, "summaryMode": "smart" }));
     let gate: Arc<tokio::sync::Notify> = Arc::default();
     let release = gate.clone();
     rig.set_script(Arc::new(move |run| {
@@ -2043,10 +2042,106 @@ async fn a_turn_follows_the_saved_compaction_stamps_its_heartbeat_and_prepares_i
     eventually(|| idle(&handle).then_some(())).await;
     let live = handle.live_header();
     let header = live.header();
-    assert_eq!(header.get("compaction"), Some(&json!({ "auto": true, "onModelChange": true, "summaryMode": "smart" })));
+    assert_eq!(*lock(&rig.compaction.sync_calls), vec![true], "only the installation syncs; a turn start does not");
     assert_eq!(header.get("lastHeartbeatAt"), stamped.as_ref(), "the second delta is inside the minute");
     let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
     assert_eq!(*lock(&rig.compaction.prepared), vec![(provider, 0usize)]);
+}
+
+/// A tool call's arguments streaming (`RunEvent::ToolStream`) reach the stored `lastHeartbeatAt` through the whole
+/// path, one write per minute: the first event stamps it, one exactly 60 s later does not, one 1 ms past does.
+#[tokio::test(start_paused = true)]
+async fn a_streaming_tool_call_stamps_the_stored_heartbeat_once_a_minute() {
+    const START: u64 = 1_700_000_000_000;
+    let rig = Rig::new();
+    rig.clock.0.store(START, std::sync::atomic::Ordering::SeqCst);
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<u32>();
+    let rx = Arc::new(tokio::sync::Mutex::new(Some(rx)));
+    rig.set_script(Arc::new(move |run| {
+        let rx = rx.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let mut steps = rx.lock().await.take().expect("one run");
+            while let Some(step) = steps.recv().await {
+                run.port.tool_stream().await.expect("tool stream");
+                // The lane is ordered: the call counted here has the stream event before it applied.
+                let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 1, output_tokens: 1, ..Default::default() };
+                run.port
+                    .usage(crate::session::UsageReport {
+                        iteration: step,
+                        usage,
+                        model: "m".into(),
+                        requested_model: "m".into(),
+                        delta_tool_calls: 0,
+                        request_ms: 0,
+                        delta_prompt: 1,
+                        send_tools: Vec::new(),
+                        reasoning_tokens: None,
+                        reasoning_tokens_complete: false,
+                        outgoing: Vec::new(),
+                        sent_at_ms: 0,
+                    })
+                    .await
+                    .expect("usage");
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    for (step, (offset, stamped)) in [(0u64, START), (60_000, START), (60_001, START + 60_001)].into_iter().enumerate() {
+        let step = step as u32 + 1;
+        rig.clock.0.store(START + offset, std::sync::atomic::Ordering::SeqCst);
+        tx.send(step).expect("script alive");
+        eventually(|| (handle.live_header().header().get("lastIterationIndex") == Some(&json!(step))).then_some(())).await;
+        assert_eq!(handle.live_header().header().get("lastHeartbeatAt"), Some(&json!(stamped)), "at +{offset} ms");
+    }
+    drop(tx);
+    eventually(|| idle(&handle).then_some(())).await;
+}
+
+/// The summary model's usage of a compaction pass is a usage report of the turn (`accumulateCompactUsage` ->
+/// `onUsageDelta`): it reaches the header totals beside the calls', and does not move the usage epoch.
+#[tokio::test(start_paused = true)]
+async fn a_compaction_passs_summary_usage_reaches_the_header_totals() {
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let usage = |input| mixdog_core_api::domain::provider::Usage { input_tokens: input, output_tokens: 1, ..Default::default() };
+            run.port
+                .usage(crate::session::UsageReport {
+                    iteration: 1,
+                    usage: usage(10),
+                    model: "m".into(),
+                    requested_model: "m".into(),
+                    delta_tool_calls: 0,
+                    request_ms: 0,
+                    delta_prompt: 10,
+                    send_tools: Vec::new(),
+                    reasoning_tokens: None,
+                    reasoning_tokens_complete: false,
+                    outgoing: Vec::new(),
+                    sent_at_ms: 0,
+                })
+                .await
+                .expect("usage");
+            run.port
+                .compact_usage(crate::session::CompactUsageReport { iteration: 1, usage: usage(200), reasoning_tokens: None, reasoning_tokens_complete: false })
+                .await
+                .expect("compact usage");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    let live = handle.live_header();
+    let header = live.header();
+    assert_eq!(header.get("totalInputTokens"), Some(&json!(210)));
+    assert_eq!(header.get("usageMetricsEpoch").and_then(Value::as_u64).unwrap_or(0), 0);
 }
 
 /// A Goal set during a user turn continues across it: once the turn settles with the Goal

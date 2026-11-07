@@ -12,6 +12,7 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ToolCall;
+use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::retry::RetryDecider;
@@ -325,8 +326,12 @@ pub enum RunEvent {
     Compact(CompactEvent),
     /// A stage of a pre-send compaction pass, for the header's compaction telemetry.
     CompactPass(Box<CompactPass>),
-    /// A tool call's arguments streamed or completed in the provider stream: model progress of kind `tool`.
-    ToolStream,
+    /// A [`StreamEvent::Progress`] of the provider stream: model progress that is no text or reasoning delta (a tool call's
+    /// arguments or end, an item boundary), reported where Node's decoder calls `onStreamDelta(kind)`.
+    ToolStream(ProgressKind),
+    /// The summary model's usage of a compaction pass (`accumulateCompactUsage`): one usage report of the turn,
+    /// at the loop's next iteration index, with the reasoning figure `reasoningUsage(usage)` reads of it.
+    CompactUsage { iteration: u32, usage: Usage, reasoning_tokens: Option<u64>, reasoning_tokens_complete: bool },
 }
 
 #[derive(Clone, PartialEq, Debug)]

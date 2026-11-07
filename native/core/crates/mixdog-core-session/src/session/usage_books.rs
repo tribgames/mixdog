@@ -15,6 +15,7 @@ use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_protocol::ProviderId;
 use mixdog_store::schema::record::HeaderChange;
 use serde_json::Value;
+use serde_json::json;
 
 use super::run::SendCheck;
 use super::run::Settled;
@@ -51,11 +52,28 @@ pub(crate) fn turn_started(header: &Header) -> Option<HeaderChange> {
     change(pressure::turn_started(header))
 }
 
+/// `loopUsageMetricsTurnId()` / `loopUsageMetricsEpoch()` (`send-phase.mjs`, `pre-send-compact.mjs`): a report names the
+/// session's current turn and epoch, so an iteration counter restarted by a compaction is not mistaken for a second epoch.
+fn with_loop_ids(header: &Header, delta: &Value) -> Value {
+    let mut delta = delta.clone();
+    delta["usageMetricsTurnId"] = header.get("usageMetricsTurnId").cloned().unwrap_or(json!(0));
+    delta["usageMetricsEpoch"] = header.get("usageMetricsEpoch").cloned().unwrap_or(json!(0));
+    delta
+}
+
+/// The summary usage of a compaction pass (`accumulateCompactUsage` -> `onUsageDelta`): the call's metrics only; no send,
+/// so no baseline and no `lastProviderSendAt`.
+pub(crate) fn compact_usage_change(header: &Header, delta: &Value, now: f64) -> Option<HeaderChange> {
+    let excludes = input_excludes_cache(provider_of(header));
+    change(Some(pressure::iteration_metrics(header, &with_loop_ids(header, delta), excludes, now)))
+}
+
 /// `onUsageDelta(delta)` for one model call: `delta` is the call's `usageDeltaEvent`
 /// (`live_rows::usage_delta`), `outgoing` the transcript its request carried and `send_tools` its tools.
 pub(crate) fn usage_change(header: &Header, delta: &Value, outgoing: &[AgentMessage], send_tools: &[ToolDefinition], books: Option<&Books>, sent_at: f64, now: f64) -> Option<HeaderChange> {
     let provider = provider_of(header);
     let excludes = input_excludes_cache(provider);
+    let delta = &with_loop_ids(header, delta);
     let patch = match books {
         Some(books) => with_books(books, provider, |books| pressure::usage_change(header, delta, outgoing, send_tools, Some(books), excludes, sent_at, now)),
         None => pressure::usage_change(header, delta, outgoing, send_tools, None, excludes, sent_at, now),

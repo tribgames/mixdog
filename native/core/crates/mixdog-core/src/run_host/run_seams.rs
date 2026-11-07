@@ -245,9 +245,8 @@ impl ConfigSeams for ConfigRunSeams {
         if install && self.injected_config {
             return None;
         }
-        self.config.agent().get("compaction").filter(|c| c.is_object())?;
-        let synced = Value::Object(self.session_compaction(header));
-        (header.get("compaction") != Some(&synced)).then_some(synced)
+        let saved = self.config.agent().get("compaction").filter(|c| c.is_object())?.clone();
+        super::compaction_follow::sync_change(header, &saved).set.remove("compaction")
     }
 
     fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {

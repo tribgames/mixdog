@@ -98,7 +98,8 @@ impl ResponseBuilder {
             | StreamEvent::ToolCallArgsDelta { .. }
             | StreamEvent::Refusal(_)
             | StreamEvent::Citation(_)
-            | StreamEvent::ProviderKeepalive => {}
+            | StreamEvent::ProviderKeepalive
+            | StreamEvent::Progress(_) => {}
         }
     }
 

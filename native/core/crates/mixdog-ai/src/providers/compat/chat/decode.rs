@@ -9,7 +9,7 @@
 use std::time::SystemTime;
 
 use mixdog_core_api::domain::provider::{
-    DeliveryState, ErrorKind, Exposure, ProviderError, StopReason, StreamEvent, ToolCall,
+    DeliveryState, ErrorKind, Exposure, ProgressKind, ProviderError, StopReason, StreamEvent, ToolCall,
     TransportFault, Usage, UsdTicks, WireDecoder,
 };
 use mixdog_protocol::{JsonValue, ProviderId};
@@ -165,6 +165,8 @@ pub struct ChatDecoder {
     tool_input_cut: bool,
     terminal: bool,
     failure: Option<ProviderError>,
+    /// Some output was reported (`semanticIdleDeadlineAt > 0`): from then on a role-only delta is progress.
+    progressed: bool,
 }
 
 impl ChatDecoder {
@@ -187,6 +189,7 @@ impl ChatDecoder {
             tool_input_cut: false,
             terminal: false,
             failure: None,
+            progressed: false,
         }
     }
 
@@ -222,6 +225,7 @@ impl ChatDecoder {
         }
         self.content.push_str(text);
         self.text_emitted = true;
+        self.progressed = true;
         out.push(StreamEvent::TextDelta(text.to_owned()));
     }
 
@@ -229,6 +233,7 @@ impl ChatDecoder {
         self.reasoning_source = Some(source);
         self.reasoning.push_str(text);
         if !text.is_empty() {
+            self.progressed = true;
             out.push(StreamEvent::ReasoningDelta(text.to_owned()));
         }
     }
@@ -303,6 +308,10 @@ impl ChatDecoder {
     fn apply_chunk(&mut self, chunk: &JsonValue, out: &mut Vec<StreamEvent>) {
         let choice = chunk.get("choices").and_then(|c| c.get(0));
         let delta = choice.and_then(|c| c.get("delta"));
+        // `reportLifecycle(state, 'semantic')`: a role-only delta is progress once the model has produced output.
+        if self.progressed && delta.and_then(|d| d.get("role")).and_then(JsonValue::as_str).is_some_and(|role| !role.is_empty()) {
+            out.push(StreamEvent::Progress(ProgressKind::Semantic));
+        }
         if let Some(content) = delta.and_then(|d| d.get("content")) {
             match reasoning::content_pieces(content) {
                 Some(pieces) => {
@@ -328,6 +337,8 @@ impl ChatDecoder {
             .filter(|d| !d.is_empty())
         {
             self.details.extend(details.iter().cloned());
+            self.progressed = true;
+            out.push(StreamEvent::Progress(ProgressKind::Reasoning));
         }
         // These provider fields are aliases, never independent segments.
         for (key, source) in [
@@ -341,6 +352,10 @@ impl ChatDecoder {
             }
         }
         if let Some(calls) = delta.and_then(|d| d.get("tool_calls")).and_then(JsonValue::as_array) {
+            if !calls.is_empty() {
+                self.progressed = true;
+                out.push(StreamEvent::Progress(ProgressKind::Tool));
+            }
             self.merge_tool_calls(calls, out);
         }
         if let Some(reason) = choice

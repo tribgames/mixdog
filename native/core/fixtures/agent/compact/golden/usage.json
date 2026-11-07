@@ -8772,6 +8772,1103 @@
       }
     },
     {
+      "name": "turn-start-compact-usage",
+      "op": "turnStart",
+      "header": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [],
+      "args": {},
+      "now": 1700000061000,
+      "result": 1,
+      "after": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1
+      }
+    },
+    {
+      "name": "usage-call-before-the-compaction",
+      "op": "usage",
+      "header": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": "file body"
+        }
+      ],
+      "args": {
+        "delta": {
+          "sessionId": "s-compact-usage",
+          "iterationIndex": 1,
+          "source": "provider_send",
+          "requestedModel": "harness-model",
+          "model": "harness-model",
+          "deltaInput": 800,
+          "deltaOutput": 20,
+          "deltaToolCalls": 0,
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false,
+          "deltaPrompt": 800,
+          "requestMs": 0,
+          "promptKnown": true,
+          "deltaCachedRead": 0,
+          "deltaCacheWrite": 0,
+          "contextInputTokens": 800,
+          "contextOutputTokens": 20,
+          "contextPromptTokens": 800,
+          "contextCachedReadTokens": 0,
+          "contextCacheWriteTokens": 0,
+          "contextMeasuredTokens": null,
+          "sendTools": [
+            {
+              "name": "read",
+              "description": "Read a file",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                }
+              },
+              "deferLoading": false
+            },
+            {
+              "name": "search",
+              "description": "Search",
+              "inputSchema": {
+                "type": "object"
+              },
+              "deferLoading": true
+            }
+          ],
+          "ts": 1700000062000
+        },
+        "native": [],
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            },
+            "deferLoading": false
+          },
+          {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {
+              "type": "object"
+            },
+            "deferLoading": true
+          }
+        ],
+        "sentAt": 1700000061993,
+        "excludesCache": false,
+        "calibration": 1
+      },
+      "now": 1700000062000,
+      "result": null,
+      "after": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000061993,
+        "reasoningUsage": {
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false
+        },
+        "totalInputTokens": 800,
+        "totalOutputTokens": 20,
+        "totalToolCalls": 0,
+        "tokensCumulative": 820,
+        "totalCachedReadTokens": 0,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 800,
+        "usageReadout": {
+          "input": 800,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "output": 20,
+          "requestOutputTokens": 0,
+          "requestMs": 0
+        },
+        "lastInputTokens": 800,
+        "lastOutputTokens": 20,
+        "lastCachedReadTokens": 0,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 800,
+        "lastContextTokens": 800,
+        "lastContextTokensUpdatedAt": 1700000062000,
+        "lastContextTokensStaleAfterCompact": false,
+        "lastIterationIndex": 1,
+        "updatedAt": 1700000062000,
+        "contextPressureBaselineTokens": 820,
+        "contextPressureBaselineOutputTokens": 20,
+        "contextPressureBaselineMessageCount": 3,
+        "contextPressureBaselinePrefixSignature": "913e956a0c5a0a468bcadc1a49390125ce79bf1d99e63dc289ee5377d0bacc3d",
+        "contextPressureBaselineShapeSignature": "e7c7b3b3b29dc431f56b9b15fec9343148cd0b1bffab590a4aff0df36534f5f1",
+        "contextPressureBaselineProvider": "custom-harness",
+        "contextPressureBaselineModel": "harness-model",
+        "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+        "contextPressureBaselineRequestReserveTokens": 70,
+        "contextPressureBaselineBoundary": "request",
+        "contextPressureBaselineUpdatedAt": 1700000062000,
+        "contextPressureBaselineSource": "provider"
+      }
+    },
+    {
+      "name": "pass-compacted-before-the-summary-usage",
+      "op": "pass",
+      "header": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000061993,
+        "reasoningUsage": {
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false
+        },
+        "totalInputTokens": 800,
+        "totalOutputTokens": 20,
+        "totalToolCalls": 0,
+        "tokensCumulative": 820,
+        "totalCachedReadTokens": 0,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 800,
+        "usageReadout": {
+          "input": 800,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "output": 20,
+          "requestOutputTokens": 0,
+          "requestMs": 0
+        },
+        "lastInputTokens": 800,
+        "lastOutputTokens": 20,
+        "lastCachedReadTokens": 0,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 800,
+        "lastContextTokens": 800,
+        "lastContextTokensUpdatedAt": 1700000062000,
+        "lastContextTokensStaleAfterCompact": false,
+        "lastIterationIndex": 1,
+        "updatedAt": 1700000062000,
+        "contextPressureBaselineTokens": 820,
+        "contextPressureBaselineOutputTokens": 20,
+        "contextPressureBaselineMessageCount": 3,
+        "contextPressureBaselinePrefixSignature": "913e956a0c5a0a468bcadc1a49390125ce79bf1d99e63dc289ee5377d0bacc3d",
+        "contextPressureBaselineShapeSignature": "e7c7b3b3b29dc431f56b9b15fec9343148cd0b1bffab590a4aff0df36534f5f1",
+        "contextPressureBaselineProvider": "custom-harness",
+        "contextPressureBaselineModel": "harness-model",
+        "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+        "contextPressureBaselineRequestReserveTokens": 70,
+        "contextPressureBaselineBoundary": "request",
+        "contextPressureBaselineUpdatedAt": 1700000062000,
+        "contextPressureBaselineSource": "provider"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": "file body"
+        }
+      ],
+      "args": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            },
+            "deferLoading": false
+          },
+          {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {
+              "type": "object"
+            },
+            "deferLoading": true
+          }
+        ],
+        "native": [],
+        "reactive": false,
+        "trigger": "auto",
+        "agentMode": false,
+        "end": {
+          "kind": "done",
+          "changed": true,
+          "handoffSource": "session-local",
+          "afterTokens": 300,
+          "durationMs": 50
+        },
+        "after": [
+          {
+            "role": "user",
+            "content": "hello  world"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          }
+        ]
+      },
+      "now": 1700000063000,
+      "result": null,
+      "after": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "effectiveContextWindowPercent": 100,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000063000,
+          "lastBeforeTokens": 800,
+          "lastAfterTokens": 300,
+          "lastPressureTokens": 800,
+          "currentEstimatedTokens": 300,
+          "lastApiRequestTokens": 800,
+          "lastStage": "pre_send",
+          "lastChanged": true,
+          "lastTrigger": "auto",
+          "lastFreshContext": true,
+          "lastFreshContextError": null,
+          "lastHandoffSource": "session-local",
+          "lastError": null,
+          "lastDurationMs": 50,
+          "compactCount": 1,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000063000,
+              "stage": "compacting",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            },
+            {
+              "at": 1700000063000,
+              "stage": "pre_send",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            }
+          ],
+          "lastChangedAt": 1700000063000,
+          "lastCompactAt": 1700000063000
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000061993,
+        "reasoningUsage": {
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false
+        },
+        "totalInputTokens": 800,
+        "totalOutputTokens": 20,
+        "totalToolCalls": 0,
+        "tokensCumulative": 820,
+        "totalCachedReadTokens": 0,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 800,
+        "usageReadout": {
+          "input": 800,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "output": 20,
+          "requestOutputTokens": 0,
+          "requestMs": 0
+        },
+        "lastInputTokens": 800,
+        "lastOutputTokens": 20,
+        "lastCachedReadTokens": 0,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 800,
+        "lastContextTokens": 800,
+        "lastContextTokensUpdatedAt": 1700000062000,
+        "lastContextTokensStaleAfterCompact": true,
+        "lastIterationIndex": 1,
+        "updatedAt": 1700000062000,
+        "contextPressureBaselineTokens": null,
+        "contextPressureBaselineOutputTokens": null,
+        "contextPressureBaselineMessageCount": null,
+        "contextPressureBaselinePrefixSignature": null,
+        "contextPressureBaselineShapeSignature": null,
+        "contextPressureBaselineProvider": null,
+        "contextPressureBaselineModel": null,
+        "contextPressureBaselineToolSignature": null,
+        "contextPressureBaselineRequestReserveTokens": null,
+        "contextPressureBaselineBoundary": null,
+        "contextPressureBaselineUpdatedAt": null,
+        "contextPressureBaselineSource": null,
+        "usageMetricsEpoch": 1,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 300,
+          "limitTokens": 128000,
+          "messageTokensEst": 12,
+          "messageCount": 2,
+          "messagesSignature": "817f14d9c78f763897fdac8be42d630ae2f58b26167ad660652b72d7405ff4a3",
+          "tailRole": "assistant",
+          "tailId": "",
+          "usageMetricsTurnId": "1",
+          "usageMetricsEpoch": 1,
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "contextWindow": 128000,
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "updatedAt": 1700000063000
+        }
+      }
+    },
+    {
+      "name": "compact-usage-counts-once-in-the-new-epoch",
+      "op": "iteration",
+      "header": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "effectiveContextWindowPercent": 100,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000063000,
+          "lastBeforeTokens": 800,
+          "lastAfterTokens": 300,
+          "lastPressureTokens": 800,
+          "currentEstimatedTokens": 300,
+          "lastApiRequestTokens": 800,
+          "lastStage": "pre_send",
+          "lastChanged": true,
+          "lastTrigger": "auto",
+          "lastFreshContext": true,
+          "lastFreshContextError": null,
+          "lastHandoffSource": "session-local",
+          "lastError": null,
+          "lastDurationMs": 50,
+          "compactCount": 1,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000063000,
+              "stage": "compacting",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            },
+            {
+              "at": 1700000063000,
+              "stage": "pre_send",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            }
+          ],
+          "lastChangedAt": 1700000063000,
+          "lastCompactAt": 1700000063000
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000061993,
+        "reasoningUsage": {
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false
+        },
+        "totalInputTokens": 800,
+        "totalOutputTokens": 20,
+        "totalToolCalls": 0,
+        "tokensCumulative": 820,
+        "totalCachedReadTokens": 0,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 800,
+        "usageReadout": {
+          "input": 800,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "output": 20,
+          "requestOutputTokens": 0,
+          "requestMs": 0
+        },
+        "lastInputTokens": 800,
+        "lastOutputTokens": 20,
+        "lastCachedReadTokens": 0,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 800,
+        "lastContextTokens": 800,
+        "lastContextTokensUpdatedAt": 1700000062000,
+        "lastContextTokensStaleAfterCompact": true,
+        "lastIterationIndex": 1,
+        "updatedAt": 1700000062000,
+        "contextPressureBaselineTokens": null,
+        "contextPressureBaselineOutputTokens": null,
+        "contextPressureBaselineMessageCount": null,
+        "contextPressureBaselinePrefixSignature": null,
+        "contextPressureBaselineShapeSignature": null,
+        "contextPressureBaselineProvider": null,
+        "contextPressureBaselineModel": null,
+        "contextPressureBaselineToolSignature": null,
+        "contextPressureBaselineRequestReserveTokens": null,
+        "contextPressureBaselineBoundary": null,
+        "contextPressureBaselineUpdatedAt": null,
+        "contextPressureBaselineSource": null,
+        "usageMetricsEpoch": 1,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 300,
+          "limitTokens": 128000,
+          "messageTokensEst": 12,
+          "messageCount": 2,
+          "messagesSignature": "817f14d9c78f763897fdac8be42d630ae2f58b26167ad660652b72d7405ff4a3",
+          "tailRole": "assistant",
+          "tailId": "",
+          "usageMetricsTurnId": "1",
+          "usageMetricsEpoch": 1,
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "contextWindow": 128000,
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "updatedAt": 1700000063000
+        }
+      },
+      "messages": [],
+      "args": {
+        "delta": {
+          "sessionId": "s-compact-usage",
+          "iterationIndex": 1,
+          "source": "fresh_context_compact",
+          "requestedModel": "harness-model",
+          "model": "harness-model",
+          "deltaInput": 200,
+          "deltaOutput": 30,
+          "deltaToolCalls": 0,
+          "reasoningTokens": 7,
+          "reasoningTokensComplete": true,
+          "deltaPrompt": 0,
+          "requestMs": 0,
+          "promptKnown": true,
+          "deltaCachedRead": 50,
+          "deltaCacheWrite": 0,
+          "usageMetricsTurnId": 1,
+          "usageMetricsEpoch": 1,
+          "contextInputTokens": 200,
+          "contextOutputTokens": 30,
+          "contextPromptTokens": 0,
+          "contextCachedReadTokens": 50,
+          "contextCacheWriteTokens": 0,
+          "contextMeasuredTokens": null,
+          "sendTools": [],
+          "ts": 1700000064000
+        },
+        "excludesCache": false
+      },
+      "now": 1700000064000,
+      "result": null,
+      "after": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "effectiveContextWindowPercent": 100,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000063000,
+          "lastBeforeTokens": 800,
+          "lastAfterTokens": 300,
+          "lastPressureTokens": 800,
+          "currentEstimatedTokens": 300,
+          "lastApiRequestTokens": 800,
+          "lastStage": "pre_send",
+          "lastChanged": true,
+          "lastTrigger": "auto",
+          "lastFreshContext": true,
+          "lastFreshContextError": null,
+          "lastHandoffSource": "session-local",
+          "lastError": null,
+          "lastDurationMs": 50,
+          "compactCount": 1,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000063000,
+              "stage": "compacting",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            },
+            {
+              "at": 1700000063000,
+              "stage": "pre_send",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            }
+          ],
+          "lastChangedAt": 1700000063000,
+          "lastCompactAt": 1700000063000
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000061993,
+        "reasoningUsage": {
+          "reasoningTokens": 7,
+          "reasoningTokensComplete": false
+        },
+        "totalInputTokens": 1000,
+        "totalOutputTokens": 50,
+        "totalToolCalls": 0,
+        "tokensCumulative": 1050,
+        "totalCachedReadTokens": 50,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 950,
+        "usageReadout": {
+          "input": 1000,
+          "cacheRead": 50,
+          "cacheWrite": 0,
+          "output": 50,
+          "requestOutputTokens": 0,
+          "requestMs": 0
+        },
+        "lastInputTokens": 200,
+        "lastOutputTokens": 30,
+        "lastCachedReadTokens": 50,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 150,
+        "lastContextTokens": 200,
+        "lastContextTokensUpdatedAt": 1700000064000,
+        "lastContextTokensStaleAfterCompact": false,
+        "lastIterationIndex": 1,
+        "updatedAt": 1700000064000,
+        "contextPressureBaselineTokens": null,
+        "contextPressureBaselineOutputTokens": null,
+        "contextPressureBaselineMessageCount": null,
+        "contextPressureBaselinePrefixSignature": null,
+        "contextPressureBaselineShapeSignature": null,
+        "contextPressureBaselineProvider": null,
+        "contextPressureBaselineModel": null,
+        "contextPressureBaselineToolSignature": null,
+        "contextPressureBaselineRequestReserveTokens": null,
+        "contextPressureBaselineBoundary": null,
+        "contextPressureBaselineUpdatedAt": null,
+        "contextPressureBaselineSource": null,
+        "usageMetricsEpoch": 1,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 300,
+          "limitTokens": 128000,
+          "messageTokensEst": 12,
+          "messageCount": 2,
+          "messagesSignature": "817f14d9c78f763897fdac8be42d630ae2f58b26167ad660652b72d7405ff4a3",
+          "tailRole": "assistant",
+          "tailId": "",
+          "usageMetricsTurnId": "1",
+          "usageMetricsEpoch": 1,
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "contextWindow": 128000,
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "updatedAt": 1700000063000
+        }
+      }
+    },
+    {
+      "name": "next-call-after-the-compact-usage-keeps-the-epoch",
+      "op": "iteration",
+      "header": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "effectiveContextWindowPercent": 100,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000063000,
+          "lastBeforeTokens": 800,
+          "lastAfterTokens": 300,
+          "lastPressureTokens": 800,
+          "currentEstimatedTokens": 300,
+          "lastApiRequestTokens": 800,
+          "lastStage": "pre_send",
+          "lastChanged": true,
+          "lastTrigger": "auto",
+          "lastFreshContext": true,
+          "lastFreshContextError": null,
+          "lastHandoffSource": "session-local",
+          "lastError": null,
+          "lastDurationMs": 50,
+          "compactCount": 1,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000063000,
+              "stage": "compacting",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            },
+            {
+              "at": 1700000063000,
+              "stage": "pre_send",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            }
+          ],
+          "lastChangedAt": 1700000063000,
+          "lastCompactAt": 1700000063000
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000061993,
+        "reasoningUsage": {
+          "reasoningTokens": 7,
+          "reasoningTokensComplete": false
+        },
+        "totalInputTokens": 1000,
+        "totalOutputTokens": 50,
+        "totalToolCalls": 0,
+        "tokensCumulative": 1050,
+        "totalCachedReadTokens": 50,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 950,
+        "usageReadout": {
+          "input": 1000,
+          "cacheRead": 50,
+          "cacheWrite": 0,
+          "output": 50,
+          "requestOutputTokens": 0,
+          "requestMs": 0
+        },
+        "lastInputTokens": 200,
+        "lastOutputTokens": 30,
+        "lastCachedReadTokens": 50,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 150,
+        "lastContextTokens": 200,
+        "lastContextTokensUpdatedAt": 1700000064000,
+        "lastContextTokensStaleAfterCompact": false,
+        "lastIterationIndex": 1,
+        "updatedAt": 1700000064000,
+        "contextPressureBaselineTokens": null,
+        "contextPressureBaselineOutputTokens": null,
+        "contextPressureBaselineMessageCount": null,
+        "contextPressureBaselinePrefixSignature": null,
+        "contextPressureBaselineShapeSignature": null,
+        "contextPressureBaselineProvider": null,
+        "contextPressureBaselineModel": null,
+        "contextPressureBaselineToolSignature": null,
+        "contextPressureBaselineRequestReserveTokens": null,
+        "contextPressureBaselineBoundary": null,
+        "contextPressureBaselineUpdatedAt": null,
+        "contextPressureBaselineSource": null,
+        "usageMetricsEpoch": 1,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 300,
+          "limitTokens": 128000,
+          "messageTokensEst": 12,
+          "messageCount": 2,
+          "messagesSignature": "817f14d9c78f763897fdac8be42d630ae2f58b26167ad660652b72d7405ff4a3",
+          "tailRole": "assistant",
+          "tailId": "",
+          "usageMetricsTurnId": "1",
+          "usageMetricsEpoch": 1,
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "contextWindow": 128000,
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "updatedAt": 1700000063000
+        }
+      },
+      "messages": [],
+      "args": {
+        "delta": {
+          "sessionId": "s-compact-usage",
+          "iterationIndex": 2,
+          "source": "provider_send",
+          "requestedModel": "harness-model",
+          "model": "harness-model",
+          "deltaInput": 120,
+          "deltaOutput": 10,
+          "deltaToolCalls": 0,
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false,
+          "deltaPrompt": 120,
+          "requestMs": 0,
+          "promptKnown": true,
+          "deltaCachedRead": 0,
+          "deltaCacheWrite": 0,
+          "usageMetricsTurnId": 1,
+          "usageMetricsEpoch": 1,
+          "contextInputTokens": 120,
+          "contextOutputTokens": 10,
+          "contextPromptTokens": 120,
+          "contextCachedReadTokens": 0,
+          "contextCacheWriteTokens": 0,
+          "contextMeasuredTokens": null,
+          "sendTools": [],
+          "ts": 1700000065000
+        },
+        "excludesCache": false
+      },
+      "now": 1700000065000,
+      "result": null,
+      "after": {
+        "id": "s-compact-usage",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "effectiveContextWindowPercent": 100,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000063000,
+          "lastBeforeTokens": 800,
+          "lastAfterTokens": 300,
+          "lastPressureTokens": 800,
+          "currentEstimatedTokens": 300,
+          "lastApiRequestTokens": 800,
+          "lastStage": "pre_send",
+          "lastChanged": true,
+          "lastTrigger": "auto",
+          "lastFreshContext": true,
+          "lastFreshContextError": null,
+          "lastHandoffSource": "session-local",
+          "lastError": null,
+          "lastDurationMs": 50,
+          "compactCount": 1,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000063000,
+              "stage": "compacting",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            },
+            {
+              "at": 1700000063000,
+              "stage": "pre_send",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000062000
+            }
+          ],
+          "lastChangedAt": 1700000063000,
+          "lastCompactAt": 1700000063000
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000061993,
+        "reasoningUsage": {
+          "reasoningTokens": 7,
+          "reasoningTokensComplete": false
+        },
+        "totalInputTokens": 1120,
+        "totalOutputTokens": 60,
+        "totalToolCalls": 0,
+        "tokensCumulative": 1180,
+        "totalCachedReadTokens": 50,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 1070,
+        "usageReadout": {
+          "input": 1120,
+          "cacheRead": 50,
+          "cacheWrite": 0,
+          "output": 60,
+          "requestOutputTokens": 0,
+          "requestMs": 0
+        },
+        "lastInputTokens": 120,
+        "lastOutputTokens": 10,
+        "lastCachedReadTokens": 0,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 120,
+        "lastContextTokens": 120,
+        "lastContextTokensUpdatedAt": 1700000065000,
+        "lastContextTokensStaleAfterCompact": false,
+        "lastIterationIndex": 2,
+        "updatedAt": 1700000065000,
+        "contextPressureBaselineTokens": null,
+        "contextPressureBaselineOutputTokens": null,
+        "contextPressureBaselineMessageCount": null,
+        "contextPressureBaselinePrefixSignature": null,
+        "contextPressureBaselineShapeSignature": null,
+        "contextPressureBaselineProvider": null,
+        "contextPressureBaselineModel": null,
+        "contextPressureBaselineToolSignature": null,
+        "contextPressureBaselineRequestReserveTokens": null,
+        "contextPressureBaselineBoundary": null,
+        "contextPressureBaselineUpdatedAt": null,
+        "contextPressureBaselineSource": null,
+        "usageMetricsEpoch": 1,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 300,
+          "limitTokens": 128000,
+          "messageTokensEst": 12,
+          "messageCount": 2,
+          "messagesSignature": "817f14d9c78f763897fdac8be42d630ae2f58b26167ad660652b72d7405ff4a3",
+          "tailRole": "assistant",
+          "tailId": "",
+          "usageMetricsTurnId": "1",
+          "usageMetricsEpoch": 1,
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "contextWindow": 128000,
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "updatedAt": 1700000063000
+        }
+      }
+    },
+    {
       "name": "pass-no-change-keeps-the-reading",
       "op": "pass",
       "header": {
@@ -8842,7 +9939,7 @@
           }
         ]
       },
-      "now": 1700000061000,
+      "now": 1700000066000,
       "result": null,
       "after": {
         "id": "s-pass-same",
@@ -8866,7 +9963,7 @@
           "bufferRatio": 0,
           "effectiveContextWindowPercent": 100,
           "handoffTimeoutMs": 300000,
-          "lastCheckedAt": 1700000061000,
+          "lastCheckedAt": 1700000066000,
           "lastBeforeTokens": 77,
           "lastAfterTokens": 40,
           "lastPressureTokens": 77,
@@ -8884,7 +9981,7 @@
           "singleShotConsumed": false,
           "recentChecks": [
             {
-              "at": 1700000061000,
+              "at": 1700000066000,
               "stage": "compacting",
               "pressure": 77,
               "est": 7,
@@ -8893,7 +9990,7 @@
               "baselineAt": null
             },
             {
-              "at": 1700000061000,
+              "at": 1700000066000,
               "stage": "pre_send",
               "pressure": 77,
               "est": 7,
@@ -8988,7 +10085,7 @@
         },
         "after": []
       },
-      "now": 1700000062000,
+      "now": 1700000067000,
       "result": null,
       "after": {
         "id": "s-pass-skip",
@@ -9012,7 +10109,7 @@
           "bufferRatio": 0,
           "effectiveContextWindowPercent": 100,
           "handoffTimeoutMs": 300000,
-          "lastCheckedAt": 1700000062000,
+          "lastCheckedAt": 1700000067000,
           "lastBeforeTokens": 116,
           "lastAfterTokens": 116,
           "lastPressureTokens": 116,
@@ -9030,7 +10127,7 @@
           "singleShotConsumed": false,
           "recentChecks": [
             {
-              "at": 1700000062000,
+              "at": 1700000067000,
               "stage": "compacting",
               "pressure": 116,
               "est": 46,
@@ -9039,7 +10136,7 @@
               "baselineAt": null
             },
             {
-              "at": 1700000062000,
+              "at": 1700000067000,
               "stage": "pre_send_check",
               "pressure": 116,
               "est": 46,
@@ -9135,7 +10232,7 @@
         },
         "after": []
       },
-      "now": 1700000063000,
+      "now": 1700000068000,
       "result": null,
       "after": {
         "id": "s-pass-fail",
@@ -9161,7 +10258,7 @@
           "effectiveContextWindowPercent": 100,
           "autoCompactTokenLimit": null,
           "handoffTimeoutMs": 300000,
-          "lastCheckedAt": 1700000063000,
+          "lastCheckedAt": 1700000068000,
           "lastBeforeTokens": 128000,
           "lastAfterTokens": 128000,
           "lastPressureTokens": 128000,
@@ -9177,7 +10274,7 @@
           "singleShotConsumed": false,
           "recentChecks": [
             {
-              "at": 1700000063000,
+              "at": 1700000068000,
               "stage": "compacting",
               "pressure": 128000,
               "est": 46,
@@ -9186,7 +10283,7 @@
               "baselineAt": null
             },
             {
-              "at": 1700000063000,
+              "at": 1700000068000,
               "stage": "overflow_failed",
               "pressure": 128000,
               "est": 46,
@@ -9291,7 +10388,7 @@
           }
         ]
       },
-      "now": 1700000064000,
+      "now": 1700000069000,
       "result": null,
       "after": {
         "id": "s-pass-clear",
@@ -9319,7 +10416,7 @@
           "effectiveContextWindowPercent": 100,
           "autoCompactTokenLimit": null,
           "handoffTimeoutMs": 300000,
-          "lastCheckedAt": 1700000064000,
+          "lastCheckedAt": 1700000069000,
           "lastBeforeTokens": 116,
           "lastAfterTokens": 55,
           "lastPressureTokens": 116,
@@ -9333,7 +10430,7 @@
           "singleShotConsumed": false,
           "recentChecks": [
             {
-              "at": 1700000064000,
+              "at": 1700000069000,
               "stage": "compacting",
               "pressure": 116,
               "est": 46,
@@ -9342,7 +10439,7 @@
               "baselineAt": null
             },
             {
-              "at": 1700000064000,
+              "at": 1700000069000,
               "stage": "pre_send",
               "pressure": 116,
               "est": 46,
@@ -9351,8 +10448,8 @@
               "baselineAt": null
             }
           ],
-          "lastChangedAt": 1700000064000,
-          "lastCompactAt": 1700000064000
+          "lastChangedAt": 1700000069000,
+          "lastCompactAt": 1700000069000
         },
         "generation": 0,
         "closed": false,
@@ -9389,7 +10486,7 @@
           "contextWindow": 128000,
           "boundaryTokens": 128000,
           "triggerTokens": 128000,
-          "updatedAt": 1700000064000
+          "updatedAt": 1700000069000
         }
       }
     },
@@ -9431,7 +10528,7 @@
           }
         }
       },
-      "now": 1700000065000,
+      "now": 1700000070000,
       "result": null,
       "after": {
         "id": "s-sync",
@@ -9498,7 +10595,7 @@
           }
         }
       },
-      "now": 1700000066000,
+      "now": 1700000071000,
       "result": null,
       "after": {
         "id": "s-sync-saved",
@@ -9564,7 +10661,7 @@
           }
         }
       },
-      "now": 1700000067000,
+      "now": 1700000072000,
       "result": null,
       "after": {
         "id": "s-install-none",
@@ -9634,7 +10731,7 @@
           }
         }
       },
-      "now": 1700000068000,
+      "now": 1700000073000,
       "result": null,
       "after": {
         "id": "s-install-object",
@@ -9705,7 +10802,7 @@
           }
         }
       },
-      "now": 1700000069000,
+      "now": 1700000074000,
       "result": null,
       "after": {
         "id": "s-install-not-an-object",
@@ -9766,7 +10863,7 @@
           "other": 1
         }
       },
-      "now": 1700000070000,
+      "now": 1700000075000,
       "result": null,
       "after": {
         "id": "s-sync-none",

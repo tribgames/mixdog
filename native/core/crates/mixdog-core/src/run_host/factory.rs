@@ -24,7 +24,7 @@ use mixdog_agent::env::CommitError;
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{AgentError, Run, RunCarry, RunConfig};
-use mixdog_core_api::domain::provider::{Content, ProviderAdapter, Role};
+use mixdog_core_api::domain::provider::{Content, ProgressKind, ProviderAdapter, Role};
 use mixdog_core_api::domain::retry::RetryDecider;
 use mixdog_core_api::ids::{ItemId, ThreadId, TurnId};
 use mixdog_protocol::message_class::row_facts;
@@ -490,6 +490,7 @@ enum Shown {
     Check(mixdog_core_session::session::run::SendCheck),
     Pass(Box<mixdog_agent::env::CompactPass>),
     ToolStream,
+    CompactUsage(mixdog_core_session::session::CompactUsageReport),
     /// Answered once every report before it has reached the port.
     Barrier(tokio::sync::oneshot::Sender<()>),
     /// A hosted web search's spend, as `reportNativeWebSearchUsage` shapes it.
@@ -593,8 +594,15 @@ impl RunObserver for PortObserver {
             RunEvent::CompactPass(pass) => {
                 let _ = self.out.send(Shown::Pass(pass));
             }
-            RunEvent::ToolStream => {
-                self.progress.stream_delta(StreamKind::Tool);
+            RunEvent::CompactUsage { iteration, usage, reasoning_tokens, reasoning_tokens_complete } => {
+                let _ = self.out.send(Shown::CompactUsage(mixdog_core_session::session::CompactUsageReport { iteration, usage, reasoning_tokens, reasoning_tokens_complete }));
+            }
+            RunEvent::ToolStream(kind) => {
+                self.progress.stream_delta(match kind {
+                    ProgressKind::Semantic => StreamKind::Semantic,
+                    ProgressKind::Reasoning => StreamKind::Reasoning,
+                    ProgressKind::Tool => StreamKind::Tool,
+                });
                 let _ = self.out.send(Shown::ToolStream);
             }
             // Node's syncContextDisplayFields (context-state.mjs:116): the window the status shows and the compaction trigger, once known (> 0).
@@ -858,6 +866,7 @@ async fn drive(
                 Shown::SearchUsage(delta) => shown_port.search_usage(delta).await,
                 Shown::Pass(pass) => shown_port.compact_pass(pass).await,
                 Shown::ToolStream => shown_port.tool_stream().await,
+                Shown::CompactUsage(report) => shown_port.compact_usage(report).await,
                 Shown::Barrier(done) => {
                     let _ = done.send(());
                     Ok(())

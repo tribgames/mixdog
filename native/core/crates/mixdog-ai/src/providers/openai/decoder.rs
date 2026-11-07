@@ -17,6 +17,7 @@ use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ItemKind;
 use mixdog_core_api::domain::provider::Phase;
+use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::ProviderState;
@@ -136,6 +137,8 @@ pub struct ResponsesDecoder {
     calls_emitted: HashSet<String>,
     refusals: Refusals,
     outcome: ResponseOutcome,
+    /// Some semantic event arrived (`watchdogs.semanticSeen()`): from then on an item boundary is progress.
+    semantic_seen: bool,
 }
 
 fn str_of<'a>(value: &'a Value, key: &str) -> &'a str {
@@ -293,6 +296,7 @@ impl ResponsesDecoder {
             calls_emitted: HashSet::new(),
             refusals: Refusals::default(),
             outcome: ResponseOutcome::default(),
+            semantic_seen: false,
         }
     }
 
@@ -397,10 +401,26 @@ impl ResponsesDecoder {
                 }
             }
             "codex.rate_limits" => out.push(StreamEvent::ProviderKeepalive),
-            "response.output_item.added" => self.item_added(event.get("item").unwrap_or(&Value::Null), out),
+            "response.output_item.added" => {
+                self.item_added(event.get("item").unwrap_or(&Value::Null), out);
+                // `onItemAdded` (`openai-ws-stream/event-switch.mjs`): a call in flight, else a boundary after earlier
+                // output; the first boundary of a response is transport only.
+                let kind = if self.tools.values().any(|t| !t.done) {
+                    Some(ProgressKind::Tool)
+                } else if self.semantic_seen {
+                    Some(ProgressKind::Semantic)
+                } else {
+                    None
+                };
+                if let Some(kind) = kind {
+                    self.semantic_seen = true;
+                    out.push(StreamEvent::Progress(kind));
+                }
+            }
             "response.output_text.delta" => {
                 let delta = str_of(event, "delta");
                 if !delta.is_empty() {
+                    self.semantic_seen = true;
                     self.texts
                         .entry(str_of(event, "item_id").to_owned())
                         .or_default()
@@ -412,6 +432,7 @@ impl ResponsesDecoder {
             "response.reasoning_text.delta" | "response.reasoning_summary_text.delta" => {
                 let delta = str_of(event, "delta");
                 if !delta.is_empty() {
+                    self.semantic_seen = true;
                     out.push(StreamEvent::ReasoningDelta(delta.to_owned()));
                 }
             }
@@ -420,16 +441,23 @@ impl ResponsesDecoder {
                     let key = Refusals::key(str_of(event, "item_id"), event.get("content_index").and_then(Value::as_u64).unwrap_or(0));
                     self.refusals.set(key, delta.to_owned(), true);
                 }
+                self.semantic_seen = true;
+                out.push(StreamEvent::Progress(ProgressKind::Semantic));
             }
             "response.refusal.done" => {
                 if let Some(text) = event.get("refusal").and_then(Value::as_str) {
                     let key = Refusals::key(str_of(event, "item_id"), event.get("content_index").and_then(Value::as_u64).unwrap_or(0));
                     self.refusals.set(key, text.to_owned(), false);
                 }
+                self.semantic_seen = true;
+                out.push(StreamEvent::Progress(ProgressKind::Semantic));
             }
             "response.function_call_arguments.delta" | "response.custom_tool_call_input.delta" => {
                 let delta = str_of(event, "delta");
                 let item_id = str_of(event, "item_id");
+                // `onToolInputDelta` reports every delta, an empty one included.
+                self.semantic_seen = true;
+                out.push(StreamEvent::Progress(ProgressKind::Tool));
                 if !delta.is_empty() {
                     let id = self
                         .tools
@@ -443,8 +471,27 @@ impl ResponsesDecoder {
                     });
                 }
             }
-            "response.function_call_arguments.done" => self.arguments_done(event, out),
-            "response.output_item.done" => self.item_done(event.get("item").unwrap_or(&Value::Null), out),
+            "response.function_call_arguments.done" => {
+                self.arguments_done(event, out);
+                self.semantic_seen = true;
+                out.push(StreamEvent::Progress(ProgressKind::Tool));
+            }
+            "response.output_item.done" => {
+                let item = event.get("item").unwrap_or(&Value::Null);
+                self.item_done(item, out);
+                // `completeOutputItem`'s kind: any finished item is model output.
+                let kind = if is_incomplete_tool_item(item) {
+                    ProgressKind::Tool
+                } else if str_of(item, "type") == "reasoning" {
+                    ProgressKind::Reasoning
+                } else if self.tools.values().any(|t| !t.done) || str_of(item, "type").contains("tool") || str_of(item, "type").contains("function_call") {
+                    ProgressKind::Tool
+                } else {
+                    ProgressKind::Semantic
+                };
+                self.semantic_seen = true;
+                out.push(StreamEvent::Progress(kind));
+            }
             "response.completed" => return self.completed(event, out),
             "response.done" => return self.response_done(event, out),
             "response.incomplete" => return self.incomplete(event, out),
@@ -868,5 +915,37 @@ mod reasoning_tests {
         assert_eq!(missing.reasoning_tokens, None);
         let counted = usage_from(&json!({ "output_tokens_details": { "reasoning_tokens": 7 } }), None);
         assert_eq!(counted.reasoning_tokens, Some(7));
+    }
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+    use crate::providers::progress_golden::{golden, node_names, rust_names};
+
+    struct Ctx;
+
+    impl WireContext for Ctx {
+        fn request_id(&self) -> String {
+            "0".repeat(32)
+        }
+        fn now_unix_ms(&self) -> u64 {
+            0
+        }
+        fn turn_state(&self, _scope: &str, _turn_id: &str) -> Option<String> {
+            None
+        }
+    }
+
+    /// Node's Responses event switch reported these kinds for each event (`golden/stream_progress.json`): item
+    /// boundaries after earlier output are `semantic`, a call's item, arguments and end are `tool`, a finished
+    /// reasoning item is `reasoning`.
+    #[test]
+    fn the_decoder_reports_the_progress_kinds_node_s_event_switch_does() {
+        let mut decoder = ResponsesDecoder::new(Framing::WebSocket, Arc::new(Ctx), ProviderId::from("openai"));
+        for step in golden()["decoders"]["responses"].as_array().expect("responses") {
+            let events = decoder.feed(step["wire"].to_string().as_bytes()).expect("feed");
+            assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
+        }
     }
 }

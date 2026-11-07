@@ -727,7 +727,7 @@ impl SessionActor {
             }
         }
         // The session is installed (created or resumed): `syncSessionCompaction` (`boot/infrastructure.mjs`).
-        self.sync_compaction(true);
+        self.sync_compaction();
         self.deps.runtime_hooks.started(&self.id);
         self.load_persisted_prompts();
         self.pump();
@@ -2618,10 +2618,11 @@ impl SessionActor {
         self.run.as_ref().is_some_and(|run| &run.turn == turn)
     }
 
-    /// `syncSessionCompaction(session, config)` (`session-compaction-sync.mjs`): the header's `compaction` follows
-    /// the saved compaction settings. `install`: the session was just created or resumed.
-    fn sync_compaction(&mut self, install: bool) {
-        if let Some(synced) = self.deps.compaction.synced_compaction(&self.projected.header, install) {
+    /// `syncSessionCompaction(session, config)` (`session-compaction-sync.mjs`) at the session's installation: the
+    /// header's `compaction` follows the saved compaction settings. The later syncs (config reload, settings save) are
+    /// header updates the config-change follower sends (`run_host::compaction_follow`).
+    fn sync_compaction(&mut self) {
+        if let Some(synced) = self.deps.compaction.synced_compaction(&self.projected.header, true) {
             let mut set = serde_json::Map::new();
             set.insert("compaction".into(), synced);
             self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }));
@@ -2738,26 +2739,19 @@ impl SessionActor {
                 if let Some(reset) = self.provider_state_change(None) {
                     self.accept_record(reset, Class::Normal, Display::None, Vec::new(), Vec::new());
                 }
-                // `compaction.compactCount`: one more compaction, the epoch of the thread's
-                // window (`compaction-runner.mjs:505`).
-                // A caller that states the header (the manual compaction's `compactionRecord`)
-                // states its `compactCount` too, so the count is not added here.
-                let change = header.unwrap_or_else(|| {
-                    let mut state = self.projected.header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
-                    let count = state.get("compactCount").and_then(Value::as_u64).unwrap_or(0);
-                    state.insert("compactCount".into(), json!(count + 1));
-                    let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new() };
-                    change.set.insert("compaction".into(), Value::Object(state));
-                    change
-                });
-                self.accept_record(
-                    Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }),
-                    Class::Normal,
-                    Display::None,
-                    Vec::new(),
-                    Vec::new(),
-                );
-                let cid = new_id();
+                // A caller that states the header (the manual compaction's `compactionRecord`) writes it with
+                // the compaction, `compactCount` included (`compaction-runner.mjs:505`). The pre-send pass states
+                // none: its count is the telemetry's (`rememberCompactTelemetry`, `compact-policy.mjs:877`), written
+                // once by the pass's own `pass_change`.
+                if let Some(change) = header {
+                    self.accept_record(
+                        Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }),
+                        Class::Normal,
+                        Display::None,
+                        Vec::new(),
+                        Vec::new(),
+                    );
+                }                let cid = new_id();
                 // The divider shows live where the compaction happened (`compactionDivider`).
                 let divider = super::transcript::divider_item(&cid, Some(compaction.at));
                 let note = Note::new(
@@ -3061,6 +3055,19 @@ impl SessionActor {
                 self.accept_view(Change::Barrier, vec![note]);
             }
             RunShown::ToolStream => self.stream_heartbeat(),
+            RunShown::CompactUsage(report) => {
+                let now = self.deps.clock.now_ms();
+                let usage = super::live_rows::compact_usage_delta(self.id.as_str(), &report, now);
+                // `persistIterationMetrics` marks the turn's usage incremental, as for any call.
+                self.usage_incremental = true;
+                let change = super::usage_books::compact_usage_change(&self.projected.header, &usage, now as f64);
+                self.accept_header(change);
+                let mut usage = usage;
+                usage["usageMetricsTurnId"] = self.projected.header.get("usageMetricsTurnId").cloned().unwrap_or(json!(0));
+                usage["usageMetricsEpoch"] = self.projected.header.get("usageMetricsEpoch").cloned().unwrap_or(json!(0));
+                let note = Note::new("thread/tokenUsage/updated", &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage });
+                self.accept_view(Change::Barrier, vec![note]);
+            }
             RunShown::Pass(pass) => {
                 if let Some(books) = self.deps.compaction.books(&self.id, &self.projected.header) {
                     let change = super::usage_books::pass_change(&self.projected.header, &pass, &books, self.deps.clock.now_ms() as f64);
@@ -4189,9 +4196,6 @@ impl SessionActor {
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
-        // A configuration reload syncs the live session (`config-lifecycle.mjs`); the daemon holds no live session
-        // object to act on, so the settings a turn starts on are the ones it follows.
-        self.sync_compaction(false);
         // `bumpUsageMetricsTurnId` (`whileTurnDispatched`): the turn's usage counts under a new id.
         self.usage_incremental = false;
         self.accept_header(super::usage_books::turn_started(&self.projected.header));

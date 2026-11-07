@@ -421,6 +421,9 @@ impl Run {
             }
         };
         if let Some(usage) = &output.usage {
+            // `accumulateCompactUsage` reports it through `onUsageDelta` as well as into the aggregate.
+            let (reasoning_tokens, reasoning_tokens_complete) = crate::run::reasoning_usage(usage);
+            self.emit(RunEvent::CompactUsage { iteration: self.iterations + 1, usage: usage.clone(), reasoning_tokens, reasoning_tokens_complete });
             self.last_usage = Some(add_usage(self.last_usage.take(), usage));
             if self.first_turn_usage.is_none() {
                 self.first_turn_usage = Some(usage.clone());
