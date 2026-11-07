@@ -3333,6 +3333,51 @@
             }
           },
           "stopReason": null
+        },
+        "recovered": {
+          "action": "proceed",
+          "content": "Hello there. ",
+          "toolCalls": [
+            "c1"
+          ],
+          "stopReason": "tool_use",
+          "partialToolRecovery": true,
+          "providerReplay": {
+            "version": 1,
+            "provider": "openai-responses",
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "rs1",
+                "summary": [
+                  {
+                    "type": "summary_text",
+                    "text": "thinking"
+                  }
+                ],
+                "encrypted_content": "enc"
+              },
+              {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Hello there. "
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}",
+                "status": "completed"
+              }
+            ]
+          }
         }
       },
       {

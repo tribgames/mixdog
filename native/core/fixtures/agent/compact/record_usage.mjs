@@ -514,7 +514,7 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
         onEvent(event);
         return kinds;
       };
-      return { feed, text: () => text, outcome: () => describeOutcome(outcome.terminalError, outcome.terminalError ? null : response.result().stopReason) };
+      return { feed, text: () => text, error: () => outcome.terminalError, outcome: () => describeOutcome(outcome.terminalError, outcome.terminalError ? null : response.result().stopReason) };
     };
     const makeSse = () => {
       let text = '';
@@ -679,7 +679,46 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
       for (const [name, wire] of scenarios) {
         const driver = framing === 'ws' ? makeWs() : makeSse();
         const steps = wire.map((event) => ({ wire: event, kinds: nonTransport(driver.feed(event)) }));
-        decoders.responses.push({ name, framing, steps, text: driver.text(), outcome: driver.outcome() });
+        const entry = { name, framing, steps, text: driver.text(), outcome: driver.outcome() };
+        // What `sendWithRecovery` makes of the cut the WebSocket collector threw (`recoverFromSendError`): the response
+        // the loop commits as the assistant turn.
+        if (framing === 'ws' && name === 'a cutoff after finished items') {
+          const cut = driver.error();
+          const { sendWithRecovery } = await load('src/runtime/agent/orchestrator/session/send-with-recovery.mjs');
+          // The stream relayed what it had parsed before it was cut: the text, and the calls it dispatched eagerly.
+          const provider = {
+            send: async (_messages, _model, _tools, sendOpts) => {
+              sendOpts.onTextDelta(cut.partialContent);
+              for (const call of cut.partialToolCalls) sendOpts.onToolCall(call);
+              throw cut;
+            },
+          };
+          let result;
+          try {
+            result = await sendWithRecovery({
+              provider,
+              messages: [],
+              model: 'm',
+              sendTools: [],
+              opts: { onTextDelta() {}, onToolCall() {} },
+              tools: [],
+              sessionId: 'recorded',
+              nextIteration: 1,
+            });
+          } catch (thrown) {
+            result = { action: `throws: ${thrown.message}` };
+          }
+          const r = result.response ?? null;
+          entry.recovered = {
+            action: result.action,
+            content: r?.content ?? null,
+            toolCalls: r?.toolCalls?.map((call) => call.id) ?? null,
+            stopReason: r?.stopReason ?? null,
+            partialToolRecovery: r?.partialToolRecovery ?? null,
+            providerReplay: r?.providerReplay ?? null,
+          };
+        }
+        decoders.responses.push(entry);
       }
     }
   }
