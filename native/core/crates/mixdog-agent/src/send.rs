@@ -435,6 +435,9 @@ impl Run {
                 }
                 Some(Ok(event)) => event,
             };
+            if let StreamEvent::ChunkProgress(kind) = &event {
+                self.emit(RunEvent::Chunk(*kind));
+            }
             if let StreamEvent::Progress(kind) = &event {
                 self.emit(RunEvent::ToolStream(*kind));
             }

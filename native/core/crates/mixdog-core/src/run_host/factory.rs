@@ -508,6 +508,8 @@ struct PortObserver {
     reasoning: Mutex<Option<(ItemId, String)>>,
     /// The tools of the latest request (`result.lastSendTools`).
     last_send_tools: Mutex<Vec<mixdog_core_api::domain::provider::ToolDefinition>>,
+    /// The stream announces its chunks (`RunEvent::Chunk`): its deltas report no kind of their own.
+    chunked: std::sync::atomic::AtomicBool,
 }
 
 impl PortObserver {
@@ -516,6 +518,17 @@ impl PortObserver {
         let (done, reached) = tokio::sync::oneshot::channel();
         let _ = self.out.send(Shown::Barrier(done));
         reached
+    }
+
+    /// One report of model progress of `kind` (`markSessionStreamDelta`).
+    fn model_progress(&self, kind: ProgressKind) {
+        self.progress.stream_delta(match kind {
+            ProgressKind::Semantic => StreamKind::Semantic,
+            ProgressKind::Reasoning => StreamKind::Reasoning,
+            ProgressKind::Text => StreamKind::Text,
+            ProgressKind::Tool => StreamKind::Tool,
+        });
+        let _ = self.out.send(Shown::ToolStream);
     }
 
     fn reasoning(&self, text: String) {
@@ -573,11 +586,15 @@ impl RunObserver for PortObserver {
             RunEvent::Stage(Stage::ApprovalWait { waiting }) => self.progress.approval_wait(waiting),
             RunEvent::TextDelta(text) => {
                 self.end_reasoning();
-                self.progress.stream_delta(StreamKind::Text);
+                if !self.chunked.load(std::sync::atomic::Ordering::Relaxed) {
+                    self.progress.stream_delta(StreamKind::Text);
+                }
                 self.text(text);
             }
             RunEvent::ReasoningDelta(text) => {
-                self.progress.stream_delta(StreamKind::Reasoning);
+                if !self.chunked.load(std::sync::atomic::Ordering::Relaxed) {
+                    self.progress.stream_delta(StreamKind::Reasoning);
+                }
                 self.reasoning(text);
             }
             RunEvent::Stage(Stage::Notice { message, tone }) => {
@@ -597,13 +614,12 @@ impl RunObserver for PortObserver {
             RunEvent::CompactUsage { iteration, usage, reasoning_tokens, reasoning_tokens_complete } => {
                 let _ = self.out.send(Shown::CompactUsage(mixdog_core_session::session::CompactUsageReport { iteration, usage, reasoning_tokens, reasoning_tokens_complete }));
             }
-            RunEvent::ToolStream(kind) => {
-                self.progress.stream_delta(match kind {
-                    ProgressKind::Semantic => StreamKind::Semantic,
-                    ProgressKind::Reasoning => StreamKind::Reasoning,
-                    ProgressKind::Tool => StreamKind::Tool,
-                });
-                let _ = self.out.send(Shown::ToolStream);
+            RunEvent::ToolStream(kind) => self.model_progress(kind),
+            RunEvent::Chunk(kind) => {
+                self.chunked.store(true, std::sync::atomic::Ordering::Relaxed);
+                if let Some(kind) = kind {
+                    self.model_progress(kind);
+                }
             }
             // Node's syncContextDisplayFields (context-state.mjs:116): the window the status shows and the compaction trigger, once known (> 0).
             // A send that compacts nothing also records its check (`compactTelemetry(ctx, 'pre_send_check')`).
@@ -880,7 +896,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()) });
+    let observer = Arc::new(PortObserver { progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false) });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();

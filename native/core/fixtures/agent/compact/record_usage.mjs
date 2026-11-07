@@ -483,44 +483,127 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
   const decoders = {};
   const nonTransport = (kinds) => kinds.filter((kind) => kind !== 'transport');
 
-  // OpenAI Responses over the websocket: the event switch over the real response state and text relay.
+  // OpenAI Responses: scenarios over both collectors Node has, a fresh decoder each. `ws` is the WebSocket event switch over
+  // the real response state, text relay and terminal frames; `sse` is the HTTP/SSE collector (`createHttpSseResponseState`).
   {
     const { createWsResponseState } = await load(`${providerDir}/openai-ws-response-state.mjs`);
     const { createWsTextRelay } = await load(`${providerDir}/openai-ws-text-relay.mjs`);
     const { createWsEventSwitch } = await load(`${providerDir}/openai-ws-stream/event-switch.mjs`);
-    let kinds = [];
-    const progress = (kind) => kinds.push(kind);
-    const midState = {};
-    const response = createWsResponseState({ onToolCall() {}, onStreamDelta: progress, midState, traceProvider: 'openai-oauth' });
-    const textRelay = createWsTextRelay({ response, knownToolNames: ['read'], sessionState: midState, onTextDelta() {}, onStreamDelta: progress });
-    let seen = false;
-    const watchdogs = { clearFirstMeaningful() {}, semanticSeen: () => seen, bumpSemantic() { seen = true; } };
+    const { createTerminalFrameHandlers } = await load(`${providerDir}/openai-ws-stream/terminal-frames.mjs`);
+    const { createHttpSseResponseState } = await load(`${providerDir}/openai-http-sse-response-state.mjs`);
     const noop = () => {};
-    const terminal = { onResponseCompleted: noop, onResponseDone: noop, onResponseIncomplete: noop, onResponseFailed: noop, onErrorFrame: noop };
-    const onEvent = createWsEventSwitch({ response, textRelay, watchdogs, midState, progress, terminal, streamingStart: Date.now(), onStreamItemStart: null });
+    const makeWs = () => {
+      let kinds = [];
+      const progress = (kind) => kinds.push(kind);
+      const midState = {};
+      const response = createWsResponseState({ onToolCall() {}, onStreamDelta: progress, midState, traceProvider: 'openai-oauth' });
+      const textRelay = createWsTextRelay({ response, knownToolNames: ['read'], sessionState: midState, onTextDelta() {}, onStreamDelta: progress });
+      let seen = false;
+      const watchdogs = { clearFirstMeaningful: noop, semanticSeen: () => seen, bumpSemantic() { seen = true; } };
+      const terminal = createTerminalFrameHandlers({ response, textRelay, midState, errLabel: 'ws', progress, outcome: {}, finish: noop });
+      const handlers = { onResponseCompleted: terminal.onResponseCompleted, onResponseDone: terminal.onResponseDone, onResponseIncomplete: noop, onResponseFailed: noop, onErrorFrame: noop };
+      const onEvent = createWsEventSwitch({ response, textRelay, watchdogs, midState, progress, terminal: handlers, streamingStart: Date.now(), onStreamItemStart: null });
+      return (event) => {
+        kinds = [];
+        onEvent(event);
+        return kinds;
+      };
+    };
+    const makeSse = () => {
+      let kinds = [];
+      let seen = false;
+      const meaningful = (kind = 'semantic') => { seen = true; kinds.push(kind); };
+      const lifecycle = (kind = 'semantic') => { if (seen) meaningful(kind); };
+      const state = createHttpSseResponseState({ body: { tools: [{ name: 'read' }] }, onToolCall() {}, onTextDelta() {}, meaningful, lifecycle, onServerEvent: noop, label: 'sse' });
+      return (event) => {
+        kinds = [];
+        state.handleEvent(event);
+        return kinds;
+      };
+    };
     const fc = { type: 'function_call', id: 'fc1', call_id: 'c1', name: 'read', arguments: '' };
-    const wire = [
+    const fcDone = { ...fc, arguments: '{"path":"a.txt"}', status: 'completed' };
+    const reasoning = { type: 'reasoning', id: 'rs1', summary: [{ type: 'summary_text', text: 'thinking' }], encrypted_content: 'enc' };
+    const message = { type: 'message', id: 'm1', role: 'assistant', content: [{ type: 'output_text', text: 'Hello there. ' }] };
+    const completed = (output) => ({ type: 'response.completed', response: { id: 'r1', model: 'm', status: 'completed', ...(output ? { output } : {}), usage: { input_tokens: 1, output_tokens: 1 } } });
+    const stream = [
       { type: 'response.created', response: { id: 'r1', model: 'm' } },
       { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs1', summary: [] } },
       { type: 'response.reasoning_summary_text.delta', item_id: 'rs1', delta: 'thinking' },
-      { type: 'response.output_item.done', output_index: 0, item: { type: 'reasoning', id: 'rs1', summary: [{ type: 'summary_text', text: 'thinking' }] } },
+      { type: 'response.output_item.done', output_index: 0, item: reasoning },
       { type: 'response.output_item.added', output_index: 1, item: { type: 'message', id: 'm1', role: 'assistant', content: [] } },
       { type: 'response.output_text.delta', item_id: 'm1', delta: 'Hello there. ' },
-      { type: 'response.output_item.done', output_index: 1, item: { type: 'message', id: 'm1', role: 'assistant', content: [{ type: 'output_text', text: 'Hello there. ' }] } },
+      { type: 'response.output_item.done', output_index: 1, item: message },
       { type: 'response.output_item.added', output_index: 2, item: fc },
       { type: 'response.function_call_arguments.delta', item_id: 'fc1', delta: '{"path":' },
       { type: 'response.function_call_arguments.delta', item_id: 'fc1', delta: '"a.txt"}' },
       { type: 'response.function_call_arguments.done', item_id: 'fc1', arguments: '{"path":"a.txt"}' },
-      { type: 'response.output_item.done', output_index: 2, item: { ...fc, arguments: '{"path":"a.txt"}', status: 'completed' } },
+      { type: 'response.output_item.done', output_index: 2, item: fcDone },
     ];
+    const scenarios = [
+      ['a streamed response, then its bundle', [...stream, completed([reasoning, message, fcDone])]],
+      ['a bundle carrying everything', [{ type: 'response.created', response: { id: 'r1', model: 'm' } }, completed([reasoning, message, fcDone])]],
+      ['a bundle without items', [{ type: 'response.created', response: { id: 'r1', model: 'm' } }, completed([])]],
+      ['a bundle without an output', [{ type: 'response.created', response: { id: 'r1', model: 'm' } }, completed(null)]],
+      ['a bundle with a refusal', [{ type: 'response.created', response: { id: 'r1', model: 'm' } }, completed([{ type: 'message', id: 'm2', role: 'assistant', content: [{ type: 'refusal', refusal: 'No.' }] }])]],
+      ['a bundle of calls', [{ type: 'response.created', response: { id: 'r1', model: 'm' } }, completed([{ type: 'web_search_call', id: 'ws1', status: 'completed' }, { type: 'custom_tool_call', id: 'ct1', call_id: 'c2', name: 'apply_patch', input: 'x' }, { type: 'tool_search_call', id: 'ts1', call_id: 'c3', arguments: '{}' }, { type: 'unknown_item', id: 'u1' }])]],
+      ['a truncated call', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs1', summary: [] } },
+        { type: 'response.reasoning_summary_text.delta', item_id: 'rs1', delta: 'hm' },
+        { type: 'response.output_item.added', output_index: 1, item: { ...fc, status: 'in_progress' } },
+        { type: 'response.output_item.done', output_index: 1, item: { ...fc, arguments: '{"pa', status: 'incomplete' } },
+        { type: 'response.output_item.added', output_index: 2, item: { type: 'message', id: 'm1', role: 'assistant', content: [] } },
+      ]],
+      ['the in-flight latch', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.reasoning_summary_text.delta', item_id: 'rs1', delta: 'hm' },
+        { type: 'response.output_item.added', output_index: 0, item: fc },
+        { type: 'response.output_item.added', output_index: 1, item: { type: 'message', id: 'm1', role: 'assistant', content: [] } },
+        { type: 'response.output_item.done', output_index: 1, item: message },
+        { type: 'response.function_call_arguments.done', item_id: 'fc1', arguments: '{}' },
+        { type: 'response.output_item.added', output_index: 2, item: { type: 'message', id: 'm3', role: 'assistant', content: [] } },
+        { type: 'response.output_item.done', output_index: 0, item: fcDone },
+        { type: 'response.output_item.added', output_index: 3, item: { type: 'message', id: 'm4', role: 'assistant', content: [] } },
+        { type: 'response.output_item.done', output_index: 3, item: { type: 'message', id: 'm4', role: 'assistant', content: [] } },
+      ]],
+      ['an argument delta for an unknown item', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.reasoning_summary_text.delta', item_id: 'rs1', delta: 'hm' },
+        { type: 'response.function_call_arguments.delta', item_id: 'ghost', delta: '' },
+        { type: 'response.output_item.added', output_index: 1, item: { type: 'message', id: 'm1', role: 'assistant', content: [] } },
+        { type: 'response.output_item.done', output_index: 1, item: message },
+      ]],
+    ];
+    // The compatible route over HTTP/SSE: the real stream consumer over an async event source.
+    const { consumeCompatResponsesStream } = await load(`${providerDir}/openai-compat-stream.mjs`);
+    const { parseResponsesToolCalls, responseOutputText } = await load(`${providerDir}/openai-compat-wire.mjs`);
+    const compatSteps = async (wire) => {
+      const per = wire.map(() => []);
+      let current = -1;
+      async function* source() {
+        for (let index = 0; index < wire.length; index += 1) {
+          current = index;
+          yield wire[index];
+        }
+        current = -1;
+      }
+      try {
+        await consumeCompatResponsesStream(source(), { label: 'compat', knownToolNames: ['read'], onStreamDelta: (kind) => { if (current >= 0) per[current].push(kind); }, onToolCall() {}, onTextDelta() {}, parseResponsesToolCalls, responseOutputText });
+      } catch {
+        /* the kinds were reported before the settlement */
+      }
+      return wire.map((event, index) => ({ wire: event, kinds: nonTransport(per[index]) }));
+    };
     decoders.responses = [];
-    for (const event of wire) {
-      kinds = [];
-      onEvent(event);
-      decoders.responses.push({ wire: event, kinds: nonTransport(kinds) });
+    for (const [name, wire] of scenarios) decoders.responses.push({ name, framing: 'compat', steps: await compatSteps(wire) });
+    for (const framing of ['ws', 'sse']) {
+      for (const [name, wire] of scenarios) {
+        const feed = framing === 'ws' ? makeWs() : makeSse();
+        decoders.responses.push({ name, framing, steps: wire.map((event) => ({ wire: event, kinds: nonTransport(feed(event)) })) });
+      }
     }
   }
-
   // OpenAI-compatible chat completions: the real chunk consumer over an async chunk source.
   {
     const { consumeCompatChatCompletionStream } = await load(`${providerDir}/openai-compat-chat-stream.mjs`);
@@ -566,6 +649,9 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
     const wire = [
       part([{ text: 'pondering', thought: true }]),
       part([{ text: 'Hello. ' }]),
+      part([{ text: 'mulling', thought: true }, { text: 'and saying' }]),
+      part([{ text: 'saying', }, { functionCall: { name: 'read', args: { path: 'a.txt' } } }]),
+      part([{ text: '' }]),
       part([{ functionCall: { name: 'read', args: { path: 'a.txt' } } }]),
       { candidates: [{ finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 3, totalTokenCount: 8 } },
     ];
