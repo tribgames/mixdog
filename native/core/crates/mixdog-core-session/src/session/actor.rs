@@ -690,6 +690,8 @@ impl SessionActor {
                 self.recover();
             }
         }
+        // The session is installed (created or resumed): `syncSessionCompaction` (`boot/infrastructure.mjs`).
+        self.sync_compaction(true);
         self.deps.runtime_hooks.started(&self.id);
         self.load_persisted_prompts();
         self.pump();
@@ -2499,20 +2501,24 @@ impl SessionActor {
         self.run.as_ref().is_some_and(|run| &run.turn == turn)
     }
 
+    /// `syncSessionCompaction(session, config)` (`session-compaction-sync.mjs`): the header's `compaction` follows
+    /// the saved compaction settings. `install`: the session was just created or resumed.
+    fn sync_compaction(&mut self, install: bool) {
+        if let Some(synced) = self.deps.compaction.synced_compaction(&self.projected.header, install) {
+            let mut set = serde_json::Map::new();
+            set.insert("compaction".into(), synced);
+            self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }));
+        }
+    }
+
     /// The disk-side heartbeat of `markSessionStreamDelta` (`runtime-liveness.mjs`, `HEARTBEAT_THROTTLE_MS`): a
     /// semantic model event of a live run refreshes `lastHeartbeatAt` once the stored one is over a minute old.
     fn stream_heartbeat(&mut self) {
-        const HEARTBEAT_THROTTLE_MS: f64 = 60_000.0;
         if self.run.is_none() {
             return;
         }
-        let now = self.deps.clock.now_ms() as f64;
-        let last = self.projected.header.get("lastHeartbeatAt").and_then(Value::as_f64).unwrap_or(0.0);
-        if now - last > HEARTBEAT_THROTTLE_MS {
-            let mut set = serde_json::Map::new();
-            set.insert("lastHeartbeatAt".into(), mixdog_js::json_number(now));
-            self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }));
-        }
+        let change = super::usage_books::stream_heartbeat(&self.projected.header, self.deps.clock.now_ms() as f64);
+        self.accept_header(change);
     }
 
     fn on_producer(&mut self, msg: ProducerMsg) {
@@ -4025,13 +4031,9 @@ impl SessionActor {
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
-        // `syncSessionCompaction` (`session-compaction-sync.mjs`): a session follows the saved compaction settings
-        // from the moment it is installed; the header carries that from the turn's first save on.
-        if let Some(synced) = self.deps.compaction.synced_compaction(&self.projected.header) {
-            let mut set = serde_json::Map::new();
-            set.insert("compaction".into(), synced);
-            self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }));
-        }
+        // A configuration reload syncs the live session (`config-lifecycle.mjs`); the daemon holds no live session
+        // object to act on, so the settings a turn starts on are the ones it follows.
+        self.sync_compaction(false);
         // `bumpUsageMetricsTurnId` (`whileTurnDispatched`): the turn's usage counts under a new id.
         self.usage_incremental = false;
         self.accept_header(super::usage_books::turn_started(&self.projected.header));
@@ -4224,7 +4226,10 @@ impl SessionActor {
                 .get(PROVIDER_STATE)
                 .and_then(|state| serde_json::from_value(state.clone()).ok()),
             meters: self.deps.compaction.clone(),
-            meters_provider: self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            meters_provider: {
+                let cell = self.cell.clone();
+                Arc::new(move || cell.header.load().get("provider").and_then(Value::as_str).unwrap_or_default().to_owned())
+            },
         };
         // A session takes moved settings gates at its next turn start (today's
         // `stageToolAvailability`).

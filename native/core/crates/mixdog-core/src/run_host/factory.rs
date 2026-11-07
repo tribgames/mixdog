@@ -1640,7 +1640,7 @@ mod tests {
         fn hidden_agent(&self, _: Option<&str>) -> bool {
             false
         }
-        fn synced_compaction(&self, _: &mixdog_store::schema::record::Header) -> Option<Value> {
+        fn synced_compaction(&self, _: &mixdog_store::schema::record::Header, _: bool) -> Option<Value> {
             None
         }
         fn run_settings(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> super::super::assemble::RunSettings {

@@ -365,7 +365,51 @@ const syncCase = (name, session, config) => step(name, 'sync', session, [], { co
 const created = { boundaryTokens: 128000, auto: true, model: null, summaryModel: null, timeoutMs: null, bufferTokens: 4000, bufferRatio: 0.03, mainBufferTokens: null, reservedTokens: null, contextWindow: 128000, lastStage: 'pre_send_check', compactCount: 2 };
 syncCase('sync-seeds-the-config-fields-and-strips-the-buffer', newSession('s-sync', { compaction: created }), { compaction: { auto: true } });
 syncCase('sync-takes-the-saved-values', newSession('s-sync-saved', { compaction: created }), { compaction: { auto: false, summaryModel: 'm-sum', bufferTokens: 9000, summaryMode: 'self', onModelChange: false } });
+// The install point (boot/infrastructure.mjs): the sync runs unless the caller injected its own config.
+const { usesInjectedConfig } = await load('src/session-runtime/session-compaction-sync.mjs');
+for (const [label, params] of [['none', {}], ['object', { initialConfig: { compaction: { auto: false } } }], ['not-an-object', { initialConfig: 'x' }]]) {
+  const session = newSession(`s-install-${label}`, { compaction: created });
+  step(`install-${label}`, 'install', session, [], { params, config: { compaction: { auto: true } } }, () => {
+    if (!usesInjectedConfig(params)) syncSessionCompaction(session, { compaction: { auto: true } });
+  });
+}
 syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-none', { compaction: created }), { other: 1 });
+
+// ---- the disk-side heartbeat: Node's own event handlers over a run of events, the clock moved across the 60 s boundary --------
+// `markSessionStreamDelta` (text, reasoning, tool protocol, and the non-semantic transport / keepalive) and
+// `markSessionToolCall`; after each event the session's `lastHeartbeatAt` and how many times it was saved.
+{
+  const live = await load(`${sessionDir}/manager/runtime-liveness.mjs`);
+  const { runtimeState } = await load(`${sessionDir}/manager/runtime-state.mjs`);
+  let saves = 0;
+  live.configureRuntimeLiveness({ saveSessionAsync: async () => { saves += 1; } });
+  const session = { id: 's-heartbeat', generation: 0 };
+  runtimeState.set(session.id, { stage: 'streaming', session, controller: { signal: { aborted: false } }, updatedAt: clock });
+  const events = [];
+  const run = [
+    ['text', 0],
+    ['reasoning', 10_000],
+    ['transport', 20_000],
+    ['tool', 30_000],
+    ['text', 30_000],
+    ['keepalive', 1],
+    ['toolCall', 5_000],
+    ['text', 1],
+    ['reasoning', 60_000],
+    ['text', 1],
+    ['semantic', 61_000],
+    ['text', 100],
+  ];
+  const started = clock;
+  for (const [kind, advance] of run) {
+    clock += advance;
+    const before = session.lastHeartbeatAt ?? null;
+    if (kind === 'toolCall') live.markSessionToolCall(session.id, 'read');
+    else await live.markSessionStreamDelta(session.id, kind);
+    events.push({ kind, at: clock, before, after: session.lastHeartbeatAt ?? null, saves });
+  }
+  writeFileSync(join(here, 'golden', 'heartbeat.json'), `${JSON.stringify({ start: started, events }, null, 2)}\n`);
+}
 
 writeFileSync(join(here, 'golden', 'usage.json'), `${JSON.stringify({ cases }, null, 2)}\n`);
 refreshSetManifest(agentDir, nodeRoot);

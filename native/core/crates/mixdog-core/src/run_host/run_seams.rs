@@ -38,11 +38,20 @@ pub struct ConfigRunSeams {
     plugin_root: PathBuf,
     data_dir: PathBuf,
     env: EnvReader,
+    /// The configuration was handed in by a headless caller (`usesInjectedConfig(params)`): its sessions keep the
+    /// compaction they were created with when they are installed.
+    injected_config: bool,
 }
 
 impl ConfigRunSeams {
     pub fn new(config: Config, agents: Arc<AgentDefinitions>, plugin_root: PathBuf, data_dir: PathBuf, env: EnvReader) -> Self {
-        Self { config, agents, plugin_root, data_dir, env }
+        Self { config, agents, plugin_root, data_dir, env, injected_config: false }
+    }
+
+    /// Marks the configuration as injected by the caller rather than the profile on disk.
+    pub fn with_injected_config(mut self, injected: bool) -> Self {
+        self.injected_config = injected;
+        self
     }
 
     /// `session.compaction` after `syncSessionCompaction(session, config)`: the header's own
@@ -232,7 +241,10 @@ impl ConfigSeams for ConfigRunSeams {
         self.agents.hidden_agent(agent)
     }
 
-    fn synced_compaction(&self, header: &Header) -> Option<Value> {
+    fn synced_compaction(&self, header: &Header, install: bool) -> Option<Value> {
+        if install && self.injected_config {
+            return None;
+        }
         self.config.agent().get("compaction").filter(|c| c.is_object())?;
         let synced = Value::Object(self.session_compaction(header));
         (header.get("compaction") != Some(&synced)).then_some(synced)

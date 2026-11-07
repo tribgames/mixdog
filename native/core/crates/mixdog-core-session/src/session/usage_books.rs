@@ -91,3 +91,44 @@ pub(crate) fn settled_change(header: &Header, settled: &Settled, incremental: bo
     };
     change(patch)
 }
+
+/// `HEARTBEAT_THROTTLE_MS` (`manager/runtime-liveness.mjs`).
+const HEARTBEAT_THROTTLE_MS: f64 = 60_000.0;
+
+/// The disk-side heartbeat of `markSessionStreamDelta`: a semantic model event refreshes
+/// `session.lastHeartbeatAt` once the stored one is more than a minute old.
+pub(crate) fn stream_heartbeat(header: &Header, now: f64) -> Option<HeaderChange> {
+    let last = header.get("lastHeartbeatAt").and_then(Value::as_f64).unwrap_or(0.0);
+    if now - last <= HEARTBEAT_THROTTLE_MS {
+        return None;
+    }
+    let mut set = Header::new();
+    set.insert("lastHeartbeatAt".into(), mixdog_js::json_number(now));
+    Some(HeaderChange { set, unset: Vec::new() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Node's own `markSessionStreamDelta` / `markSessionToolCall` over a run of events with the clock moved across the
+    /// 60 s boundary (`fixtures/agent/compact/record_usage.mjs` -> `golden/heartbeat.json`). The semantic kinds ask for
+    /// the heartbeat; a transport chunk, a keepalive and a tool's start (`markSessionToolCall`) never do.
+    #[test]
+    fn the_heartbeat_follows_node_over_a_run_of_events() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/agent/compact/golden/heartbeat.json")).expect("golden");
+        let mut header = Header::new();
+        let mut saves = 0;
+        for event in golden["events"].as_array().expect("events") {
+            let kind = event["kind"].as_str().expect("kind");
+            if matches!(kind, "text" | "reasoning" | "tool" | "semantic")
+                && let Some(change) = stream_heartbeat(&header, event["at"].as_f64().expect("at"))
+            {
+                header.extend(change.set);
+                saves += 1;
+            }
+            assert_eq!(header.get("lastHeartbeatAt").cloned().unwrap_or(Value::Null), event["after"], "{kind} at {}", event["at"]);
+            assert_eq!(saves, event["saves"].as_i64().expect("saves"), "{kind}: saves");
+        }
+    }
+}

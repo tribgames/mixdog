@@ -140,8 +140,9 @@ pub trait ManualCompaction: Send + Sync {
     /// synchronously, so its host prepares first.
     async fn prepare_books(&self, thread: &ThreadId, provider: &str, messages: &[mixdog_agent::message::AgentMessage]);
     /// `syncSessionCompaction(session, config)`: the `compaction` record of the thread following the
-    /// saved configuration, when it differs from the header's.
-    fn synced_compaction(&self, header: &mixdog_store::schema::record::Header) -> Option<Value>;
+    /// saved configuration, when it differs from the header's. `install`: the session is being installed
+    /// (the one sync that leaves an injected configuration's sessions alone).
+    fn synced_compaction(&self, header: &mixdog_store::schema::record::Header, install: bool) -> Option<Value>;
 }
 
 /// What a thread's transcript is priced and signed with on its provider (the compaction's own
