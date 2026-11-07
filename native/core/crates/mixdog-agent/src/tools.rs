@@ -473,9 +473,6 @@ pub(crate) struct Executed {
     /// The tool's result minus its `parts` and follow-ups (already in
     /// `message` / `follow_ups`); `None` for a call that did not run a tool.
     pub(crate) output: Option<ToolOutput>,
-    /// The executor returned this text rather than throwing (a gate or hook denial): Node's early notice calls such
-    /// a settled call a normal result, not an error.
-    pub(crate) returned: bool,
 }
 
 impl Executed {
@@ -488,14 +485,7 @@ impl Executed {
             follow_ups: Vec::new(),
             cache_hit: None,
             output: None,
-            returned: false,
         }
-    }
-
-    /// A failure Node's executor returns as text (`return denial`): the call failed for the transcript, but it did
-    /// not throw.
-    pub(crate) fn returned(call_id: &str, text: String) -> Self {
-        Self { returned: true, ..Self::error(call_id, text) }
     }
 }
 
@@ -776,46 +766,33 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     let call = call.clone();
     let name = call.name.clone();
     // `prepareToolCall` (`tool-exec/call-prep.mjs:70`): every call starts from the live registry.
-    // The preparation is under the run's cancellation like the tool task: a call nobody waits for any more (an
-    // eager run the batch left to finish) must not hold the run's environment through a gate or a catalog that never
-    // answers once the turn is cancelled.
-    let cancelled = || Executed::error(&call.id, ended_error::<()>(&name, &Scoped::Cancelled, None).message_for_model);
-    if let Some(mcp) = &env.mcp
-        && hooked(&env.cancel, mcp.refresh()).await.is_none()
-    {
-        return cancelled();
+    if let Some(mcp) = &env.mcp {
+        mcp.refresh().await;
     }
-    let Some(authorized) = hooked(
-        &env.cancel,
-        authorize(
-            &call.id,
-            &name,
-            &call.arguments,
-            env.gate.as_ref(),
-            env.tool_env.approvals.as_ref(),
-            env.observer.as_ref(),
-            env.guards.as_ref(),
-        ),
+    let target = match authorize(
+        &call.id,
+        &name,
+        &call.arguments,
+        env.gate.as_ref(),
+        env.tool_env.approvals.as_ref(),
+        env.observer.as_ref(),
+        env.guards.as_ref(),
     )
     .await
-    else {
-        return cancelled();
-    };
-    let target = match authorized {
+    {
         Ok(target) => target,
-        Err(text) => return Executed::returned(&call.id, text),
+        Err(text) => return Executed::error(&call.id, text),
     };
     // `tool-exec.mjs:114`: an MCP call, once its hooks, approval and denial are behind it (the wait for an
     // approval can outlast a server's connect), is judged against the registry as it stands now.
     if target.name.starts_with("mcp__")
         && let Some(mcp) = &env.mcp
-        && hooked(&env.cancel, mcp.refresh()).await.is_none()
     {
-        return cancelled();
+        mcp.refresh().await;
     }
     let Some(tool) = env.tools.get(&target.name).cloned() else {
         let names = env.tools.builtin_names();
-        return Executed::returned(&call.id, crate::text::unknown_tool_message(&target.name, &names));
+        return Executed::error(&call.id, crate::text::unknown_tool_message(&target.name, &names));
     };
     let spec = env.tools.spec_of(&tool);
     let timeout = env.tool_env.deadline_of.as_ref().and_then(|f| f(spec));
@@ -911,7 +888,6 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
                     .collect(),
                 cache_hit: None,
                 output: Some(output),
-                returned: false,
             }
         }
         Err(error) => {

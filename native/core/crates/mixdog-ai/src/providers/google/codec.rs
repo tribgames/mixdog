@@ -22,7 +22,6 @@ use sha2::Sha256;
 use mixdog_core_api::domain::provider::GeminiCacheState;
 
 use super::cache::policy::cached_body;
-use crate::providers::leak::request_tool_names;
 use super::decode::DecodeDialect;
 use super::decode::GeminiDecoder;
 use super::decode::UsageStyle;
@@ -240,8 +239,8 @@ impl WireCodec for GoogleCodec {
         self.wire(request, &inner, None)
     }
 
-    fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
-        self.decoder_impl(request)
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
+        self.decoder_impl()
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
@@ -350,7 +349,7 @@ impl GoogleCodec {
         })
     }
 
-    fn decoder_impl(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
+    fn decoder_impl(&self) -> Box<dyn WireDecoder> {
         Box::new(GeminiDecoder::new(DecodeDialect {
             owner: self.provider.clone(),
             envelope: matches!(self.target, Target::Antigravity { .. }),
@@ -360,6 +359,6 @@ impl GoogleCodec {
                 Target::Antigravity { .. } => UsageStyle::ToolUseAdded,
             },
             errors: self.error_dialect(),
-        }).with_known_tools(request_tool_names(request)))
+        }))
     }
 }

@@ -14,8 +14,6 @@ use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_protocol::ProviderId;
 
 use crate::catalog::ListingLookup;
-use crate::providers::leak::ToolNames;
-use crate::providers::leak::body_tool_names;
 
 use super::betas::beta_header;
 use super::body::BodyConfig;
@@ -195,9 +193,8 @@ impl WireCodec for AnthropicCodec {
         })
     }
 
-    fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
-        let known = body_tool_names(self, request, ToolNames::Named);
-        Box::new(AnthropicDecoder::new(self.owner.clone()).with_known_tools(known))
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
+        Box::new(AnthropicDecoder::new(self.owner.clone()))
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
