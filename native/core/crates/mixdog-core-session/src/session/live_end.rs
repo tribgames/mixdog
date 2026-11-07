@@ -37,13 +37,30 @@ pub fn done_verb(turn: usize) -> &'static str {
 /// an assistant row carries its turn's `attemptId` and `completionVerb` and `streaming: false`; the turn's input row carries
 /// no `checkpointId` (the turn's end does); a tool row reads as the turn's card, an aggregate even for one call
 /// ([`mixdog_protocol::ToolRun::live`]). `attempt` is the stored row's own `attemptId`, `verb` the open turn's.
-pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&str>, verb: Option<&str>) -> mixdog_protocol::ThreadItem {
+/// A reply the history does not stamp (the partial reply of a cancelled turn is stored as the bare message) reads live as
+/// the stream's text, untrimmed (`stream.assistantText`, `raw`), under the turn's route and identity (`turn`: the input
+/// row's `meta.transcript`) and its own `messageId`, stamped `at` the time it showed.
+pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&str>, verb: Option<&str>, turn: Option<&Value>, raw: Option<&str>, at: i64) -> mixdog_protocol::ThreadItem {
+    use mixdog_protocol::MaybeBlob;
     use mixdog_protocol::ThreadItem;
     match &mut item {
         ThreadItem::UserMessage { checkpoint_id, .. } => *checkpoint_id = None,
-        ThreadItem::AgentMessage { meta, .. } => {
+        ThreadItem::AgentMessage { text, meta, .. } => {
             if let Some(attempt) = attempt {
                 meta.ext.insert("attemptId".into(), json!(attempt));
+            } else if let Some(turn) = turn.and_then(Value::as_object) {
+                for key in ["agent", "model", "modelId", "provider", "attemptId"] {
+                    if let Some(value) = turn.get(key).filter(|value| value.as_str().is_some_and(|text| !text.is_empty())) {
+                        meta.ext.entry(key.to_owned()).or_insert_with(|| value.clone());
+                    }
+                }
+                meta.ext.entry("at").or_insert_with(|| json!(at));
+                meta.ext.entry("messageId").or_insert_with(|| json!(super::new_id()));
+                if let (MaybeBlob::Inline(shown), Some(raw)) = (&mut *text, raw)
+                    && js_trim(raw) == *shown
+                {
+                    *shown = raw.to_owned();
+                }
             }
             if let Some(verb) = verb {
                 meta.ext.insert("completionVerb".into(), json!(verb));
@@ -268,14 +285,31 @@ mod tests {
     fn a_shown_item_takes_the_live_form() {
         use mixdog_protocol::{ItemMeta, MaybeBlob, ThreadItem, ToolRun};
         let reply = ThreadItem::AgentMessage { id: "a".into(), text: MaybeBlob::Inline("hi".into()), meta: ItemMeta::default(), imported_tool_runs: Vec::new() };
-        let ThreadItem::AgentMessage { meta, .. } = live_form(reply, Some("att"), Some("Mapped")) else { panic!("a reply stays a reply") };
+        let ThreadItem::AgentMessage { meta, .. } = live_form(reply, Some("att"), Some("Mapped"), None, None, 0) else { panic!("a reply stays a reply") };
         assert_eq!(
             (meta.ext.get("attemptId"), meta.ext.get("completionVerb"), meta.ext.get("streaming")),
             (Some(&json!("att")), Some(&json!("Mapped")), Some(&json!(false)))
         );
         let call = ThreadItem::ToolCall { id: "t".into(), name: "read".into(), input: json!({}), output: None, run: Box::new(ToolRun::default()), meta: ItemMeta::default() };
-        let ThreadItem::ToolCall { run, .. } = live_form(call, None, None) else { panic!("a call stays a call") };
+        let ThreadItem::ToolCall { run, .. } = live_form(call, None, None, None, None, 0) else { panic!("a call stays a call") };
         assert_eq!(run.live, Some(true));
+    }
+
+    /// The partial reply of a cancelled turn is stored as the bare message, so its live row reads the stream's text untrimmed and takes
+    /// the turn's route and identity, a `messageId` of its own and the time it showed (the Node daemon's `cancel` scenario).
+    #[test]
+    fn a_reply_the_history_does_not_stamp_reads_live_under_the_turns_identity() {
+        use mixdog_protocol::{ItemMeta, MaybeBlob, ThreadItem};
+        let turn = json!({ "attemptId": "att", "agent": "Default", "model": "m", "modelId": "m-id", "provider": "p", "at": 1 });
+        let reply = ThreadItem::AgentMessage { id: "a".into(), text: MaybeBlob::Inline("once upon".into()), meta: ItemMeta::default(), imported_tool_runs: Vec::new() };
+        let ThreadItem::AgentMessage { text, meta, .. } = live_form(reply, None, Some("Mapped"), Some(&turn), Some("once upon "), 7) else { panic!("a reply stays a reply") };
+        assert_eq!(text, MaybeBlob::Inline("once upon ".into()));
+        let read = |key: &str| meta.ext.get(key).cloned();
+        assert_eq!(
+            (read("attemptId"), read("agent"), read("model"), read("modelId"), read("provider"), read("at"), read("completionVerb")),
+            (Some(json!("att")), Some(json!("Default")), Some(json!("m")), Some(json!("m-id")), Some(json!("p")), Some(json!(7)), Some(json!("Mapped")))
+        );
+        assert!(meta.ext.get("messageId").and_then(Value::as_str).is_some_and(|id| !id.is_empty()));
     }
 
     use super::*;

@@ -16,6 +16,7 @@ use mixdog_app_protocol::v2::thread::HistoryResetReason;
 use mixdog_app_protocol::v2::thread::ItemNotificationParams;
 use mixdog_app_protocol::v2::thread::PromptRestore;
 use mixdog_app_protocol::v2::thread::StorageState;
+use mixdog_app_protocol::v2::thread::ThreadContext;
 use mixdog_app_protocol::v2::thread::ThreadHistoryResetParams;
 use mixdog_app_protocol::v2::thread::ThreadNameSetParams;
 use mixdog_app_protocol::v2::thread::ThreadNameUpdatedParams;
@@ -502,6 +503,8 @@ pub(crate) struct SessionActor {
     /// state.stats (usage totals), folded from each model call's usage event.
     stats: super::stats::SessionStats,
     steer_marked: Vec<QueuedId>,
+    /// The context display fields a running turn published, held for the turn's end ([`Self::on_context_section`]).
+    held_display: Option<ThreadContext>,
     /// Which completions showed a live card (Node's per-session execution dedup).
     cards: super::cards::CardGate,
     /// Executions the session's listener took: their queued copy is `suppressDisplay`.
@@ -666,6 +669,7 @@ impl SessionActor {
             turns_closed: 0,
             stats: Default::default(),
             steer_marked: Vec::new(),
+            held_display: None,
             cards: Default::default(),
             listened: Default::default(),
             suppressed: Default::default(),
@@ -1022,6 +1026,13 @@ impl SessionActor {
     ) -> u64 {
         let record = Arc::new(record);
         let shown = !matches!(display, Display::Suppressed);
+        // The session's route moved (`provider`/`model` of the header): its state follows, as Node's route state does.
+        let route_moved = match &*record {
+            Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) => ["provider", "model"]
+                .iter()
+                .any(|key| change.set.get(*key).is_some_and(|value| self.projected.header.get(*key) != Some(value)) || (change.unset.iter().any(|unset| unset.as_str() == *key) && self.projected.header.contains_key(*key))),
+            _ => false,
+        };
         let change = Change::Record {
             record: record.clone(),
             display,
@@ -1031,6 +1042,11 @@ impl SessionActor {
             .outbox
             .push(Some((record.clone(), class)), change, notes, effects);
         self.submit_encode(entry, record, shown);
+        if route_moved {
+            // The route's own values (`autoClear` is the provider's) are read under the new provider; the frame carries the whole route.
+            let route = self.deps.compaction.route_config(&self.projected.header);
+            self.accept_view_after(Some(entry), Change::Section(Section::Route(route)), Vec::new(), Vec::new());
+        }
         entry
     }
 
@@ -1070,6 +1086,8 @@ impl SessionActor {
         let thread = self.id.clone();
         // The open turn's `completionVerb`, which its live rows carry.
         let verb = self.run.as_ref().map(|slot| slot.verb);
+        let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
+        let at = self.deps.clock.now_ms();
         let submitted = self.deps.lanes.cpu.submit(&CancellationToken::new(), move |lane| {
             let result = deps.codec.encode(lane, &record).map(|encoded| {
                 let Record::Item(row) = &*record else {
@@ -1086,13 +1104,13 @@ impl SessionActor {
                     .into_iter()
                     .filter(|shown| !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. })))
                     .map(|shown| {
-                        let attempt = match &row.body {
-                            mixdog_store::schema::blob::Slot::Inline(body) => body.pointer("/meta/transcript/attemptId").and_then(Value::as_str),
-                            _ => None,
+                        let (attempt, raw) = match &row.body {
+                            mixdog_store::schema::blob::Slot::Inline(body) => (body.pointer("/meta/transcript/attemptId").and_then(Value::as_str), body.get("content").and_then(Value::as_str)),
+                            _ => (None, None),
                         };
                         match shown {
-                            Shown::Item(item) => Shown::Item(super::live_end::live_form(item, attempt, verb)),
-                            Shown::Update(item) => Shown::Update(super::live_end::live_form(item, attempt, verb)),
+                            Shown::Item(item) => Shown::Item(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at)),
+                            Shown::Update(item) => Shown::Update(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at)),
                         }
                     })
                     .collect();
@@ -2095,6 +2113,12 @@ impl SessionActor {
             return;
         };
         self.cell.publish_run(None);
+        // The display fields the turn waited to publish (`on_context_section`): a cancelled turn drops them.
+        if let Some(held) = self.held_display.take()
+            && !matches!(outcome, RunOutcome::Interrupted)
+        {
+            self.accept_view(Change::Section(Section::Context(held)), Vec::new());
+        }
         // `setActiveTurnCount(-1)`: the parked warmups re-check.
         self.turn_prewarm_armed = false;
         self.deps.code_graph_prewarm.wake();
@@ -2763,6 +2787,22 @@ impl SessionActor {
         }
     }
 
+    /// A context section a producer published. While a turn runs, the display fields (`displayContextWindow`,
+    /// `autoCompactTokenLimit`, `compactBoundaryTokens`) wait for the turn's end: Node's `syncContextDisplayFields` runs with the
+    /// context measurement a turn that was not cancelled makes, so a cancelled turn leaves them at their initial 0.
+    fn on_context_section(&mut self, mut context: ThreadContext) {
+        if self.run.is_some() {
+            let held = self.held_display.get_or_insert_with(Default::default);
+            held.display_context_window = context.display_context_window.take().or(held.display_context_window);
+            held.auto_compact_token_limit = context.auto_compact_token_limit.take().or(held.auto_compact_token_limit);
+            held.compact_boundary_tokens = context.compact_boundary_tokens.take().or(held.compact_boundary_tokens);
+            if context == ThreadContext::default() {
+                return;
+            }
+        }
+        self.accept_view(Change::Section(Section::Context(context)), Vec::new());
+    }
+
     /// The disk-side heartbeat of `markSessionStreamDelta` (`runtime-liveness.mjs`, `HEARTBEAT_THROTTLE_MS`): a
     /// semantic model event of a live run refreshes `lastHeartbeatAt` once the stored one is over a minute old.
     fn stream_heartbeat(&mut self) {
@@ -2775,6 +2815,7 @@ impl SessionActor {
 
     fn on_producer(&mut self, msg: ProducerMsg) {
         match msg {
+            ProducerMsg::Section(Section::Context(context)) => self.on_context_section(context),
             ProducerMsg::Section(section) => self.accept_view(Change::Section(section), Vec::new()),
             ProducerMsg::ItemStarted { turn, item } => {
                 if !self.active(&turn) {
