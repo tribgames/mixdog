@@ -1218,6 +1218,9 @@ pub fn forced_target_budget(input: &StatusInput<'_>) -> Option<f64> {
 mod commit;
 mod send_check;
 
+pub use send_check::StageMeta;
+pub use send_check::compact_telemetry;
+pub use send_check::post_compact_snapshot;
 pub use send_check::pre_send_check;
 pub use commit::Archived;
 pub use commit::CONFIG_KEYS as COMPACTION_CONFIG_KEYS;

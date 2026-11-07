@@ -251,6 +251,8 @@ pub(crate) enum RunShown {
     Compact(mixdog_agent::env::CompactEvent),
     /// The pre-send check of a request (`compactTelemetry(ctx, 'pre_send_check')`).
     Check(SendCheck),
+    /// A stage of a pre-send compaction pass (`compactTelemetry` of `compactBeforeSend`).
+    Pass(Box<mixdog_agent::env::CompactPass>),
     /// The ask's end (`applyAskTerminalUsageTotals`, `recordProviderContextBaseline`).
     Settled(Settled),
     /// A hosted web search's spend (`onNativeWebSearchUsage`): the delta `reportNativeWebSearchUsage` hands the turn.
@@ -303,6 +305,8 @@ pub struct UsageReport {
     pub reasoning_tokens_complete: bool,
     /// `outgoing`: the transcript the request carried.
     pub outgoing: Vec<mixdog_agent::message::AgentMessage>,
+    /// `sendStartedAt`.
+    pub sent_at_ms: i64,
 }
 
 impl UsageReport {
@@ -320,6 +324,7 @@ impl UsageReport {
             reasoning_tokens: delta.reasoning_tokens,
             reasoning_tokens_complete: delta.reasoning_tokens_complete,
             outgoing: delta.outgoing,
+            sent_at_ms: delta.sent_at_ms,
         }
     }
 }
@@ -357,9 +362,18 @@ pub struct RunPort {
     pub(crate) ctl: mpsc::Sender<Ctl>,
     /// The header's `providerState` as acked at turn start.
     pub(crate) provider: Option<ProviderState>,
+    /// The host that prices the thread's pressure, and the provider it prices on.
+    pub(crate) meters: Arc<dyn super::turn_ops::ManualCompaction>,
+    pub(crate) meters_provider: String,
 }
 
 impl RunPort {
+    /// Reads the facts of the stored attachments `messages` carry before a report that prices them
+    /// reaches the actor, which meters synchronously (`MediaMeter::prepare`).
+    async fn prepare_meters(&self, messages: &[mixdog_agent::message::AgentMessage]) {
+        self.meters.prepare_books(&self.thread, &self.meters_provider, messages).await;
+    }
+
     /// The session's saved provider state, read once at turn start as today's loop options
     /// read `session.providerState` (`ask-turn-loop-options.mjs:71`).
     pub async fn provider_state(&self) -> Option<ProviderState> {
@@ -467,6 +481,7 @@ impl RunPort {
     /// One model call's usage (`onUsageDelta`): `thread/tokenUsage/updated` with Node's delta
     /// (`usageDeltaEvent`).
     pub async fn usage(&self, report: UsageReport) -> Result<(), RunError> {
+        self.prepare_meters(&report.outgoing).await;
         self.shown(RunShown::Usage(report)).await
     }
 
@@ -486,11 +501,22 @@ impl RunPort {
 
     /// The pre-send check of the request the loop is about to send.
     pub async fn send_check(&self, check: SendCheck) -> Result<(), RunError> {
+        self.prepare_meters(&check.messages).await;
         self.shown(RunShown::Check(check)).await
+    }
+
+    /// A stage of the compaction pass before a send.
+    pub async fn compact_pass(&self, pass: Box<mixdog_agent::env::CompactPass>) -> Result<(), RunError> {
+        self.prepare_meters(&pass.request).await;
+        if let mixdog_agent::env::PassStage::Done { after, .. } = &pass.stage {
+            self.prepare_meters(after).await;
+        }
+        self.shown(RunShown::Pass(pass)).await
     }
 
     /// The ask's end: its usage and transcript, before the run's outcome is reported.
     pub async fn settled(&self, settled: Settled) -> Result<(), RunError> {
+        self.prepare_meters(&settled.transcript).await;
         self.shown(RunShown::Settled(settled)).await
     }
 
@@ -596,6 +622,8 @@ mod cancel_tests {
             cancel: cancel.clone(),
             ctl,
             provider: None,
+            meters: Arc::new(crate::session::testing::TestCompaction::default()),
+            meters_provider: String::new(),
         };
         (port, rx, ctl_rx, cancel)
     }

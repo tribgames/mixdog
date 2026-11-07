@@ -232,6 +232,12 @@ impl ConfigSeams for ConfigRunSeams {
         self.agents.hidden_agent(agent)
     }
 
+    fn synced_compaction(&self, header: &Header) -> Option<Value> {
+        self.config.agent().get("compaction").filter(|c| c.is_object())?;
+        let synced = Value::Object(self.session_compaction(header));
+        (header.get("compaction") != Some(&synced)).then_some(synced)
+    }
+
     fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
         mixdog_core_config::config::hidden_agents::hidden_agent_stall_cap_idle_seconds(agent?)
     }

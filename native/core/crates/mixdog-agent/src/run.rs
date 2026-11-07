@@ -679,6 +679,7 @@ impl Run {
             reasoning_tokens,
             reasoning_tokens_complete,
             outgoing: self.messages.clone(),
+            sent_at_ms: self.request_started_ms,
         };
         self.emit(RunEvent::Usage {
             iteration: self.iterations,

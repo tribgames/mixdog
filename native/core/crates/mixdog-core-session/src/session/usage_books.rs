@@ -8,6 +8,7 @@ use mixdog_agent::compact::pressure;
 use mixdog_agent::compact::pressure::Header;
 use mixdog_agent::compact::pressure::HeaderPatch;
 use mixdog_agent::compact::pressure::TranscriptSigner;
+use mixdog_agent::env::CompactPass;
 use mixdog_agent::message::AgentMessage;
 use mixdog_ai::registry::accounted::input_excludes_cache;
 use mixdog_core_api::domain::provider::ToolDefinition;
@@ -52,12 +53,12 @@ pub(crate) fn turn_started(header: &Header) -> Option<HeaderChange> {
 
 /// `onUsageDelta(delta)` for one model call: `delta` is the call's `usageDeltaEvent`
 /// (`live_rows::usage_delta`), `outgoing` the transcript its request carried and `send_tools` its tools.
-pub(crate) fn usage_change(header: &Header, delta: &Value, outgoing: &[AgentMessage], send_tools: &[ToolDefinition], books: Option<&Books>, now: f64) -> Option<HeaderChange> {
+pub(crate) fn usage_change(header: &Header, delta: &Value, outgoing: &[AgentMessage], send_tools: &[ToolDefinition], books: Option<&Books>, sent_at: f64, now: f64) -> Option<HeaderChange> {
     let provider = provider_of(header);
     let excludes = input_excludes_cache(provider);
     let patch = match books {
-        Some(books) => with_books(books, provider, |books| pressure::usage_change(header, delta, outgoing, send_tools, Some(books), excludes, now)),
-        None => pressure::usage_change(header, delta, outgoing, send_tools, None, excludes, now),
+        Some(books) => with_books(books, provider, |books| pressure::usage_change(header, delta, outgoing, send_tools, Some(books), excludes, sent_at, now)),
+        None => pressure::usage_change(header, delta, outgoing, send_tools, None, excludes, sent_at, now),
     };
     change(patch)
 }
@@ -67,9 +68,9 @@ pub(crate) fn check_change(header: &Header, check: &SendCheck, books: &Books, no
     change(with_books(books, provider_of(header), |books| pressure::check_change(header, &check.messages, &check.tools, check.reactive, books, now)))
 }
 
-/// A compaction that changed the transcript was adopted.
-pub(crate) fn compacted_change(header: &Header, now: f64) -> Option<HeaderChange> {
-    change(pressure::compacted_change(header, now))
+/// A stage of a pre-send compaction pass.
+pub(crate) fn pass_change(header: &Header, pass: &CompactPass, books: &Books, now: f64) -> Option<HeaderChange> {
+    change(with_books(books, provider_of(header), |books| pressure::pass_change(header, pass, books, now)))
 }
 
 /// The ask's settlement: `applyAskTerminalUsageTotals`, then the complete-boundary baseline.

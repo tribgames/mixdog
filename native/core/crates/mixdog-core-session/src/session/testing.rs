@@ -88,6 +88,10 @@ pub struct TestCompaction {
     pub calls: Mutex<Vec<String>>,
     /// A compaction waits on it before answering, when set.
     pub hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    /// The `compaction` record the saved configuration gives a thread, when it has one.
+    pub synced: Mutex<Option<Value>>,
+    /// Each `prepare_books`: the provider and the number of messages.
+    pub prepared: Mutex<Vec<(String, usize)>>,
 }
 
 #[async_trait::async_trait]
@@ -114,6 +118,12 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     }
     fn books(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> Option<super::turn_ops::Books> {
         None
+    }
+    async fn prepare_books(&self, _: &ThreadId, provider: &str, messages: &[mixdog_agent::message::AgentMessage]) {
+        lock(&self.prepared).push((provider.to_owned(), messages.len()));
+    }
+    fn synced_compaction(&self, _: &mixdog_store::schema::record::Header) -> Option<Value> {
+        lock(&self.synced).clone()
     }
 }
 

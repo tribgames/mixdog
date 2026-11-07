@@ -41,6 +41,10 @@ pub trait ConfigSeams: Send + Sync + 'static {
     /// The route's, settings' and agent's `RunConfig` fields; every field's Node origin is in
     /// `compose-seams.md` "RunSettings: origins".
     fn run_settings(&self, thread: &ThreadId, header: &Header) -> RunSettings;
+    /// `syncSessionCompaction(session, config)` (`session-compaction-sync.mjs`): the thread's `compaction`
+    /// record once it follows the saved configuration, when that differs from the header's; `None` for a
+    /// configuration without the section or a record that already follows it.
+    fn synced_compaction(&self, header: &Header) -> Option<Value>;
     /// `readSection('agent').instructionFiles`, the stored setting.
     fn stored_instruction_files(&self) -> Option<Value>;
     /// The install's reply language `(code, name)` (`build_lead_language`), asked only for a header that

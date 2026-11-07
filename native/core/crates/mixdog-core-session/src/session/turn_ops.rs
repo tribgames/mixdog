@@ -135,6 +135,13 @@ pub trait ManualCompaction: Send + Sync {
     /// `rememberCompactTelemetry`) for the thread whose header is `header`; `None` when the host has no
     /// meters for it, which records no pressure.
     fn books(&self, thread: &ThreadId, header: &mixdog_store::schema::record::Header) -> Option<Books>;
+    /// Reads from the attachment store what pricing `messages` on `provider` needs, into the meters
+    /// [`Self::books`] hands out for the thread (`MediaMeter::prepare`): the pressure is metered
+    /// synchronously, so its host prepares first.
+    async fn prepare_books(&self, thread: &ThreadId, provider: &str, messages: &[mixdog_agent::message::AgentMessage]);
+    /// `syncSessionCompaction(session, config)`: the `compaction` record of the thread following the
+    /// saved configuration, when it differs from the header's.
+    fn synced_compaction(&self, header: &mixdog_store::schema::record::Header) -> Option<Value>;
 }
 
 /// What a thread's transcript is priced and signed with on its provider (the compaction's own

@@ -2499,6 +2499,22 @@ impl SessionActor {
         self.run.as_ref().is_some_and(|run| &run.turn == turn)
     }
 
+    /// The disk-side heartbeat of `markSessionStreamDelta` (`runtime-liveness.mjs`, `HEARTBEAT_THROTTLE_MS`): a
+    /// semantic model event of a live run refreshes `lastHeartbeatAt` once the stored one is over a minute old.
+    fn stream_heartbeat(&mut self) {
+        const HEARTBEAT_THROTTLE_MS: f64 = 60_000.0;
+        if self.run.is_none() {
+            return;
+        }
+        let now = self.deps.clock.now_ms() as f64;
+        let last = self.projected.header.get("lastHeartbeatAt").and_then(Value::as_f64).unwrap_or(0.0);
+        if now - last > HEARTBEAT_THROTTLE_MS {
+            let mut set = serde_json::Map::new();
+            set.insert("lastHeartbeatAt".into(), mixdog_js::json_number(now));
+            self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }));
+        }
+    }
+
     fn on_producer(&mut self, msg: ProducerMsg) {
         match msg {
             ProducerMsg::Section(section) => self.accept_view(Change::Section(section), Vec::new()),
@@ -2508,6 +2524,7 @@ impl SessionActor {
                 }
                 if matches!(item, ThreadItem::ToolCall { .. }) {
                     self.visible_progress();
+                    self.stream_heartbeat();
                 }
                 let note = Note::new(
                     "item/started",
@@ -2522,6 +2539,7 @@ impl SessionActor {
             ProducerMsg::Delta { item, text, method, params } => {
                 // Text or reasoning: visible output (`isVisibleStreamProgress`).
                 self.visible_progress();
+                self.stream_heartbeat();
                 let now = self.deps.clock.now_ms();
                 if let Some(run) = self.run.as_mut() {
                     match method {
@@ -2858,7 +2876,7 @@ impl SessionActor {
                 // `onUsageDelta`: the call's metrics and the provider's reading go to the header.
                 self.usage_incremental = true;
                 let books = self.deps.compaction.books(&self.id, &self.projected.header);
-                let change = super::usage_books::usage_change(&self.projected.header, &usage, &report.outgoing, &report.send_tools, books.as_ref(), now as f64);
+                let change = super::usage_books::usage_change(&self.projected.header, &usage, &report.outgoing, &report.send_tools, books.as_ref(), report.sent_at_ms as f64, now as f64);
                 self.accept_header(change);
                 let note = Note::new(
                     "thread/tokenUsage/updated",
@@ -2881,11 +2899,13 @@ impl SessionActor {
                 let note = Note::new("thread/tokenUsage/updated", &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage });
                 self.accept_view(Change::Barrier, vec![note]);
             }
-            RunShown::Compact(event) => {
-                if super::live_rows::compact_changed(&event) {
-                    let change = super::usage_books::compacted_change(&self.projected.header, self.deps.clock.now_ms() as f64);
+            RunShown::Pass(pass) => {
+                if let Some(books) = self.deps.compaction.books(&self.id, &self.projected.header) {
+                    let change = super::usage_books::pass_change(&self.projected.header, &pass, &books, self.deps.clock.now_ms() as f64);
                     self.accept_header(change);
                 }
+            }
+            RunShown::Compact(event) => {
                 let label = super::live_rows::compact_event_label(&event);
                 let detail = super::live_rows::compact_event_detail(&event);
                 let item = super::transcript::compact_marker_item(&new_id(), turn.as_str(), label, &detail);
@@ -4005,6 +4025,13 @@ impl SessionActor {
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
+        // `syncSessionCompaction` (`session-compaction-sync.mjs`): a session follows the saved compaction settings
+        // from the moment it is installed; the header carries that from the turn's first save on.
+        if let Some(synced) = self.deps.compaction.synced_compaction(&self.projected.header) {
+            let mut set = serde_json::Map::new();
+            set.insert("compaction".into(), synced);
+            self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }));
+        }
         // `bumpUsageMetricsTurnId` (`whileTurnDispatched`): the turn's usage counts under a new id.
         self.usage_incremental = false;
         self.accept_header(super::usage_books::turn_started(&self.projected.header));
@@ -4196,6 +4223,8 @@ impl SessionActor {
                 .header
                 .get(PROVIDER_STATE)
                 .and_then(|state| serde_json::from_value(state.clone()).ok()),
+            meters: self.deps.compaction.clone(),
+            meters_provider: self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
         };
         // A session takes moved settings gates at its next turn start (today's
         // `stageToolAvailability`).

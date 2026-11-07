@@ -1772,6 +1772,7 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
                     reasoning_tokens: Some(4),
                     reasoning_tokens_complete: true,
                     outgoing: Vec::new(),
+                    sent_at_ms: 0,
                 })
                 .await
                 .expect("usage");
@@ -1913,6 +1914,7 @@ async fn a_model_calls_usage_reaches_the_header_when_it_is_reported() {
                     reasoning_tokens: Some(4),
                     reasoning_tokens_complete: true,
                     outgoing: Vec::new(),
+                    sent_at_ms: 4242,
                 })
                 .await
                 .expect("usage");
@@ -1940,6 +1942,7 @@ async fn a_model_calls_usage_reaches_the_header_when_it_is_reported() {
         ("totalUncachedInputTokens", json!(5)),
         ("lastContextTokens", json!(10)),
         ("lastIterationIndex", json!(1)),
+        ("lastProviderSendAt", json!(4242)),
         ("reasoningUsage", json!({ "reasoningTokens": 4, "reasoningTokensComplete": true })),
         ("usageReadout", json!({ "input": 10, "cacheRead": 3, "cacheWrite": 2, "output": 5, "requestOutputTokens": 5, "requestMs": 340 })),
     ] {
@@ -1975,6 +1978,7 @@ async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books()
                     reasoning_tokens: None,
                     reasoning_tokens_complete: false,
                     outgoing: Vec::new(),
+                    sent_at_ms: 0,
                 })
                 .await
                 .expect("usage");
@@ -1994,6 +1998,46 @@ async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books()
     let live = handle.live_header();
     let header = live.header();
     assert_eq!((header.get("totalInputTokens"), header.get("totalOutputTokens"), header.get("lastIterationIndex")), (Some(&json!(10)), Some(&json!(5)), Some(&json!(1))));
+}
+
+
+/// A turn starts on the compaction the saved settings give the session (`syncSessionCompaction`), the first streamed
+/// text stamps the disk-side heartbeat (`markSessionStreamDelta`) once and not again within a minute, and a report that
+/// prices the transcript has the meters prepared first (`MediaMeter::prepare`).
+#[tokio::test(start_paused = true)]
+async fn a_turn_follows_the_saved_compaction_stamps_its_heartbeat_and_prepares_its_meters() {
+    let rig = Rig::new();
+    *lock(&rig.compaction.synced) = Some(json!({ "auto": true, "onModelChange": true, "summaryMode": "smart" }));
+    let gate: Arc<tokio::sync::Notify> = Arc::default();
+    let release = gate.clone();
+    rig.set_script(Arc::new(move |run| {
+        let release = release.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let item = ItemId::from("a1".to_owned());
+            run.port.delta(item.clone(), "hello ".into()).await.expect("delta");
+            run.port.delta(item, "again".into()).await.expect("delta");
+            run.port
+                .send_check(crate::session::run::SendCheck { messages: Vec::new(), tools: Vec::new(), reactive: false })
+                .await
+                .expect("check");
+            release.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    eventually(|| handle.live_header().header().get("lastHeartbeatAt").filter(|at| at.as_f64().is_some_and(|at| at > 0.0)).map(|_| ())).await;
+    let stamped = handle.live_header().header().get("lastHeartbeatAt").cloned();
+    gate.notify_one();
+    eventually(|| idle(&handle).then_some(())).await;
+    let live = handle.live_header();
+    let header = live.header();
+    assert_eq!(header.get("compaction"), Some(&json!({ "auto": true, "onModelChange": true, "summaryMode": "smart" })));
+    assert_eq!(header.get("lastHeartbeatAt"), stamped.as_ref(), "the second delta is inside the minute");
+    let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
+    assert_eq!(*lock(&rig.compaction.prepared), vec![(provider, 0usize)]);
 }
 
 /// A Goal set during a user turn continues across it: once the turn settles with the Goal

@@ -301,6 +301,7 @@
             "deferLoading": true
           }
         ],
+        "sentAt": 1700000001993,
         "excludesCache": false,
         "calibration": 1
       },
@@ -360,6 +361,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000001993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -460,6 +462,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000001993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -619,6 +622,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000001993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -728,6 +732,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000001993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -866,6 +871,7 @@
             "deferLoading": true
           }
         ],
+        "sentAt": 1700000003993,
         "excludesCache": false,
         "calibration": 1
       },
@@ -934,6 +940,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000003993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -1043,6 +1050,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000003993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -1225,6 +1233,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000003993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -1334,6 +1343,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000003993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -1443,6 +1453,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 2,
+        "lastProviderSendAt": 1700000003993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -6648,6 +6659,7 @@
             "deferLoading": true
           }
         ],
+        "sentAt": 1700000042993,
         "excludesCache": false,
         "calibration": 1
       },
@@ -6672,6 +6684,7 @@
         "generation": 0,
         "closed": false,
         "tools": [],
+        "lastProviderSendAt": 1700000042993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -6829,6 +6842,7 @@
             "deferLoading": true
           }
         ],
+        "sentAt": 1700000043993,
         "excludesCache": true,
         "calibration": 1.4
       },
@@ -6853,6 +6867,7 @@
         "generation": 0,
         "closed": false,
         "tools": [],
+        "lastProviderSendAt": 1700000043993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -6997,6 +7012,7 @@
             "deferLoading": true
           }
         ],
+        "sentAt": 1700000044993,
         "excludesCache": false,
         "calibration": 1
       },
@@ -7021,6 +7037,7 @@
         "generation": 0,
         "closed": false,
         "tools": [],
+        "lastProviderSendAt": 1700000044993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -7165,6 +7182,7 @@
             "deferLoading": true
           }
         ],
+        "sentAt": 1700000045993,
         "excludesCache": false,
         "calibration": 1
       },
@@ -7189,6 +7207,7 @@
         "generation": 0,
         "closed": false,
         "tools": [],
+        "lastProviderSendAt": 1700000045993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -7321,6 +7340,7 @@
             "deferLoading": true
           }
         ],
+        "sentAt": 1700000046993,
         "excludesCache": false,
         "calibration": 1
       },
@@ -7345,6 +7365,7 @@
         "generation": 0,
         "closed": false,
         "tools": [],
+        "lastProviderSendAt": 1700000046993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -8320,6 +8341,24 @@
         {
           "role": "user",
           "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": "file body"
         }
       ],
       "args": {
@@ -8394,6 +8433,7 @@
             "deferLoading": true
           }
         ],
+        "sentAt": 1700000058993,
         "excludesCache": false,
         "calibration": 1
       },
@@ -8419,6 +8459,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000058993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -8450,9 +8491,9 @@
         "updatedAt": 1700000059000,
         "contextPressureBaselineTokens": 820,
         "contextPressureBaselineOutputTokens": 20,
-        "contextPressureBaselineMessageCount": 1,
-        "contextPressureBaselinePrefixSignature": "ea420a22cb6695c71d83f7a8bc234ef83b005aacaac7a319e1f00131522a6d60",
-        "contextPressureBaselineShapeSignature": "25c053b0f7582e27941f74af51c916a0711eee98f79c54ebe4ad5d99833dcf63",
+        "contextPressureBaselineMessageCount": 3,
+        "contextPressureBaselinePrefixSignature": "913e956a0c5a0a468bcadc1a49390125ce79bf1d99e63dc289ee5377d0bacc3d",
+        "contextPressureBaselineShapeSignature": "e7c7b3b3b29dc431f56b9b15fec9343148cd0b1bffab590a4aff0df36534f5f1",
         "contextPressureBaselineProvider": "custom-harness",
         "contextPressureBaselineModel": "harness-model",
         "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
@@ -8463,8 +8504,8 @@
       }
     },
     {
-      "name": "compacted-bumps-the-epoch-and-voids-the-reading",
-      "op": "compacted",
+      "name": "pass-compacted-bumps-the-epoch-and-voids-the-reading",
+      "op": "pass",
       "header": {
         "id": "s-compacted",
         "provider": "custom-harness",
@@ -8485,6 +8526,7 @@
         "closed": false,
         "tools": [],
         "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000058993,
         "reasoningUsage": {
           "reasoningTokens": null,
           "reasoningTokensComplete": false
@@ -8516,9 +8558,9 @@
         "updatedAt": 1700000059000,
         "contextPressureBaselineTokens": 820,
         "contextPressureBaselineOutputTokens": 20,
-        "contextPressureBaselineMessageCount": 1,
-        "contextPressureBaselinePrefixSignature": "ea420a22cb6695c71d83f7a8bc234ef83b005aacaac7a319e1f00131522a6d60",
-        "contextPressureBaselineShapeSignature": "25c053b0f7582e27941f74af51c916a0711eee98f79c54ebe4ad5d99833dcf63",
+        "contextPressureBaselineMessageCount": 3,
+        "contextPressureBaselinePrefixSignature": "913e956a0c5a0a468bcadc1a49390125ce79bf1d99e63dc289ee5377d0bacc3d",
+        "contextPressureBaselineShapeSignature": "e7c7b3b3b29dc431f56b9b15fec9343148cd0b1bffab590a4aff0df36534f5f1",
         "contextPressureBaselineProvider": "custom-harness",
         "contextPressureBaselineModel": "harness-model",
         "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
@@ -8527,12 +8569,173 @@
         "contextPressureBaselineUpdatedAt": 1700000059000,
         "contextPressureBaselineSource": "provider"
       },
-      "messages": [],
-      "args": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": "file body"
+        }
+      ],
+      "args": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            },
+            "deferLoading": false
+          },
+          {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {
+              "type": "object"
+            },
+            "deferLoading": true
+          }
+        ],
+        "native": [],
+        "reactive": false,
+        "trigger": "auto",
+        "agentMode": false,
+        "end": {
+          "kind": "done",
+          "changed": true,
+          "handoffSource": "session-local",
+          "afterTokens": 300,
+          "durationMs": 1234.4
+        },
+        "after": [
+          {
+            "role": "user",
+            "content": "hello  world"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          }
+        ]
+      },
       "now": 1700000060000,
-      "result": {
-        "usageMetricsEpoch": 1,
+      "result": null,
+      "after": {
+        "id": "s-compacted",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "effectiveContextWindowPercent": 100,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000060000,
+          "lastBeforeTokens": 800,
+          "lastAfterTokens": 300,
+          "lastPressureTokens": 800,
+          "currentEstimatedTokens": 300,
+          "lastApiRequestTokens": 800,
+          "lastStage": "pre_send",
+          "lastChanged": true,
+          "lastTrigger": "auto",
+          "lastFreshContext": true,
+          "lastFreshContextError": null,
+          "lastHandoffSource": "session-local",
+          "lastError": null,
+          "lastDurationMs": 1234,
+          "compactCount": 1,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000060000,
+              "stage": "compacting",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000059000
+            },
+            {
+              "at": 1700000060000,
+              "stage": "pre_send",
+              "pressure": 800,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": 820,
+              "baselineAt": 1700000059000
+            }
+          ],
+          "lastChangedAt": 1700000060000,
+          "lastCompactAt": 1700000060000
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsTurnId": 1,
+        "lastProviderSendAt": 1700000058993,
+        "reasoningUsage": {
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false
+        },
+        "totalInputTokens": 800,
+        "totalOutputTokens": 20,
+        "totalToolCalls": 0,
+        "tokensCumulative": 820,
+        "totalCachedReadTokens": 0,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 800,
+        "usageReadout": {
+          "input": 800,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "output": 20,
+          "requestOutputTokens": 0,
+          "requestMs": 0
+        },
+        "lastInputTokens": 800,
+        "lastOutputTokens": 20,
+        "lastCachedReadTokens": 0,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 800,
+        "lastContextTokens": 800,
+        "lastContextTokensUpdatedAt": 1700000059000,
         "lastContextTokensStaleAfterCompact": true,
+        "lastIterationIndex": 1,
+        "updatedAt": 1700000059000,
         "contextPressureBaselineTokens": null,
         "contextPressureBaselineOutputTokens": null,
         "contextPressureBaselineMessageCount": null,
@@ -8545,24 +8748,847 @@
         "contextPressureBaselineBoundary": null,
         "contextPressureBaselineUpdatedAt": null,
         "contextPressureBaselineSource": null,
-        "lastChangedAt": 1700000060000,
-        "lastCompactAt": 1700000060000
-      },
-      "after": {
         "usageMetricsEpoch": 1,
-        "lastContextTokensStaleAfterCompact": true,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 300,
+          "limitTokens": 128000,
+          "messageTokensEst": 12,
+          "messageCount": 2,
+          "messagesSignature": "817f14d9c78f763897fdac8be42d630ae2f58b26167ad660652b72d7405ff4a3",
+          "tailRole": "assistant",
+          "tailId": "",
+          "usageMetricsTurnId": "1",
+          "usageMetricsEpoch": 1,
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "contextWindow": 128000,
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "updatedAt": 1700000060000
+        }
+      }
+    },
+    {
+      "name": "pass-no-change-keeps-the-reading",
+      "op": "pass",
+      "header": {
+        "id": "s-pass-same",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        }
+      ],
+      "args": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            },
+            "deferLoading": false
+          },
+          {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {
+              "type": "object"
+            },
+            "deferLoading": true
+          }
+        ],
+        "native": [],
+        "reactive": false,
+        "trigger": "auto",
+        "agentMode": false,
+        "end": {
+          "kind": "done",
+          "changed": false,
+          "handoffSource": "rules",
+          "afterTokens": 40,
+          "durationMs": 12
+        },
+        "after": [
+          {
+            "role": "user",
+            "content": "hello  world"
+          }
+        ]
+      },
+      "now": 1700000061000,
+      "result": null,
+      "after": {
+        "id": "s-pass-same",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "effectiveContextWindowPercent": 100,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000061000,
+          "lastBeforeTokens": 77,
+          "lastAfterTokens": 40,
+          "lastPressureTokens": 77,
+          "currentEstimatedTokens": 77,
+          "lastApiRequestTokens": null,
+          "lastStage": "pre_send",
+          "lastChanged": false,
+          "lastTrigger": "auto",
+          "lastFreshContext": true,
+          "lastFreshContextError": null,
+          "lastHandoffSource": "rules",
+          "lastError": null,
+          "lastDurationMs": 12,
+          "compactCount": 0,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000061000,
+              "stage": "compacting",
+              "pressure": 77,
+              "est": 7,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            },
+            {
+              "at": 1700000061000,
+              "stage": "pre_send",
+              "pressure": 77,
+              "est": 7,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            }
+          ]
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      }
+    },
+    {
+      "name": "pass-skipped-is-a-plain-check",
+      "op": "pass",
+      "header": {
+        "id": "s-pass-skip",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": "file body"
+        }
+      ],
+      "args": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            },
+            "deferLoading": false
+          },
+          {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {
+              "type": "object"
+            },
+            "deferLoading": true
+          }
+        ],
+        "native": [],
+        "reactive": false,
+        "trigger": "cache_expired",
+        "agentMode": false,
+        "end": {
+          "kind": "skipped"
+        },
+        "after": []
+      },
+      "now": 1700000062000,
+      "result": null,
+      "after": {
+        "id": "s-pass-skip",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "effectiveContextWindowPercent": 100,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000062000,
+          "lastBeforeTokens": 116,
+          "lastAfterTokens": 116,
+          "lastPressureTokens": 116,
+          "currentEstimatedTokens": 116,
+          "lastApiRequestTokens": null,
+          "lastStage": "pre_send_check",
+          "lastChanged": false,
+          "lastTrigger": "cache_expired",
+          "lastFreshContext": false,
+          "lastFreshContextError": null,
+          "lastHandoffSource": null,
+          "lastError": null,
+          "lastDurationMs": null,
+          "compactCount": 0,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000062000,
+              "stage": "compacting",
+              "pressure": 116,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            },
+            {
+              "at": 1700000062000,
+              "stage": "pre_send_check",
+              "pressure": 116,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            }
+          ]
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      }
+    },
+    {
+      "name": "pass-failed-records-the-error",
+      "op": "pass",
+      "header": {
+        "id": "s-pass-fail",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "compactCount": 2,
+          "lastTrigger": "auto"
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": "file body"
+        }
+      ],
+      "args": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            },
+            "deferLoading": false
+          },
+          {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {
+              "type": "object"
+            },
+            "deferLoading": true
+          }
+        ],
+        "native": [],
+        "reactive": true,
+        "trigger": "reactive",
+        "agentMode": false,
+        "end": {
+          "kind": "failed",
+          "message": "summary send failed",
+          "durationMs": 90
+        },
+        "after": []
+      },
+      "now": 1700000063000,
+      "result": null,
+      "after": {
+        "id": "s-pass-fail",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "compactCount": 2,
+          "lastTrigger": "reactive",
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "effectiveContextWindowPercent": 100,
+          "autoCompactTokenLimit": null,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000063000,
+          "lastBeforeTokens": 128000,
+          "lastAfterTokens": 128000,
+          "lastPressureTokens": 128000,
+          "currentEstimatedTokens": 128000,
+          "lastApiRequestTokens": null,
+          "lastStage": "overflow_failed",
+          "lastChanged": false,
+          "lastFreshContext": false,
+          "lastFreshContextError": "summary send failed",
+          "lastHandoffSource": null,
+          "lastError": "summary send failed",
+          "lastDurationMs": 90,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000063000,
+              "stage": "compacting",
+              "pressure": 128000,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            },
+            {
+              "at": 1700000063000,
+              "stage": "overflow_failed",
+              "pressure": 128000,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            }
+          ]
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      }
+    },
+    {
+      "name": "pass-after-an-earlier-error-clears-it",
+      "op": "pass",
+      "header": {
+        "id": "s-pass-clear",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "lastError": "boom",
+          "lastFreshContextError": "bad",
+          "compactCount": 1,
+          "lastDurationMs": 77
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": "file body"
+        }
+      ],
+      "args": {
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            },
+            "deferLoading": false
+          },
+          {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {
+              "type": "object"
+            },
+            "deferLoading": true
+          }
+        ],
+        "native": [],
+        "reactive": false,
+        "trigger": "auto",
+        "agentMode": false,
+        "end": {
+          "kind": "done",
+          "changed": true,
+          "handoffSource": "rules",
+          "afterTokens": 55,
+          "durationMs": 0
+        },
+        "after": [
+          {
+            "role": "user",
+            "content": "hello  world"
+          }
+        ]
+      },
+      "now": 1700000064000,
+      "result": null,
+      "after": {
+        "id": "s-pass-clear",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "lastError": null,
+          "lastFreshContextError": null,
+          "compactCount": 2,
+          "lastDurationMs": 0,
+          "requestReserveTokens": 70,
+          "reserveTokens": 70,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "effectiveContextWindowPercent": 100,
+          "autoCompactTokenLimit": null,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1700000064000,
+          "lastBeforeTokens": 116,
+          "lastAfterTokens": 55,
+          "lastPressureTokens": 116,
+          "currentEstimatedTokens": 55,
+          "lastApiRequestTokens": null,
+          "lastStage": "pre_send",
+          "lastChanged": true,
+          "lastTrigger": "auto",
+          "lastFreshContext": true,
+          "lastHandoffSource": "rules",
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1700000064000,
+              "stage": "compacting",
+              "pressure": 116,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            },
+            {
+              "at": 1700000064000,
+              "stage": "pre_send",
+              "pressure": 116,
+              "est": 46,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            }
+          ],
+          "lastChangedAt": 1700000064000,
+          "lastCompactAt": 1700000064000
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": [],
+        "usageMetricsEpoch": 1,
         "contextPressureBaselineTokens": null,
         "contextPressureBaselineOutputTokens": null,
         "contextPressureBaselineMessageCount": null,
+        "contextPressureBaselineBoundary": null,
         "contextPressureBaselinePrefixSignature": null,
         "contextPressureBaselineShapeSignature": null,
         "contextPressureBaselineProvider": null,
         "contextPressureBaselineModel": null,
         "contextPressureBaselineToolSignature": null,
         "contextPressureBaselineRequestReserveTokens": null,
-        "contextPressureBaselineBoundary": null,
         "contextPressureBaselineUpdatedAt": null,
-        "contextPressureBaselineSource": null
+        "contextPressureBaselineSource": null,
+        "lastContextTokensStaleAfterCompact": true,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 55,
+          "limitTokens": 128000,
+          "messageTokensEst": 7,
+          "messageCount": 1,
+          "messagesSignature": "ea420a22cb6695c71d83f7a8bc234ef83b005aacaac7a319e1f00131522a6d60",
+          "tailRole": "user",
+          "tailId": "",
+          "usageMetricsTurnId": "",
+          "usageMetricsEpoch": 1,
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "contextWindow": 128000,
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "updatedAt": 1700000064000
+        }
+      }
+    },
+    {
+      "name": "sync-seeds-the-config-fields-and-strips-the-buffer",
+      "op": "sync",
+      "header": {
+        "id": "s-sync",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "model": null,
+          "summaryModel": null,
+          "timeoutMs": null,
+          "bufferTokens": 4000,
+          "bufferRatio": 0.03,
+          "mainBufferTokens": null,
+          "reservedTokens": null,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [],
+      "args": {
+        "config": {
+          "compaction": {
+            "auto": true
+          }
+        }
+      },
+      "now": 1700000065000,
+      "result": null,
+      "after": {
+        "id": "s-sync",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2,
+          "auto": true,
+          "onModelChange": true,
+          "summaryMode": "smart"
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      }
+    },
+    {
+      "name": "sync-takes-the-saved-values",
+      "op": "sync",
+      "header": {
+        "id": "s-sync-saved",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "model": null,
+          "summaryModel": null,
+          "timeoutMs": null,
+          "bufferTokens": 4000,
+          "bufferRatio": 0.03,
+          "mainBufferTokens": null,
+          "reservedTokens": null,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [],
+      "args": {
+        "config": {
+          "compaction": {
+            "auto": false,
+            "summaryModel": "m-sum",
+            "bufferTokens": 9000,
+            "summaryMode": "self",
+            "onModelChange": false
+          }
+        }
+      },
+      "now": 1700000066000,
+      "result": null,
+      "after": {
+        "id": "s-sync-saved",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2,
+          "auto": false,
+          "summaryModel": "m-sum",
+          "bufferTokens": 9000,
+          "summaryMode": "self",
+          "onModelChange": false
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      }
+    },
+    {
+      "name": "sync-without-a-section-leaves-the-session-alone",
+      "op": "sync",
+      "header": {
+        "id": "s-sync-none",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "model": null,
+          "summaryModel": null,
+          "timeoutMs": null,
+          "bufferTokens": 4000,
+          "bufferRatio": 0.03,
+          "mainBufferTokens": null,
+          "reservedTokens": null,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [],
+      "args": {
+        "config": {
+          "other": 1
+        }
+      },
+      "now": 1700000067000,
+      "result": null,
+      "after": {
+        "id": "s-sync-none",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "model": null,
+          "summaryModel": null,
+          "timeoutMs": null,
+          "bufferTokens": 4000,
+          "bufferRatio": 0.03,
+          "mainBufferTokens": null,
+          "reservedTokens": null,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
       }
     }
   ]

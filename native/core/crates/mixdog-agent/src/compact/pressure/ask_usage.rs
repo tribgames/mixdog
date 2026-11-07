@@ -7,9 +7,9 @@
 //!   `recordProviderContextBaseline` ([`usage_change`]);
 //! - the check before a send that compacts nothing (`session/pre-send-compact.mjs`
 //!   `compactTelemetry(ctx, 'pre_send_check')`, [`check_change`]);
-//! - an adopted compaction (`adoptCompactedTranscript`'s `bumpUsageMetricsEpoch`, and
-//!   `rememberCompactTelemetry`'s time stamps and `invalidateProviderContextBaseline`,
-//!   [`compacted_change`]);
+//! - a compaction pass (`compactBeforeSend`: its telemetry stages, an adopted transcript's
+//!   `bumpUsageMetricsEpoch`, `invalidateProviderContextBaseline` and the post-compact usage snapshot,
+//!   [`pass_change`]);
 //! - the turn's start (`bumpUsageMetricsTurnId`, [`turn_started`]);
 //! - the ask's end (`session/manager/ask-turn-settle.mjs` `applyAskTerminalUsageTotals`, then the
 //!   complete-boundary `recordProviderContextBaseline`, [`settled_change`]).
@@ -21,6 +21,7 @@ use super::BaselineArgs;
 use super::Header;
 use super::HeaderPatch;
 use super::Route;
+use super::StageMeta;
 use super::StatusInput;
 use super::TerminalUsage;
 use super::TranscriptSigner;
@@ -28,11 +29,15 @@ use super::bump_epoch;
 use super::bump_turn_id;
 use super::invalidate_provider_context_baseline;
 use super::iteration_metrics;
+use super::compact_telemetry;
+use super::post_compact_snapshot;
 use super::pre_send_check;
 use super::provider_token_calibration;
 use super::record_provider_context_baseline;
 use super::terminal_usage;
 use crate::compact::tool_schema::RequestTools;
+use crate::env::CompactPass;
+use crate::env::PassStage;
 use crate::message::AgentMessage;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::Usage;
@@ -90,9 +95,15 @@ pub fn usage_change(
     send_tools: &[ToolDefinition],
     books: Option<&Books<'_>>,
     input_excludes_cache: bool,
+    sent_at: f64,
     now: f64,
 ) -> Option<HeaderPatch> {
     let mut draft = Draft::new(header);
+    // `sessionRef.lastProviderSendAt = sent.sendStartedAt` (`loop/send-phase.mjs`), when the response arrived:
+    // before the call's usage is reported.
+    let mut sent = HeaderPatch::default();
+    sent.put("lastProviderSendAt", mixdog_js::json_number(sent_at));
+    draft.apply(sent);
     draft.apply(iteration_metrics(header, delta, input_excludes_cache, now));
     if let Some(books) = books
         && delta.get("source") == Some(&json!("provider_send"))
@@ -126,9 +137,16 @@ pub fn usage_change(
 /// The check before a send that compacts nothing: `messages` and `tools` are the request about to go
 /// out, `reactive` a pending context-overflow retry. `None` for a session whose policy does not compact.
 pub fn check_change(header: &Header, messages: &[AgentMessage], tools: &[ToolDefinition], reactive: bool, books: &Books<'_>, now: f64) -> Option<HeaderPatch> {
+    let mut draft = Draft::new(header);
+    draft.apply(pre_send_check(&status_input(header, messages, tools, books), now, reactive)?);
+    draft.finish()
+}
+
+/// The status input of a request: the session header, the transcript about to go out and its tools.
+fn status_input<'a>(header: &'a Header, messages: &'a [AgentMessage], tools: &'a [ToolDefinition], books: &'a Books<'a>) -> StatusInput<'a> {
     let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default();
     let model = header.get("model").and_then(Value::as_str).unwrap_or_default();
-    let input = StatusInput {
+    StatusInput {
         session: header,
         route: Route { provider, model, context_window: Value::Null },
         cwd: Value::Null,
@@ -141,25 +159,72 @@ pub fn check_change(header: &Header, messages: &[AgentMessage], tools: &[ToolDef
         agent_mode: books.agent_mode,
         meter: books.signer.meter,
         signer: books.signer,
-    };
-    let mut draft = Draft::new(header);
-    draft.apply(pre_send_check(&input, now, reactive)?);
-    draft.finish()
+    }
 }
 
-/// A compaction that changed the transcript was adopted: the loop's iteration counter restarts
-/// (`bumpUsageMetricsEpoch`), and the provider reading of the old transcript is void
-/// (`rememberCompactTelemetry` with `compactChanged`, which also stamps the compaction's time).
-pub fn compacted_change(header: &Header, now: f64) -> Option<HeaderPatch> {
+/// One stage of a pre-send compaction pass (`session/pre-send-compact.mjs` `compactBeforeSend`), as
+/// the header records it:
+///
+/// - the pass starts: `compactTelemetry(ctx, 'compacting', { trigger })`;
+/// - it failed: `reportCompactFailure`'s `compactTelemetry(ctx, 'overflow_failed', ..)`;
+/// - it found no token reduction: `compactTelemetry(ctx, 'pre_send_check', { skipReason })`;
+/// - it finished: a changed transcript was adopted (`adoptCompactedTranscript`'s `bumpUsageMetricsEpoch`),
+///   `reportCompactOutcome`'s `compactTelemetry(ctx, 'pre_send', ..)` (which stamps the compaction's time
+///   and voids the provider reading of the old transcript when the transcript changed) and, then,
+///   `recordContextUsageSnapshot(.., 'post_compact')`.
+pub fn pass_change(header: &Header, pass: &CompactPass, books: &Books<'_>, now: f64) -> Option<HeaderPatch> {
     let mut draft = Draft::new(header);
-    draft.apply(bump_epoch(header));
-    let mut compaction = header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
-    compaction.insert("lastChangedAt".into(), mixdog_js::json_number(now));
-    compaction.insert("lastCompactAt".into(), mixdog_js::json_number(now));
-    let mut stamped = HeaderPatch::default();
-    stamped.set.insert("compaction".into(), Value::Object(compaction));
-    draft.apply(stamped);
-    draft.apply(invalidate_provider_context_baseline());
+    let request = |session: &Header, stage: &str, meta: &StageMeta<'_>| compact_telemetry(&status_input(session, &pass.request, &pass.tools, books), now, pass.reactive, stage, meta);
+    match &pass.stage {
+        PassStage::Started => {
+            let meta = StageMeta { trigger: Some(pass.trigger.as_str()), ..StageMeta::default() };
+            if let Some(patch) = request(header, "compacting", &meta) {
+                draft.apply(patch);
+            }
+        }
+        PassStage::Failed { message, duration_ms } => {
+            let meta = StageMeta {
+                trigger: Some(pass.trigger.as_str()),
+                fresh_error: Some(Some(message.as_str())),
+                compact_error: Some(Some(message.as_str())),
+                duration_ms: Some(*duration_ms as f64),
+                ..StageMeta::default()
+            };
+            if let Some(patch) = request(header, "overflow_failed", &meta) {
+                draft.apply(patch);
+            }
+        }
+        PassStage::Skipped => {
+            if let Some(patch) = request(header, "pre_send_check", &StageMeta::default()) {
+                draft.apply(patch);
+            }
+        }
+        PassStage::Done { changed, handoff_source, after_tokens, duration_ms, after } => {
+            if *changed {
+                draft.apply(bump_epoch(header));
+            }
+            let meta = StageMeta {
+                after_tokens: Some(*after_tokens as f64),
+                changed: *changed,
+                fresh_context: true,
+                fresh_error: Some(None),
+                compact_error: Some(None),
+                handoff_source: Some(*handoff_source),
+                duration_ms: Some(*duration_ms as f64),
+                ..StageMeta::default()
+            };
+            if let Some(patch) = request(&draft.working, "pre_send", &meta) {
+                draft.apply(patch);
+            }
+            if *changed {
+                draft.apply(invalidate_provider_context_baseline());
+                let snapshot = post_compact_snapshot(&status_input(&draft.working, after, &pass.tools, books), *after_tokens as f64, now);
+                if let Some(patch) = snapshot {
+                    draft.apply(patch);
+                }
+            }
+        }
+    }
     draft.finish()
 }
 

@@ -136,7 +136,7 @@ pub fn usage_totals(session: &Header, usage: &Value, input_excludes_cache: bool)
 }
 
 /// The fields of a policy object the usage snapshot reads (`recordContextUsageSnapshot(session, policy, ..)`).
-fn policy_header(policy: &Policy) -> Header {
+pub(super) fn policy_header(policy: &Policy) -> Header {
     let mut out = Header::new();
     for (key, value) in [
         ("boundaryTokens", policy.boundary_tokens.map(num)),
