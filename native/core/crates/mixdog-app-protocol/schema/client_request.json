@@ -2689,7 +2689,7 @@
           "type": "string"
         },
         {
-          "description": "Config path `notifications.devices.<id>` only: the value is a partial record merged onto the stored one, `events` and `quietHours` key by key; a device with none stored starts from the default record.",
+          "description": "`notifications.devices.<id>` only: the value is a partial record merged onto the stored one, `events` and `quietHours` key by key; a device with none stored starts from the default record.",
           "enum": [
             "mergePatch"
           ],
@@ -2703,7 +2703,7 @@
           "type": "string"
         },
         {
-          "description": "Config path `notifications.overrides` only: the value is `{target, setting}`; the target entry is replaced, or removed when the mode is `inherit`, and expired mutes are dropped.",
+          "description": "`notifications.overrides` only: the value is `{target, setting}`; the target's entry is replaced, or removed when the mode is `inherit`, and expired mutes are dropped.",
           "enum": [
             "setConversation"
           ],
@@ -10285,7 +10285,7 @@
           "type": "string"
         },
         {
-          "description": "The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in\nthe task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.",
+          "description": "The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in the task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.",
           "enum": [
             "control"
           ],
