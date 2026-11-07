@@ -292,6 +292,27 @@ async fn approval_answers_and_materializations_pass_the_turn_gate() {
     drop(gate.fence(&world.handle.id).expect("none is being admitted"));
 }
 
+/// Goal recovery's materialization (`recoverActiveGoals` -> `materializeSession`) is an admitted
+/// start too: refused (a failed session of the summary, as Node's `SessionClosedError` is) while an
+/// idle delete fences the thread, and resumed once it is open again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn goal_recovery_materializes_through_the_turn_gate() {
+    use mixdog_core_goal::goal::recovery::RecoverySource;
+    use mixdog_core_goal::goal::recovery::StoredGoals;
+
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    let data = tempfile::tempdir().expect("data dir");
+    let stored = StoredGoals::new(data.path().to_string_lossy().into_owned(), mixdog_rt::testing::tokens().durability_io);
+    let recovery = super::goal_recovery_host::SessionGoalRecovery::new(directory.clone(), stored);
+    let fence = directory.turn_gate().fence(&handle.id).expect("not being admitted");
+    assert!(recovery.materialize_session(handle.id.as_str()).await.is_err(), "refused while an idle delete fences the thread");
+    drop(fence);
+    recovery.materialize_session(handle.id.as_str()).await.expect("materialized");
+    drop(directory.turn_gate().fence(&handle.id).expect("no admission is left behind"));
+}
+
 /// Another idle delete's fence and a start in its intake each keep the idle delete from closing the
 /// thread, and the thread takes starts again once they end.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
