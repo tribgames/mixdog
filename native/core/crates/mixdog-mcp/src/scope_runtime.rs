@@ -12,7 +12,8 @@
 //! * **Generations.** The hub keeps each scope's generation and release mark
 //!   ([`McpHub::apply_at`]): an operation applies only if the scope is unreleased and no newer full
 //!   connect was requested since it was, checked and applied under one lock. A release makes every
-//!   operation in flight or queued void at once and for ever (the mark is never cleared).
+//!   operation in flight or queued void at once and for ever (the mark is never cleared). The first
+//!   connect's generation is reserved when the scope is registered, before any request can see it.
 //! * **Readiness.** The first connect of a scope runs in a task of its own; everyone else, openers
 //!   and later operations alike, waits for it to settle, so no one sees a half-opened scope and the
 //!   first connect is the first operation of the scope.
@@ -187,11 +188,18 @@ impl ScopeRuntime {
                 return Err(ScopeReleased);
             }
             match table.cells.get(&key) {
-                Some(cell) => (cell.clone(), false),
+                Some(cell) => (cell.clone(), None),
                 None => {
                     if table.closed_owners.contains(owner) {
                         return Err(ScopeReleased);
                     }
+                    // The first connect's generation is taken here, in the step that makes the cell
+                    // visible, and not when its task first runs: Node's `connectAll` bumps
+                    // `mcpConnectGeneration` synchronously before it yields (`connect.mjs:98-103`). A
+                    // request that finds the cell captures a generation that already counts the first
+                    // connect, so the task starting late can neither void it nor be voided by it unless
+                    // the request is itself a newer full connect.
+                    let generation = self.hub.next_generation(&key)?;
                     let (ready, _) = watch::channel(false);
                     let (waiting, _) = watch::channel(0);
                     let cell = Arc::new(Cell {
@@ -205,14 +213,14 @@ impl ScopeRuntime {
                         failure: Mutex::new(None),
                     });
                     table.cells.insert(key.clone(), cell.clone());
-                    (cell, true)
+                    (cell, Some(generation))
                 }
             }
         };
-        if first {
+        if let Some(generation) = first {
             let runtime = Arc::clone(self);
             let opening = cell.clone();
-            drop(mixdog_rt::spawn("mcp.scope.open", TaskClass::Work, async move { runtime.first_connect(&opening).await }));
+            drop(mixdog_rt::spawn("mcp.scope.open", TaskClass::Work, async move { runtime.first_connect(&opening, generation).await }));
         }
         Ok(cell)
     }
@@ -222,11 +230,9 @@ impl ScopeRuntime {
     /// `connect.mjs:61`): the connect returning, panicking or being cancelled with its task. One that
     /// does not return leaves the failure recorded on the scope, which stays open and in the fan-out
     /// ([`FirstConnect`]), as Node keeps the runtime and records the failed connect.
-    async fn first_connect(&self, cell: &Arc<Cell>) {
+    async fn first_connect(&self, cell: &Arc<Cell>, generation: u64) {
         let mut settling = FirstConnect { cell, returned: false };
-        if let Ok(generation) = self.hub.next_generation(&cell.scope) {
-            self.run_cell(cell, &Op::Reset, generation).await;
-        }
+        self.run_cell(cell, &Op::Reset, generation).await;
         settling.returned = true;
     }
 

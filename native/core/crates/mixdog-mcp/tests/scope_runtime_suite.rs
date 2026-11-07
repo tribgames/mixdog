@@ -482,3 +482,57 @@ async fn starting_the_runtime_scope_does_not_wait_for_its_connect_but_an_operati
     assert_eq!(configs.resolves(), 2, "the operation resolved after the first connect, in its own turn");
     assert_eq!(runtime.runtime_ready().await.as_deref(), Some(scope.as_str()));
 }
+
+/// The first connect's generation is taken when the scope is registered, not when its task first runs
+/// (Node's `connectAll` bumps synchronously, `connect.mjs:98-103`). On a current-thread runtime the
+/// spawned task is not polled until this test awaits, so the reconcile below is requested while the
+/// first connect has not started: it must capture a generation that already counts that connect. When
+/// the first connect then fails (held at a gate, then panicking) the reconcile still runs and connects
+/// the server; before the reservation it captured generation 0, the late bump voided it, and the scope
+/// was left failed with nothing connected.
+#[tokio::test]
+async fn a_reconcile_requested_before_the_first_connect_has_run_still_runs_when_that_connect_fails() {
+    let Rig { runtime, hub, configs, .. } = rig();
+    configs.set(&["alpha"]);
+    let (entered, go) = configs.arm();
+    configs.panic_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    let scope = runtime.start_runtime("/w").expect("started");
+    assert_eq!(configs.resolves(), 0, "the first connect has not started");
+    assert_eq!(hub.generation(&scope), 1, "its generation is already taken");
+    let reconcile = runtime.fan_out(&Op::Reconcile);
+    assert_eq!(reconcile.len(), 1);
+
+    entered.await.unwrap();
+    assert!(hub.servers_in(&scope).is_empty(), "the first connect is held before it connects anything");
+    go.send(()).unwrap();
+    for task in reconcile {
+        task.await.unwrap();
+    }
+    assert_eq!(configs.resolves(), 2, "the failed first connect resolved once and the reconcile once");
+    assert!(ready(&hub.server_in(&scope, "alpha").unwrap().state()), "the reconcile connected the server");
+    assert_eq!(runtime.failure_of(&scope), None, "an operation that applied clears the recorded failure");
+}
+
+/// A reconnect (a full connect) requested while the first connect is held at a gate supersedes it, and
+/// still runs after that connect fails: the barrier lets it through, its generation (2) stands.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reconnect_requested_while_the_first_connect_is_held_runs_after_it_fails() {
+    let Rig { runtime, hub, configs, .. } = rig();
+    configs.set(&["alpha"]);
+    let (entered, go) = configs.arm();
+    configs.panic_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    let scope = runtime.start_runtime("/w").expect("started");
+    entered.await.unwrap();
+    assert_eq!(hub.generation(&scope), 1);
+    let reconnect = runtime.fan_out(&Op::Reset);
+    assert_eq!(reconnect.len(), 1);
+    assert_eq!(hub.generation(&scope), 2, "the reconnect supersedes the first connect");
+
+    go.send(()).unwrap();
+    for task in reconnect {
+        task.await.unwrap();
+    }
+    assert_eq!(configs.resolves(), 2);
+    assert!(ready(&hub.server_in(&scope, "alpha").unwrap().state()), "the reconnect connected the server");
+    assert_eq!(runtime.failure_of(&scope), None);
+}
