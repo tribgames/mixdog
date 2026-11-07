@@ -101,6 +101,19 @@ impl Worktrees {
         self.scm().git.succeeds(cancel, cwd, &["check-ref-format", "--branch", branch]).await
     }
 
+    /// Node `branchCommitPair`: the commit ids of two local branches from one `rev-parse` (the
+    /// trailing `--` makes a missing one fail the call); `None` whenever the answer is not exactly
+    /// two commit ids, and the caller then reads each on its own.
+    async fn branch_commit_pair(&self, cwd: &Path, first: &str, second: &str, cancel: &CancellationToken) -> Result<Option<(String, String)>, ScmFailure> {
+        let (a, b) = (format!("refs/heads/{first}^{{commit}}"), format!("refs/heads/{second}^{{commit}}"));
+        let out = self.scm().git.outcome(cancel, cwd, &["rev-parse", &a, &b, "--"], &RunOptions::default()).await?;
+        let text = out.stdout_text();
+        let mut lines = text.split('\n').map(str::trim);
+        let (first, second, dashes) = (lines.next().unwrap_or(""), lines.next().unwrap_or(""), lines.next().unwrap_or(""));
+        let commit = |s: &str| (40..=64).contains(&s.len()) && s.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f'));
+        Ok((out.success() && commit(first) && commit(second) && dashes == "--" && lines.all(str::is_empty)).then(|| (first.to_owned(), second.to_owned())))
+    }
+
     async fn local_branch_commits(&self, cwd: &Path, cancel: &CancellationToken) -> Result<Vec<(String, String)>, ScmFailure> {
         let text = self
             .scm()
@@ -126,12 +139,14 @@ impl Worktrees {
         cancel: &CancellationToken,
     ) -> Result<Value, ScmFailure> {
         let facts = self.inspect_repo(project, cancel).await?;
-        let commits = self.local_branch_commits(&facts.project_path, cancel).await?;
-        let worktrees = self.list_git_worktrees(&facts.project_path, cancel).await?;
+        // The branch list, the worktree list and the registry are read together (Node `listBranchOccupancy`).
+        let (commits, worktrees, records) = tokio::try_join!(
+            self.local_branch_commits(&facts.project_path, cancel),
+            self.list_git_worktrees(&facts.project_path, cancel),
+            self.all_records(cancel),
+        )?;
         let common = facts.common_dir.to_string_lossy().into_owned();
-        let managed: Vec<_> = self
-            .all_records(cancel)
-            .await?
+        let managed: Vec<_> = records
             .into_iter()
             .filter(|r| same(&r.repo_common_dir, &common))
             .collect();
@@ -398,10 +413,16 @@ impl Worktrees {
         if !self.valid_branch_name(&facts.project_path, branch, cancel).await? {
             return Err(ScmFailure::invalid("branch", "a valid local branch name"));
         }
-        let commit = self
-            .branch_commit(&facts.project_path, branch, cancel)
-            .await?
-            .ok_or_else(errors::branch_missing)?;
+        // Both tips in one read when both exist; otherwise each on its own (Node `inspect`).
+        let pair = match &facts.current_branch {
+            Some(current) => self.branch_commit_pair(&facts.project_path, branch, current, cancel).await?,
+            None => None,
+        };
+        let commit = match &pair {
+            Some((first, _)) => Some(first.clone()),
+            None => self.branch_commit(&facts.project_path, branch, cancel).await?,
+        }
+        .ok_or_else(errors::branch_missing)?;
         let holder = self
             .list_git_worktrees(&facts.project_path, cancel)
             .await?
@@ -412,9 +433,10 @@ impl Worktrees {
             None => None,
         };
         let target = facts.current_branch.clone();
-        let target_commit = match &target {
-            Some(t) => self.branch_commit(&facts.project_path, t, cancel).await?,
-            None => None,
+        let target_commit = match (&pair, &target) {
+            (Some((_, second)), _) => Some(second.clone()),
+            (None, Some(t)) => self.branch_commit(&facts.project_path, t, cancel).await?,
+            (None, None) => None,
         };
         let kind = match &holder {
             Some(h) if same(&h.path, &facts.top_level.to_string_lossy()) => "project",
