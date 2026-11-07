@@ -137,7 +137,7 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
         if name.is_empty() {
             return Ok(());
         }
-        self.sessions.rename(session_id, &name).await
+        self.sessions.set_retired_title(session_id, &name).await
     }
 
     async fn agent_presence(&self, agent_ids: &[String]) -> Result<HashMap<String, Presence>, RoomError> {
@@ -336,7 +336,8 @@ mod tests {
         async fn set_retired(&self, _: &str, _: bool) -> Result<(), RoomError> {
             Ok(())
         }
-        async fn set_retired_title(&self, _: &str, _: &str) -> Result<(), RoomError> {
+        async fn set_retired_title(&self, id: &str, name: &str) -> Result<(), RoomError> {
+            self.0.lock().unwrap().push((id.into(), json!(name)));
             Ok(())
         }
         async fn rename(&self, id: &str, title: &str) -> Result<(), RoomError> {
