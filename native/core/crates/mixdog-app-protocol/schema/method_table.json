@@ -10522,6 +10522,11 @@
     },
     {
       "delivery": "thread",
+      "method": "thread/roomView/updated",
+      "params": "ThreadSectionParams<Option<ThreadRoomView>>"
+    },
+    {
+      "delivery": "thread",
       "method": "review/diff/updated",
       "params": "SectionUpdate"
     },

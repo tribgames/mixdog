@@ -7002,9 +7002,45 @@
       "description": "One part of a prompt (today's `DesktopPromptContent` array form).",
       "oneOf": [
         {
+          "description": "A text, or a stored text attachment: an `attachmentRef` part has no `text` and names its `textKind` (`paste` or `file`), as Node's `handoffContent` forwards it.",
           "properties": {
+            "attachmentRef": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "filename": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "mimeType": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sizeBytes": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "text": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "textKind": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "type": {
               "enum": [
@@ -7014,38 +7050,24 @@
             }
           },
           "required": [
-            "text",
             "type"
           ],
           "type": "object"
         },
         {
           "properties": {
-            "data": {
-              "description": "Base64 bytes, or a staged blob digest via `attachmentRef` in the submit options.",
-              "type": "string"
+            "attachmentRef": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
-            "mimeType": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "image"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "data",
-            "mimeType",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
             "data": {
-              "type": "string"
+              "description": "Base64 bytes; a part that names a stored `attachment_ref` instead has none.",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "filename": {
               "type": [
@@ -7056,6 +7078,58 @@
             "mimeType": {
               "type": "string"
             },
+            "sizeBytes": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "image"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "mimeType",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "attachmentRef": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "data": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "filename": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "mimeType": {
+              "type": "string"
+            },
+            "sizeBytes": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "type": {
               "enum": [
                 "file"
@@ -7064,7 +7138,6 @@
             }
           },
           "required": [
-            "data",
             "mimeType",
             "type"
           ],
@@ -8670,8 +8743,27 @@
       "additionalProperties": false,
       "description": "Caller options of `turn/start` (today's `DesktopSubmitOptions` without the host-only fields `device`, `hop`, `roomRow`, `origin`; a request carrying any of them is `invalidParams`, P §4.3).",
       "properties": {
+        "attachmentSizes": {
+          "additionalProperties": {
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "description": "The stored files' sizes by `attachmentRef`, which the message's attachment records take in place of a part's claimed `sizeBytes` (`attachmentBlobSize`). Host-only, like `context`.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "clientSubmissionId": {
           "description": "Today's submit `id`: the client's correlation id reused by queue and transcript.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "context": {
+          "description": "The agent tool's `context` of a queued follow-up (`submitAsync` option `context`): kept on the queue entry as Node keeps it. Host-only: a connection's request carrying it is `invalidParams`.",
           "type": [
             "string",
             "null"

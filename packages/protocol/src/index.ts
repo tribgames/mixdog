@@ -2750,11 +2750,11 @@ export type PromptHistoryChange = { "kind": "added", prompt: string, } | { "kind
 /**
  * One part of a prompt (today's `DesktopPromptContent` array form).
  */
-export type PromptPart = { "type": "text", text: string, } | { "type": "image", 
+export type PromptPart = { "type": "text", text?: string, textKind?: string, attachmentRef?: string, sizeBytes?: number, mimeType?: string, filename?: string, } | { "type": "image", 
 /**
- * Base64 bytes, or a staged blob digest via `attachmentRef` in the submit options.
+ * Base64 bytes; a part that names a stored `attachment_ref` instead has none.
  */
-data: string, mimeType: string, } | { "type": "file", data: string, mimeType: string, filename?: string, };
+data?: string, mimeType: string, attachmentRef?: string, sizeBytes?: number, filename?: string, } | { "type": "file", data?: string, mimeType: string, filename?: string, attachmentRef?: string, sizeBytes?: number, };
 
 export type PromptPriority = "now" | "next" | "later";
 
@@ -2776,7 +2776,17 @@ export type ProviderId = string;
 /**
  * The answer to a [`ProxyCall`].
  */
-export type ProxyAnswer = { "result": "sent", attempts: number, } | { "result": "models", models: Array<ProxyModel>, } | { "result": "usable", usable: boolean, } | { "result": "route", route: ProxyWireRoute | null, } | { "result": "providerConfig", providers: { [key in string]?: ProxyProviderInfo }, ready: boolean, } | { "result": "failed", failure: ProxyFailure, };
+export type ProxyAnswer = { "result": "sent", attempts: number, } | { "result": "models", models: Array<ProxyModel>, } | { "result": "usable", usable: boolean, } | { "result": "route", route: ProxyWireRoute | null, } | { "result": "providerConfig", 
+/**
+ * In the order the PC advertised them: a JSON object on the wire, whose key order Node keeps
+ * (the setup lists custom providers in it).
+ */
+providers: { [key in string]?: ProxyProviderInfo }, 
+/**
+ * Whether the PC's registry is loaded. An older PC omits it, and the server then reads the
+ * answer as loaded only when it names an enabled provider.
+ */
+ready?: boolean, } | { "result": "failed", failure: ProxyFailure, };
 
 /**
  * A file part's bytes. The sender's attachment-store reference means nothing on the PC, so it
@@ -3288,7 +3298,7 @@ revision: number, value?: JsonValue, removed?: boolean, stub?: SectionStub, };
  */
 export type ServerCapabilities = { office: CapabilityState, jsSkills: CapabilityState, browser: CapabilityState, computer: CapabilityState, voice: CapabilityState, };
 
-export type ServerNotification = { "method": "thread/snapshot", "params": ThreadSnapshotParams } | { "method": "thread/closed", "params": ThreadIdParams } | { "method": "thread/status/changed", "params": ThreadStatusChangedParams } | { "method": "thread/name/updated", "params": ThreadNameUpdatedParams } | { "method": "thread/tokenUsage/updated", "params": TokenUsageUpdatedParams } | { "method": "thread/goal/updated", "params": ThreadValueParams } | { "method": "thread/goal/cleared", "params": ThreadIdParams } | { "method": "thread/queue/changed", "params": ThreadQueueChangedParams } | { "method": "turn/started", "params": TurnNotificationParams } | { "method": "turn/completed", "params": TurnNotificationParams } | { "method": "thread/notification", "params": ThreadNotificationParams } | { "method": "thread/modelRequest/updated", "params": ModelRequestUpdatedParams } | { "method": "thread/toolBatch/updated", "params": ToolBatchUpdatedParams } | { "method": "item/started", "params": ItemNotificationParams } | { "method": "item/completed", "params": ItemNotificationParams } | { "method": "item/agentMessage/delta", "params": ItemDeltaParams } | { "method": "item/reasoning/textDelta", "params": ItemDeltaParams } | { "method": "item/reasoning/summaryTextDelta", "params": ItemDeltaParams } | { "method": "thread/historyReset", "params": ThreadHistoryResetParams } | { "method": "thread/runtime/updated", "params": ThreadSectionParams<ThreadRuntime> } | { "method": "thread/route/updated", "params": ThreadSectionParams<ThreadRoute> } | { "method": "thread/context/updated", "params": ThreadSectionParams<ThreadContext> } | { "method": "thread/todo/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/quotaResume/updated", "params": ThreadSectionParams<QuotaResume | null> } | { "method": "thread/agents/updated", "params": ThreadSectionParams<ThreadAgents> } | { "method": "thread/shellJobs/updated", "params": ThreadSectionParams<JsonValue> } | { "method": "thread/workflow/updated", "params": ThreadSectionParams<ThreadWorkflow> } | { "method": "thread/workspace/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/approvals/updated", "params": ThreadSectionParams<ThreadApprovals> } | { "method": "thread/promptRestore", "params": ThreadSectionParams<PromptRestore | null> } | { "method": "thread/providerAccount/changed", "params": ThreadSectionParams<ProviderAccountChange | null> } | { "method": "thread/promptHistory/updated", "params": ThreadSectionParams<PromptHistoryChange> } | { "method": "thread/remote/updated", "params": ThreadSectionParams<boolean> } | { "method": "thread/setupUiRequest/updated", "params": ThreadSectionParams<SetupUiRequest | null> } | { "method": "review/diff/updated", "params": SectionUpdate } | { "method": "error", "params": ErrorNotificationParams } | { "method": "serverRequest/resolved", "params": ServerRequestResolvedParams } | { "method": "host/notification/show", "params": HostNotificationShowParams } | { "method": "host/browser/viewFrames", "params": HostBrowserViewFramesParams } | { "method": "modelProxy/run/event", "params": ModelProxyRunEventParams } | { "method": "model/proxy/cancel", "params": ModelProxyCancelParams } | { "method": "app/snapshot", "params": AppSnapshotParams } | { "method": "thread/started", "params": ThreadStartedParams } | { "method": "thread/summary/updated", "params": ThreadSummaryUpdatedParams } | { "method": "thread/deleted", "params": ThreadIdParams } | { "method": "thread/archived", "params": ThreadIdParams } | { "method": "thread/unarchived", "params": ThreadIdParams } | { "method": "warning", "params": WarningParams } | { "method": "configWarning", "params": WarningParams } | { "method": "ui/openRequested", "params": UiOpenRequestedParams } | { "method": "remote/pointer", "params": RemotePointerParams } | { "method": "core/drain", "params": CoreDrainParams } | { "method": "config/updated", "params": SectionUpdate } | { "method": "project/updated", "params": SectionUpdate } | { "method": "agent/pool/updated", "params": SectionUpdate } | { "method": "agent/list/updated", "params": SectionUpdate } | { "method": "agent/botOrder/updated", "params": SectionUpdate } | { "method": "model/presets/updated", "params": SectionUpdate } | { "method": "model/catalog/updated", "params": SectionUpdate } | { "method": "workflow/list/updated", "params": SectionUpdate } | { "method": "webSearch/updated", "params": SectionUpdate } | { "method": "toolModules/updated", "params": SectionUpdate } | { "method": "account/updated", "params": SectionUpdate } | { "method": "usage/updated", "params": SectionUpdate } | { "method": "shellJobs/host/updated", "params": SectionUpdate } | { "method": "terminal/activity/updated", "params": SectionUpdate } | { "method": "terminal/tabs/updated", "params": SectionUpdate } | { "method": "remote/state/updated", "params": SectionUpdate } | { "method": "notice/updated", "params": SectionUpdate } | { "method": "update/status/updated", "params": SectionUpdate } | { "method": "host/state/updated", "params": SectionUpdate } | { "method": "computer/updated", "params": SectionUpdate } | { "method": "approval/inbox/updated", "params": SectionUpdate } | { "method": "core/state/updated", "params": SectionUpdate } | { "method": "core/health/updated", "params": SectionUpdate } | { "method": "migration/progress", "params": SectionUpdate } | { "method": "feed/snapshot", "params": FeedSnapshotParams } | { "method": "fs/changed", "params": FsChangedParams } | { "method": "search/updated", "params": SearchUpdatedParams } | { "method": "search/completed", "params": SearchCompletedParams } | { "method": "process/outputDelta", "params": ProcessOutputDeltaParams } | { "method": "process/exited", "params": ProcessExitedParams } | { "method": "login/updated", "params": LoginUpdatedParams } | { "method": "git/status/updated", "params": SectionUpdate } | { "method": "lsp/status/updated", "params": SectionUpdate } | { "method": "lsp/diagnostics/updated", "params": SectionUpdate } | { "method": "media/job/updated", "params": SectionUpdate } | { "method": "system/ports/updated", "params": SectionUpdate };
+export type ServerNotification = { "method": "thread/snapshot", "params": ThreadSnapshotParams } | { "method": "thread/closed", "params": ThreadIdParams } | { "method": "thread/status/changed", "params": ThreadStatusChangedParams } | { "method": "thread/name/updated", "params": ThreadNameUpdatedParams } | { "method": "thread/tokenUsage/updated", "params": TokenUsageUpdatedParams } | { "method": "thread/goal/updated", "params": ThreadValueParams } | { "method": "thread/goal/cleared", "params": ThreadIdParams } | { "method": "thread/queue/changed", "params": ThreadQueueChangedParams } | { "method": "turn/started", "params": TurnNotificationParams } | { "method": "turn/completed", "params": TurnNotificationParams } | { "method": "thread/notification", "params": ThreadNotificationParams } | { "method": "thread/modelRequest/updated", "params": ModelRequestUpdatedParams } | { "method": "thread/toolBatch/updated", "params": ToolBatchUpdatedParams } | { "method": "item/started", "params": ItemNotificationParams } | { "method": "item/completed", "params": ItemNotificationParams } | { "method": "item/agentMessage/delta", "params": ItemDeltaParams } | { "method": "item/reasoning/textDelta", "params": ItemDeltaParams } | { "method": "item/reasoning/summaryTextDelta", "params": ItemDeltaParams } | { "method": "thread/historyReset", "params": ThreadHistoryResetParams } | { "method": "thread/runtime/updated", "params": ThreadSectionParams<ThreadRuntime> } | { "method": "thread/route/updated", "params": ThreadSectionParams<ThreadRoute> } | { "method": "thread/context/updated", "params": ThreadSectionParams<ThreadContext> } | { "method": "thread/todo/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/quotaResume/updated", "params": ThreadSectionParams<QuotaResume | null> } | { "method": "thread/agents/updated", "params": ThreadSectionParams<ThreadAgents> } | { "method": "thread/shellJobs/updated", "params": ThreadSectionParams<JsonValue> } | { "method": "thread/workflow/updated", "params": ThreadSectionParams<ThreadWorkflow> } | { "method": "thread/workspace/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/approvals/updated", "params": ThreadSectionParams<ThreadApprovals> } | { "method": "thread/promptRestore", "params": ThreadSectionParams<PromptRestore | null> } | { "method": "thread/providerAccount/changed", "params": ThreadSectionParams<ProviderAccountChange | null> } | { "method": "thread/promptHistory/updated", "params": ThreadSectionParams<PromptHistoryChange> } | { "method": "thread/remote/updated", "params": ThreadSectionParams<boolean> } | { "method": "thread/setupUiRequest/updated", "params": ThreadSectionParams<SetupUiRequest | null> } | { "method": "thread/roomView/updated", "params": ThreadSectionParams<ThreadRoomView | null> } | { "method": "review/diff/updated", "params": SectionUpdate } | { "method": "error", "params": ErrorNotificationParams } | { "method": "serverRequest/resolved", "params": ServerRequestResolvedParams } | { "method": "host/notification/show", "params": HostNotificationShowParams } | { "method": "host/browser/viewFrames", "params": HostBrowserViewFramesParams } | { "method": "modelProxy/run/event", "params": ModelProxyRunEventParams } | { "method": "model/proxy/cancel", "params": ModelProxyCancelParams } | { "method": "app/snapshot", "params": AppSnapshotParams } | { "method": "thread/started", "params": ThreadStartedParams } | { "method": "thread/summary/updated", "params": ThreadSummaryUpdatedParams } | { "method": "thread/deleted", "params": ThreadIdParams } | { "method": "thread/archived", "params": ThreadIdParams } | { "method": "thread/unarchived", "params": ThreadIdParams } | { "method": "warning", "params": WarningParams } | { "method": "configWarning", "params": WarningParams } | { "method": "ui/openRequested", "params": UiOpenRequestedParams } | { "method": "remote/pointer", "params": RemotePointerParams } | { "method": "core/drain", "params": CoreDrainParams } | { "method": "config/updated", "params": SectionUpdate } | { "method": "project/updated", "params": SectionUpdate } | { "method": "agent/pool/updated", "params": SectionUpdate } | { "method": "agent/list/updated", "params": SectionUpdate } | { "method": "agent/botOrder/updated", "params": SectionUpdate } | { "method": "model/presets/updated", "params": SectionUpdate } | { "method": "model/catalog/updated", "params": SectionUpdate } | { "method": "workflow/list/updated", "params": SectionUpdate } | { "method": "webSearch/updated", "params": SectionUpdate } | { "method": "toolModules/updated", "params": SectionUpdate } | { "method": "account/updated", "params": SectionUpdate } | { "method": "usage/updated", "params": SectionUpdate } | { "method": "shellJobs/host/updated", "params": SectionUpdate } | { "method": "terminal/activity/updated", "params": SectionUpdate } | { "method": "terminal/tabs/updated", "params": SectionUpdate } | { "method": "remote/state/updated", "params": SectionUpdate } | { "method": "notice/updated", "params": SectionUpdate } | { "method": "update/status/updated", "params": SectionUpdate } | { "method": "host/state/updated", "params": SectionUpdate } | { "method": "computer/updated", "params": SectionUpdate } | { "method": "approval/inbox/updated", "params": SectionUpdate } | { "method": "core/state/updated", "params": SectionUpdate } | { "method": "core/health/updated", "params": SectionUpdate } | { "method": "migration/progress", "params": SectionUpdate } | { "method": "feed/snapshot", "params": FeedSnapshotParams } | { "method": "fs/changed", "params": FsChangedParams } | { "method": "search/updated", "params": SearchUpdatedParams } | { "method": "search/completed", "params": SearchCompletedParams } | { "method": "process/outputDelta", "params": ProcessOutputDeltaParams } | { "method": "process/exited", "params": ProcessExitedParams } | { "method": "login/updated", "params": LoginUpdatedParams } | { "method": "git/status/updated", "params": SectionUpdate } | { "method": "lsp/status/updated", "params": SectionUpdate } | { "method": "lsp/diagnostics/updated", "params": SectionUpdate } | { "method": "media/job/updated", "params": SectionUpdate } | { "method": "system/ports/updated", "params": SectionUpdate };
 
 /**
  * Request from the core to a client.
@@ -3372,7 +3382,18 @@ retryTurnId?: string,
 /**
  * The failed attempt of that message (`retryAttemptId`).
  */
-retryAttemptId?: string, priority?: PromptPriority, pastedImages?: { [key in string]?: PromptAttachment }, pastedTexts?: { [key in string]?: PastedText }, kickoff?: boolean, };
+retryAttemptId?: string, priority?: PromptPriority, pastedImages?: { [key in string]?: PromptAttachment }, pastedTexts?: { [key in string]?: PastedText }, kickoff?: boolean, 
+/**
+ * The agent tool's `context` of a queued follow-up (`submitAsync` option `context`): kept on
+ * the queue entry as Node keeps it. Host-only: a connection's request carrying it is
+ * `invalidParams`.
+ */
+context?: string, 
+/**
+ * The stored files' sizes by `attachmentRef`, which the message's attachment records take
+ * in place of a part's claimed `sizeBytes` (`attachmentBlobSize`). Host-only, like `context`.
+ */
+attachmentSizes?: { [key in string]?: number }, };
 
 /**
  * The core's attach decision, the same object for every subscribing method.
@@ -3717,6 +3738,31 @@ export type ThreadRevertTurnReviewParams = { opId: OpId, threadId?: ThreadId, ch
 
 export type ThreadRewindParams = { threadId: ThreadId, opId: OpId, itemId: ItemId, restoreFiles?: boolean, };
 
+/**
+ * A group room's log as its views see it while the room runs (Node `agent-room-views.ts`
+ * `decorateRoomSnapshot`, pushed with the room's session state): the client lays it over the
+ * room log thread's own fields. Absent when the room has no exchange state and no handed-off
+ * questions.
+ */
+export type ThreadRoomView = { 
+/**
+ * The room has an exchange state: the log reads busy (so the composer offers stop).
+ */
+busy: boolean, 
+/**
+ * The speaking member's pending approval, as Node's queue presents it (`toolApproval`).
+ */
+toolApproval?: JsonValue, 
+/**
+ * The typing row naming who speaks (`{ kind: 'notice', id, tone: 'info', text, room: { kind:
+ * 'typing', speaker, name } }`), shown after the transcript.
+ */
+typing?: JsonValue, 
+/**
+ * The questions of sessions the members handed work to, while they wait.
+ */
+handoffQuestions?: Array<JsonValue>, };
+
 export type ThreadRoute = { sessionProvider?: string, sessionModel?: string, fast?: boolean, fastCapable?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, selectedContextWindow?: number, };
 
 export type ThreadRuntime = { busy: boolean, commandBusy: boolean, thinking?: JsonValue, spinner?: JsonValue, commandStatus?: JsonValue, progressHint?: JsonValue, activeTools?: JsonValue, storage?: StorageState, 
@@ -3835,6 +3881,10 @@ export type ThreadState = { title?: string, runtime?: ThreadRuntime, route?: Thr
  * ends.
  */
 setupUiRequest?: SetupUiRequest, 
+/**
+ * A group room log's view while the room runs (`thread/roomView/updated`).
+ */
+roomView?: ThreadRoomView, 
 /**
  * The composer's Up-arrow recall (today's `promptHistoryList`, Node's merged list): the
  * thread's user prompts over the whole transcript plus the per-folder saved prompt
@@ -5108,6 +5158,7 @@ export type ServerNotificationMethods = {
   "thread/promptHistory/updated": ThreadSectionParams<PromptHistoryChange>;
   "thread/remote/updated": ThreadSectionParams<boolean>;
   "thread/setupUiRequest/updated": ThreadSectionParams<SetupUiRequest | null>;
+  "thread/roomView/updated": ThreadSectionParams<ThreadRoomView | null>;
   "review/diff/updated": SectionUpdate;
   "error": ErrorNotificationParams;
   "serverRequest/resolved": ServerRequestResolvedParams;
@@ -15687,6 +15738,11 @@ export const methodTable = {
       "delivery": "thread",
       "method": "thread/setupUiRequest/updated",
       "params": "ThreadSectionParams<Option<SetupUiRequest>>"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/roomView/updated",
+      "params": "ThreadSectionParams<Option<ThreadRoomView>>"
     },
     {
       "delivery": "thread",

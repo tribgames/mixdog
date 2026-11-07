@@ -523,10 +523,15 @@
               "additionalProperties": {
                 "$ref": "#/definitions/ProxyProviderInfo"
               },
+              "description": "In the order the PC advertised them: a JSON object on the wire, whose key order Node keeps (the setup lists custom providers in it).",
               "type": "object"
             },
             "ready": {
-              "type": "boolean"
+              "description": "Whether the PC's registry is loaded. An older PC omits it, and the server then reads the answer as loaded only when it names an enabled provider.",
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "result": {
               "enum": [
@@ -537,7 +542,6 @@
           },
           "required": [
             "providers",
-            "ready",
             "result"
           ],
           "type": "object"
