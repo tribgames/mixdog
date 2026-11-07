@@ -266,7 +266,13 @@ impl Transfers {
                 None => moved.await,
                 Some(deadline) => {
                     tokio::select! {
-                        () = timer.sleep_until(deadline) => return,
+                        () = timer.sleep_until(deadline) => {
+                            // A chunk may have moved the deadline while this sleep was already due: only a
+                            // deadline that has really passed ends the wait.
+                            if self.next_idle_deadline().is_some_and(|next| next <= self.clock.now()) {
+                                return;
+                            }
+                        }
                         () = &mut moved => {}
                     }
                 }
@@ -510,7 +516,7 @@ impl Transfers {
         let write = {
             let mut writes = self.writes.lock().expect("transfer writes");
             if !writes.get(id).is_some_and(|w| w.owner == owner) {
-                return Err(WsError::expired());
+                return Err(upload_gone());
             }
             writes.remove(id).expect("checked")
         };
