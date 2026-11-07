@@ -846,7 +846,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
             ToolErrorCode::Internal {
                 incident_id: "tool-task".to_owned(),
             },
-            "tool task failed",
+            "Error: tool task failed",
         )),
         ended => Err(ended_error(&name, &ended, timeout)),
     };
