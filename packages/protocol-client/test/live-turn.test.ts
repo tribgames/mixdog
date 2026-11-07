@@ -41,6 +41,17 @@ test("a live turn's rows equal the Node daemon's: aggregates for single calls, l
   assert.deepEqual(normalize(withoutUiDiff(JSON.parse(JSON.stringify(rows)))), normalize(withoutUiDiff(node)));
 });
 
+// The result message's diff arrives in the call's `run.uiDiff` (the stored tool message's `uiDiff`): it is the card's, the member's and the aggregate's.
+test("a tool result's diff is on its card, the aggregate's member and the aggregate, as in the Node daemon's rows", () => {
+  const diff = (node.flatMap((row) => (typeof row.uiDiff === 'string' ? [row.uiDiff] : [])) as string[])[0]!;
+  const withDiff = frames.map((f) => {
+    const item = JSON.parse(JSON.stringify(f.params.item));
+    if (item.type === 'toolCall' && item.run?.callId === 'call_harness_edit') item.run.uiDiff = diff;
+    return { ...f, params: { ...f.params, item } };
+  });
+  assert.deepEqual(normalize(JSON.parse(JSON.stringify(rowsOf(withDiff)))), normalize(node));
+});
+
 test('a restored single tool call stays the per-call card; a live one is an aggregate', () => {
   const restored = frames.map((f) => ({ ...f, params: { item: JSON.parse(JSON.stringify(f.params.item, (k, v) => (k === 'live' ? undefined : v))) } }));
   const names = (rows: Obj[]): unknown[] => rows.filter((r) => r.kind === 'tool').map((r) => r.name);

@@ -134,3 +134,58 @@ async fn each_announced_settings_change_moves_setup_changed() {
     announce.send_modify(|count| *count += 1);
     eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(2))).await;
 }
+
+/// A route that saves the configuration while the new thread is being created, as the draft's route does (`adopt_draft` saves it).
+struct SavingRoute(tokio::sync::watch::Sender<u64>);
+
+#[async_trait::async_trait]
+impl super::NewThreadRoute for SavingRoute {
+    async fn adopt(&self, _: &mixdog_core_api::ids::ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+        self.0.send_modify(|count| *count += 1);
+        Ok(serde_json::Map::new())
+    }
+
+    async fn adopt_control(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+
+    async fn seat(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// In Node the session exists (`client.create`) before the draft's `setRoute` saves the route, so the save is a settings change the session
+/// sees: a settings change made while a thread is being created reaches its `setupChanged`.
+#[tokio::test(start_paused = true)]
+async fn a_settings_change_the_creation_makes_reaches_the_new_threads_setup_changed() {
+    let rig = Rig::new();
+    let (announce, changes) = tokio::sync::watch::channel(0_u64);
+    *lock(&rig.compaction.settings) = Some(changes);
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(SavingRoute(announce));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let first = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(1))).await;
+    assert_eq!(first["setupChanged"]["action"], json!("settings_changed"));
+}
+
+/// A turn's close does not take `setupChanged`: the settings announcement is the session's, not the run's, and a client reads it after the turn.
+#[tokio::test(start_paused = true)]
+async fn a_turn_end_leaves_setup_changed_in_the_state() {
+    let rig = Rig::new();
+    let (announce, changes) = tokio::sync::watch::channel(0_u64);
+    *lock(&rig.compaction.settings) = Some(changes);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    announce.send_modify(|count| *count += 1);
+    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(1))).await;
+    turn(&handle, "go", "op-1").await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || {
+        rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "turn/completed").then_some(())
+    })
+    .await;
+    let after = newest(&rig, handle.id.as_str(), "thread/runtime/updated").expect("a runtime frame");
+    assert_eq!(after["setupChanged"]["seq"], json!(1), "the frame after the turn still carries it");
+    assert!(handle.cell.view.load_full().state.runtime.clone().expect("runtime").setup_changed.is_some());
+}

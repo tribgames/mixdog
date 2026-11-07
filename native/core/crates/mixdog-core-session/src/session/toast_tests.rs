@@ -83,6 +83,21 @@ async fn a_toast_stays_three_seconds_then_is_removed_and_published() {
     assert!(gone.is_empty(), "at 3000 ms the removal is published");
 }
 
+/// The turn's close does not take the toast: the queue is the session's own and leaves with its timer, so the runtime frame that
+/// follows `turn/completed` (and the state a client reads then) still holds the failure's toast.
+#[tokio::test(start_paused = true)]
+async fn the_turns_close_leaves_its_toast_in_the_runtime_state() {
+    let rig = failing_rig();
+    let (_directory, handle, shown) = thread_with_toast(&rig).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || {
+        rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "turn/completed").then_some(())
+    })
+    .await;
+    assert_eq!(published_toasts(&rig, &handle.id), Some(shown.clone()), "the frame after turn/completed holds the toast");
+    let held = handle.cell.view.load_full().state.runtime.clone().expect("runtime").toasts;
+    assert_eq!(held, shown);
+}
 /// `thread/clear` empties the queue and cancels the timers: past the toast's 3 s nothing more is published.
 #[tokio::test(start_paused = true)]
 async fn a_cleared_session_publishes_no_expiry() {
