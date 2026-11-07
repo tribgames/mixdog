@@ -1,0 +1,2723 @@
+{
+ "fixtures": {
+  "alpha": {
+   "plugin.json": "{\"name\":\"Alpha\",\"title\":\"Alpha Tools\",\"version\":\"1.2.0\",\"description\":\"The alpha plugin\",\"author\":{\"name\":\"A\",\"email\":\"a@x.test\",\"url\":\"https://a.test\"},\"homepage\":\"https://alpha.test\",\"repository\":{\"url\":\"https://git.test/alpha\"},\"license\":{\"type\":\"MIT\"},\"keywords\":[\"k1\",\" \",2,\"k2\"],\"mcpServers\":{\"search\":{\"command\":\"node\",\"args\":[\"s.js\"]},\"bad\":{\"type\":\"stdio\"}}}",
+   "skills/one/SKILL.md": "---\nname: one\n---\n",
+   "skills/nested/deep/skill.md": "---\nname: deep\n---\n",
+   "skills/mixed/Skill.MD": "x",
+   "skills/README.md": "not a skill",
+   "hooks/hooks.json": "{}"
+  },
+  "beta": {
+   ".claude-plugin/plugin.json": "{\"name\":\"beta\",\"skills\":[\"./extra\",\"./skills\",\"../outside\",\"/abs\",5,\"\"]}",
+   ".mcp.json": "{\"mcpServers\":{\"a\":{\"command\":\"x\"},\"b\":{\"url\":\"https://b.test/mcp\"}}}",
+   "extra/a/SKILL.md": "x",
+   "skills/b/SKILL.md": "x",
+   ".mixdog/hooks.json": "{}"
+  },
+  "gamma": {
+   ".codex-plugin/plugin.json": "{\"name\":\"gamma\",\"mcpServers\":\"./servers/mcp.json\",\"skills\":\"./SKILL.md\"}",
+   "servers/mcp.json": "{\"srv\":{\"command\":\"c\"}}",
+   "SKILL.md": "x"
+  },
+  "delta": {},
+  "epsilon": {
+   "plugin.json": "[1,2]",
+   ".claude-plugin/plugin.json": "{\"name\":\"eps-claude\"}"
+  },
+  "zeta": {
+   "plugin.json": "{\"name\": ",
+   "skills/z/SKILL.md": "x"
+  },
+  "eta": {
+   "plugin.json": "{\"name\":\"eta\",\"mcpServers\":[{\"x\":{\"command\":\"x\"}},\"./m1.json\",5,\"../m2.json\"]}",
+   "m1.json": "{\"mcpServers\":{\"y\":{\"url\":\"https://y.test\"}}}"
+  },
+  "theta": {
+   ".mcp.json": "{\"t\":{\"command\":\"t\"}}"
+  },
+  "kappa": {}
+ },
+ "registry": [
+  {
+   "root": "<BASE>\\src\\alpha",
+   "id": "alpha-1",
+   "source": "https://git.test/alpha.git",
+   "url": "https://git.test/alpha.git",
+   "sourceType": "git",
+   "managed": true,
+   "name": "alpha",
+   "title": "a",
+   "version": "0.1",
+   "description": "old",
+   "enabled": true,
+   "installedAt": "2026-01-01T00:00:00.000Z",
+   "updatedAt": "2026-01-02T00:00:00.000Z"
+  },
+  {
+   "root": "<BASE>\\src\\beta",
+   "id": "beta-1",
+   "source": "<BASE>\\src\\beta",
+   "sourceType": "local",
+   "managed": false,
+   "enabled": true
+  },
+  {
+   "root": "<BASE>\\src\\gamma",
+   "id": "gamma-1",
+   "source": "<BASE>\\src\\gamma",
+   "sourceType": "local",
+   "enabled": false,
+   "installedAt": ""
+  },
+  {
+   "root": "<BASE>\\src\\delta",
+   "id": "delta-1",
+   "name": "delta-entry",
+   "source": "o/delta",
+   "sourceType": "local",
+   "managed": false
+  },
+  {
+   "root": "<BASE>\\src\\epsilon",
+   "id": "epsilon-1",
+   "name": "Epsilon",
+   "source": "o/epsilon"
+  },
+  {
+   "root": "<BASE>\\src\\zeta",
+   "id": "zeta-1",
+   "name": "zeta",
+   "source": "o/zeta"
+  },
+  {
+   "root": "<BASE>\\src\\eta",
+   "id": "eta-1",
+   "source": "o/eta",
+   "sourceType": "git"
+  },
+  {
+   "root": "<BASE>\\src\\theta",
+   "name": "Theta",
+   "source": "o/theta"
+  },
+  {
+   "root": "<BASE>\\src\\kappa",
+   "id": "kappa-1",
+   "name": "kappa",
+   "source": "o/kappa",
+   "enabled": false
+  },
+  {
+   "id": "iota-1",
+   "name": "iota",
+   "source": "o/iota",
+   "root": "<BASE>\\src\\gone"
+  },
+  {
+   "name": "only-name",
+   "root": "<BASE>\\src\\gone2",
+   "enabled": false
+  },
+  {
+   "id": "rootless",
+   "name": "rootless",
+   "source": "o/r"
+  }
+ ],
+ "steps": [
+  {
+   "name": "every fixture, nothing connected",
+   "config": {},
+   "connected": false,
+   "summary": {
+    "alpha-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\alpha\\plugin.json",
+       "key": "bad",
+       "message": "stdio server requires \"command\""
+      }
+     ],
+     "servers": [
+      {
+       "name": "plugin-alpha-1-search",
+       "configured": true,
+       "enabled": true,
+       "connected": false,
+       "status": "disconnected",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "alpha-1",
+        "key": "search",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\alpha",
+        "source": "<BASE>\\src\\alpha\\plugin.json",
+        "data": "<BASE>\\data\\plugins\\data\\alpha-1",
+        "cwdDependent": false,
+        "name": "Alpha"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "beta-1": {
+     "format": "claude",
+     "errors": [],
+     "servers": [
+      {
+       "name": "plugin-beta-1-a",
+       "configured": true,
+       "enabled": true,
+       "connected": false,
+       "status": "disconnected",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "beta-1",
+        "key": "a",
+        "format": "claude",
+        "root": "<BASE>\\src\\beta",
+        "source": "<BASE>\\src\\beta\\.mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\beta-1",
+        "cwdDependent": true,
+        "name": "beta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      },
+      {
+       "name": "plugin-beta-1-b",
+       "configured": true,
+       "enabled": true,
+       "connected": false,
+       "status": "disconnected",
+       "transport": "http",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "beta-1",
+        "key": "b",
+        "format": "claude",
+        "root": "<BASE>\\src\\beta",
+        "source": "<BASE>\\src\\beta\\.mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\beta-1",
+        "cwdDependent": false,
+        "name": "beta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "gamma-1": {
+     "format": "codex",
+     "errors": [],
+     "servers": [
+      {
+       "name": "plugin-gamma-1-srv",
+       "configured": true,
+       "enabled": false,
+       "connected": false,
+       "status": "disabled",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "gamma-1",
+        "key": "srv",
+        "format": "codex",
+        "root": "<BASE>\\src\\gamma",
+        "source": "<BASE>\\src\\gamma\\servers\\mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\gamma-1",
+        "cwdDependent": true,
+        "name": "gamma"
+       },
+       "pluginEnabled": false,
+       "serverEnabled": true,
+       "disabledReason": "plugin disabled"
+      }
+     ]
+    },
+    "delta-1": {
+     "format": "none",
+     "errors": [],
+     "servers": []
+    },
+    "epsilon-1": {
+     "format": "mixdog",
+     "errors": [],
+     "servers": []
+    },
+    "zeta-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\zeta\\plugin.json",
+       "message": "invalid JSON: unexpected end of input"
+      }
+     ],
+     "servers": []
+    },
+    "eta-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\eta\\plugin.json",
+       "message": "\"mcpServers\"[2]: MCP path must be a non-empty string"
+      },
+      {
+       "source": "<BASE>\\src\\eta\\plugin.json",
+       "message": "\"mcpServers\"[3]: MCP path must be relative and stay inside the plugin root"
+      }
+     ],
+     "servers": [
+      {
+       "name": "plugin-eta-1-x",
+       "configured": true,
+       "enabled": true,
+       "connected": false,
+       "status": "disconnected",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "eta-1",
+        "key": "x",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\eta",
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "data": "<BASE>\\data\\plugins\\data\\eta-1",
+        "cwdDependent": false,
+        "name": "eta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      },
+      {
+       "name": "plugin-eta-1-y",
+       "configured": true,
+       "enabled": true,
+       "connected": false,
+       "status": "disconnected",
+       "transport": "http",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "eta-1",
+        "key": "y",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\eta",
+        "source": "<BASE>\\src\\eta\\m1.json",
+        "data": "<BASE>\\data\\plugins\\data\\eta-1",
+        "cwdDependent": false,
+        "name": "eta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "kappa-1": {
+     "format": "none",
+     "errors": [],
+     "servers": []
+    },
+    "iota-1": {
+     "format": "none",
+     "errors": [
+      {
+       "message": "plugin root not found: <BASE>\\src\\gone"
+      }
+     ],
+     "servers": []
+    },
+    "rootless": {
+     "format": "none",
+     "errors": [
+      {
+       "message": "plugin root not found: "
+      }
+     ],
+     "servers": []
+    }
+   },
+   "status": {
+    "count": 9,
+    "plugins": [
+     {
+      "id": "beta-1",
+      "name": "beta",
+      "title": "beta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\beta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\beta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 2,
+      "hooks": true,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "claude",
+      "mcpErrors": [],
+      "mcpServers": [
+       {
+        "name": "plugin-beta-1-a",
+        "key": "a",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disconnected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": true
+       },
+       {
+        "name": "plugin-beta-1-b",
+        "key": "b",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disconnected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-beta-1-a",
+      "mcpEnabled": true
+     },
+     {
+      "id": "delta-1",
+      "name": "delta-entry",
+      "title": "delta-entry",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "o/delta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\delta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "searchedSkillRoots": [
+       "<BASE>\\src\\delta\\skills"
+      ],
+      "warning": "No skills or MCP server found. Searched skill roots: <BASE>\\src\\delta\\skills",
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "gamma-1",
+      "name": "gamma",
+      "title": "gamma",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\gamma",
+      "sourceType": "local",
+      "managed": true,
+      "enabled": false,
+      "root": "<BASE>\\src\\gamma",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 1,
+      "hooks": false,
+      "mcpScript": "./servers/mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "codex",
+      "mcpErrors": [],
+      "mcpServers": [
+       {
+        "name": "plugin-gamma-1-srv",
+        "key": "srv",
+        "enabled": false,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disabled",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": true
+       }
+      ],
+      "mcpServerName": "plugin-gamma-1-srv",
+      "mcpEnabled": true
+     },
+     {
+      "id": "alpha-1",
+      "name": "Alpha",
+      "title": "Alpha Tools",
+      "version": "1.2.0",
+      "description": "The alpha plugin",
+      "author": "A <a@x.test> https://a.test",
+      "homepage": "https://alpha.test",
+      "repository": "https://git.test/alpha",
+      "license": "MIT",
+      "keywords": [
+       "k1",
+       "k2"
+      ],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "https://git.test/alpha.git",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\alpha",
+      "installedAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-02T00:00:00.000Z",
+      "skillCount": 3,
+      "hooks": true,
+      "mcpScript": null,
+      "mcpInline": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\alpha\\plugin.json",
+        "key": "bad",
+        "message": "stdio server requires \"command\""
+       }
+      ],
+      "mcpServers": [
+       {
+        "name": "plugin-alpha-1-search",
+        "key": "search",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disconnected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-alpha-1-search",
+      "mcpEnabled": true
+     },
+     {
+      "id": "epsilon-1",
+      "name": "Epsilon",
+      "title": "Epsilon",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/epsilon",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\epsilon",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "invalid": true,
+      "searchedSkillRoots": [
+       "<BASE>\\src\\epsilon\\skills"
+      ],
+      "warning": "No skills or MCP server found. Searched skill roots: <BASE>\\src\\epsilon\\skills",
+      "mcpFormat": "mixdog",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "eta-1",
+      "name": "eta",
+      "title": "eta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/eta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\eta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "message": "\"mcpServers\"[2]: MCP path must be a non-empty string"
+       },
+       {
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "message": "\"mcpServers\"[3]: MCP path must be relative and stay inside the plugin root"
+       }
+      ],
+      "mcpServers": [
+       {
+        "name": "plugin-eta-1-x",
+        "key": "x",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disconnected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       },
+       {
+        "name": "plugin-eta-1-y",
+        "key": "y",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disconnected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-eta-1-x",
+      "mcpEnabled": true
+     },
+     {
+      "id": "kappa-1",
+      "name": "kappa",
+      "title": "kappa",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/kappa",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": false,
+      "root": "<BASE>\\src\\kappa",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "Theta",
+      "name": "Theta",
+      "title": "Theta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/theta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\theta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "zeta-1",
+      "name": "zeta",
+      "title": "zeta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/zeta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\zeta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 1,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "invalid": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\zeta\\plugin.json",
+        "message": "invalid JSON: unexpected end of input"
+       }
+      ],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     }
+    ],
+    "missing": [
+     {
+      "id": "iota-1",
+      "name": "iota",
+      "enabled": true
+     },
+     {
+      "id": "only-name",
+      "name": "only-name",
+      "enabled": false
+     }
+    ],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
+   }
+  },
+  {
+   "name": "the plugin servers connected",
+   "config": {},
+   "connected": true,
+   "summary": {
+    "alpha-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\alpha\\plugin.json",
+       "key": "bad",
+       "message": "stdio server requires \"command\""
+      }
+     ],
+     "servers": [
+      {
+       "name": "plugin-alpha-1-search",
+       "configured": true,
+       "enabled": true,
+       "connected": true,
+       "status": "connected",
+       "transport": "stdio",
+       "toolCount": 1,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "alpha-1",
+        "key": "search",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\alpha",
+        "source": "<BASE>\\src\\alpha\\plugin.json",
+        "data": "<BASE>\\data\\plugins\\data\\alpha-1",
+        "cwdDependent": false,
+        "name": "Alpha"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "beta-1": {
+     "format": "claude",
+     "errors": [],
+     "servers": [
+      {
+       "name": "plugin-beta-1-a",
+       "configured": true,
+       "enabled": true,
+       "connected": true,
+       "status": "connected",
+       "transport": "stdio",
+       "toolCount": 1,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "beta-1",
+        "key": "a",
+        "format": "claude",
+        "root": "<BASE>\\src\\beta",
+        "source": "<BASE>\\src\\beta\\.mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\beta-1",
+        "cwdDependent": true,
+        "name": "beta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      },
+      {
+       "name": "plugin-beta-1-b",
+       "configured": true,
+       "enabled": true,
+       "connected": true,
+       "status": "connected",
+       "transport": "http",
+       "toolCount": 1,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "beta-1",
+        "key": "b",
+        "format": "claude",
+        "root": "<BASE>\\src\\beta",
+        "source": "<BASE>\\src\\beta\\.mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\beta-1",
+        "cwdDependent": false,
+        "name": "beta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "gamma-1": {
+     "format": "codex",
+     "errors": [],
+     "servers": [
+      {
+       "name": "plugin-gamma-1-srv",
+       "configured": true,
+       "enabled": false,
+       "connected": false,
+       "status": "disabled",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "gamma-1",
+        "key": "srv",
+        "format": "codex",
+        "root": "<BASE>\\src\\gamma",
+        "source": "<BASE>\\src\\gamma\\servers\\mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\gamma-1",
+        "cwdDependent": true,
+        "name": "gamma"
+       },
+       "pluginEnabled": false,
+       "serverEnabled": true,
+       "disabledReason": "plugin disabled"
+      }
+     ]
+    },
+    "delta-1": {
+     "format": "none",
+     "errors": [],
+     "servers": []
+    },
+    "epsilon-1": {
+     "format": "mixdog",
+     "errors": [],
+     "servers": []
+    },
+    "zeta-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\zeta\\plugin.json",
+       "message": "invalid JSON: unexpected end of input"
+      }
+     ],
+     "servers": []
+    },
+    "eta-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\eta\\plugin.json",
+       "message": "\"mcpServers\"[2]: MCP path must be a non-empty string"
+      },
+      {
+       "source": "<BASE>\\src\\eta\\plugin.json",
+       "message": "\"mcpServers\"[3]: MCP path must be relative and stay inside the plugin root"
+      }
+     ],
+     "servers": [
+      {
+       "name": "plugin-eta-1-x",
+       "configured": true,
+       "enabled": true,
+       "connected": true,
+       "status": "connected",
+       "transport": "stdio",
+       "toolCount": 1,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "eta-1",
+        "key": "x",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\eta",
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "data": "<BASE>\\data\\plugins\\data\\eta-1",
+        "cwdDependent": false,
+        "name": "eta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      },
+      {
+       "name": "plugin-eta-1-y",
+       "configured": true,
+       "enabled": true,
+       "connected": true,
+       "status": "connected",
+       "transport": "http",
+       "toolCount": 1,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "eta-1",
+        "key": "y",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\eta",
+        "source": "<BASE>\\src\\eta\\m1.json",
+        "data": "<BASE>\\data\\plugins\\data\\eta-1",
+        "cwdDependent": false,
+        "name": "eta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "kappa-1": {
+     "format": "none",
+     "errors": [],
+     "servers": []
+    },
+    "iota-1": {
+     "format": "none",
+     "errors": [
+      {
+       "message": "plugin root not found: <BASE>\\src\\gone"
+      }
+     ],
+     "servers": []
+    },
+    "rootless": {
+     "format": "none",
+     "errors": [
+      {
+       "message": "plugin root not found: "
+      }
+     ],
+     "servers": []
+    }
+   },
+   "status": {
+    "count": 9,
+    "plugins": [
+     {
+      "id": "beta-1",
+      "name": "beta",
+      "title": "beta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\beta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\beta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 2,
+      "hooks": true,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "claude",
+      "mcpErrors": [],
+      "mcpServers": [
+       {
+        "name": "plugin-beta-1-a",
+        "key": "a",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": true,
+        "status": "connected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": true
+       },
+       {
+        "name": "plugin-beta-1-b",
+        "key": "b",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": true,
+        "status": "connected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-beta-1-a",
+      "mcpEnabled": true
+     },
+     {
+      "id": "delta-1",
+      "name": "delta-entry",
+      "title": "delta-entry",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "o/delta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\delta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "searchedSkillRoots": [
+       "<BASE>\\src\\delta\\skills"
+      ],
+      "warning": "No skills or MCP server found. Searched skill roots: <BASE>\\src\\delta\\skills",
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "gamma-1",
+      "name": "gamma",
+      "title": "gamma",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\gamma",
+      "sourceType": "local",
+      "managed": true,
+      "enabled": false,
+      "root": "<BASE>\\src\\gamma",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 1,
+      "hooks": false,
+      "mcpScript": "./servers/mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "codex",
+      "mcpErrors": [],
+      "mcpServers": [
+       {
+        "name": "plugin-gamma-1-srv",
+        "key": "srv",
+        "enabled": false,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disabled",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": true
+       }
+      ],
+      "mcpServerName": "plugin-gamma-1-srv",
+      "mcpEnabled": true
+     },
+     {
+      "id": "alpha-1",
+      "name": "Alpha",
+      "title": "Alpha Tools",
+      "version": "1.2.0",
+      "description": "The alpha plugin",
+      "author": "A <a@x.test> https://a.test",
+      "homepage": "https://alpha.test",
+      "repository": "https://git.test/alpha",
+      "license": "MIT",
+      "keywords": [
+       "k1",
+       "k2"
+      ],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "https://git.test/alpha.git",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\alpha",
+      "installedAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-02T00:00:00.000Z",
+      "skillCount": 3,
+      "hooks": true,
+      "mcpScript": null,
+      "mcpInline": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\alpha\\plugin.json",
+        "key": "bad",
+        "message": "stdio server requires \"command\""
+       }
+      ],
+      "mcpServers": [
+       {
+        "name": "plugin-alpha-1-search",
+        "key": "search",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": true,
+        "status": "connected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-alpha-1-search",
+      "mcpEnabled": true
+     },
+     {
+      "id": "epsilon-1",
+      "name": "Epsilon",
+      "title": "Epsilon",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/epsilon",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\epsilon",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "invalid": true,
+      "searchedSkillRoots": [
+       "<BASE>\\src\\epsilon\\skills"
+      ],
+      "warning": "No skills or MCP server found. Searched skill roots: <BASE>\\src\\epsilon\\skills",
+      "mcpFormat": "mixdog",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "eta-1",
+      "name": "eta",
+      "title": "eta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/eta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\eta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "message": "\"mcpServers\"[2]: MCP path must be a non-empty string"
+       },
+       {
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "message": "\"mcpServers\"[3]: MCP path must be relative and stay inside the plugin root"
+       }
+      ],
+      "mcpServers": [
+       {
+        "name": "plugin-eta-1-x",
+        "key": "x",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": true,
+        "status": "connected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       },
+       {
+        "name": "plugin-eta-1-y",
+        "key": "y",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": true,
+        "status": "connected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-eta-1-x",
+      "mcpEnabled": true
+     },
+     {
+      "id": "kappa-1",
+      "name": "kappa",
+      "title": "kappa",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/kappa",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": false,
+      "root": "<BASE>\\src\\kappa",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "Theta",
+      "name": "Theta",
+      "title": "Theta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/theta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\theta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "zeta-1",
+      "name": "zeta",
+      "title": "zeta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/zeta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\zeta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 1,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "invalid": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\zeta\\plugin.json",
+        "message": "invalid JSON: unexpected end of input"
+       }
+      ],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     }
+    ],
+    "missing": [
+     {
+      "id": "iota-1",
+      "name": "iota",
+      "enabled": true
+     },
+     {
+      "id": "only-name",
+      "name": "only-name",
+      "enabled": false
+     }
+    ],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
+   }
+  },
+  {
+   "name": "one declared server switched off",
+   "config": {
+    "pluginMcp": {
+     "alpha-1": {
+      "search": {
+       "enabled": false
+      }
+     }
+    }
+   },
+   "connected": true,
+   "summary": {
+    "alpha-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\alpha\\plugin.json",
+       "key": "bad",
+       "message": "stdio server requires \"command\""
+      }
+     ],
+     "servers": [
+      {
+       "name": "plugin-alpha-1-search",
+       "configured": true,
+       "enabled": false,
+       "connected": false,
+       "status": "disabled",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "alpha-1",
+        "key": "search",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\alpha",
+        "source": "<BASE>\\src\\alpha\\plugin.json",
+        "data": "<BASE>\\data\\plugins\\data\\alpha-1",
+        "cwdDependent": false,
+        "name": "Alpha"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": false,
+       "disabledReason": "server disabled"
+      }
+     ]
+    },
+    "beta-1": {
+     "format": "claude",
+     "errors": [],
+     "servers": [
+      {
+       "name": "plugin-beta-1-a",
+       "configured": true,
+       "enabled": true,
+       "connected": true,
+       "status": "connected",
+       "transport": "stdio",
+       "toolCount": 1,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "beta-1",
+        "key": "a",
+        "format": "claude",
+        "root": "<BASE>\\src\\beta",
+        "source": "<BASE>\\src\\beta\\.mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\beta-1",
+        "cwdDependent": true,
+        "name": "beta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      },
+      {
+       "name": "plugin-beta-1-b",
+       "configured": true,
+       "enabled": true,
+       "connected": true,
+       "status": "connected",
+       "transport": "http",
+       "toolCount": 1,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "beta-1",
+        "key": "b",
+        "format": "claude",
+        "root": "<BASE>\\src\\beta",
+        "source": "<BASE>\\src\\beta\\.mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\beta-1",
+        "cwdDependent": false,
+        "name": "beta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "gamma-1": {
+     "format": "codex",
+     "errors": [],
+     "servers": [
+      {
+       "name": "plugin-gamma-1-srv",
+       "configured": true,
+       "enabled": false,
+       "connected": false,
+       "status": "disabled",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "gamma-1",
+        "key": "srv",
+        "format": "codex",
+        "root": "<BASE>\\src\\gamma",
+        "source": "<BASE>\\src\\gamma\\servers\\mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\gamma-1",
+        "cwdDependent": true,
+        "name": "gamma"
+       },
+       "pluginEnabled": false,
+       "serverEnabled": true,
+       "disabledReason": "plugin disabled"
+      }
+     ]
+    },
+    "delta-1": {
+     "format": "none",
+     "errors": [],
+     "servers": []
+    },
+    "epsilon-1": {
+     "format": "mixdog",
+     "errors": [],
+     "servers": []
+    },
+    "zeta-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\zeta\\plugin.json",
+       "message": "invalid JSON: unexpected end of input"
+      }
+     ],
+     "servers": []
+    },
+    "eta-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\eta\\plugin.json",
+       "message": "\"mcpServers\"[2]: MCP path must be a non-empty string"
+      },
+      {
+       "source": "<BASE>\\src\\eta\\plugin.json",
+       "message": "\"mcpServers\"[3]: MCP path must be relative and stay inside the plugin root"
+      }
+     ],
+     "servers": [
+      {
+       "name": "plugin-eta-1-x",
+       "configured": true,
+       "enabled": true,
+       "connected": true,
+       "status": "connected",
+       "transport": "stdio",
+       "toolCount": 1,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "eta-1",
+        "key": "x",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\eta",
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "data": "<BASE>\\data\\plugins\\data\\eta-1",
+        "cwdDependent": false,
+        "name": "eta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      },
+      {
+       "name": "plugin-eta-1-y",
+       "configured": true,
+       "enabled": true,
+       "connected": true,
+       "status": "connected",
+       "transport": "http",
+       "toolCount": 1,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "eta-1",
+        "key": "y",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\eta",
+        "source": "<BASE>\\src\\eta\\m1.json",
+        "data": "<BASE>\\data\\plugins\\data\\eta-1",
+        "cwdDependent": false,
+        "name": "eta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "kappa-1": {
+     "format": "none",
+     "errors": [],
+     "servers": []
+    },
+    "iota-1": {
+     "format": "none",
+     "errors": [
+      {
+       "message": "plugin root not found: <BASE>\\src\\gone"
+      }
+     ],
+     "servers": []
+    },
+    "rootless": {
+     "format": "none",
+     "errors": [
+      {
+       "message": "plugin root not found: "
+      }
+     ],
+     "servers": []
+    }
+   },
+   "status": {
+    "count": 9,
+    "plugins": [
+     {
+      "id": "beta-1",
+      "name": "beta",
+      "title": "beta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\beta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\beta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 2,
+      "hooks": true,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "claude",
+      "mcpErrors": [],
+      "mcpServers": [
+       {
+        "name": "plugin-beta-1-a",
+        "key": "a",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": true,
+        "status": "connected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": true
+       },
+       {
+        "name": "plugin-beta-1-b",
+        "key": "b",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": true,
+        "status": "connected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-beta-1-a",
+      "mcpEnabled": true
+     },
+     {
+      "id": "delta-1",
+      "name": "delta-entry",
+      "title": "delta-entry",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "o/delta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\delta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "searchedSkillRoots": [
+       "<BASE>\\src\\delta\\skills"
+      ],
+      "warning": "No skills or MCP server found. Searched skill roots: <BASE>\\src\\delta\\skills",
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "gamma-1",
+      "name": "gamma",
+      "title": "gamma",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\gamma",
+      "sourceType": "local",
+      "managed": true,
+      "enabled": false,
+      "root": "<BASE>\\src\\gamma",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 1,
+      "hooks": false,
+      "mcpScript": "./servers/mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "codex",
+      "mcpErrors": [],
+      "mcpServers": [
+       {
+        "name": "plugin-gamma-1-srv",
+        "key": "srv",
+        "enabled": false,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disabled",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": true
+       }
+      ],
+      "mcpServerName": "plugin-gamma-1-srv",
+      "mcpEnabled": true
+     },
+     {
+      "id": "alpha-1",
+      "name": "Alpha",
+      "title": "Alpha Tools",
+      "version": "1.2.0",
+      "description": "The alpha plugin",
+      "author": "A <a@x.test> https://a.test",
+      "homepage": "https://alpha.test",
+      "repository": "https://git.test/alpha",
+      "license": "MIT",
+      "keywords": [
+       "k1",
+       "k2"
+      ],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "https://git.test/alpha.git",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\alpha",
+      "installedAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-02T00:00:00.000Z",
+      "skillCount": 3,
+      "hooks": true,
+      "mcpScript": null,
+      "mcpInline": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\alpha\\plugin.json",
+        "key": "bad",
+        "message": "stdio server requires \"command\""
+       }
+      ],
+      "mcpServers": [
+       {
+        "name": "plugin-alpha-1-search",
+        "key": "search",
+        "enabled": false,
+        "serverEnabled": false,
+        "connected": false,
+        "status": "disabled",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-alpha-1-search",
+      "mcpEnabled": false
+     },
+     {
+      "id": "epsilon-1",
+      "name": "Epsilon",
+      "title": "Epsilon",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/epsilon",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\epsilon",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "invalid": true,
+      "searchedSkillRoots": [
+       "<BASE>\\src\\epsilon\\skills"
+      ],
+      "warning": "No skills or MCP server found. Searched skill roots: <BASE>\\src\\epsilon\\skills",
+      "mcpFormat": "mixdog",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "eta-1",
+      "name": "eta",
+      "title": "eta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/eta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\eta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "message": "\"mcpServers\"[2]: MCP path must be a non-empty string"
+       },
+       {
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "message": "\"mcpServers\"[3]: MCP path must be relative and stay inside the plugin root"
+       }
+      ],
+      "mcpServers": [
+       {
+        "name": "plugin-eta-1-x",
+        "key": "x",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": true,
+        "status": "connected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       },
+       {
+        "name": "plugin-eta-1-y",
+        "key": "y",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": true,
+        "status": "connected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-eta-1-x",
+      "mcpEnabled": true
+     },
+     {
+      "id": "kappa-1",
+      "name": "kappa",
+      "title": "kappa",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/kappa",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": false,
+      "root": "<BASE>\\src\\kappa",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "Theta",
+      "name": "Theta",
+      "title": "Theta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/theta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\theta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "zeta-1",
+      "name": "zeta",
+      "title": "zeta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/zeta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\zeta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 1,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "invalid": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\zeta\\plugin.json",
+        "message": "invalid JSON: unexpected end of input"
+       }
+      ],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     }
+    ],
+    "missing": [
+     {
+      "id": "iota-1",
+      "name": "iota",
+      "enabled": true
+     },
+     {
+      "id": "only-name",
+      "name": "only-name",
+      "enabled": false
+     }
+    ],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
+   }
+  },
+  {
+   "name": "a root removed, hooks removed, a skill added",
+   "config": {},
+   "connected": false,
+   "summary": {
+    "alpha-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\alpha\\plugin.json",
+       "key": "bad",
+       "message": "stdio server requires \"command\""
+      }
+     ],
+     "servers": [
+      {
+       "name": "plugin-alpha-1-search",
+       "configured": true,
+       "enabled": true,
+       "connected": false,
+       "status": "disconnected",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "alpha-1",
+        "key": "search",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\alpha",
+        "source": "<BASE>\\src\\alpha\\plugin.json",
+        "data": "<BASE>\\data\\plugins\\data\\alpha-1",
+        "cwdDependent": false,
+        "name": "Alpha"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "beta-1": {
+     "format": "none",
+     "errors": [
+      {
+       "message": "plugin root not found: <BASE>\\src\\beta"
+      }
+     ],
+     "servers": []
+    },
+    "gamma-1": {
+     "format": "codex",
+     "errors": [],
+     "servers": [
+      {
+       "name": "plugin-gamma-1-srv",
+       "configured": true,
+       "enabled": false,
+       "connected": false,
+       "status": "disabled",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "gamma-1",
+        "key": "srv",
+        "format": "codex",
+        "root": "<BASE>\\src\\gamma",
+        "source": "<BASE>\\src\\gamma\\servers\\mcp.json",
+        "data": "<BASE>\\data\\plugins\\data\\gamma-1",
+        "cwdDependent": true,
+        "name": "gamma"
+       },
+       "pluginEnabled": false,
+       "serverEnabled": true,
+       "disabledReason": "plugin disabled"
+      }
+     ]
+    },
+    "delta-1": {
+     "format": "mixdog",
+     "errors": [],
+     "servers": []
+    },
+    "epsilon-1": {
+     "format": "mixdog",
+     "errors": [],
+     "servers": []
+    },
+    "zeta-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\zeta\\plugin.json",
+       "message": "invalid JSON: unexpected end of input"
+      }
+     ],
+     "servers": []
+    },
+    "eta-1": {
+     "format": "mixdog",
+     "errors": [
+      {
+       "source": "<BASE>\\src\\eta\\plugin.json",
+       "message": "\"mcpServers\"[2]: MCP path must be a non-empty string"
+      },
+      {
+       "source": "<BASE>\\src\\eta\\plugin.json",
+       "message": "\"mcpServers\"[3]: MCP path must be relative and stay inside the plugin root"
+      }
+     ],
+     "servers": [
+      {
+       "name": "plugin-eta-1-x",
+       "configured": true,
+       "enabled": true,
+       "connected": false,
+       "status": "disconnected",
+       "transport": "stdio",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "eta-1",
+        "key": "x",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\eta",
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "data": "<BASE>\\data\\plugins\\data\\eta-1",
+        "cwdDependent": false,
+        "name": "eta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      },
+      {
+       "name": "plugin-eta-1-y",
+       "configured": true,
+       "enabled": true,
+       "connected": false,
+       "status": "disconnected",
+       "transport": "http",
+       "toolCount": 0,
+       "tools": [],
+       "capabilities": {
+        "tools": false,
+        "prompts": false,
+        "resources": false
+       },
+       "error": null,
+       "warnings": [],
+       "source": "plugin",
+       "owner": {
+        "kind": "plugin",
+        "id": "eta-1",
+        "key": "y",
+        "format": "mixdog",
+        "root": "<BASE>\\src\\eta",
+        "source": "<BASE>\\src\\eta\\m1.json",
+        "data": "<BASE>\\data\\plugins\\data\\eta-1",
+        "cwdDependent": false,
+        "name": "eta"
+       },
+       "pluginEnabled": true,
+       "serverEnabled": true
+      }
+     ]
+    },
+    "kappa-1": {
+     "format": "none",
+     "errors": [],
+     "servers": []
+    },
+    "iota-1": {
+     "format": "none",
+     "errors": [
+      {
+       "message": "plugin root not found: <BASE>\\src\\gone"
+      }
+     ],
+     "servers": []
+    },
+    "rootless": {
+     "format": "none",
+     "errors": [
+      {
+       "message": "plugin root not found: "
+      }
+     ],
+     "servers": []
+    }
+   },
+   "status": {
+    "count": 8,
+    "plugins": [
+     {
+      "id": "delta-1",
+      "name": "delta",
+      "title": "delta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "o/delta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\delta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 1,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "gamma-1",
+      "name": "gamma",
+      "title": "gamma",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\gamma",
+      "sourceType": "local",
+      "managed": true,
+      "enabled": false,
+      "root": "<BASE>\\src\\gamma",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 1,
+      "hooks": false,
+      "mcpScript": "./servers/mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "codex",
+      "mcpErrors": [],
+      "mcpServers": [
+       {
+        "name": "plugin-gamma-1-srv",
+        "key": "srv",
+        "enabled": false,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disabled",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": true
+       }
+      ],
+      "mcpServerName": "plugin-gamma-1-srv",
+      "mcpEnabled": true
+     },
+     {
+      "id": "alpha-1",
+      "name": "Alpha",
+      "title": "Alpha Tools",
+      "version": "1.2.0",
+      "description": "The alpha plugin",
+      "author": "A <a@x.test> https://a.test",
+      "homepage": "https://alpha.test",
+      "repository": "https://git.test/alpha",
+      "license": "MIT",
+      "keywords": [
+       "k1",
+       "k2"
+      ],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "https://git.test/alpha.git",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\alpha",
+      "installedAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-02T00:00:00.000Z",
+      "skillCount": 3,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\alpha\\plugin.json",
+        "key": "bad",
+        "message": "stdio server requires \"command\""
+       }
+      ],
+      "mcpServers": [
+       {
+        "name": "plugin-alpha-1-search",
+        "key": "search",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disconnected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-alpha-1-search",
+      "mcpEnabled": true
+     },
+     {
+      "id": "epsilon-1",
+      "name": "Epsilon",
+      "title": "Epsilon",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/epsilon",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\epsilon",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "invalid": true,
+      "searchedSkillRoots": [
+       "<BASE>\\src\\epsilon\\skills"
+      ],
+      "warning": "No skills or MCP server found. Searched skill roots: <BASE>\\src\\epsilon\\skills",
+      "mcpFormat": "mixdog",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "eta-1",
+      "name": "eta",
+      "title": "eta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/eta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\eta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "message": "\"mcpServers\"[2]: MCP path must be a non-empty string"
+       },
+       {
+        "source": "<BASE>\\src\\eta\\plugin.json",
+        "message": "\"mcpServers\"[3]: MCP path must be relative and stay inside the plugin root"
+       }
+      ],
+      "mcpServers": [
+       {
+        "name": "plugin-eta-1-x",
+        "key": "x",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disconnected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       },
+       {
+        "name": "plugin-eta-1-y",
+        "key": "y",
+        "enabled": true,
+        "serverEnabled": true,
+        "connected": false,
+        "status": "disconnected",
+        "error": null,
+        "warnings": [],
+        "cwdDependent": false
+       }
+      ],
+      "mcpServerName": "plugin-eta-1-x",
+      "mcpEnabled": true
+     },
+     {
+      "id": "kappa-1",
+      "name": "kappa",
+      "title": "kappa",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/kappa",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": false,
+      "root": "<BASE>\\src\\kappa",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "Theta",
+      "name": "Theta",
+      "title": "Theta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/theta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\theta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     },
+     {
+      "id": "zeta-1",
+      "name": "zeta",
+      "title": "zeta",
+      "version": null,
+      "description": "",
+      "author": "",
+      "homepage": "",
+      "repository": "",
+      "license": "",
+      "keywords": [],
+      "marketplace": null,
+      "source": "registry",
+      "sourceUrl": "o/zeta",
+      "sourceType": "git",
+      "managed": true,
+      "enabled": true,
+      "root": "<BASE>\\src\\zeta",
+      "installedAt": null,
+      "updatedAt": null,
+      "skillCount": 1,
+      "hooks": false,
+      "mcpScript": null,
+      "mcpInline": false,
+      "invalid": true,
+      "mcpFormat": "mixdog",
+      "mcpErrors": [
+       {
+        "source": "<BASE>\\src\\zeta\\plugin.json",
+        "message": "invalid JSON: unexpected end of input"
+       }
+      ],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
+     }
+    ],
+    "missing": [
+     {
+      "id": "beta-1",
+      "name": "beta",
+      "enabled": true
+     },
+     {
+      "id": "iota-1",
+      "name": "iota",
+      "enabled": true
+     },
+     {
+      "id": "only-name",
+      "name": "only-name",
+      "enabled": false
+     }
+    ],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
+   }
+  },
+  {
+   "name": "no registry",
+   "config": {},
+   "connected": false,
+   "summary": {},
+   "status": {
+    "count": 0,
+    "plugins": [],
+    "missing": [],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
+   }
+  }
+ ]
+}

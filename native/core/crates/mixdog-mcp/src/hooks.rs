@@ -150,6 +150,10 @@ pub fn read_trusted_projects(_lane: &InLane<MaintenanceIo>, data_dir: &Path) -> 
     out
 }
 
+/// The hooks files a plugin root is loaded from (`hook-bus/config.mjs`), relative to the root; the
+/// plugin status row's `hooks` flag asks for the same files.
+pub const PLUGIN_HOOK_FILES: [&str; 2] = ["hooks/hooks.json", ".mixdog/hooks.json"];
+
 pub struct HookSources<'a> {
     /// `MIXDOG_HOOKS_FILE`: when set it is the only source.
     pub env_file: Option<&'a Path>,
@@ -177,7 +181,7 @@ pub fn config_entries(sources: &HookSources<'_>) -> Vec<HookConfigEntry> {
         for plugin in sources.plugins.iter().filter(|p| p.enabled) {
             let id = clean_hook_id(&plugin.id);
             let data = sources.data_dir.join("plugins").join("data").join(if id.is_empty() { "plugin" } else { &id });
-            for relative in ["hooks/hooks.json", ".mixdog/hooks.json"] {
+            for relative in PLUGIN_HOOK_FILES {
                 let mut e = entry(plugin.root.join(relative), SourceType::Plugin);
                 e.plugin_root = Some(plugin.root.clone());
                 e.plugin_data = Some(data.clone());

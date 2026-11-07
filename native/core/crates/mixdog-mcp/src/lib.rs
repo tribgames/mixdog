@@ -33,6 +33,7 @@ pub mod outbound;
 pub mod permissions;
 pub mod plugin_admin;
 pub mod plugin_servers;
+pub mod plugin_status;
 pub mod plugins;
 pub mod policy;
 pub mod pre_tool;

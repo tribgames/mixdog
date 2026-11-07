@@ -167,6 +167,9 @@ impl ExtensionHost for LateExtensionHost {
     async fn skills_status(&self) -> Value {
         self.get().skills_status().await
     }
+    async fn plugin_mcp_summary(&self, thread_id: Option<&str>) -> Result<Value, String> {
+        self.get().plugin_mcp_summary(thread_id).await
+    }
 }
 
 /// What gates a skill now (`getDisabledSkillNameSet`, `featureConfig`, `extensionScopesFromConfig`),

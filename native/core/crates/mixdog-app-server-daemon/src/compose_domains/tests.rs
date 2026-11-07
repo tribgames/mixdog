@@ -287,6 +287,10 @@ impl ExtensionHost for Quiet {
     async fn current_cwd(&self, _: Option<&str>) -> Result<std::path::PathBuf, String> {
         Ok(std::path::PathBuf::new())
     }
+    async fn plugin_mcp_summary(&self, _: Option<&str>) -> Result<Value, String> {
+        Ok(Value::Object(serde_json::Map::new()))
+    }
+
     async fn skills_status(&self) -> Value {
         json!({})
     }

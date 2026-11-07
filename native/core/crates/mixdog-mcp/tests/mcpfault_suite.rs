@@ -105,6 +105,10 @@ impl ExtensionHost for Host {
         }
     }
 
+    async fn plugin_mcp_summary(&self, _: Option<&str>) -> Result<Value, String> {
+        Ok(Value::Object(Map::new()))
+    }
+
     async fn skills_status(&self) -> Value {
         Value::Null
     }
