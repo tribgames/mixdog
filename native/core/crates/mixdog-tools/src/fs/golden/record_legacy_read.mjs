@@ -24,6 +24,9 @@ process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 const importFrom = (rel) => import(pathToFileURL(join(tree, rel)).href);
 const { executeBuiltinTool } = await importFrom('src/runtime/agent/orchestrator/tools/builtin.mjs');
 const { validateBuiltinArgs } = await importFrom('src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs');
+// Set after the modules load: the product tree is looked up under MIXDOG_ROOT while they initialize.
+process.env.MIXDOG_ROOT = join(work, 'root');
+process.env.MIXDOG_RUNTIME_ROOT = join(work, 'runtime');
 
 // The workspace is the one `record_batch.mjs` recorded (its recipes), minus the images and the huge files.
 const recipes = JSON.parse(readFileSync(join(here, 'batch_cases.json'), 'utf8')).files;
@@ -40,7 +43,8 @@ const encode = (text, enc) => {
 };
 const fileBytes = (f) => {
   if (f.hex !== undefined) return Buffer.from(f.hex, 'hex');
-  const bytes = encode(f.rows ? rowsText(f.rows, f.accent) : f.text, f.enc);
+  const base = f.rows ? rowsText(f.rows, f.accent) : f.text;
+  const bytes = encode(f.repeat ? base.repeat(f.repeat) : base, f.enc);
   return f.nulTail ? Buffer.concat([bytes, Buffer.from([0])]) : bytes;
 };
 // Files this recording adds to the shared recipes.
@@ -50,10 +54,13 @@ const EXTRA = {
     text: "import x from './x.mjs';\n\nexport function alpha() {\n  return 1;\n}\n\nconst beta = () => 2;\n\nexport class Gamma {}\n",
   },
   'doc.md': { text: '# Title\n\nbody\n\n## Part\n\nmore\n' },
+  // Over the 10 MiB buffered cap: the glance modes read these by stream.
+  'huge-cr.txt': { text: 'x\ry\r\nz\n', repeat: 1500000, huge: true },
+  'huge-sym.txt': { text: '# Title\nfn main() {}\n\nplain\n', repeat: 400000, huge: true },
 };
 const files = {};
 for (const [rel, f] of Object.entries({ ...recipes, ...EXTRA })) {
-  if (f.png || f.huge) continue;
+  if (f.png) continue;
   files[rel] = f;
 }
 
@@ -334,7 +341,37 @@ const CASES = {
   // Entries in a batch with a mode, full, or no path.
   'batch-entry-mode-glob': P(['many/*.txt', 'a.txt'], { mode: 'head', n: 1 }),
   'batch-entry-full-big': P(['big8.txt', 'a.txt'], { full: true }),
-  'batch-entry-no-path-string': P(['a.txt', { offset: 1 }]),  // Both spellings and the public form next to a legacy key.
+  'batch-entry-no-path-string': P(['a.txt', { offset: 1 }]),  // The glance modes over files past 10 MiB.
+  'huge-head': P('huge.txt', { mode: 'head', n: 3 }),
+  'huge-head-default': P('huge.txt', { mode: 'head' }),
+  'huge-head-cr': P('huge-cr.txt', { mode: 'head', n: 4 }),
+  'huge-head-utf16': P('huge16.txt', { mode: 'head' }),
+  'huge-head-binary': P('huge-nul.dat', { mode: 'head' }),
+  'huge-tail': P('huge.txt', { mode: 'tail', n: 3 }),
+  'huge-tail-default': P('huge.txt', { mode: 'tail' }),
+  'huge-tail-cr': P('huge-cr.txt', { mode: 'tail', n: 3 }),
+  'huge-tail-big-n': P('huge.txt', { mode: 'tail', n: 2000 }),
+  'huge-tail-utf16': P('huge16.txt', { mode: 'tail' }),
+  'huge-tail-binary': P('huge-nul.dat', { mode: 'tail' }),
+  'huge-count': P('huge.txt', { mode: 'count' }),
+  'huge-count-cr': P('huge-cr.txt', { mode: 'count' }),
+  'huge-count-utf16': P('huge16.txt', { mode: 'count' }),
+  'huge-count-binary': P('huge-nul.dat', { mode: 'count' }),
+  'huge-summary': P('huge.txt', { mode: 'summary' }),
+  'huge-summary-symbols': P('huge-sym.txt', { mode: 'summary' }),
+  'huge-summary-n': P('huge-sym.txt', { mode: 'summary', n: 3 }),
+  'huge-summary-utf16': P('huge16.txt', { mode: 'summary' }),
+  'huge-summary-binary': P('huge-nul.dat', { mode: 'summary' }),
+  'huge-hex': P('huge.txt', { mode: 'hex', offset: 10485760 }),
+  'huge-hex-default': P('huge.txt', { mode: 'hex' }),
+  'huge-hex-binary': P('huge-nul.dat', { mode: 'hex', offset: 10500000, n: 32 }),
+  'huge-batch-head': P(['huge.txt', 'a.txt'], { mode: 'head', n: 2 }),  // A missing file under the roots Node redacts in its messages.
+  'redact-home-head': P('<TESTHOME>/x.txt', { mode: 'head' }),
+  'redact-data-tail': P('<TESTDATA>/nodir/x.txt', { mode: 'tail' }),
+  'redact-root-count': P('<TESTROOT>/x.txt', { mode: 'count' }),
+  'redact-runtime-hex': P('<TESTRUNTIME>/x.txt', { mode: 'hex' }),
+  'redact-home-summary': P('<TESTHOME>/x.txt', { mode: 'summary' }),
+  // Both spellings and the public form next to a legacy key.
   'public-with-legacy-offset-base': { file_path: 'lines.txt', offset: 3, limit: 2 },
   'public-array': { file_path: ['a.txt', 'b.txt'] },
 };
@@ -342,7 +379,12 @@ const CASES = {
 // Host-dependent spellings and guards: replayed only where Node was recorded to behave this way.
 const WINDOWS_ONLY = new Set(['guard-reserved-name', 'guard-trailing-dot', 'guard-ads', 'guard-glance-ads', 'spelling-posix-drive', 'spelling-cygdrive', 'spelling-mnt']);
 const drive = ws[0].toLowerCase();
-const TOKENS = { '<WSPOSIX>': `/`, '<WSCYG>': `/cygdrive/`, '<WSMNT>': `/mnt/` };
+const fwdOf = (p) => p.replace(/\\/g, '/');
+const TOKENS = {
+  '<TESTHOME>': fwdOf(process.env.HOME),
+  '<TESTDATA>': fwdOf(process.env.MIXDOG_DATA_DIR),
+  '<TESTROOT>': fwdOf(process.env.MIXDOG_ROOT),
+  '<TESTRUNTIME>': fwdOf(process.env.MIXDOG_RUNTIME_ROOT), '<WSPOSIX>': `/${drive}${wsText.slice(2)}`, '<WSCYG>': `/cygdrive/${drive}${wsText.slice(2)}`, '<WSMNT>': `/mnt/${drive}${wsText.slice(2)}` };
 const withTokens = (input) => JSON.parse(Object.entries(TOKENS).reduce((s, [k, v]) => s.split(k).join(JSON.stringify(v).slice(1, -1)), JSON.stringify(input)));
 const recorded = [];
 for (const [name, input] of Object.entries(CASES)) {
@@ -357,7 +399,41 @@ for (const [name, input] of Object.entries(CASES)) {
   const raw = await executeBuiltinTool('read', withTokens(input), ws, {});
   recorded.push({ name, input, ...(WINDOWS_ONLY.has(name) ? { windowsOnly: true } : {}), guard, result: { text: scrub(typeof raw === 'string' ? raw : JSON.stringify(raw)) } });
 }
-const out = join(here, 'legacy_read_cases.json');
-writeFileSync(out, `${JSON.stringify({ extraFiles: EXTRA, cases: recorded }, null, 1)}\n`);
+// `normalizeErrorMessage` over messages that hold paths of every kind, with and without a working directory.
+const { normalizeErrorMessage } = await importFrom('src/runtime/agent/orchestrator/tools/builtin/path-diagnostics.mjs');
+const { normalizeInputPath } = await importFrom('src/runtime/agent/orchestrator/tools/builtin/path-utils.mjs');
+const MESSAGES = [
+  `ENOENT: no such file or directory, stat '${wsText}/a.txt'`,
+  `ENOENT: no such file or directory, stat '${ws}\\sub\\a.txt'`,
+  `ENOENT: no such file or directory, stat '${TOKENS['<TESTHOME>']}/x'`,
+  `ENOENT: open "${TOKENS['<TESTDATA>']}/y/z"`,
+  `EACCES: stat '${TOKENS['<TESTROOT>']}/pkg/index.mjs'`,
+  `EACCES: stat '${TOKENS['<TESTRUNTIME>']}'`,
+  `stat '${wsText}/../outside/a.txt'`,
+  `at run (file:///${wsText}/a.mjs:3:4)`,
+  `at load (file:///C:/Windows/x.js)`,
+  `at load (file:///usr/lib/x.js)`,
+  `at ${TOKENS['<TESTHOME>']}/x unquoted`,
+  `stat '/just/an/absolute/path'`,
+  `stat 'relative/path'`,
+  `a "C:\\Users\\nobody\\f" and 'D:/other/g'`,
+];
+const untoken = (s) => Object.entries(TOKENS).reduce((acc, [k, v]) => acc.split(v).join(k), s);
+const messages = [];
+for (const input of MESSAGES) {
+  for (const cwd of [undefined, ws]) {
+    messages.push({ input: untoken(scrub(input)), withCwd: cwd !== undefined, output: untoken(scrub(normalizeErrorMessage(input, cwd))) });
+  }
+}
+// `normalizeInputPath` on the spellings of a drive, as a Windows host and (platform stubbed) as WSL.
+const SPELLINGS = ['/c/x/y', '/cygdrive/c/x', '/mnt/c/x/y', '//host/share/x', '/C:/x/y', '/C:\\x', 'C:\\Users\\x', 'c:/a/b', 'C:', 'D:\\', ' plain/rel ', 'a\u0001b', '/usr/local/x', 'https://h/p'];
+const spellings = SPELLINGS.map((input) => ({ host: 'windows', input, output: normalizeInputPath(input) }));
+const realPlatform = process.platform;
+Object.defineProperty(process, 'platform', { value: 'linux' });
+process.env.WSL_DISTRO_NAME = 'Recorded';
+for (const input of SPELLINGS) spellings.push({ host: 'wsl', input, output: normalizeInputPath(input) });
+delete process.env.WSL_DISTRO_NAME;
+Object.defineProperty(process, 'platform', { value: realPlatform });const out = join(here, 'legacy_read_cases.json');
+writeFileSync(out, `${JSON.stringify({ extraFiles: EXTRA, cases: recorded, messages, spellings }, null, 1)}\n`);
 rmSync(work, { recursive: true, force: true });
 console.log(`recorded ${recorded.length} cases -> ${out}`);

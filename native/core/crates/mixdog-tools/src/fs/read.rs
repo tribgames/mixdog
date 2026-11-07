@@ -272,6 +272,7 @@ impl Tool for ReadTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        self.settle_wsl(ctx).await;
         let mut args = args;
         if let JsonValue::Object(map) = &mut args {
             self.split_joined_path_scopes(ctx, map).await?;
@@ -310,14 +311,6 @@ impl Tool for ReadTool {
     }
 }
 
-/// A read form this tool does not answer: refused, never answered in another shape.
-fn unsupported_form(what: String) -> ToolError {
-    fail(
-        ToolErrorCode::Unavailable { capability: "read".to_owned(), reason: what.clone() },
-        format!("Error: read does not support {what}"),
-    )
-}
-
 fn text_output(text: String) -> ToolOutcome {
     Ok(ToolOutput { parts: vec![ToolPart::Text(text)], ..ToolOutput::default() })
 }
@@ -327,11 +320,11 @@ fn normalize_input_path(p: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     let mut out: String = mixdog_js::js_trim(p).chars().filter(|c| !matches!(*c, '\u{0}'..='\u{1f}' | '\u{7f}')).collect();
     if (out == "~" || out.starts_with("~/") || out.starts_with("~\\"))
-        && let Some(home) = dirs::home_dir()
+        && let Some(home) = read_paths::home_dir()
     {
-        out = format!("{}{}", home.to_string_lossy(), &out[1..]);
+        out = format!("{home}{}", &out[1..]);
     }
-    read_paths::host_spelling(&out).nfc().collect()
+    read_paths::host_spelling(&out, read_paths::Host::current()).nfc().collect()
 }
 
 /// `hasLineCoordinate`: the path names a `#L5` / `:5-7` coordinate.
@@ -442,6 +435,24 @@ impl ReadTool {
         text_output(rows_for_model(&render_text(&results)))
     }
 
+    /// `isWSL`, once: the environment, else the kernel's `/proc/version`.
+    async fn settle_wsl(&self, ctx: &ToolContext) {
+        if read_paths::wsl_known() {
+            return;
+        }
+        let version = if cfg!(target_os = "linux") {
+            match AbsPath::new("/proc/version") {
+                Some(path) => match ctx.files.read(ctx.io.interactive, path, ReadRange::default()).await {
+                    Ok(b) => Some(String::from_utf8_lossy(&b.bytes).into_owned()),
+                    Err(_) => None,
+                },
+                None => None,
+            }
+        } else {
+            None
+        };
+        read_paths::set_wsl(version.as_deref());
+    }
     /// `splitJoinedPathScopes`: one string that joins several existing paths with commas or
     /// whitespace is those paths, when every piece lies strictly inside the working directory.
     async fn split_joined_path_scopes(&self, ctx: &ToolContext, map: &mut read_legacy::Obj) -> Result<(), ToolError> {
@@ -530,9 +541,6 @@ impl ReadTool {
             }
             _ => {}
         }
-        if stat.len > MAX_FILE_BYTES {
-            return Err(unsupported_form(format!("the {mode} mode on a file of {} bytes", stat.len)));
-        }
         let key_path = fwd(abs.as_path());
         let version = FileVersion::of(&stat);
         let mut observe = |meta: SnapshotMeta| {
@@ -544,6 +552,9 @@ impl ReadTool {
             let bytes = read_range(ctx, &abs, &shown, from, count).await?;
             observe(SnapshotMeta { ranges: Some(Vec::new()), ..SnapshotMeta::new("read_hex") });
             return Ok(read_legacy::hex_text(&named, &bytes, from, stat.len));
+        }
+        if stat.len > MAX_FILE_BYTES {
+            return self.glance_large(ctx, &abs, &shown, &named, mode, n, stat.len, &mut observe).await;
         }
         let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await? {
             Ok(b) => b.bytes,
@@ -581,6 +592,127 @@ impl ReadTool {
         })
     }
 
+    /// The glance modes over a file past the buffered cap (`read-mode-tool.mjs`, `read-streaming.mjs`):
+    /// head reads from the front, tail from a window at the end, count and summary by passes over the
+    /// file; none holds the file. A UTF-16 file is refused.
+    async fn glance_large(
+        &self,
+        ctx: &ToolContext,
+        abs: &AbsPath,
+        shown: &str,
+        named: &str,
+        mode: &str,
+        n: Option<&JsonValue>,
+        size: u64,
+        observe: &mut dyn FnMut(SnapshotMeta),
+    ) -> Result<String, ToolError> {
+        const CHUNK: u64 = 1024 * 1024;
+        const TAIL_WINDOW_CAP: u64 = 4 * 1024 * 1024;
+        let head = read_range(ctx, abs, shown, 0, size.min(64 * 1024)).await?;
+        let tail = if size > head.len() as u64 && size > 4096 { read_range(ctx, abs, shown, size - 4096, 4096).await? } else { Vec::new() };
+        let utf16 = utf16_bom(&head).is_some();
+        if !utf16 && (head.contains(&0) || tail.contains(&0)) {
+            return Ok(format!("Error: file appears to be binary (contains null bytes): {named}"));
+        }
+        if utf16 {
+            return Ok(format!(
+                "Error: UTF-16 file too large for this mode ({size} bytes exceeds {MAX_FILE_BYTES}-byte cap): {}",
+                fwd(abs.as_path())
+            ));
+        }
+        // The lines of the file, first to last, as `readline` gives them, until `visit` says stop.
+        let count_lines = || async move {
+            let (mut pos, mut lines, mut last) = (0_u64, 0_u64, None);
+            while pos < size {
+                let chunk = read_range(ctx, abs, shown, pos, CHUNK).await?;
+                if chunk.is_empty() {
+                    break;
+                }
+                pos += chunk.len() as u64;
+                lines += chunk.iter().filter(|b| **b == b'\n').count() as u64;
+                last = chunk.last().copied();
+            }
+            Ok::<u64, ToolError>(lines + u64::from(last.is_some_and(|b| b != b'\n')))
+        };
+        match mode {
+            "head" => {
+                let limit = read_legacy::mode_count(n, 20, 1, 2000) as usize;
+                let (mut reader, mut lines, mut pos) = (read_legacy::LineReader::default(), Vec::new(), 0_u64);
+                while pos < size && lines.len() < limit {
+                    let chunk = read_range(ctx, abs, shown, pos, CHUNK).await?;
+                    if chunk.is_empty() {
+                        break;
+                    }
+                    pos += chunk.len() as u64;
+                    reader.feed(&chunk, &mut lines, limit);
+                }
+                if lines.len() < limit {
+                    reader.finish(&mut lines);
+                }
+                let rendered = lines
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| render_read_line(i as u64 + 1, if i == 0 { l.strip_prefix('\u{feff}').unwrap_or(l) } else { l }))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let out = read_legacy::cap_shell_output(&rendered);
+                if out == rendered && !lines.is_empty() {
+                    observe(SnapshotMeta { ranges: Some(vec![LineRange { start: 1, end: Some(lines.len() as u64) }]), ..SnapshotMeta::new("read_head_stream") });
+                }
+                Ok(out)
+            }
+            "tail" => {
+                let target = read_legacy::mode_count(n, 20, 1, 2000) as usize;
+                let mut window = size.min(4096.max(target as u64 * 256));
+                let buf = loop {
+                    let buf = read_range(ctx, abs, shown, size - window, window).await?;
+                    let line_feeds = buf.iter().filter(|b| **b == b'\n').count();
+                    if window >= size || line_feeds > target || window >= TAIL_WINDOW_CAP {
+                        break buf;
+                    }
+                    window = size.min(TAIL_WINDOW_CAP).min(window * 2);
+                };
+                let (lines, _, capped) = read_legacy::large_tail_lines(&buf, size, target, TAIL_WINDOW_CAP);
+                Ok(read_legacy::large_tail_text(&lines, capped, TAIL_WINDOW_CAP, &clip_line))
+            }
+            "count" => Ok(format!("lines\t{}\twords\t-\tbytes\t{size}\t(words skipped: file > cap)", count_lines().await?)),
+            _ => {
+                let limit = read_legacy::mode_count(n, 200, 1, 1000) as usize;
+                let stats = format!("lines\t{}\twords\t-\tbytes\t{size}", count_lines().await?);
+                observe(SnapshotMeta { ranges: Some(Vec::new()), ..SnapshotMeta::new("read_summary") });
+                let (mut reader, mut symbols, mut pos, mut line_no) = (read_legacy::LineReader::default(), Vec::new(), 0_u64, 0_u64);
+                'file: while pos < size {
+                    let chunk = read_range(ctx, abs, shown, pos, CHUNK).await?;
+                    if chunk.is_empty() {
+                        break;
+                    }
+                    pos += chunk.len() as u64;
+                    let mut lines = Vec::new();
+                    reader.feed(&chunk, &mut lines, usize::MAX);
+                    for line in lines {
+                        line_no += 1;
+                        let line = if line_no == 1 { line.strip_prefix('\u{feff}').unwrap_or(&line).to_owned() } else { line };
+                        if let Some(row) = read_legacy::symbol_row(line_no, &line, &render_read_line) {
+                            symbols.push(row);
+                            if symbols.len() >= limit {
+                                break 'file;
+                            }
+                        }
+                    }
+                }
+                if symbols.len() < limit {
+                    let mut last = Vec::new();
+                    reader.finish(&mut last);
+                    for line in last {
+                        if let Some(row) = read_legacy::symbol_row(line_no + 1, &line, &render_read_line) {
+                            symbols.push(row);
+                        }
+                    }
+                }
+                Ok(read_legacy::summary_render(named, &stats, symbols, limit))
+            }
+        }
+    }
     /// `openTextPathForReadMeta`'s missing-file message: the stat error, a near name, the siblings.
     async fn glance_not_found(ctx: &ToolContext, abs: &AbsPath, relative: bool) -> String {
         let cwd = fwd(ctx.cwd.as_path());

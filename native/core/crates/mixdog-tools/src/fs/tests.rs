@@ -1060,13 +1060,14 @@ async fn the_legacy_path_spelling_reads_as_node_reads() {
     let mut workspace = batch.clone();
     workspace["files"].as_object_mut().unwrap().extend(doc["extraFiles"].as_object().unwrap().clone());
     let dir = tempfile::tempdir().unwrap();
-    let (root, ctx) = recorded_workspace(&workspace, dir.path(), false).await;
+    let (root, ctx) = recorded_workspace(&workspace, dir.path(), true).await;
     let cwd = root.as_path().to_string_lossy().replace('\\', "/");
     let tool = ReadTool::new(None, None);
-    // The recorder's spellings of the workspace's own absolute path.
+    // The recorder's spellings of the workspace's own absolute path, and of the roots Node redacts.
     let drive = cwd.chars().next().unwrap().to_ascii_lowercase();
     let tail = cwd.get(2..).unwrap_or_default();
-    let tokens = [("<WSPOSIX>", format!("/{drive}{tail}")), ("<WSCYG>", format!("/cygdrive/{drive}{tail}")), ("<WSMNT>", format!("/mnt/{drive}{tail}"))];
+    let mut tokens = vec![("<WSPOSIX>", format!("/{drive}{tail}")), ("<WSCYG>", format!("/cygdrive/{drive}{tail}")), ("<WSMNT>", format!("/mnt/{drive}{tail}"))];
+    tokens.extend(pin_legacy_environment());
     let cases = doc["cases"].as_array().unwrap();
     let mut failures = Vec::new();
     let mut ran = 0;
@@ -1088,6 +1089,78 @@ async fn the_legacy_path_spelling_reads_as_node_reads() {
         }
     }
     assert!(failures.is_empty(), "{} of {ran} differ:\n{}", failures.len(), failures.join("\n"));
+}
+/// The environment Node ran under in the recorder, as far as the paths in its messages go: the
+/// home, data, product root and runtime directories. Returns the tokens the recording stands for
+/// them with, and the paths they stand for.
+fn pin_legacy_environment() -> Vec<(&'static str, String)> {
+    static PIN: std::sync::Once = std::sync::Once::new();
+    let base = std::env::temp_dir().join("mixdog-legacy-read-env");
+    PIN.call_once(|| {
+        for (key, name) in [
+            ("HOME", "home"),
+            ("USERPROFILE", "home"),
+            ("MIXDOG_HOME", "home"),
+            ("MIXDOG_DATA_DIR", "data"),
+            ("MIXDOG_ROOT", "root"),
+            ("MIXDOG_RUNTIME_ROOT", "runtime"),
+        ] {
+            // SAFETY: set before the test that needs them reads them; the other tests of this crate
+            // do not read these variables.
+            unsafe { std::env::set_var(key, base.join(name)) };
+        }
+    });
+    let fwd = |name: &str| base.join(name).to_string_lossy().replace('\\', "/");
+    vec![("<TESTHOME>", fwd("home")), ("<TESTDATA>", fwd("data")), ("<TESTROOT>", fwd("root")), ("<TESTRUNTIME>", fwd("runtime"))]
+}
+
+/// `normalizeErrorMessage` over the recorded messages (quoted paths, `file:///` URIs, the roots).
+#[test]
+fn error_messages_are_redacted_as_node_redacts_them() {
+    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let tokens = pin_legacy_environment();
+    let cwd = std::env::temp_dir().join("mixdog-legacy-read-env").join("ws").to_string_lossy().replace('\\', "/");
+    let with = |s: &str| {
+        let mut out = s.replace("<WS>", &cwd);
+        for (token, path) in &tokens {
+            out = out.replace(token, path);
+        }
+        out
+    };
+    let back = |s: &str| {
+        let mut out = s.replace(&cwd, "<WS>");
+        for (token, path) in &tokens {
+            out = out.replace(path, token);
+        }
+        out
+    };
+    let mut failures = Vec::new();
+    for m in doc["messages"].as_array().unwrap() {
+        let input = with(m["input"].as_str().unwrap());
+        let got = back(&super::read_paths::normalize_error_message(&input, m["withCwd"].as_bool().unwrap().then_some(cwd.as_str())));
+        if got != m["output"].as_str().unwrap() {
+            failures.push(format!("{input:?} (cwd {}): want {:?}, got {got:?}", m["withCwd"], m["output"]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// `normalizeInputPath` on the spellings of a drive, as a Windows host and as WSL.
+#[test]
+fn host_path_spellings_are_normalized_as_node_normalizes_them() {
+    use super::read_paths::{Host, host_spelling};
+    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let mut failures = Vec::new();
+    for s in doc["spellings"].as_array().unwrap() {
+        let host = if s["host"] == "windows" { Host::Windows } else { Host::Wsl };
+        // Trim and control characters are the part of `normalizeInputPath` that is host-independent.
+        let cleaned: String = s["input"].as_str().unwrap().trim().chars().filter(|c| !matches!(*c, '\u{0}'..='\u{1f}' | '\u{7f}')).collect();
+        let got = host_spelling(&cleaned, host);
+        if got != s["output"].as_str().unwrap() {
+            failures.push(format!("{:?} as {}: want {}, got {got:?}", s["input"], s["host"], s["output"]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 /// A workspace file from its recorded recipe (`record_batch.mjs`): a PNG, hex bytes, numbered
 /// rows (padded, accented, NUL-ended), or text, each optionally re-encoded as UTF-16 with a BOM.
@@ -1118,6 +1191,10 @@ fn recipe_bytes(f: &JsonValue) -> Vec<u8> {
         s
     } else {
         f["text"].as_str().unwrap().to_owned()
+    };
+    let text = match f.get("repeat").and_then(JsonValue::as_u64) {
+        Some(times) => text.repeat(times as usize),
+        None => text,
     };
     let mut bytes = match f.get("enc").and_then(JsonValue::as_str) {
         Some(enc) => {
