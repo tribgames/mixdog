@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::Weak;
+use tokio_util::sync::CancellationToken;
 
 use async_trait::async_trait;
 use base64::Engine;
