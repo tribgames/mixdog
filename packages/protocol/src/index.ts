@@ -3523,6 +3523,8 @@ export type ThreadBackgroundTerminalParams = { threadId: ThreadId, opId: OpId, t
  */
 export type ThreadCancelSideParams = { opId: OpId, threadId?: ThreadId, targetThreadId?: ThreadId, };
 
+export type ThreadClearParams = { threadId: ThreadId, opId: OpId, rebuildPrompt?: boolean, };
+
 /**
  * Params of `thread/clearSessionChangeHistory`.
  */
@@ -3536,8 +3538,6 @@ export type ThreadContext = { contextPercent?: number, contextTokens?: number, c
  * Params of `thread/contextStatus`.
  */
 export type ThreadContextStatusParams = { threadId?: ThreadId, options?: JsonValue, };
-
-export type ThreadClearParams = { threadId: ThreadId, opId: OpId, rebuildPrompt?: boolean, };
 
 export type ThreadContinueInModelParams = { threadId: ThreadId, opId: OpId, route: ModelSelection, };
 
