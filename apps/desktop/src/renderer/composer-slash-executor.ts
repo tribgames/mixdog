@@ -24,6 +24,7 @@ import { announceConnectorsChanged, openConnectorsTab, startConnectorLogin } fro
 import { connectorAccountRows } from './connectors-model';
 import { confirmText } from './confirm-text';
 import { t } from './i18n';
+import { readHeldCapability } from './section-capabilities';
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord } from './text-format';
 
 type SlashExecutorDeps = {
@@ -486,7 +487,8 @@ async function runFast(run: SlashRun, argument: string): Promise<boolean | undef
 }
 
 async function findPreset(run: SlashRun, argument: string) {
-  const presetValue = await commandCapability<unknown>(run, 'listPresets');
+  const held = await readHeldCapability('listPresets');
+  const presetValue = held ? held.value : await commandCapability<unknown>(run, 'listPresets');
   let presetSource: unknown[] = [];
   if (Array.isArray(presetValue)) presetSource = presetValue;
   else if (Array.isArray(asRecord(presetValue)?.presets)) presetSource = asRecord(presetValue)?.presets as unknown[];

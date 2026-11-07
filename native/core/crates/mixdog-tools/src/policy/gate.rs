@@ -95,6 +95,8 @@ pub struct GateCx<'a> {
     pub store: &'a dyn GrantStore,
     pub session_grants: &'a SessionGrants,
     pub enricher: Option<&'a dyn CardEnricher>,
+    /// The calling session's MCP scope (`ctx.mcpScopeId`): where a card's connector is asked.
+    pub mcp_scope: Option<&'a str>,
 }
 
 /// What an `ask` presents.
@@ -308,7 +310,7 @@ pub async fn decide(cx: &GateCx<'_>, call: &GateCall<'_>) -> Result<GateVerdict,
         return Ok(GateVerdict::Run { remembered: false });
     }
     if let Some(enricher) = cx.enricher {
-        enricher.enrich(call.name, call.args, &mut card).await;
+        enricher.enrich(cx.mcp_scope, call.name, call.args, &mut card).await;
     }
     Ok(GateVerdict::Ask(Box::new(AskPlan {
         reason: reason_of(call.hook_reason, OUTBOUND_APPROVAL_REASON),
@@ -447,6 +449,7 @@ mod tests {
                 store: &self.store,
                 session_grants: &self.grants,
                 enricher: None,
+            mcp_scope: None,
             };
             let args = json!({"action": "issue.comment", "repo": "o/r", "number": 3, "body": "draft"});
             let call = GateCall {
@@ -675,6 +678,7 @@ mod tests {
             store: &f.store,
             session_grants: &f.grants,
             enricher: None,
+            mcp_scope: None,
         };
         let args = json!({"action": "save_automation"});
         let call = GateCall { name: "setup", args: &args, kind: None, hook: HookAction::Ask, hook_reason: Some("hook says") };

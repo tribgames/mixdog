@@ -14,6 +14,7 @@ import { providerLabel, rows, type CapabilityApi } from './capability-data';
 import { ConfirmDialog, ConnDialog } from './connection-dialogs';
 import { SshAskpassPrompt, useSshAskpass } from './ssh-askpass-prompt';
 import { sshErrorText } from './ssh-error-text';
+import { readOrHeld } from '../section-capabilities';
 import { guidance, toGuidance } from './ssh-guidance';
 import { SshServerLoginsDialog, useServerLogins } from './ssh-server-logins-dialog';
 
@@ -43,7 +44,7 @@ function useEnabledProviders(api: CapabilityApi): Provider[] | null {
   const [providers, setProviders] = useState<Provider[] | null>(null);
   useEffect(() => {
     let live = true;
-    void Promise.resolve(api.readCapabilities?.([{ capability: 'getProviderSetup', args: [] }]))
+    void Promise.resolve(api.readCapabilities && readOrHeld(api, [{ capability: 'getProviderSetup', args: [] }]))
       .then((results) => {
         if (!live) return;
         const setup = record(results?.[0]?.ok ? results[0].value : null);

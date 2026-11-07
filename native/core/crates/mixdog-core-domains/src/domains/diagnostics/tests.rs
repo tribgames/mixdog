@@ -55,7 +55,7 @@ impl DoctorSources for Scripted {
             .filter(|p| !p.is_empty())
             .map(str::to_owned)
     }
-    async fn mcp_status(&self) -> Probe {
+    async fn mcp_status(&self, _thread: Option<&ThreadId>) -> Probe {
         self.probe("mcpStatus").await
     }
     async fn tool_module_settings(&self) -> Probe {

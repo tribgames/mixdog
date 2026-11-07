@@ -1,0 +1,30 @@
+{
+  "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-boot-recovery.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 22981,
+      "path": "golden.json",
+      "sha256": "ab59b14773dc6ef8e2980091e44ec934fc8aa17c649de9611d67a3b60f4a38fe"
+    }
+  ],
+  "product": {
+    "appsSha256": "bab7444cae87dd010b6ebcff4195cba87d0cc3a8f1873b6b0e5d2786d98e3785",
+    "commit": "60a7fa2347721586f62074dac5cd2544fe68653f",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9270,
+    "refComparison": {
+      "closestCommit": "60a7fa2347721586f62074dac5cd2544fe68653f",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "5cdc856dd5029974664ecc2a9deebf6d10c4549688e85621a553a1fb4b7801b0",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-boot-recovery.mjs",
+  "set": "boot-recovery",
+  "totalBytes": 22981
+}

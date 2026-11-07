@@ -236,6 +236,10 @@ impl RunControl for ActorThread {
         self.thread.steer(expected_turn, input, op)
     }
 
+    fn active_turn(&self) -> Option<TurnId> {
+        self.thread.active_turn()
+    }
+
     fn decide(&self, decision: Decision) -> Result<(), CoreError> {
         self.actor.decide(decision)
     }

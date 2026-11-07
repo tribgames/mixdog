@@ -3,6 +3,7 @@
 // usage from — shared by the sidebar usage panel and the pinned rail.
 import { useEffect, useSyncExternalStore } from 'react';
 import { record } from './record-utils';
+import { invokeOrHeld } from './section-capabilities';
 import { getUsageDashboardSnapshot, subscribeUsageDashboard, type UsageApi } from './usage-dashboard-store';
 
 export const PROVIDER_ACCOUNTS_CHANGED = 'mixdog:provider-accounts-changed';
@@ -105,7 +106,7 @@ function read(provider: string): void {
   watch.inflight = true;
   watch.readAt = Date.now();
   const generation = bumpGeneration(provider);
-  void Promise.resolve(api.invokeCapability({ capability: 'getProviderAccounts', args: [provider] }))
+  void Promise.resolve(invokeOrHeld(api, { capability: 'getProviderAccounts', args: [provider] }))
     .then((response) => {
       const pool = parsePool(response?.value);
       if (pool && generations.get(provider) === generation && watches.has(provider)) publish(provider, pool);

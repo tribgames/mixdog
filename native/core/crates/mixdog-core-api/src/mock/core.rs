@@ -337,6 +337,10 @@ impl RunControl for MockThread {
         Ok(json!({ "turnId": expected_turn }))
     }
 
+    fn active_turn(&self) -> Option<TurnId> {
+        lock(&self.active_turn).clone()
+    }
+
     fn decide(&self, decision: Decision) -> Result<(), CoreError> {
         lock(&self.control).push(ControlCall::Decide(decision));
         Ok(())

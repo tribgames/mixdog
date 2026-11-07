@@ -100,6 +100,10 @@ impl ExtensionHost for Host {
         Ok(self.cwd.clone())
     }
 
+    async fn plugin_mcp_summary(&self, _: Option<&str>) -> Result<Value, String> {
+        Ok(Value::Object(Map::new()))
+    }
+
     async fn skills_status(&self) -> Value {
         Value::Null
     }
@@ -118,6 +122,10 @@ impl Runtime {
 
 #[async_trait]
 impl McpRuntime for Runtime {
+    async fn scope_of_request(&self, _: Option<&str>) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
     async fn catalog(&self) -> Catalog {
         self.catalog_now()
     }
@@ -340,23 +348,26 @@ async fn skills_and_plugins_actions_reach_their_services_with_the_runtime_api_pa
     assert_eq!(skills, json!({"disabled": ["a", "b"]}));
     assert_eq!(*f.skills.seen.lock().unwrap(), vec![("skills/setDisabledSkills".to_owned(), json!({"names": ["a", "b"]}))]);
 
-    assert_eq!(run(&f, json!({"action": "add_plugin", "source": " ./p "})).await.unwrap()["plugin"], json!({"id": null, "source": "./p"}));
-    run(&f, json!({"action": "set_plugin_enabled", "name": "alpha", "enabled": false})).await.unwrap();
-    run(&f, json!({"action": "update_plugin", "name": "alpha"})).await.unwrap();
-    run(&f, json!({"action": "remove_plugin", "name": "alpha"})).await.unwrap();
-    let scope = run(&f, json!({"action": "set_extension_scope", "kind": "skills", "name": "deploy", "projects": [" /a "]})).await.unwrap();
-    assert_eq!(scope, json!({"skills": [{"name": "deploy"}]}));
-    let seen = f.plugins.seen.lock().unwrap();
-    let calls: Vec<(&str, &Value)> = seen.iter().map(|(m, p)| (m.as_str(), p)).collect();
-    assert_eq!(
-        calls,
-        vec![
-            ("plugins/addPlugin", &json!({"source": "./p"})),
-            ("plugins/setPluginEnabled", &json!({"plugin": "alpha", "enabled": false})),
-            ("plugins/updatePlugin", &json!({"plugin": "alpha"})),
-            ("plugins/removePlugin", &json!({"plugin": "alpha"})),
-            ("config/setExtensionScope", &json!({"kind": "skills", "name": "deploy", "projects": ["/a"]})),
-        ]
-    );
+    // Each plugin action reaches the plugins service as the protocol method Node's runtime call is, with the
+    // named params Node gives it and the calling session's `threadId` where the method takes one
+    // (`fixtures/plugins-status/setup-calls.json`, recorded by `record-setup-calls.mjs`).
+    let golden: Value = serde_json::from_str(include_str!("../../../fixtures/plugins-status/setup-calls.json")).unwrap();
+    for case in golden["cases"].as_array().unwrap().iter().filter(|case| case["args"]["action"] != "status") {
+        f.plugins.seen.lock().unwrap().clear();
+        run(&f, case["args"].clone()).await.unwrap();
+        let seen = f.plugins.seen.lock().unwrap().clone();
+        let expected: Vec<(String, Value)> = case["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|call| {
+                let mut params = call["params"].clone();
+                if call["thread"] == json!(true) {
+                    params["threadId"] = json!("s");
+                }
+                (call["method"].as_str().unwrap().to_owned(), params)
+            })
+            .collect();
+        assert_eq!(seen, expected, "{}", case["args"]);
+    }
 }
-

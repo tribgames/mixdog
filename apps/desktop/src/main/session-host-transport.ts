@@ -5,7 +5,7 @@ import type {
   DesktopTranscriptHistoryRequest,
   SessionSnapshot,
 } from '../shared/contract';
-import { DESKTOP_READ_CAPABILITIES } from '../shared/contract';
+import { SESSION_READ_ACTION_SET } from '../../../../src/standalone/session-protocol.mjs';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
 import { isSessionId } from './desktop-state';
@@ -56,9 +56,29 @@ export interface SessionHostTransportOwner {
   deleteProjection(sessionId: string): void;
 }
 
-// Session reads reached through dedicated IPC rather than the generic
-// capability list still ride the daemon's `read` lane.
-const READ_CAPABILITIES = new Set<string>([...DESKTOP_READ_CAPABILITIES, 'getQuotaAutoResume', 'getLeadHomeRoute']);
+// The daemon's own read set: an action it serves on `session.read` must not be sent as a `configure` (which it refuses),
+// so the lane choice comes from the same list (`session-protocol.mjs`) rather than a copy of it.
+const READ_CAPABILITIES: ReadonlySet<string> = SESSION_READ_ACTION_SET;
+
+/** The capabilities served by the daemon's `mcp/*` and `connector/*` methods. */
+export const MCP_ACTIONS = new Set<string>([
+  'getMcpServerConfig',
+  'getMcpOAuthLoginStatus',
+  'mcpStatus',
+  'addMcpServer',
+  'saveMcpServer',
+  'removeMcpServer',
+  'setMcpServerEnabled',
+  'reconnectMcp',
+  'beginMcpOAuthLogin',
+  'cancelMcpOAuthLogin',
+  'completeMcpOAuthLogin',
+  'signOutMcpServer',
+  'probeMcpServerAuth',
+  'enablePluginMcp',
+  'addConnectorAccount',
+  'listConnectorTools',
+]);
 
 export function sessionIdOf(value: unknown): string {
   const id = String(value || '');
@@ -190,16 +210,23 @@ export class SessionHostTransport {
     return history && typeof history === 'object' ? (history as SessionSnapshot) : null;
   }
 
-  /** A read capability rides `read`; every other action is a `configure`. */
+  /** A read capability rides `read`; every other action is a `configure`. An MCP action also names the
+   *  session it is for as `threadId` (protocol.md §12.4: `mcp/<action>` rows are thread-addressed, and
+   *  `threadId` is the `sessionId` of today's session actions). Node's session service addresses by
+   *  `sessionId` (`daemon-local-session-bridge.mjs` -> the session's runtime -> `resource-api.mjs:54`,
+   *  `server-catalog.mjs:150`) and ignores the extra field; the Rust core reads it. The conversion of a
+   *  capability call into the `mcp/<action>` request (§12.3) belongs to WP-DESKTOP-CORE, so this lane
+   *  only carries the field the conversion needs. */
   private callAction(
     method: string,
     args: unknown[],
     params: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
     const callOptions = this.callOptions(randomUUID(), longRunningRequestTimeout(method, args));
+    const addressed = MCP_ACTIONS.has(method) ? { ...params, threadId: params.sessionId } : params;
     return READ_CAPABILITIES.has(method)
-      ? this.client.read(params, callOptions)
-      : this.client.configure(params, callOptions);
+      ? this.client.read(addressed, callOptions)
+      : this.client.configure(addressed, callOptions);
   }
 
   async invokeSession(

@@ -366,6 +366,17 @@ impl RouteService {
         Ok(())
     }
 
+    /// The route of the desktop's control session, which is created before any model is chosen (`ensureControlSession`; only a
+    /// turn needs one, `resolveMissingRouteModelForFirstTurn`): a live route with a model is readied as a task's is, one without
+    /// is left as it is.
+    pub async fn ready_control(&self, thread: &ThreadId) -> Result<(), String> {
+        if self.route_lacks_model(thread) {
+            return Ok(());
+        }
+        self.writer.refresh_route_effort(thread, None, true, None).await.map_err(port)?;
+        Ok(())
+    }
+
     /// `!routeHasModel()`: the live route as it is now.
     fn route_lacks_model(&self, thread: &ThreadId) -> bool {
         clean(self.writer.route(thread).get("model")).is_empty()

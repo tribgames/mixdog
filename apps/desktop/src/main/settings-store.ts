@@ -196,7 +196,7 @@ function sameList(a: readonly unknown[], b: readonly unknown[]): boolean {
 }
 
 /** Stored pins: a full state, or a revision alone meaning the default list. */
-function storedPinsState(value: unknown): ActivityRailPinsState | null {
+export function storedPinsState(value: unknown): ActivityRailPinsState | null {
   const full = readActivityRailPinsState(value);
   if (full) return full;
   const stored = record(value);

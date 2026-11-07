@@ -9,7 +9,7 @@ use super::reason;
 use super::settle;
 
 fn focus(client: &super::Client, id: i64) {
-    client.request(id, "terminal/focus", json!({ "tabId": format!("tab{id}") }));
+    client.request(id, "terminal/focus", json!({ "tabId": format!("tab{id}"), "focused": true }));
 }
 
 #[tokio::test(start_paused = true)]

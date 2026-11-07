@@ -2055,7 +2055,7 @@ mod tests {
 
     struct NoMcp;
     impl super::super::session_tools::SessionMcp for NoMcp {
-        fn tools(&self, _: &std::path::Path) -> Vec<Arc<dyn Tool>> {
+        fn tools(&self, _: Option<&str>, _: &std::path::Path) -> Vec<Arc<dyn Tool>> {
             Vec::new()
         }
     }
@@ -2082,7 +2082,7 @@ mod tests {
 
     struct PoolResolver(Vec<Arc<dyn Tool>>);
     impl mixdog_tools::policy::ToolResolver for PoolResolver {
-        fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        fn resolve(&self, _scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
             self.0.iter().find(|t| t.spec().name == name).cloned()
         }
     }

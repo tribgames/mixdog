@@ -19,6 +19,7 @@ use serde_json::json;
 
 use crate::admission::AdmissionError;
 use crate::hub::McpHub;
+use crate::hub::normalize_scope;
 use crate::outbound;
 use crate::outbound::Hints;
 use crate::rpc::RpcError;
@@ -221,15 +222,18 @@ impl Feature {
     }
 }
 
-/// `mixdog_list_resources`, `mixdog_read_resource`, … over the hub's servers.
+/// `mixdog_list_resources`, `mixdog_read_resource`, … over the servers of one scope of the hub (Node
+/// registers them with the tools of `getMcpTools(scopeId)`, `mcp/client.mjs:261`).
 pub struct McpFeatureTool {
     hub: Arc<McpHub>,
+    scope: String,
     feature: Feature,
     spec: ToolSpec,
 }
 
-/// The five feature tools of `hub`.
-pub fn feature_tools(hub: &Arc<McpHub>) -> Vec<Arc<dyn Tool>> {
+/// The five feature tools of `hub` for the servers of `scope` (the session's `mcpScopeId`).
+pub fn feature_tools(hub: &Arc<McpHub>, scope: Option<&str>) -> Vec<Arc<dyn Tool>> {
+    let scope = normalize_scope(scope);
     Feature::ALL
         .into_iter()
         .map(|feature| {
@@ -245,7 +249,7 @@ pub fn feature_tools(hub: &Arc<McpHub>) -> Vec<Arc<dyn Tool>> {
                 parallel_safe: true,
                 exclusive_with: Vec::new(),
             };
-            Arc::new(McpFeatureTool { hub: Arc::clone(hub), feature, spec }) as Arc<dyn Tool>
+            Arc::new(McpFeatureTool { hub: Arc::clone(hub), scope: scope.clone(), feature, spec }) as Arc<dyn Tool>
         })
         .collect()
 }
@@ -258,7 +262,7 @@ impl Tool for McpFeatureTool {
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let name = args.get("server").and_then(JsonValue::as_str).unwrap_or_default();
-        let Some(server) = self.hub.server(name) else {
+        let Some(server) = self.hub.server_in(&self.scope, name) else {
             return Err(ToolError::new(
                 ToolErrorCode::NotFound { target: name.to_owned() },
                 format!("no MCP server named {name:?}"),

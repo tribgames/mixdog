@@ -175,7 +175,7 @@ mod tests {
             panic!("terminal/ensure answers with a value");
         };
         let tab = ensured["id"].as_str().expect("the ensured tab has an id").to_owned();
-        terminal.call(request("terminal/focus", json!({ "tabId": tab }), 5)).await.unwrap();
+        terminal.call(request("terminal/focus", json!({ "tabId": tab, "focused": true }), 5)).await.unwrap();
         screen.notify(Method("ui/screenSessions/changed"), json!({ "sessionIds": ["s1", "s2"] }), ConnectionId(5));
         let owner = terminal.tabs().size_owner(&tab).expect("the focused tab has a size owner");
         assert_eq!(owner.owner, "5");

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::Weak;
+use tokio_util::sync::CancellationToken;
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -187,6 +188,23 @@ pub struct Deps {
     /// Watcher batches are not told, as in Node, where the native search watcher is `canonical`
     /// and turn review capture follows tool boundaries only. `None` tells no one.
     pub turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>>,
+    /// The one "a folder is going away" hook set: `project/delete` runs it, worktree removal runs
+    /// the same set. The language servers register here.
+    pub releases: Arc<crate::release::FolderReleases>,
+}
+
+/// The language servers rooted in a folder that goes away.
+struct LspRelease(Arc<LspManager>);
+
+#[async_trait::async_trait]
+impl crate::release::FolderRelease for LspRelease {
+    fn name(&self) -> &str {
+        "language servers"
+    }
+    async fn release_under(&self, root: &Path) -> Result<(), String> {
+        self.0.dispose_under(root).await;
+        Ok(())
+    }
 }
 
 /// `project/codeGraph` runs the agent tools' `code_graph` tool (one instance, one cache): `args`
@@ -199,6 +217,12 @@ pub trait CodeGraph: Send + Sync + 'static {
 struct Owned {
     connection: String,
     publisher: Arc<Publisher>,
+}
+
+/// The paired devices' grants: the store and how a connection maps to its paired device.
+struct PhoneGrants {
+    store: Arc<crate::grants::GrantStore>,
+    credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
 }
 
 pub struct WorkspaceService {
@@ -225,11 +249,16 @@ pub struct WorkspaceService {
     state: mixdog_store::state::CoreState,
     /// The desktop host's channel, for the methods only an Electron window can answer.
     host: OnceLock<Arc<dyn HostChannel>>,
+    phone_grants: OnceLock<PhoneGrants>,
+    releases: Arc<crate::release::FolderReleases>,
 }
 
 fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
     params.get(key).and_then(Value::as_str).ok_or_else(|| WsError::invalid(format!("{key} is invalid.")))
 }
+
+/// Largest staged upload and its chunk size (`shared/server-files.ts`).
+use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES};
 
 fn opt_bool(params: &Value, key: &str) -> bool {
     params.get(key).and_then(Value::as_bool).unwrap_or(false)
@@ -259,6 +288,8 @@ impl WorkspaceService {
         let search = SearchSessions::new(deps.lanes, deps.feeds.clone(), watcher.clone());
         let _ = router.search.set(Arc::downgrade(&search));
         let lsp_feeds = Arc::new(LspFeeds::new(deps.feeds.clone()));
+        let lsp = LspManager::new(deps.processes.clone(), lsp_feeds.clone(), deps.lanes.maintenance);
+        deps.releases.add(Arc::new(LspRelease(lsp.clone())));
         let service = Arc::new(Self {
             me: OnceLock::new(),
             feeds: deps.feeds.clone(),
@@ -272,7 +303,7 @@ impl WorkspaceService {
             watches: Mutex::default(),
             search,
             search_owner: Mutex::default(),
-            lsp: LspManager::new(deps.processes.clone(), lsp_feeds.clone(), deps.lanes.maintenance),
+            lsp,
             lsp_feeds,
             sources: deps.sources,
             code_graph: deps.code_graph,
@@ -282,11 +313,31 @@ impl WorkspaceService {
             user_data: deps.user_data_dir,
             state: deps.state,
             host: OnceLock::new(),
+            phone_grants: OnceLock::new(),
+            releases: deps.releases,
         });
         let _ = service.me.set(Arc::downgrade(&service));
         Ok(service)
     }
 
+    /// Starts the idle sweep of abandoned uploads on the daemon's runtime, the work of Node's
+    /// per-upload `setTimeout(idleMs)`: it sleeps to the earliest idle deadline and sweeps then, so a
+    /// partial file does not wait for the next upload call. Call once after construction.
+    pub fn spawn_idle_sweeper(&self) {
+        let (transfers, lanes) = (self.transfers.clone(), self.lanes);
+        drop(mixdog_rt::spawn("upload-idle-sweep", mixdog_rt::TaskClass::Work, async move {
+            let cancel = CancellationToken::new();
+            loop {
+                transfers.wait_idle_due(&crate::transfer::TokioTimer).await;
+                let sweeping = transfers.clone();
+                let _ = run_fallible(lanes.durability, &cancel, move || {
+                    sweeping.sweep_idle();
+                    Ok(())
+                })
+                .await;
+            }
+        }));
+    }
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
     }
@@ -295,6 +346,30 @@ impl WorkspaceService {
     /// through; without one they answer `capabilityUnavailable`. Set once.
     pub fn set_host(&self, host: Arc<dyn HostChannel>) {
         let _ = self.host.set(host);
+    }
+
+    /// Connects the paired devices' one-file grants (`transfer/grant/mint` and the `granted` read source): the
+    /// store, and the credential a relay connection is paired as. Without it both answer `unsupported`. Set once.
+    pub fn set_phone_grants(
+        &self,
+        store: Arc<crate::grants::GrantStore>,
+        credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
+    ) {
+        let _ = self.phone_grants.set(PhoneGrants { store, credential_of });
+    }
+
+    /// The grant store and the paired device the request comes from.
+    fn phone_grants_for(&self, req: &CoreRequest) -> WsResult<(Arc<crate::grants::GrantStore>, String)> {
+        let grants = self
+            .phone_grants
+            .get()
+            .ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device file grants are not available."))?;
+        let credential = match &req.ctx.caller {
+            mixdog_core_api::call::Caller::Connection(id) => (grants.credential_of)(*id),
+            mixdog_core_api::call::Caller::Internal(_) => None,
+        };
+        let credential = credential.filter(|id| !id.is_empty()).ok_or_else(|| WsError::denied("This connection is not a paired device."))?;
+        Ok((grants.store.clone(), credential))
     }
 
     /// One `host/*` request to the desktop's file capability, its failure mapped to the coded
@@ -359,16 +434,22 @@ impl WorkspaceService {
             },
             Reason::Overloaded => CoreError::QueueFull { queue: "workspace".into() },
             Reason::Cancelled => CoreError::Cancelled { by: "caller".into() },
-            ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), message: None, detail: None },
+            ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), message: Some(error.message.clone().into()), detail: None },
         }
     }
 
-    async fn root(&self, params: &Value) -> WsResult<PathBuf> {
-        self.root_of(params, "root").await
+    async fn root(&self, origin: mixdog_protocol::Origin, params: &Value) -> WsResult<PathBuf> {
+        self.root_of(origin, params, "root").await
     }
 
-    async fn root_of(&self, params: &Value, key: &str) -> WsResult<PathBuf> {
-        self.catalog.resolve(s(params, key)?).await
+    /// The folder a request works in. A local or SSH connection names any absolute folder (Node's
+    /// `…In` operations take a root the window already resolved); a relay connection is held to
+    /// the registered projects (DS 4.2: origin rules are data).
+    async fn root_of(&self, origin: mixdog_protocol::Origin, params: &Value, key: &str) -> WsResult<PathBuf> {
+        match origin {
+            mixdog_protocol::Origin::Relay => self.catalog.resolve(s(params, key)?).await,
+            mixdog_protocol::Origin::Local | mixdog_protocol::Origin::Ssh => crate::pathguard::absolute_local_path(s(params, key)?),
+        }
     }
 
     /// Files this service itself changed, as absolute paths (Node's cache invalidation of a tool
@@ -397,6 +478,19 @@ impl WorkspaceService {
             keys.push(path);
         }
         Ok(keys)
+    }
+
+    /// The folder and name an editor call works on. With an `accessToken` (a paired device's one-file grant) `root` and
+    /// `rel` are Node's `projectPath` and `relPath`, redeemed to the granted file (`remoteFileTarget`); without one, a root
+    /// by the connection's origin and `rel`.
+    async fn file_target(&self, req: &CoreRequest, params: &Value) -> WsResult<(PathBuf, String)> {
+        if let Some(token) = params.get("accessToken") {
+            let (grants, credential) = self.phone_grants_for(req)?;
+            let token = token.as_str().ok_or_else(|| WsError::invalid("accessToken is invalid."))?;
+            let granted = grants.redeem(&credential, token, s(params, "root")?, s(params, "rel")?).await?;
+            return Ok((granted.root, granted.rel));
+        }
+        Ok((self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned()))
     }
 
     fn owner(req: &CoreRequest) -> String {
@@ -432,7 +526,18 @@ impl WorkspaceService {
                 let alias = params.get("alias").and_then(Value::as_str).unwrap_or_default();
                 value(json!({ "project": self.catalog.rename(s(params, "path")?, alias, op).await? }))
             }
-            "project/delete" => value(self.catalog.remove(s(params, "path")?, op).await?),
+            "project/delete" => {
+                // What holds the removed folder open is released with it (DS §4.1: Node's
+                // `lspDisposeUnder` / `termDisposeUnder`); a hook that fails is named in the answer.
+                let path = s(params, "path")?;
+                let mut removed = self.catalog.remove(path, op).await?;
+                let failures = self.releases.release_under(Path::new(path)).await;
+                if !failures.is_empty() {
+                    removed["releaseFailures"] =
+                        failures.iter().map(|f| json!({ "name": f.name, "error": f.error })).collect();
+                }
+                value(removed)
+            }
             "project/ensureDirectory" => {
                 let path = self.catalog.ensure_directory(s(params, "path")?, &cancel).await?;
                 value(json!({ "path": path.to_string_lossy() }))
@@ -442,21 +547,21 @@ impl WorkspaceService {
                 let root = self.catalog.resolve(s(params, "path")?).await?;
                 value(json!({ "path": self.fs.recovery.store_path(&root).to_string_lossy() }))
             }            "projectFs/listDir" => {
-                let (root, rel) = (self.root(params).await?, s(params, "rel")?.to_owned());
+                let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
                 let items = run_fallible(self.lanes.interactive, &cancel, move || fsops::list_dir(&root, &rel)).await?;
                 value(json!(items))
             }
             "projectFs/readText" => {
-                let (root, rel) = (self.root(params).await?, s(params, "rel")?.to_owned());
+                let (root, rel) = self.file_target(req, params).await?;
                 let file = run_fallible(self.lanes.interactive, &cancel, move || fsops::read_text(&root, &rel)).await?;
                 value(json!(file))
             }
             "projectFs/stat" => {
-                let (root, rel) = (self.root(params).await?, s(params, "rel")?.to_owned());
+                let (root, rel) = self.file_target(req, params).await?;
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || fsops::stat(&root, &rel)).await?))
             }
             "projectFs/entryPath" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 value(json!({ "path": project_entry_path(&root, s(params, "rel")?)?.to_string_lossy() }))
             }
             "projectFs/browseDirs" => {
@@ -477,13 +582,13 @@ impl WorkspaceService {
                     .filter_map(|p| p.as_str().map(str::to_owned))
                     .collect();
                 let entries = run_fallible(self.lanes.interactive, &cancel, move || {
-                    Ok(paths.iter().map(|p| fsops::stat_local(p).map(|e| json!(e)).unwrap_or(Value::Null)).collect::<Vec<_>>())
+                    Ok(paths.iter().map(|p| fsops::stat_local(p).map(|e| json!(e)).unwrap_or_else(|e| json!({ "error": e.message }))).collect::<Vec<_>>())
                 })
                 .await?;
                 value(json!(entries))
             }
             "projectFs/writeText" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let rel = s(params, "rel")?.to_owned();
                 let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
                 let encoding = params.get("encoding").and_then(Value::as_str).map(fsops::parse_encoding).transpose()?;
@@ -495,7 +600,7 @@ impl WorkspaceService {
                 value(json!({ "mtimeMs": mtime }))
             }
             "projectFs/writeTextBatch" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let files = Self::batch_files(params)?;
                 let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &rels)?).await;
@@ -506,7 +611,7 @@ impl WorkspaceService {
                 value(json!({}))
             }
             "projectFs/create" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let (dir, name, directory) = (s(params, "relDir")?.to_owned(), s(params, "name")?.to_owned(), opt_bool(params, "directory"));
                 let target = PathBuf::from(&dir).join(name.replace('\\', "/"));
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&target.to_string_lossy()])?).await;
@@ -516,7 +621,7 @@ impl WorkspaceService {
                 value(json!({}))
             }
             "projectFs/rename" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let (rel, new_name) = (s(params, "rel")?.to_owned(), s(params, "newName")?.to_owned());
                 let destination = fsops::rename_destination_rel(&rel, &new_name)?;
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &destination])?).await;
@@ -526,7 +631,7 @@ impl WorkspaceService {
                 value(json!({}))
             }
             "projectFs/move" | "projectFs/copy" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let (rel, target) = (s(params, "rel")?.to_owned(), s(params, "targetDirRel")?.to_owned());
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &target])?).await;
                 let note_root = root.clone();
@@ -544,7 +649,7 @@ impl WorkspaceService {
                 }
             }
             "projectFs/trash" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let rel = s(params, "rel")?;
                 let target = project_entry_path(&root, rel)?;
                 if target == crate::pathguard::lexical(&root) {
@@ -560,7 +665,7 @@ impl WorkspaceService {
                 value(json!({}))
             }
             "projectFs/searchText" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let query = text_query(params.get("options").unwrap_or(&Value::Null))?;
                 let token = cancel.clone();
                 let found = run_fallible(self.lanes.maintenance, &cancel, move || {
@@ -570,14 +675,16 @@ impl WorkspaceService {
                 value(json!(found))
             }
             "projectFs/replaceText" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let options = params.get("options").unwrap_or(&Value::Null);
                 let query = text_query(options)?;
-                let replacement = options.get("replacement").and_then(Value::as_str).unwrap_or_default().to_owned();
-                let rel_paths: Option<Vec<String>> = options
+                let replacement = s(params, "replacement")?.to_owned();
+                // An empty list names no file, as in Node: every matching file is replaced.
+                let rel_paths: Option<Vec<String>> = params
                     .get("relPaths")
                     .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_owned)).collect());
+                    .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_owned)).collect::<Vec<_>>())
+                    .filter(|paths| !paths.is_empty());
                 let token = cancel.clone();
                 let plan_root = root.clone();
                 let plan = run_fallible(self.lanes.maintenance, &cancel, move || {
@@ -602,14 +709,8 @@ impl WorkspaceService {
                 value(json!({ "filesChanged": paths.len(), "replacements": plan.replacements, "paths": paths }))
             }
             "projectFs/recovery" => {
-                let root = self.root(params).await?;
-                let action = match params.get("action") {
-                    Some(Value::String(a)) => a.clone(),
-                    Some(Value::Object(o)) => o.get("action").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                    _ => String::new(),
-                };
-                let from = params.get("action").filter(|a| a.is_object()).unwrap_or(params);
-                let action = Action::parse(&action, from.get("id").and_then(Value::as_str), from.get("revision").and_then(Value::as_str))?;
+                let root = self.root(req.ctx.origin, params).await?;
+                let action = Action::parse(s(params, "action")?, params.get("id").and_then(Value::as_str), params.get("revision").and_then(Value::as_str))?;
                 let mutating = !matches!(action, Action::List | Action::Inspect { .. });
                 let _claim = if mutating { Some(self.paths.acquire(vec![root.clone()]).await) } else { None };
                 let this2 = this.clone();
@@ -695,11 +796,24 @@ impl WorkspaceService {
                 let t = self.transfers.clone();
                 let opened = match source.get("kind").and_then(Value::as_str) {
                     Some("file") => {
-                        let root = self.root(source).await?;
+                        let root = self.root(req.ctx.origin, source).await?;
                         let rel = s(source, "rel")?.to_owned();
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
                     }
+                    Some("granted") => {
+                        let (grants, credential) = self.phone_grants_for(req)?;
+                        let granted = grants
+                            .redeem(&credential, s(source, "accessToken")?, s(source, "projectPath")?, s(source, "relPath")?)
+                            .await?;
+                        let (root, rel) = (granted.root, granted.rel);
+                        run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
+                    }
                     Some("localFile") => {
+                        // An absolute path is the desktop's and an SSH window's; a paired device reads outside its
+                        // projects only through a grant (`granted`).
+                        if matches!(req.ctx.origin, mixdog_protocol::Origin::Relay) {
+                            return Err(WsError::denied("A paired device reads local files through a granted-file permission."));
+                        }
                         let path = s(source, "path")?.to_owned();
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_local_read(&owner, &path)).await?
                     }
@@ -716,16 +830,24 @@ impl WorkspaceService {
                     "entry": { "name": opened.name, "version": opened.version, "rangeMaxBytes": opened.range_max_bytes } }))
             }
             "transfer/beginZip" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let (rel, owner) = (s(params, "rel")?.to_owned(), Self::owner(req));
                 let opened = self.transfers.begin_zip(&owner, self.tracked.as_ref(), self.lanes, &cancel, &root, &rel).await?;
                 value(json!({ "transferId": opened.transfer_id, "size": opened.size, "mimeType": opened.mime_type,
                     "entry": { "name": opened.name, "version": opened.version, "rangeMaxBytes": opened.range_max_bytes } }))
             }
             "transfer/readRange" => {
-                let id = s(params, "transferId")?.to_owned();
                 let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
                 let length = params.get("length").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("length is invalid."))?;
+                // `serverFileReadRange(root, rel, offset, length)` names the file and opens no transfer.
+                if params.get("transferId").is_none() {
+                    if length == 0 {
+                        return Err(WsError::invalid("length is invalid."));
+                    }
+                    let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
+                    return value(run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::read_path_range(&root, &rel, offset, length)).await?);
+                }
+                let id = s(params, "transferId")?.to_owned();
                 let (owner, t) = (Self::owner(req), self.transfers.clone());
                 let range = run_fallible(self.lanes.interactive, &cancel, move || t.read_range(&owner, &id, offset, length)).await?;
                 value(json!(range))
@@ -733,8 +855,29 @@ impl WorkspaceService {
             "transfer/endRead" => {
                 value(json!({ "ended": self.transfers.end_read(&Self::owner(req), s(params, "transferId")?) }))
             }
+            "transfer/beginWrite" if params.get("scope").is_some() => {
+                // `serverUploadBegin(name, size, scope)`: staged under the data dir, named at commit.
+                let scope = s(params, "scope")?.trim();
+                if scope.is_empty()
+                    || scope.len() > 128
+                    || scope == "."
+                    || scope == ".."
+                    || !scope.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+                {
+                    return Err(WsError::invalid("The upload scope is invalid."));
+                }
+                let size = params
+                    .get("size")
+                    .and_then(Value::as_u64)
+                    .filter(|size| (1..=UPLOAD_MAX_BYTES).contains(size))
+                    .ok_or_else(|| WsError::invalid("size is invalid."))?;
+                let dir = self.user_data.join("attachments").join(scope);
+                let (owner, name, t) = (Self::owner(req), s(params, "name")?.to_owned(), self.transfers.clone());
+                let id = run_fallible(self.lanes.durability, &cancel, move || t.begin_staged(&owner, &dir, &name, size)).await?;
+                value(json!({ "transferId": id, "uploadId": id, "chunkBytes": UPLOAD_CHUNK_BYTES, "maxBytes": UPLOAD_MAX_BYTES }))
+            }
             "transfer/beginWrite" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let rel = s(params, "rel")?.to_owned();
                 let size = params.get("size").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("size is invalid."))?;
                 let (owner, t) = (Self::owner(req), self.transfers.clone());
@@ -744,25 +887,51 @@ impl WorkspaceService {
             }
             "transfer/writeChunk" => {
                 let id = s(params, "transferId")?.to_owned();
-                let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(s(params, "bytesB64")?)
-                    .map_err(|_| WsError::invalid("bytesB64 is invalid."))?;
+                // Validated in `Transfers::write_chunk`, in Node's order and with its sentences.
+                let offset = params.get("offset").and_then(Value::as_u64);
+                let encoded = params.get("bytesB64").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let written = run_fallible(self.lanes.durability, &cancel, move || t.write_chunk(&owner, &id, offset, &bytes)).await?;
-                value(json!({ "written": written }))
+                let received = run_fallible(self.lanes.durability, &cancel, move || t.write_chunk(&owner, &id, offset, &encoded)).await?;
+                value(json!({ "received": received }))
             }
             "transfer/commit" => {
                 let id = s(params, "transferId")?.to_owned();
                 let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let size = run_fallible(self.lanes.durability, &cancel, move || t.commit(&owner, &id)).await?;
+                let (size, path) = run_fallible(self.lanes.durability, &cancel, move || t.commit(&owner, &id)).await?;
                 self.note_anything();
-                value(json!({ "size": size }))
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                value(json!({ "size": size, "absolutePath": path.to_string_lossy(), "name": name, "dir": false }))
             }
             "transfer/abort" => value(json!({ "aborted": self.transfers.abort(&Self::owner(req), s(params, "transferId")?) })),
             "transfer/trash/info" => {
                 let root = crate::pathguard::absolute_local_path(s(params, "path")?)?;
                 value(run_fallible(self.lanes.interactive, &cancel, move || Ok(crate::servertrash::info(&root))).await?)
+            }
+            "transfer/grant/mint" => {
+                // `resolveLocalPaths` / `attachmentOpen` of a paired device: the described path, with a one-file
+                // grant when it lies outside every project (a conversation's attachment always gets one).
+                let (grants, credential) = self.phone_grants_for(req)?;
+                let path = s(params, "path")?.to_owned();
+                let session = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+                let entry = run_fallible(self.lanes.interactive, &cancel, move || fsops::stat_local(&path)).await?;
+                let mut row = json!(entry);
+                if !entry.dir {
+                    let absolute = PathBuf::from(&entry.absolute_path);
+                    let projects: Vec<String> = self.catalog.list().await?.into_iter().map(|project| project.path).collect();
+                    let owner = if session.is_empty() { crate::grants::owning_project(&projects, &absolute) } else { None };
+                    match owner {
+                        Some((project, relative)) => {
+                            row["projectPath"] = json!(project);
+                            row["relPath"] = json!(relative);
+                        }
+                        None => {
+                            row["projectPath"] = json!(absolute.parent().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default());
+                            row["relPath"] = json!(absolute.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default());
+                            row["accessToken"] = json!(grants.mint(&credential, &absolute, &session).await?);
+                        }
+                    }
+                }
+                value(row)
             }
             "transfer/trash/entry" => {
                 // Root and entry as `server-file-operations.ts` takes them; `path` is the root.
@@ -802,7 +971,7 @@ impl WorkspaceService {
                 value(run_fallible(self.lanes.durability, &cancel, move || crate::editorcfg::write_workspace_file(&file, &folders)).await?)
             }
             "projectFs/readEditorSettings" => {
-                let root = self.root(params).await?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let rel = s(params, "rel")?.to_owned();
                 let workspace = params.get("workspaceFile").and_then(Value::as_str).map(PathBuf::from);
                 let user_data = self.user_data.clone();
@@ -834,7 +1003,7 @@ impl WorkspaceService {
                 } else {
                     json!({ "mode": mode, "symbols": query, "limit": 20 })
                 };
-                let root = self.root_of(params, "path").await?;
+                let root = self.root_of(req.ctx.origin, params, "path").await?;
                 let graph = self.code_graph.as_ref().ok_or_else(|| WsError::new(Reason::Unsupported, "The code graph is not available."))?;
                 value(Value::String(graph.query(&root, args, &cancel).await?))
             }
@@ -847,14 +1016,16 @@ impl WorkspaceService {
             // The subscription itself is the server's; the feed outlives it (servers keep running).
             "lsp/unsubscribe" => value(json!({})),
             "lsp/document" => {
-                let project = s(params, "root")?;
-                let root = self.catalog.resolve(project).await?;
+                // `projectPath` names the project the events carry; `root` is the folder the host
+                // resolved for it (a worktree may differ), as Node's `lspDocument(projectPath, root, input)`.
+                let project = s(params, "projectPath")?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let document = DocumentInput::from_value(params.get("document").unwrap_or(&Value::Null))?;
                 value(self.lsp.document(project, &root, document).await)
             }
             "lsp/request" => {
-                let project = s(params, "root")?;
-                let root = self.catalog.resolve(project).await?;
+                let project = s(params, "projectPath")?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let r = params.get("request").unwrap_or(&Value::Null);
                 value(
                     self.lsp
@@ -989,7 +1160,7 @@ impl DomainService for WorkspaceService {
         if let Some(host_method) = host_method {
             // The path is confined here; the window only renders it.
             let confined = async {
-                let root = this.root(&req.params).await?;
+                let root = this.root(req.ctx.origin, &req.params).await?;
                 let rel = s(&req.params, "rel")?;
                 project_entry_path(&root, rel)?;
                 Ok::<_, WsError>(json!({ "root": root.to_string_lossy(), "rel": rel }))
@@ -1053,6 +1224,7 @@ impl DomainService for WorkspaceService {
             "transfer/abort",
             "transfer/trash/info",
             "transfer/trash/entry",
+            "transfer/grant/mint",
             "lsp/subscribe",
             "lsp/unsubscribe",
             "lsp/document",

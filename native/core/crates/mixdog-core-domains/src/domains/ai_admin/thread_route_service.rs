@@ -38,11 +38,16 @@ pub struct ThreadRouteService {
 
 impl ThreadRouteService {
     /// `continueSessionInModel(sessionId, next)`: the selection is adopted and the conversation
-    /// switched in place.
+    /// switched in place, only after its latest settled turn failed on exhausted provider quota
+    /// (`session-api/lifecycle.mjs`; a running turn is not such a turn, so Node's separate busy
+    /// refusal is this one here).
     async fn continue_in_model(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         let params: ThreadContinueInModelParams = decode(req)?;
         let route = req.params.get("route").and_then(Value::as_object).cloned().unwrap_or_default();
         let thread = params.thread_id;
+        if self.sessions.facts(&thread).await?.failure.is_none() {
+            return Err(failed(DOMAIN, "latest turn did not fail on exhausted provider quota"));
+        }
         self.routes.continue_session_in_model(&thread, thread.as_str(), &route).await.map_err(|message| failed(DOMAIN, message))
     }
 

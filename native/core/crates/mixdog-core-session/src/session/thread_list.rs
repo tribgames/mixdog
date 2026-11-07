@@ -11,6 +11,7 @@
 //! `decisions.md` (D-list-*).
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::thread::SortDirection;
@@ -26,6 +27,7 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
+use mixdog_core_api::state::CatalogObserver;
 use mixdog_core_base::support::coded;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
@@ -160,11 +162,24 @@ pub struct ThreadListService {
     store: Arc<SqliteStore>,
     overlay: Arc<dyn ListOverlay>,
     rooms: Arc<dyn ListRooms>,
+    /// Told of every row this service shows (see [`CatalogObserver`]).
+    observer: OnceLock<Arc<dyn CatalogObserver>>,
 }
 
 impl ThreadListService {
     pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>) -> Self {
-        Self { store, overlay, rooms }
+        Self { store, overlay, rooms, observer: OnceLock::new() }
+    }
+
+    /// Connects the observer of the published catalog. Set once.
+    pub fn observe(&self, observer: Arc<dyn CatalogObserver>) {
+        let _ = self.observer.set(observer);
+    }
+
+    fn published(&self, ids: &[&str]) {
+        if let Some(observer) = self.observer.get() {
+            observer.published(ids);
+        }
     }
 
     fn row_of(&self, id: &ThreadId, listed: &LeadRow) -> ThreadSummary {
@@ -181,7 +196,11 @@ impl ThreadListService {
     pub async fn summary(&self, id: &ThreadId) -> Result<Option<ThreadSummary>, CoreError> {
         let listed = self.store.lead_row(id.as_str()).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let Some(listed) = listed else { return Ok(None) };
-        Ok(self.with_rooms(vec![self.row_of(id, &listed)]).await?.pop())
+        let row = self.with_rooms(vec![self.row_of(id, &listed)]).await?.pop();
+        if let Some(row) = &row {
+            self.published(&[row.id.as_str()]);
+        }
+        Ok(row)
     }
 
     async fn list(&self, params: ThreadListParams) -> Result<ThreadListResponse, CoreError> {
@@ -212,6 +231,7 @@ impl ThreadListService {
             })
             .collect();
         let data = self.with_rooms(rows).await?;
+        self.published(&data.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(ThreadListResponse { data, next_cursor, backwards_cursor: None })
     }
 }
@@ -520,6 +540,62 @@ mod tests {
             directory.handle(&thread).filter(|handle| handle.cell.view.load_full().state.room_view.is_none()).map(drop)
         })
         .await;
+    }
+
+    /// Node's control session is created empty (`desktopSession: null`, no message) and never listed: `isLeadVisibleRow`
+    /// drops "a previewless zero-message row with no title" (`lead.rs`), and the app feed's `thread/summary/updated` is
+    /// published from the row `summary` answers. The desktop's control thread (`thread/start{kind:"task"}`) is such a row
+    /// until it holds a message or a title, with no flag of its own; the same row with a title is listed.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_task_thread_with_no_message_and_no_title_is_never_listed() {
+        let golden = golden();
+        let data = tempfile::tempdir().expect("data dir");
+        let service = service(data.path(), &golden).await;
+        let id = "sess_control_probe";
+        // What `thread/start` writes: the creation times, no title, no preview, no message.
+        let header = json!({ "id": id, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
+        let head = |header: &Value| CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
+        let listed = |answer: &Value| answer["data"].as_array().expect("data").iter().any(|row| row["id"] == id);
+        service.store.upsert(head(&header), DirtyMark::Clear).await.expect("upsert");
+        let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
+        assert!(!listed(&answer), "an empty untitled thread is listed");
+        assert!(service.summary(&ThreadId::from(id.to_owned())).await.expect("summary").is_none(), "its row is published");
+
+        let mut titled = header.clone();
+        titled["title"] = json!("Probe");
+        service.store.upsert(head(&titled), DirtyMark::Clear).await.expect("upsert");
+        let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
+        assert!(listed(&answer), "the rule is the emptiness rule, not the id");
+        assert!(service.summary(&ThreadId::from(id.to_owned())).await.expect("summary").is_some());
+    }
+
+    /// A stored `desktopSession` classifies the listed row as `_desktopSessionSummary` does, in the page and in the row the
+    /// app feed publishes (`summary`): a task has no project path, a project names its own.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stored_desktop_session_classifies_the_listed_thread() {
+        let golden = golden();
+        let data = tempfile::tempdir().expect("data dir");
+        let service = service(data.path(), &golden).await;
+        let rows = [
+            ("sess_class_task", json!({ "classification": "task", "projectPath": null }), "C:\\Tasks"),
+            ("sess_class_project", json!({ "classification": "project", "projectPath": "C:\\Repo" }), "C:\\Repo"),
+        ];
+        for (id, desktop, cwd) in &rows {
+            let header = json!({ "id": id, "title": "Classified", "cwd": cwd, "desktopSession": desktop, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
+            let head = CatalogHead { session: (*id).into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
+            service.store.upsert(head, DirtyMark::Clear).await.expect("upsert");
+        }
+        let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
+        let row_of = |id: &str| answer["data"].as_array().expect("data").iter().find(|row| row["id"] == id).cloned().expect("listed");
+        for (id, desktop, _) in &rows {
+            let listed = row_of(id);
+            assert_eq!(listed["classification"], desktop["classification"], "{id}");
+            assert_eq!(listed["projectPath"], desktop["projectPath"], "{id}");
+            let published = service.summary(&ThreadId::from((*id).to_owned())).await.expect("summary").expect("row");
+            let published = serde_json::to_value(published).expect("summary json");
+            assert_eq!(published["classification"], desktop["classification"], "{id}");
+            assert_eq!(published["projectPath"], desktop["projectPath"], "{id}");
+        }
     }
 
     /// A cursor that does not decode is Node's `EINVALIDCURSOR` failure; a text search or another

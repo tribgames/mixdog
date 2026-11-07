@@ -179,6 +179,11 @@ pub fn hook_common(directory: Arc<LateDirectory>) -> CommonOf {
     })
 }
 
+/// The MCP scope of a hook's session (`rt.mcpScopeId`): the `mcpScopeId` of its live header.
+pub fn hook_scope(directory: Arc<LateDirectory>) -> mixdog_mcp::hook_bus::ScopeOf {
+    Arc::new(move |session_id: &str| directory.live_header(session_id).and_then(|header| super::session_tools::header_scope(&header).map(str::to_owned)))
+}
+
 // ---- the rows the tool pool is built from ----------------------------------------------------
 
 pub struct EarlyIn {

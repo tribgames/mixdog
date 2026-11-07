@@ -83,6 +83,18 @@ const PROJECT_MOVE_BUSY: &str = "The session is running a turn; wait for it to f
 const PROJECT_MOVE_WORKTREE: &str =
     "The session works in a managed worktree; merge or remove the worktree before moving it to another project.";
 
+/// The desktop host's refusals of a move to another project (`setSessionProject`), in its order:
+/// a turn (or a compaction) running, then a managed worktree.
+pub(crate) fn project_move_refusal(working: bool, worktree: bool) -> Option<&'static str> {
+    if working {
+        Some(PROJECT_MOVE_BUSY)
+    } else if worktree {
+        Some(PROJECT_MOVE_WORKTREE)
+    } else {
+        None
+    }
+}
+
 /// The registered Projects and the task workspace, as a Project move reads them.
 #[async_trait]
 pub trait ProjectFolders: Send + Sync {
@@ -589,11 +601,15 @@ impl ThreadSettings {
         if project_identity(current.map(String::as_str)) == project_identity(target.as_deref()) {
             return Ok(());
         }
-        if self.parts.directory.handle(thread).is_some_and(|handle| handle.cell.run.load().is_some()) {
-            return Err(failed(DOMAIN, PROJECT_MOVE_BUSY));
-        }
-        if row.pointer("/workspace/worktreeId").and_then(Value::as_str).is_some_and(|id| !id.is_empty()) {
-            return Err(failed(DOMAIN, PROJECT_MOVE_WORKTREE));
+        // `row.leadWorking || live?.busy || live?.commandBusy`: the thread's own turn in flight
+        // (the list row's `working`), a turn running or starting or a compaction running as the
+        // actor steps, or the runtime state a host published as busy.
+        let working = self.parts.directory.handle(thread).is_some_and(|handle| {
+            handle.cell.run.load().is_some() || handle.cell.ui_busy.load(std::sync::atomic::Ordering::SeqCst) || handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst)
+        }) || self.parts.directory.runtime_facts(thread).is_some_and(|facts| facts.busy || facts.command_busy);
+        let worktree = row.pointer("/workspace/worktreeId").and_then(Value::as_str).is_some_and(|id| !id.is_empty());
+        if let Some(refusal) = project_move_refusal(working, worktree) {
+            return Err(failed(DOMAIN, refusal));
         }
         let cwd = match &target {
             Some(target) => projects.canonical_directory(target).await,

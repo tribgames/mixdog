@@ -1,0 +1,196 @@
+{
+  "domain": "delete-idle",
+  "recorder": "benchmarks/rust-core/recorders/record-delete-idle.mjs",
+  "lastUsedAt": 50,
+  "idle": [
+    {
+      "name": "no-target",
+      "layer": "service",
+      "note": "the control call names no session",
+      "reply": {
+        "deleted": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "bad-id",
+      "layer": "runtime",
+      "note": "the target is not a session id",
+      "reply": {
+        "deleted": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "turn-starting-admitted",
+      "layer": "service",
+      "note": "a turn start of the target is being admitted",
+      "reply": {
+        "deleted": false,
+        "reason": "turn-starting"
+      },
+      "afterwards": {
+        "deleted": false,
+        "reason": "changed"
+      }
+    },
+    {
+      "name": "turn-starting-fenced",
+      "layer": "service",
+      "note": "another idle delete of the target is running",
+      "reply": {
+        "deleted": false,
+        "reason": "turn-starting"
+      },
+      "firstReply": {
+        "deleted": false,
+        "reason": "changed"
+      },
+      "startWhileFenced": {
+        "error": "SessionClosedError",
+        "message": "Session \"sess_idle_4\" closed: session is being deleted"
+      }
+    },
+    {
+      "name": "unguarded",
+      "layer": "runtime",
+      "note": "the caller gives no isHostedBusy guard",
+      "reply": {
+        "deleted": false,
+        "reason": "unguarded"
+      }
+    },
+    {
+      "name": "current",
+      "layer": "runtime",
+      "note": "the target is the session the runtime has current",
+      "reply": {
+        "deleted": false,
+        "reason": "current"
+      }
+    },
+    {
+      "name": "busy-lock-not-archived",
+      "layer": "runtime",
+      "note": "a turn holds the target's ask lock; the target is not archived",
+      "reply": {
+        "deleted": false,
+        "reason": "busy"
+      }
+    },
+    {
+      "name": "busy-lock-archived",
+      "layer": "runtime",
+      "note": "a turn holds the target's ask lock; the target is archived",
+      "reply": {
+        "deleted": false,
+        "reason": "busy"
+      }
+    },
+    {
+      "name": "not-archived",
+      "layer": "runtime",
+      "note": "the target is not archived",
+      "reply": {
+        "deleted": false,
+        "reason": "not-archived"
+      }
+    },
+    {
+      "name": "unknown-session",
+      "layer": "runtime",
+      "note": "no session of that id exists: it has no archive mark",
+      "reply": {
+        "deleted": false,
+        "reason": "not-archived"
+      }
+    },
+    {
+      "name": "favorite",
+      "layer": "runtime",
+      "note": "the target is archived and a favorite",
+      "reply": {
+        "deleted": false,
+        "reason": "favorite"
+      }
+    },
+    {
+      "name": "turn-waiting",
+      "layer": "runtime",
+      "note": "a turn reaches the ask lock while the archive flag is read",
+      "reply": {
+        "deleted": false,
+        "reason": "turn-waiting"
+      },
+      "untouched": true
+    },
+    {
+      "name": "busy-unsettled",
+      "layer": "runtime",
+      "note": "a turn of the target is not yet durable",
+      "reply": {
+        "deleted": false,
+        "reason": "busy"
+      },
+      "untouched": true
+    },
+    {
+      "name": "queued-pending",
+      "layer": "runtime",
+      "note": "input waits in the target's pending queue",
+      "reply": {
+        "deleted": false,
+        "reason": "queued"
+      },
+      "untouched": true
+    },
+    {
+      "name": "queued-hosted",
+      "layer": "runtime",
+      "note": "a runtime hosting the target holds queued input",
+      "reply": {
+        "deleted": false,
+        "reason": "queued"
+      },
+      "untouched": true
+    },
+    {
+      "name": "missing",
+      "layer": "runtime",
+      "note": "the target's record is gone when the checks run",
+      "reply": {
+        "deleted": false,
+        "reason": "missing"
+      }
+    },
+    {
+      "name": "changed",
+      "layer": "runtime",
+      "note": "the target moved since the caller looked",
+      "reply": {
+        "deleted": false,
+        "reason": "changed"
+      },
+      "untouched": true
+    },
+    {
+      "name": "close-failed",
+      "layer": "runtime",
+      "note": "the close cannot land: another process holds the session's writer claim",
+      "reply": {
+        "deleted": false,
+        "reason": "close-failed"
+      },
+      "untouched": true
+    },
+    {
+      "name": "deleted",
+      "layer": "runtime",
+      "note": "archived, not a favorite, idle and unchanged",
+      "reply": {
+        "deleted": true
+      },
+      "gone": true
+    }
+  ]
+}

@@ -177,6 +177,11 @@ export function installSectionStore(source: SectionsSource): SectionStore {
   return installed;
 }
 
+/** The store installSectionStore installed (the phone's), if any. */
+export function installedSectionStore(): SectionStore | undefined {
+  return installed;
+}
+
 /** The store of a desktop bridge (`window.mixdogDesktop`), one per bridge object. */
 export function sectionStoreFor(host: { readonly sections?: SectionsSource } | undefined): SectionStore | undefined {
   if (installed) return installed;

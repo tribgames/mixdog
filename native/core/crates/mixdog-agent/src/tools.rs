@@ -659,6 +659,7 @@ pub struct Pipeline {
 pub async fn run_nested(
     pipeline: &Pipeline,
     tools: &dyn mixdog_tools::policy::ToolResolver,
+    scope: Option<&str>,
     ctx: &ToolContext,
     name: &str,
     arguments: JsonValue,
@@ -681,7 +682,7 @@ pub async fn run_nested(
     {
         mcp.refresh().await;
     }
-    let Some(tool) = tools.resolve(&target.name) else {
+    let Some(tool) = tools.resolve(scope, &target.name) else {
         return Err(refused(crate::text::unknown_tool_message(&target.name, &[])));
     };
     // A nested call from a delegated agent is judged against the agent's definition, as its own calls are.

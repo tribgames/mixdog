@@ -67,6 +67,13 @@ impl DispatchThreads {
         self.directory.create_session(header, json!({})).await.map(|id| id.as_str().to_owned()).map_err(|error| format!("{error:?}"))
     }
 
+    /// The `mcpScopeId` the stored session `id` carries: the scope the sessions it spawns share
+    /// (`prepareAgentSession({ mcpScopeId })` takes the spawning runtime's).
+    pub async fn mcp_scope_of(&self, id: &str) -> Option<String> {
+        let header = self.directory.stored_header(&ThreadId::from(id)).await?;
+        header.get("mcpScopeId").and_then(Value::as_str).map(str::to_owned)
+    }
+
     /// `session.tools`: the names of the session's active tools.
     pub fn tools(&self, id: &str) -> Vec<String> {
         self.directory.handle(&ThreadId::from(id)).map(|handle| handle.cell.surface.borrow().active_tools.clone()).unwrap_or_default()

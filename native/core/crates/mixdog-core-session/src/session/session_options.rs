@@ -124,8 +124,8 @@ pub fn write_header(options: &ThreadSessionOptions, header: &mut Header) {
 /// runtime's `mcpPid` and, with no session profile, the `clientHostPid`.
 ///
 /// A key the header already holds (a caller allowlist) is left as it is. Not written here: the route's
-/// fields (provider, model, windows, cache), the MCP scope (the daemon's hub is the default scope) and
-/// the title, which a first turn sets.
+/// fields (provider, model, windows, cache), the MCP scope (`NewThreadTools::seed` mints it and opens
+/// it on the hub) and the title, which a first turn sets.
 pub fn write_lead_record(header: &mut Header, now_ms: i64, pid: u32) {
     let lead_fields = [
         ("agent", json!("lead")),

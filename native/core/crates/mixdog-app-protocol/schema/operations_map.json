@@ -1127,8 +1127,8 @@
       "list": "operations",
       "name": "browserRemoteOpen",
       "target": {
-        "kind": "notification",
-        "target": "ui/openRequested"
+        "kind": "clientNotification",
+        "target": "host/browser/surface"
       }
     },
     {
@@ -2900,8 +2900,11 @@
       "list": "remote",
       "name": "resolveLocalPaths",
       "target": {
-        "kind": "method",
-        "target": "projectFs/statLocal"
+        "kind": "methods",
+        "target": [
+          "projectFs/statLocal",
+          "transfer/grant/mint"
+        ]
       }
     },
     {
@@ -3180,8 +3183,11 @@
       "list": "remote",
       "name": "attachmentOpen",
       "target": {
-        "kind": "method",
-        "target": "transfer/beginRead"
+        "kind": "methods",
+        "target": [
+          "transfer/beginRead",
+          "transfer/grant/mint"
+        ]
       }
     },
     {

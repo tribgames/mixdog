@@ -4,6 +4,7 @@
 import { contactAgentRows } from '../shared/agent-contacts';
 import type { DesktopApi } from '../shared/contract';
 import { record, rows } from './record-utils';
+import { invokeOrHeld } from './section-capabilities';
 import { getCachedConnectionInfo } from './settings/connection-info';
 
 export function providerConnected(setup: unknown): boolean {
@@ -19,7 +20,7 @@ type FactsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProjects'>> |
 export async function mixyGreetingFacts(api: FactsApi): Promise<string[]> {
   const read = async (capability: string) => {
     try {
-      return (await api?.invokeCapability?.({ capability: capability as never, args: [] }))?.value;
+      return (await invokeOrHeld(api, { capability: capability as never, args: [] }))?.value;
     } catch {
       return undefined;
     }

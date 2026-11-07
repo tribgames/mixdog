@@ -1,0 +1,40 @@
+{
+ "node": "v22.20.0",
+ "repository": true,
+ "base": "main",
+ "untrackedOmitted": 0,
+ "files": [
+  {
+   "path": "inner/",
+   "status": "A",
+   "additions": 0,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "mod.txt",
+   "status": "M",
+   "additions": 2,
+   "deletions": 1,
+   "untracked": false,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "plain.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "zz-bare/",
+   "status": "A",
+   "additions": 0,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  }
+ ]
+}

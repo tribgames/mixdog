@@ -51,10 +51,11 @@ impl SessionQuota {
     }
 }
 
-/// `quotaAutoResumeEnabled()` (`quota-resume-store.mjs`): `readSection('quotaResume')?.autoResume
-/// !== false`, the file's top-level `quotaResume.autoResume`; on unless it is the boolean `false`.
+/// `quotaAutoResumeEnabled()` (`quota-resume-store.mjs`), read from the registered config key `quotaAutoResume`
+/// (`desktop-services.md` A2/D1: the key is read from the `config` section and written with `config/value/write`; Node's
+/// `quotaResume.autoResume` is moved to it by the migration); on unless it is the boolean `false`.
 pub fn auto_resume_enabled(config: &Config) -> bool {
-    config.get("quotaResume.autoResume") != Some(Value::Bool(false))
+    config.get("quotaAutoResume") != Some(Value::Bool(false))
 }
 
 /// An actor's quota lane: its settlement guard, and its store calls in the order the actor made

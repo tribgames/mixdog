@@ -2956,6 +2956,27 @@
             "initializeIfMissing"
           ],
           "type": "string"
+        },
+        {
+          "description": "`notifications.devices.<id>` only: the value is a partial record merged onto the stored one, `events` and `quietHours` key by key; a device with none stored starts from the default record.",
+          "enum": [
+            "mergePatch"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "As `mergePatch`, but a device with none stored starts from the phone-app default (bot chats only).",
+          "enum": [
+            "mergePatchBots"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "`notifications.overrides` only: the value is `{target, setting}`; the target's entry is replaced, or removed when the mode is `inherit`, and expired mutes are dropped.",
+          "enum": [
+            "setConversation"
+          ],
+          "type": "string"
         }
       ]
     },
@@ -4194,6 +4215,18 @@
       "properties": {
         "cwd": {
           "type": "string"
+        },
+        "reuseLineStats": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "skipLineStats": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -4481,12 +4514,16 @@
     "GithubRequestParams": {
       "description": "Params of `github/request`.",
       "properties": {
+        "cwd": {
+          "type": "string"
+        },
         "input": true,
         "opId": {
           "type": "string"
         }
       },
       "required": [
+        "cwd",
         "input",
         "opId"
       ],
@@ -6599,12 +6636,16 @@
       "description": "Params of `lsp/document`.",
       "properties": {
         "document": true,
+        "projectPath": {
+          "type": "string"
+        },
         "root": {
           "type": "string"
         }
       },
       "required": [
         "document",
+        "projectPath",
         "root"
       ],
       "type": "object"
@@ -6615,6 +6656,9 @@
         "opId": {
           "type": "string"
         },
+        "projectPath": {
+          "type": "string"
+        },
         "request": true,
         "root": {
           "type": "string"
@@ -6622,6 +6666,7 @@
       },
       "required": [
         "opId",
+        "projectPath",
         "request",
         "root"
       ],
@@ -8608,6 +8653,13 @@
     "ProjectFsReadTextParams": {
       "description": "Params of `projectFs/readText`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },
@@ -8627,8 +8679,20 @@
         "action": {
           "type": "string"
         },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
+        },
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "root": {
           "type": "string"
@@ -8672,6 +8736,18 @@
           "type": "string"
         },
         "options": true,
+        "relPaths": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "replacement": {
+          "type": "string"
+        },
         "root": {
           "type": "string"
         }
@@ -8679,6 +8755,7 @@
       "required": [
         "opId",
         "options",
+        "replacement",
         "root"
       ],
       "type": "object"
@@ -8715,6 +8792,13 @@
     "ProjectFsStatParams": {
       "description": "Params of `projectFs/stat`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },
@@ -11595,6 +11679,18 @@
       ],
       "type": "object"
     },
+    "RemoteAccessActivateParams": {
+      "description": "Params of `remoteAccess/activate`.",
+      "properties": {
+        "opId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId"
+      ],
+      "type": "object"
+    },
     "RemoteAccessDeliverScreenControllerKeyParams": {
       "description": "Params of `remoteAccess/deliverScreenControllerKey`.",
       "properties": {
@@ -11612,11 +11708,15 @@
     "RemoteAccessPairCodeParams": {
       "description": "Params of `remoteAccess/pairCode`.",
       "properties": {
+        "action": {
+          "type": "string"
+        },
         "opId": {
           "type": "string"
         }
       },
       "required": [
+        "action",
         "opId"
       ],
       "type": "object"
@@ -11690,13 +11790,19 @@
     "RemoteAccessResolveClaimParams": {
       "description": "Params of `remoteAccess/resolveClaim`.",
       "properties": {
-        "input": true,
+        "approve": {
+          "type": "boolean"
+        },
+        "claimId": {
+          "type": "string"
+        },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "input",
+        "approve",
+        "claimId",
         "opId"
       ],
       "type": "object"
@@ -11796,6 +11902,10 @@
         "input",
         "opId"
       ],
+      "type": "object"
+    },
+    "RemoteAccessStateParams": {
+      "description": "Params of `remoteAccess/state`.",
       "type": "object"
     },
     "RequestId": {
@@ -11917,6 +12027,13 @@
           "description": "`branch` | `worktree` | … (today's `GitReviewSource`).",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "summary": {
+          "description": "Leave the patch text out of a turn review (today's `getTurnReviewDiff {summary: true}`).",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -12816,24 +12933,30 @@
         },
         "options": true,
         "tabId": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "opId",
-        "options",
-        "tabId"
+        "options"
       ],
       "type": "object"
     },
     "TerminalFocusParams": {
       "description": "Params of `terminal/focus`.",
       "properties": {
+        "focused": {
+          "type": "boolean"
+        },
         "tabId": {
           "type": "string"
         }
       },
       "required": [
+        "focused",
         "tabId"
       ],
       "type": "object"
@@ -12899,14 +13022,16 @@
     "ThreadAgents": {
       "properties": {
         "agentJobs": {
-          "default": []
-          "items": true
+          "default": [],
+          "items": true,
           "type": "array"
         },
-        "agentScope": true,
+        "agentScope": {
+          "default": null
+        },
         "agentWorkers": {
-          "default": []
-          "items": true
+          "default": [],
+          "items": true,
           "type": "array"
         }
       },
@@ -12929,7 +13054,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null
         }
       },
       "type": "object"
@@ -12999,6 +13125,27 @@
       ],
       "type": "object"
     },
+    "ThreadClearParams": {
+      "properties": {
+        "opId": {
+          "type": "string"
+        },
+        "rebuildPrompt": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadClearSessionChangeHistoryParams": {
       "description": "Params of `thread/clearSessionChangeHistory`.",
       "properties": {
@@ -13036,13 +13183,15 @@
     "ThreadContext": {
       "properties": {
         "autoCompactTokenLimit": {
-          "format": "int64"
+          "default": null,
+          "format": "int64",
           "type": [
-            "integer"
+            "integer",
             "null"
           ]
         },
         "compactBoundaryTokens": {
+          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -13050,41 +13199,45 @@
           ]
         },
         "contextDefaultPercent": {
-          "format": "double"
+          "format": "double",
           "type": [
-            "number"
+            "number",
             "null"
           ]
         },
         "contextPercent": {
-          "format": "double"
+          "default": null,
+          "format": "double",
           "type": [
-            "number"
+            "number",
             "null"
           ]
         },
         "contextTokens": {
-          "format": "int64"
+          "format": "int64",
           "type": [
-            "integer"
+            "integer",
             "null"
           ]
         },
         "contextWindow": {
-          "format": "int64"
+          "default": null,
+          "format": "int64",
           "type": [
-            "integer"
+            "integer",
             "null"
           ]
         },
         "displayContextWindow": {
-          "format": "int64"
+          "default": null,
+          "format": "int64",
           "type": [
-            "integer"
+            "integer",
             "null"
           ]
         },
         "effectiveContextWindowPercent": {
+          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -13092,6 +13245,7 @@
           ]
         },
         "rawContextWindow": {
+          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -13137,7 +13291,7 @@
     "ThreadDeleteParams": {
       "properties": {
         "ifIdle": {
-          "description": "Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → `preconditionFailed`."
+          "description": "Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → the reply `{deleted: false, reason}`, never an error."
         },
         "opId": {
           "type": "string"
@@ -14158,10 +14312,18 @@
     },
     "ThreadQueueDeleteParams": {
       "properties": {
+        "currentText": {
+          "description": "The composer's text when the entry is handed back (today's `restoreQueued` first argument): the reply's `text` ends with it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
         },
         "queuedId": {
+          "description": "Absent with `restore`: every queued entry is handed back (today's `restoreQueued` with no id).",
           "type": [
             "string",
             "null"
@@ -14547,7 +14709,7 @@
         "autoClear": true,
         "autoEffort": {
           "type": [
-            "boolean"
+            "boolean",
             "null"
           ]
         },
@@ -14558,59 +14720,61 @@
           ]
         },
         "effort": {
+          "default": null,
           "type": [
-            "string"
+            "string",
             "null"
           ]
         },
         "effortOptions": {
-          "items": true
+          "items": true,
           "type": [
-            "array"
+            "array",
             "null"
           ]
         },
         "fast": {
           "type": [
-            "boolean"
+            "boolean",
             "null"
           ]
         },
         "fastCapable": {
           "type": [
-            "boolean"
+            "boolean",
             "null"
           ]
         },
         "model": {
           "type": [
-            "string"
+            "string",
             "null"
           ]
         },
         "modelParameters": {
           "additionalProperties": {
             "type": "string"
-          }
+          },
           "type": [
-            "object"
+            "object",
             "null"
           ]
         },
         "provider": {
           "type": [
-            "string"
+            "string",
             "null"
           ]
         },
         "selectedContextWindow": {
-          "format": "int64"
+          "format": "int64",
           "type": [
-            "integer"
+            "integer",
             "null"
           ]
         },
         "sessionForkedFrom": {
+          "default": null,
           "type": [
             "string",
             "null"
@@ -14618,20 +14782,21 @@
         },
         "sessionModel": {
           "type": [
-            "string"
+            "string",
             "null"
           ]
         },
         "sessionProvider": {
           "type": [
-            "string"
+            "string",
             "null"
           ]
         },
         "systemShell": true,
         "turnEffort": {
+          "default": null,
           "type": [
-            "string"
+            "string",
             "null"
           ]
         },
@@ -14642,46 +14807,57 @@
     "ThreadRuntime": {
       "properties": {
         "activeToolSummary": {
+          "default": null,
           "type": [
             "string",
             "null"
           ]
         },
-        "activeTools": true,
+        "activeTools": {
+          "default": null
+        },
         "busy": {
-          "default": false
+          "default": false,
           "type": "boolean"
         },
         "clientHostPid": {
-          "format": "uint32"
-          "minimum": 0.0
+          "format": "uint32",
+          "minimum": 0.0,
           "type": [
-            "integer"
+            "integer",
             "null"
           ]
         },
         "commandBusy": {
-          "default": false
+          "default": false,
           "type": "boolean"
         },
-        "commandStatus": true,
-        "progressHint": true,
+        "commandStatus": {
+          "default": null
+        },
+        "progressHint": {
+          "default": null
+        },
         "setupChanged": true,
-        "spinner": true,
+        "spinner": {
+          "default": null
+        },
         "storage": {
           "anyOf": [
             {
               "$ref": "#/definitions/StorageState"
-            }
+            },
             {
               "type": "null"
             }
           ]
         },
-        "thinking": true,
+        "thinking": {
+          "default": null
+        },
         "toasts": {
-          "default": []
-          "items": true
+          "default": [],
+          "items": true,
           "type": "array"
         },
         "toolMode": {
@@ -14691,10 +14867,10 @@
           ]
         },
         "waitingOnProviderSince": {
-          "description": "Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms."
-          "format": "int64"
+          "description": "Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.",
+          "format": "int64",
           "type": [
-            "integer"
+            "integer",
             "null"
           ]
         }
@@ -14980,6 +15156,13 @@
           "description": "Today's `startTask` / `submitNewTask` / `session.create`.",
           "enum": [
             "task"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in the task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.",
+          "enum": [
+            "control"
           ],
           "type": "string"
         }
@@ -16001,14 +16184,32 @@
     "TransferBeginWriteParams": {
       "description": "Params of `transfer/beginWrite`.",
       "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
         },
         "rel": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "root": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "size": {
           "format": "uint64",
@@ -16018,8 +16219,6 @@
       },
       "required": [
         "opId",
-        "rel",
-        "root",
         "size"
       ],
       "type": "object"
@@ -16068,6 +16267,24 @@
       ],
       "type": "object"
     },
+    "TransferGrantMintParams": {
+      "description": "Params of `transfer/grant/mint`.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
     "TransferReadRangeParams": {
       "description": "Params of `transfer/readRange`.",
       "properties": {
@@ -16081,14 +16298,28 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "rel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "transferId": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "length",
-        "offset",
-        "transferId"
+        "offset"
       ],
       "type": "object"
     },
@@ -16193,6 +16424,33 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "description": "A one-file grant minted for this paired device (`transfer/grant/mint`), redeemed with the path Node's file calls name (`projectPath` + `relPath`).",
+          "properties": {
+            "accessToken": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "granted"
+              ],
+              "type": "string"
+            },
+            "projectPath": {
+              "type": "string"
+            },
+            "relPath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accessToken",
+            "kind",
+            "projectPath",
+            "relPath"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -16204,11 +16462,21 @@
         },
         "path": {
           "type": "string"
+        },
+        "permanent": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rel": {
+          "type": "string"
         }
       },
       "required": [
         "opId",
-        "path"
+        "path",
+        "rel"
       ],
       "type": "object"
     },
@@ -16515,7 +16783,11 @@
     "TurnSteerParams": {
       "properties": {
         "expectedTurnId": {
-          "type": "string"
+          "description": "Absent: the core steers the thread's active turn (today's `prioritizeQueued` names none).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "queuedId": {
           "type": "string"
@@ -16525,7 +16797,6 @@
         }
       },
       "required": [
-        "expectedTurnId",
         "queuedId",
         "threadId"
       ],
@@ -19569,6 +19840,12 @@
       },
       "result": true
     },
+    "remoteAccess/activate": {
+      "params": {
+        "$ref": "#/definitions/RemoteAccessActivateParams"
+      },
+      "result": true
+    },
     "remoteAccess/deliverScreenControllerKey": {
       "params": {
         "$ref": "#/definitions/RemoteAccessDeliverScreenControllerKeyParams"
@@ -19650,6 +19927,12 @@
     "remoteAccess/settleOwedControllerKeys": {
       "params": {
         "$ref": "#/definitions/RemoteAccessSettleOwedControllerKeysParams"
+      },
+      "result": true
+    },
+    "remoteAccess/state": {
+      "params": {
+        "$ref": "#/definitions/RemoteAccessStateParams"
       },
       "result": true
     },
@@ -19787,9 +20070,7 @@
       "params": {
         "$ref": "#/definitions/TerminalAttachParams"
       },
-      "result": {
-        "$ref": "#/definitions/Subscription"
-      }
+      "result": true
     },
     "terminal/dispose": {
       "params": {
@@ -19885,7 +20166,7 @@
     },
     "thread/clear": {
       "params": {
-        "$ref": "#/definitions/ThreadOpParams"
+        "$ref": "#/definitions/ThreadClearParams"
       },
       "result": true
     },
@@ -20233,9 +20514,7 @@
       "params": {
         "$ref": "#/definitions/TransferAbortParams"
       },
-      "result": {
-        "$ref": "#/definitions/EmptyResult"
-      }
+      "result": true
     },
     "transfer/beginRead": {
       "params": {
@@ -20272,6 +20551,12 @@
       "result": {
         "$ref": "#/definitions/EmptyResult"
       }
+    },
+    "transfer/grant/mint": {
+      "params": {
+        "$ref": "#/definitions/TransferGrantMintParams"
+      },
+      "result": true
     },
     "transfer/readRange": {
       "params": {

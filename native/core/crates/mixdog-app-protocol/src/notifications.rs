@@ -266,6 +266,11 @@ pub enum ClientNotification {
     #[serde(rename = "host/update/report")]
     #[ts(rename = "host/update/report")]
     HostUpdateReport(crate::v2::host::HostUpdateReportParams),
+    /// The window process's browser host revealed or hid a session's surface (an agent's explicit
+    /// `open`/`hide`); the core publishes it as `ui/openRequested { kind: "browser" }`.
+    #[serde(rename = "host/browser/surface")]
+    #[ts(rename = "host/browser/surface")]
+    HostBrowserSurface(crate::v2::host::HostBrowserSurfaceParams),
     #[serde(rename = "host/notification/clicked")]
     #[ts(rename = "host/notification/clicked")]
     HostNotificationClicked(crate::v2::host::HostNotificationClickedParams),
@@ -334,6 +339,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "host/update/report",
         params: "HostUpdateReportParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/browser/surface",
+        params: "HostBrowserSurfaceParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

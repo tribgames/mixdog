@@ -7,6 +7,7 @@ use std::sync::Weak;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::feed::ResumeWindow;
+use mixdog_app_protocol::v2::thread::ThreadClearParams;
 use mixdog_app_protocol::v2::thread::ThreadForkParams;
 use mixdog_app_protocol::v2::thread::ThreadResumeParams;
 use mixdog_core_api::CoreError;
@@ -228,6 +229,10 @@ impl SessionHandle {
     /// that is gone (or cannot be claimed in time) is dropped from the message, leaving the
     /// resized copy. The claim and the enqueue are not interleaved with another send's.
     async fn turn_start(&self, mut req: CoreRequest) -> Result<Reply, CoreError> {
+        // An admitted start (`admitted`, turn-gate.mjs): the idle-only delete refuses while one is
+        // in its intake, and the thread refuses starts while that delete runs.
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
         let cancel = req.ctx.cancel.clone();
         let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
         let named = super::staged_originals::named_originals(&req.params);
@@ -462,11 +467,16 @@ impl SessionHandle {
             .await
             .map_err(|_| self.closing())?;
         let (base, mut header) = rx.await.map_err(|_| self.closing())??;
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        // The desktop's `inheritSession` creates the heir where the source's Project is (or in the task workspace) with a
+        // fresh classification, never in the source's worktree; an inherit into an existing thread keeps that thread's place.
+        if params.into_thread_id.is_none() {
+            heir_place(&directory.deps, &mut header).await?;
+        }
         header.insert(
             "inheritedFromSessionId".into(),
             Value::String(self.id.as_str().to_owned()),
         );
-        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
         let created = directory
             .create(CreateSpec {
                 id: params.into_thread_id,
@@ -475,11 +485,90 @@ impl SessionHandle {
                 op: req.op.clone(),
                 method: req.method,
                 params: req.params.clone(),
+                seed: None,
             })
             .await?;
         let summary = created.cell.view.load_full().summary.clone();
-        Ok(Reply::Value(json!({ "thread": summary })))
+        // `inheritFrom`'s answer (`lifecycle/inheritance.mjs`): how many messages the heir carries, and the route it holds.
+        let messages = match created
+            .request(CoreRequest {
+                method: mixdog_core_api::ids::Method("thread/messages/read"),
+                params: json!({ "threadId": created.id }),
+                op: None,
+                ctx: mixdog_core_api::call::CallContext::internal("inheritance"),
+            })
+            .await?
+        {
+            Reply::Value(read) => read.get("messages").and_then(Value::as_array).cloned().unwrap_or_default(),
+            Reply::Subscribe(_) => return Err(CoreError::Internal { incident_id: "inheritance-subscribed".into() }),
+        };
+        let carried = super::inheritance::inheritable(messages).len();
+        let held = created.cell.header.load();
+        Ok(Reply::Value(json!({
+            "thread": summary,
+            "messages": carried,
+            "provider": held.get("provider").cloned().unwrap_or(Value::Null),
+            "model": held.get("model").cloned().unwrap_or(Value::Null),
+        })))
     }
+
+    /// `thread/clear`. With `rebuildPrompt` (an agent chat's reset, `session-ops.mjs clear`) it is refused while a turn runs, and
+    /// the emptied thread's prompt and tool surface are composed again from the current rules as a new thread's are; the answer
+    /// is `{ promptRebuilt }`, whether that was applied.
+    async fn clear(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let params: ThreadClearParams =
+            serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
+                path: "params".into(),
+                expected: "ThreadClearParams".into(),
+            })?;
+        let rebuild = params.rebuild_prompt == Some(true);
+        if rebuild && self.cell.run.load().is_some() {
+            return Err(mixdog_core_base::support::failed("session", "The session is running a turn; wait for it to finish."));
+        }
+        let reply = self.to_actor(req).await?;
+        if !rebuild {
+            return Ok(reply);
+        }
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let rebuilt = directory
+            .deps
+            .empty_surface
+            .refresh_empty(&self.id)
+            .await
+            .map_err(|message| mixdog_core_base::support::failed("session", message))?;
+        Ok(Reply::Value(json!({ "promptRebuilt": rebuilt })))
+    }
+}
+
+/// `inheritSession` (`session-host-lifecycle.ts:968-978`): `resolveSessionWorkspace(sessionProjectPath(source))`. The source's
+/// Project is the deepest registered one holding its stored Project, folder or workspace (`sessionProjectKey`); the heir takes
+/// that Project as `cwd` and `{project, projectPath}`, or the task workspace and `{task, null}`, and no `workspace` record.
+/// Only a source the desktop classified is moved: a thread of another client keeps its header.
+async fn heir_place(deps: &SessionDeps, header: &mut mixdog_store::schema::record::Header) -> Result<(), CoreError> {
+    use super::thread_settings::project_identity;
+    use super::thread_settings::session_project_key;
+    let source = Value::Object(header.clone());
+    if !source.get("desktopSession").is_some_and(Value::is_object) {
+        return Ok(());
+    }
+    let registered = deps.new_place.projects().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+    let keys: Vec<String> = registered.iter().map(|path| project_identity(Some(path))).collect();
+    let stored = (source.pointer("/desktopSession/classification") == Some(&json!("project"))).then(|| source.pointer("/desktopSession/projectPath").cloned()).flatten();
+    let key = session_project_key(&json!({ "projectPath": stored, "cwd": source.get("cwd"), "workspace": source.get("workspace") }), &keys);
+    let project = registered.iter().find(|path| !key.is_empty() && project_identity(Some(path)) == key);
+    match project {
+        Some(path) => {
+            header.insert("cwd".into(), json!(path));
+            header.insert("desktopSession".into(), json!({ "classification": "project", "projectPath": path }));
+        }
+        None => {
+            let folder = deps.task_workspace.path().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+            header.insert("cwd".into(), json!(folder));
+            header.insert("desktopSession".into(), json!({ "classification": "task", "projectPath": null }));
+        }
+    }
+    header.shift_remove("workspace");
+    Ok(())
 }
 
 impl FeedSource for SessionHandle {
@@ -519,7 +608,14 @@ impl RunControl for SessionHandle {
         self.cell.steer(expected_turn, QueuedId::from(queued))
     }
 
+    fn active_turn(&self) -> Option<TurnId> {
+        self.cell.run.load_full().map(|run| run.turn.clone())
+    }
+
     fn decide(&self, decision: Decision) -> Result<(), CoreError> {
+        // An answer resumes the turn: an admitted start (`approveSession`, session-turns.mjs).
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
         self.cell.decide(decision)
     }
 }
@@ -534,6 +630,7 @@ impl ThreadHandle for SessionHandle {
         match req.method.as_str() {
             "thread/resume" => self.resume(&req),
             "thread/read" => self.read(&req).await,
+            "thread/clear" => self.clear(req).await,
             "thread/fork" => self.fork(req).await,
             "turn/start" => self.turn_start(req).await,
             "thread/delete" => self.delete(&req).await,
@@ -555,6 +652,19 @@ impl ThreadHandle for SessionHandle {
                 };
                 let messages: Vec<serde_json::Value> = context.read().await?.into_iter().map(|(_, message)| message).collect();
                 Ok(Reply::Value(json!({ "messages": messages })))
+            }
+            // `restoreQueued` gives the entries' attachments back with their bytes: the actor answers the
+            // references, read here on the interactive lane (the actor never touches the store).
+            "thread/queue/delete" if req.params.get("restore") == Some(&serde_json::Value::Bool(true)) => {
+                let Reply::Value(raw) = self.to_actor(req).await? else {
+                    return Err(CoreError::InvalidParams { path: "reply".into(), expected: "a value".into() });
+                };
+                let store = self.deps.attachments.clone();
+                let hydrated = mixdog_core_base::support::on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
+                    super::restore_hydrate::hydrate(&store, lane, raw)
+                })
+                .await??;
+                Ok(Reply::Value(hydrated))
             }
             _ => self.to_actor(req).await,
         }

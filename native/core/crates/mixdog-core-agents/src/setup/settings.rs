@@ -30,8 +30,8 @@ pub trait UpdateSettings: Send + Sync {
     async fn set_auto_update(&self, enabled: bool) -> Result<Value, PortError>;
 }
 
-/// `setQuotaAutoResumeEnabled(enabled)`: the global switch is the config file's `quotaResume`
-/// section; turning it off drops every pending resume.
+/// `setQuotaAutoResumeEnabled(enabled)`: the global switch is the config key `quotaAutoResume`; turning it off drops
+/// every pending resume.
 pub struct QuotaAutoResume {
     config: Config,
     store: Arc<QuotaResumeStore>,
@@ -42,12 +42,40 @@ impl QuotaAutoResume {
         Self { config, store }
     }
 
+    /// Follows the config for the daemon's life: when `quotaAutoResume` turns `false` (by `config/value/write` or any other
+    /// writer), every pending resume drops, as [`set`](Self::set) does for the setup action (Node's
+    /// `setQuotaAutoResumeEnabled`).
+    pub fn follow(&self, cancel: tokio_util::sync::CancellationToken) -> tokio::task::JoinHandle<()> {
+        let config = self.config.clone();
+        let store = self.store.clone();
+        let mut changes = config.changes();
+        let enabled = |config: &Config| config.get("quotaAutoResume") != Some(Value::Bool(false));
+        let mut on = enabled(&config);
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    changed = changes.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                    }
+                }
+                let now = enabled(&config);
+                if on && !now {
+                    if let Err(error) = store.cancel_all().await {
+                        tracing::warn!(?error, "[quota] the pending resumes were not dropped when the switch went off");
+                    }
+                }
+                on = now;
+            }
+        })
+    }
+
     async fn set(&self, enabled: bool) -> Result<bool, PortError> {
         self.config
             .update(move |doc| {
-                let mut section = doc.get("quotaResume").and_then(Value::as_object).cloned().unwrap_or_default();
-                section.insert("autoResume".into(), Value::Bool(enabled));
-                doc.insert("quotaResume".into(), Value::Object(section));
+                doc.insert("quotaAutoResume".into(), Value::Bool(enabled));
                 Ok(())
             })
             .await

@@ -475,6 +475,48 @@ pub trait ToolSurfaceSource: Send + Sync + 'static {
 #[async_trait::async_trait]
 pub trait NewThreadTools: Send + Sync + 'static {
     async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String>;
+
+    /// [`seed`](Self::seed) for the desktop's control thread (`thread/start{kind:"control"}`), which
+    /// Node runs as the separate `ensureControlSession` runtime: a thread that is seeded like any other
+    /// unless its owner says otherwise.
+    async fn seed_control(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+        self.seed(thread, header).await
+    }
+
+    /// `thread` was seeded and then not created (`thread/start` failed in between): whatever the
+    /// seed opened for it is released. Called once per such thread, never for a created one.
+    fn abandon(&self, _thread: &ThreadId) {}
+}
+
+/// A thread whose tools are being seeded, and whatever the seed opened for it. Dropped before
+/// [`keep`](Self::keep) (the seed failed, the create was refused, the request was cancelled before the
+/// thread existed, or the thread's first record failed), it abandons the thread. The thread's actor
+/// owns it from the moment the thread is published, so a caller that goes away after that cannot
+/// release the scope of a thread that is created; the actor keeps it once the first record is
+/// durable, and from then on the thread's close or delete releases the scope.
+pub(crate) struct SeededThread {
+    tools: std::sync::Arc<dyn NewThreadTools>,
+    id: ThreadId,
+    created: bool,
+}
+
+impl SeededThread {
+    pub(crate) fn new(tools: std::sync::Arc<dyn NewThreadTools>, id: ThreadId) -> Self {
+        Self { tools, id, created: false }
+    }
+
+    /// The thread was created: its close or delete releases what the seed opened.
+    pub(crate) fn keep(mut self) {
+        self.created = true;
+    }
+}
+
+impl Drop for SeededThread {
+    fn drop(&mut self) {
+        if !self.created {
+            self.tools.abandon(&self.id);
+        }
+    }
 }
 
 /// The route a new Lead thread begins on. Node's session takes it from the runtime's route
@@ -494,8 +536,57 @@ pub trait NewThreadRoute: Send + Sync + 'static {
     /// not created.
     async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String>;
 
+    /// [`adopt`](Self::adopt) for the desktop's control session, which is created before any model is chosen
+    /// (`ensureControlSession`; only a turn needs a model, `resolveMissingRouteModelForFirstTurn`): the live route is
+    /// readied when it has a model and answered as it is when it has none.
+    async fn adopt_control(&self, thread: &ThreadId) -> Result<serde_json::Map<String, Value>, String>;
+
     /// The created, still empty `thread` takes its live route onto its header.
     async fn seat(&self, thread: &ThreadId) -> Result<(), String>;
+}
+
+/// The folder task threads run in: Node's `SessionHost.taskWorkspace()` (`session-host.ts`), which creates
+/// `<userData>/workspace/unclassified` when missing and answers it as `realpath` prints it. A `thread/start` of
+/// `kind: task` without a project begins there, as Node's `resolveSessionWorkspace()` and the control session's
+/// `ensureControlSession` (`session-host-transport.ts`) create their sessions with `cwd: await taskWorkspace()`.
+#[async_trait::async_trait]
+pub trait TaskWorkspace: Send + Sync + 'static {
+    async fn path(&self) -> Result<String, String>;
+}
+
+/// The agent definitions already own that folder (`AgentDefinitions::task_workspace`, the port of `taskWorkspace()`).
+#[async_trait::async_trait]
+impl TaskWorkspace for mixdog_core_agents::agents::AgentDefinitions {
+    async fn path(&self) -> Result<String, String> {
+        self.task_workspace().await.map_err(|error| error.to_string())
+    }
+}
+
+/// What a `thread/start` and a `thread/fork` of the desktop need of the project side, which the directory cannot build
+/// itself (the workspace transitions need the directory). Bound late by the composition.
+#[async_trait::async_trait]
+pub trait NewThreadPlace: Send + Sync + 'static {
+    /// Every registered Project's path (`listProjectsStrict`).
+    async fn projects(&self) -> Result<Vec<String>, String>;
+    /// `createNewTask`'s worktree step, before the first prompt (`session-host-lifecycle.ts:847-897`): the created
+    /// `thread` enters the draft's `worktree` (`{branch?, create?, confirmLarge?, fromDefault?}`) through the workspace
+    /// service. `input` is the start's `initialInput` (its prompt titles the worktree, its submission id keys it).
+    async fn enter_worktree(
+        &self,
+        thread: &ThreadId,
+        worktree: &Value,
+        input: Option<&Value>,
+        cancel: &CancellationToken,
+    ) -> Result<(), CoreError>;
+}
+
+/// `refreshEmptySessionToolPolicy()` (`tool-policy-refresh.mjs`): an empty, idle Lead thread's tool surface and prompt are
+/// composed again from the settings as they stand now, after `invalidatePreSessionToolSurface()`. `true` is
+/// `appliedToCurrentSession`; `false` is a thread with a turn in flight or a conversation (`admitsRefresh`), or one whose record
+/// has no prompt identity (an older record: rebuilding would guess away custom instructions).
+#[async_trait::async_trait]
+pub trait EmptyToolSurface: Send + Sync + 'static {
+    async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String>;
 }
 
 /// What a room member's thread tells the room it sits in. Each call carries the room id and comes

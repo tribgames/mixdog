@@ -278,12 +278,12 @@ fn empty_hub() -> Arc<McpHub> {
 async fn the_resolver_finds_pool_tools_by_name_or_alias_and_nothing_else_without_a_server() {
     let resolver = McpAwareResolver::new(vec![named_tool("read", &["Read"]), named_tool("grep", &[])], empty_hub());
     let name = |found: Option<Arc<dyn Tool>>| found.map(|tool| tool.spec().name.clone());
-    assert_eq!(name(resolver.resolve("read")).as_deref(), Some("read"));
-    assert_eq!(name(resolver.resolve("Read")).as_deref(), Some("read"));
-    assert_eq!(name(resolver.resolve("grep")).as_deref(), Some("grep"));
-    assert!(resolver.resolve("edit").is_none());
+    assert_eq!(name(resolver.resolve(None, "read")).as_deref(), Some("read"));
+    assert_eq!(name(resolver.resolve(None, "Read")).as_deref(), Some("read"));
+    assert_eq!(name(resolver.resolve(None, "grep")).as_deref(), Some("grep"));
+    assert!(resolver.resolve(None, "edit").is_none());
     // An MCP tool of a server the hub does not run resolves to nothing (so the call is not outbound).
-    assert!(resolver.resolve("mcp__mail__send").is_none());
+    assert!(resolver.resolve(None, "mcp__mail__send").is_none());
 }
 
 struct Runs(Option<GateRun>);
@@ -352,6 +352,11 @@ async fn the_gate_env_binds_a_connector_call_to_the_hubs_account_choice() {
     // An account that does not exist is the refusal, with the usable ones listed.
     let refusal = bound(json!({"account": "nobody"})).await.unwrap_err();
     assert_eq!(refusal, "No connected Linear account is \"nobody\". Usable Linear accounts: a@example.com, b@example.com. Pass one as `account`.");
+    // A session of another MCP scope has none of this scope's accounts (`resolveMcpToolAccount` reads its `scopeId`).
+    let mut elsewhere = Header::new();
+    elsewhere.insert("mcpScopeId".to_owned(), json!("agent-runtime-7"));
+    let search = GateCall::new("mcp__linear__search", json!({}));
+    assert_eq!(env.connector_account(&ThreadId::from("sess_a"), &elsewhere, &search).await, Ok(None));
     // A tool of a server the hub does not know is bound to nothing.
     let other = GateCall::new("mcp__other__search", json!({}));
     assert_eq!(env.connector_account(&ThreadId::from("sess_a"), &header, &other).await, Ok(None));

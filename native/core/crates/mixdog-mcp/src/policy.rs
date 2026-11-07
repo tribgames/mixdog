@@ -18,6 +18,7 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use crate::hub::McpHub;
+use crate::hub::normalize_scope;
 use crate::permissions::ConnectorPolicy;
 use crate::permissions::Permission;
 
@@ -57,10 +58,11 @@ impl GmailCardEnricher {
         Self { hub }
     }
 
-    async fn describe(&self, tool: &str, args: &Value, trash: bool) -> Option<(String, Vec<String>, usize)> {
+    async fn describe(&self, scope: Option<&str>, tool: &str, args: &Value, trash: bool) -> Option<(String, Vec<String>, usize)> {
         // The server is the second `__` segment of the name, as Node reads it (not the
         // name's catalog entry); only the Gmail connector's server is ever asked.
-        let server = self.hub.server(tool.split("__").nth(1).unwrap_or(""))?;
+        // `executeMcpTool(.., { scopeId: ctx.mcpScopeId })`: the servers of the calling session's scope.
+        let server = self.hub.server_in(&normalize_scope(scope), tool.split("__").nth(1).unwrap_or(""))?;
         if server.config().connector.as_deref() != Some(GMAIL) {
             return None;
         }
@@ -122,11 +124,11 @@ fn truthy_text(value: Option<&Value>) -> Option<String> {
 
 #[async_trait]
 impl CardEnricher for GmailCardEnricher {
-    async fn enrich(&self, tool: &str, args: &Value, card: &mut OutboundCard) {
+    async fn enrich(&self, scope: Option<&str>, tool: &str, args: &Value, card: &mut OutboundCard) {
         if !matches!(card.category, ActionKind::Email | ActionKind::Trash) {
             return;
         }
-        let Some((account, messages, more)) = self.describe(tool, args, card.category == ActionKind::Trash).await else {
+        let Some((account, messages, more)) = self.describe(scope, tool, args, card.category == ActionKind::Trash).await else {
             return;
         };
         if !account.is_empty() {

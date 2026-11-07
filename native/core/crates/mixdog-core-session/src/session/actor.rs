@@ -132,6 +132,7 @@ use super::seams::RunOutcome;
 use super::seams::RunStart;
 use super::state::Change;
 use super::state::Display;
+use super::state::Queued;
 use mixdog_core_ports::ports::threads::Section;
 use super::state::SessionState;
 use super::view::SessionView;
@@ -145,6 +146,13 @@ mod turn_ops;
 
 /// The header key of the session's saved provider state (Node `session.providerState`).
 const PROVIDER_STATE: &str = "providerState";
+/// What the desktop host throws when the runtime refuses a rename (`session-host-lifecycle.ts:228`).
+const SESSION_NOT_AVAILABLE: &str = "Session is not available.";
+/// What the desktop host throws for a title that is empty once normalized (`session-host-lifecycle.ts:226`).
+const SESSION_TITLE_INVALID: &str = "Session title is invalid.";
+/// What Node's IPC and remote methods threw for a title `sessionDisplayName` refuses (`ipc-validation.ts:1043`); with the
+/// Node host gone the core is the first place a phone's rename is checked.
+const TITLE_INVALID: &str = "title is invalid.";
 
 /// How long a thread nobody ever watched may sit quiet before it unloads (`idleEvictMs` of
 /// `session-service.mjs`: `MIXDOG_SESSION_IDLE_EVICT_MS`, default 5 minutes).
@@ -381,6 +389,8 @@ pub(crate) enum Init {
         session: Record,
         tx: Option<Waiter>,
         value: Value,
+        /// What the tool seed opened; kept once the `session` record is durable, abandoned if it fails.
+        seed: Option<super::seams::SeededThread>,
     },
     /// An opened log: interrupted runs and their approvals are recovered (P §5.2, §8.2); the
     /// ops its scope fenced are refused from the start (P §9.4).
@@ -475,6 +485,8 @@ pub(crate) struct ActorChannels {
 
 pub(crate) struct SessionActor {
     id: ThreadId,
+    /// The create's seed until the thread's first record is acknowledged (`Init::Create`).
+    seed: Option<super::seams::SeededThread>,
     deps: Arc<SessionDeps>,
     cell: Arc<ControlCell>,
     feed: Arc<dyn Feed>,
@@ -627,6 +639,151 @@ fn prompt_text(input: &TurnInput) -> String {
     }
 }
 
+/// One queue entry taken back to the composer: what `restoreQueued` reads of it.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Taken {
+    id: String,
+    /// The prompt's text (`entry.text`).
+    text: String,
+    /// `entry.pastedImages` and `entry.pastedTexts` (the options' maps), as queued: references or inline.
+    pasted_images: Option<Value>,
+    pasted_texts: Option<Value>,
+    /// The `file` parts of the prompt (`entry.content`), as queued.
+    files: Vec<Value>,
+}
+
+impl Taken {
+    fn of(queued: &Queued) -> Self {
+        let text = serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
+            .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
+            .unwrap_or_default();
+        let files = queued.entry["message"]
+            .as_array()
+            .map(|parts| parts.iter().filter(|part| part["type"] == "file").cloned().collect())
+            .unwrap_or_default();
+        Self {
+            id: queued.qid.clone(),
+            text,
+            pasted_images: queued.entry.pointer("/options/pastedImages").cloned(),
+            pasted_texts: queued.entry.pointer("/options/pastedTexts").cloned(),
+            files,
+        }
+    }
+}
+
+/// The entries `restoreQueued(_, selectedId)` takes: the one named, or every one without a name.
+fn restore_taken(queue: &[Queued], selected: Option<&str>) -> Vec<Queued> {
+    queue.iter().filter(|queued| selected.is_none_or(|qid| queued.qid == qid)).cloned().collect()
+}
+
+/// JavaScript truthiness of a queued value (`if (buffer)`).
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::String(text) => !text.is_empty(),
+        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0),
+        _ => true,
+    }
+}
+
+/// `mergePastedField`: the entries' maps in one, an entry's falsy value skipped; `null` when empty.
+fn merged_pasted(taken: &[Taken], field: impl Fn(&Taken) -> Option<&Value>) -> Value {
+    let mut out = serde_json::Map::new();
+    for entry in taken {
+        if let Some(Value::Object(map)) = field(entry) {
+            for (key, buffer) in map {
+                if truthy(buffer) {
+                    out.insert(key.clone(), buffer.clone());
+                }
+            }
+        }
+    }
+    if out.is_empty() { Value::Null } else { Value::Object(out) }
+}
+
+/// `restoreQueued`'s reply (`take-entries.mjs`), before the attachments are read: the taken
+/// entries' text joined with the composer's, each part only when it is not blank, the pasted maps
+/// merged as queued, and the `file` parts as `content`. The handle reads the attachment references
+/// into the maps and the parts (`restore_hydrate`), which is where `notice` comes from.
+fn restored_reply(taken: &[Taken], current_text: Option<&str>) -> Value {
+    let present = |text: &&str| !mixdog_js::js_trim(text).is_empty();
+    let queued_text = taken.iter().map(|entry| entry.text.as_str()).filter(present).collect::<Vec<_>>().join("\n");
+    let combined = [queued_text.as_str(), current_text.unwrap_or("")].into_iter().filter(present).collect::<Vec<_>>().join("\n");
+    let mut reply = json!({
+        "count": taken.len(),
+        "ids": taken.iter().map(|entry| entry.id.as_str()).filter(|id| !id.is_empty()).collect::<Vec<_>>(),
+        "text": combined,
+        "pastedImages": merged_pasted(taken, |entry| entry.pasted_images.as_ref()),
+        "pastedTexts": merged_pasted(taken, |entry| entry.pasted_texts.as_ref()),
+    });
+    let files: Vec<Value> = taken.iter().flat_map(|entry| entry.files.iter().cloned()).collect();
+    if !files.is_empty() {
+        reply["content"] = Value::Array(files);
+    }
+    reply
+}
+
+// `fixtures/desktop/queue/restore-queued-twin.json`: Node's `restoreQueued` (`take-entries.mjs`), recorded by
+// `record-restore-queued.mjs` over a queue, the blobs on disk and the composer's text. Each case is the
+// queue as a Node entry; here it is the queue entry the core keeps (`message`, `options.pasted*`).
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
+mod restored_reply_tests {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+
+    use super::super::restore_hydrate::hydrate;
+    use super::super::user_facts::AttachmentStore;
+    use super::*;
+
+    fn queued(entry: &Value) -> Queued {
+        let message = if entry.get("content").is_some() { entry["content"].clone() } else { entry["text"].clone() };
+        let mut body = json!({ "message": message });
+        let mut options = serde_json::Map::new();
+        for key in ["pastedImages", "pastedTexts"] {
+            if let Some(value) = entry.get(key) {
+                options.insert(key.into(), value.clone());
+            }
+        }
+        if !options.is_empty() {
+            body["options"] = Value::Object(options);
+        }
+        Queued { qid: entry["id"].as_str().unwrap().to_owned(), entry: body, display: Value::Null }
+    }
+
+    #[tokio::test]
+    async fn the_recorded_node_restores_are_reproduced() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/queue/restore-queued-twin.json");
+        let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        for (reference, data) in twin["blobs"].as_object().unwrap() {
+            let folder = dir.path().join("prompt-attachments/sha256").join(&reference[..2]);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join(reference), STANDARD.decode(data.as_str().unwrap()).unwrap()).unwrap();
+        }
+        let store = AttachmentStore(dir.path().to_path_buf());
+        let tokens = mixdog_rt::testing::tokens();
+        let cases = twin["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 13);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let queue: Vec<Queued> = case["entries"].as_array().unwrap().iter().map(queued).collect();
+            let selected = case["selectedId"].as_str().filter(|id| !id.is_empty());
+            let current = case["currentText"].as_str().filter(|text| !text.is_empty());
+            let taken: Vec<Taken> = restore_taken(&queue, selected).iter().map(Taken::of).collect();
+            let reply = restored_reply(&taken, current);
+            let store = store.clone();
+            let hydrated = mixdog_core_base::support::on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| hydrate(&store, lane, reply))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(hydrated, case["reply"], "{name}");
+            let left: Vec<&str> = queue.iter().filter(|q| !taken.iter().any(|t| t.id == q.qid)).map(|q| q.qid.as_str()).collect();
+            assert_eq!(json!(left), case["left"], "{name}: what stays queued");
+        }
+    }
+}
+
 impl SessionActor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -649,6 +806,7 @@ impl SessionActor {
             surface,
             feed_id: FeedId::from(id.as_str()),
             outbox: Outbox::new(deps.limits),
+            seed: None,
             id,
             cell,
             feed,
@@ -716,7 +874,8 @@ impl SessionActor {
 
     pub async fn run(mut self, init: Init) {
         match init {
-            Init::Create { session, tx, value } => {
+            Init::Create { session, tx, value, seed } => {
+                self.seed = seed;
                 self.accept_record(
                     session,
                     Class::Normal,
@@ -771,6 +930,10 @@ impl SessionActor {
                 else => break,
             }
             self.pump();
+            self.cell.turn_held.store(self.turn_held(), SeqCst);
+            self.cell.turn_pending.store(self.turn_pending(), SeqCst);
+            self.cell.ui_busy.store(self.ui_busy(), SeqCst);
+            self.cell.compacting.store(self.compactions > 0, SeqCst);
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
@@ -821,7 +984,9 @@ impl SessionActor {
             seen = Some(word);
         }
         if idle {
-            let refusal = if self.turn_busy() {
+            let refusal = if self.turn_pending() {
+                Some("turn-waiting")
+            } else if self.turn_held() {
                 Some("busy")
             } else if !self.projected.queue.is_empty() {
                 Some("queued")
@@ -1779,6 +1944,10 @@ impl SessionActor {
     fn effect_done(&mut self, effect: Effect) {
         match effect {
             Effect::Reply { op, tx, value } => {
+                // The first reply of a created thread is its `session` record's: the thread exists.
+                if let Some(seed) = self.seed.take() {
+                    seed.keep();
+                }
                 if let Some(op) = &op {
                     self.ops.applied(op, &value);
                 }
@@ -1816,6 +1985,8 @@ impl SessionActor {
         for effect in entry.effects {
             match effect {
                 Effect::Reply { op, tx, .. } => {
+                    // A failed `session` record: the thread is not created, the seed is abandoned.
+                    self.seed = None;
                     if let Some(op) = &op {
                         self.ops.failed(op, error);
                     }
@@ -2623,7 +2794,18 @@ impl SessionActor {
     /// A turn runs, is starting (its input row's facts being read), is settling, or a dequeued
     /// Goal entry is being checked.
     fn turn_busy(&self) -> bool {
-        self.run.is_some() || self.starting || self.settling || self.goal_checking || self.quota_pending.is_some()
+        self.turn_held() || self.turn_pending()
+    }
+
+    /// A turn runs, is starting or is settling: what Node's ask lock is held for.
+    fn turn_held(&self) -> bool {
+        self.run.is_some() || self.starting || self.settling
+    }
+
+    /// A turn is about to start (a dequeued Goal entry is checked, a quota resume is pending):
+    /// Node's turn waiting for the ask lock.
+    fn turn_pending(&self) -> bool {
+        self.goal_checking || self.quota_pending.is_some()
     }
 
     /// Node's `state.busy`: set when `runTurn` begins, cleared when the turn closes, before its
@@ -3603,6 +3785,14 @@ impl SessionActor {
                 return Ok(());
             }
         }
+        // `restoreQueued` of an entry that is not queued (it started, or was taken) answers
+        // `count: 0` and the composer's own text, not an error.
+        if req.method.as_str() == "thread/queue/delete" {
+            if let Some(reply) = self.restore_miss(&req) {
+                let _ = tx.send(Ok(Reply::Value(reply)));
+                return Ok(());
+            }
+        }
         let result = match req.method.as_str() {
             "turn/start" => self.turn_start(&req),
             "thread/queue/delete" => self.queue_delete(&req),
@@ -3742,47 +3932,63 @@ impl SessionActor {
         })
     }
 
+    /// The `restoreQueued` reply of a hand-back whose entry is not in the queue; `None` for any
+    /// other request (a malformed one fails in [`Self::queue_delete`]).
+    fn restore_miss(&self, req: &CoreRequest) -> Option<Value> {
+        let params: ThreadQueueDeleteParams = parse(&req.params, "ThreadQueueDeleteParams").ok()?;
+        let taken = restore_taken(&self.projected.queue, params.queued_id.as_ref().map(QueuedId::as_str));
+        (params.restore && taken.is_empty()).then(|| restored_reply(&[], params.current_text.as_deref()))
+    }
+
     fn queue_delete(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
         let params: ThreadQueueDeleteParams = parse(&req.params, "ThreadQueueDeleteParams")?;
-        let qid = params
-            .queued_id
-            .clone()
-            .ok_or_else(|| invalid("queuedId", "a queued entry id"))?;
-        let Some(queued) = self.projected.queue.iter().find(|q| q.qid == qid.as_str()).cloned()
-        else {
-            return Err(CoreError::QueuedEntryNotFound {
-                thread_id: self.id.clone(),
-                queued_id: qid,
-            });
+        // A hand-back without an id takes every queued entry back, as `restoreQueued('', '')` does; a delete
+        // names its entry.
+        let wanted = match (&params.queued_id, params.restore) {
+            (Some(qid), _) => Some(qid.as_str()),
+            (None, true) => None,
+            (None, false) => return Err(invalid("queuedId", "a queued entry id")),
         };
-        let value = json!({});
-        let record = Record::Queue(QueueRecord {
-            qid: id(&queued.qid),
-            action: QueueAction::Dequeue,
-            reason: Some(DequeueReason::Cancelled),
-            op: self.op_ref(req, Some(&value))?,
-            entry: None,
-        });
+        let queued = restore_taken(&self.projected.queue, wanted);
+        if queued.is_empty() {
+            let queued_id = params.queued_id.clone().ok_or_else(|| invalid("queuedId", "a queued entry id"))?;
+            return Err(CoreError::QueuedEntryNotFound { thread_id: self.id.clone(), queued_id });
+        }
+        let taken: Vec<Taken> = queued.iter().map(Taken::of).collect();
+        // A hand-back answers Node's `restoreQueued` reply; a plain delete answers `{}`.
+        let value = if params.restore { restored_reply(&taken, params.current_text.as_deref()) } else { json!({}) };
+        let mut records = Vec::new();
+        for (index, entry) in queued.iter().enumerate() {
+            // The op's result rides the first record only.
+            let op = if index == 0 { self.op_ref(req, Some(&value))? } else { None };
+            let record = Record::Queue(QueueRecord {
+                qid: id(&entry.qid),
+                action: QueueAction::Dequeue,
+                reason: Some(DequeueReason::Cancelled),
+                op,
+                entry: None,
+            });
+            records.push((record, Class::Normal, Display::None, Vec::new()));
+        }
         let mut extra = Vec::new();
         if params.restore {
-            let text: String = serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
-                .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
-                .unwrap_or_default();
             let device = match req.ctx.caller {
                 Caller::Connection(connection) => self.deps.devices.describe(connection).device,
                 Caller::Internal(name) => name.to_owned(),
             };
+            let present = |text: &&String| !mixdog_js::js_trim(text).is_empty();
+            let text = taken.iter().map(|entry| &entry.text).filter(present).cloned().collect::<Vec<_>>().join("\n");
             extra.push(Change::Section(Section::PromptRestore(Some(PromptRestore {
-                id: queued.qid.clone(),
-                ids: vec![queued.qid.clone()],
-                text: text.clone(),
+                id: queued[0].qid.clone(),
+                ids: queued.iter().map(|entry| entry.qid.clone()).collect(),
+                text,
                 device,
                 at: self.deps.clock.now_ms(),
             }))));
-            extra.push(Change::PromptWithout(text));
+            extra.extend(taken.into_iter().map(|entry| Change::PromptWithout(entry.text)));
         }
         Ok(Plan {
-            kind: PlanKind::Records(vec![(record, Class::Normal, Display::None, Vec::new())], extra),
+            kind: PlanKind::Records(records, extra),
             value,
             after: None,
             prompt: None,
@@ -3939,9 +4145,34 @@ impl SessionActor {
 
     fn name_set(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
         let params: ThreadNameSetParams = parse(&req.params, "ThreadNameSetParams")?;
+        // `updateSessionManualTitle` (`session-crud.mjs:103-115`) writes nothing and answers `false` for a closed session, a
+        // title that is empty once normalized, and the title the user already gave; the desktop host turns that `false` into
+        // `Session is not available.` (`session-host-lifecycle.ts:228`), the text the window shows.
+        let refuse = |text: &str| CoreError::DomainError { domain: "thread".into(), code: None, message: Some(text.into()), detail: None };
+        // The checks in the order Node ran them: `sessionDisplayName` (IPC / remote method), then the host's, then the runtime's.
+        let shown = mixdog_js::js_trim(&params.title);
+        if shown.is_empty() || shown.encode_utf16().count() > 1_024 || shown.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}') {
+            return Err(refuse(TITLE_INVALID));
+        }
+        let title = super::session_title::normalize_title(&params.title);
+        if title.is_empty() {
+            return Err(refuse(SESSION_TITLE_INVALID));
+        }
+        let header = &self.projected.header;
+        let user_titled = header.get("title").and_then(Value::as_str) == Some(title.as_str())
+            && header.get("titleLocked") == Some(&Value::Bool(true))
+            && header.get("titleSource").and_then(Value::as_str) == Some("user");
+        if header.get("closed") == Some(&Value::Bool(true)) || user_titled {
+            return Err(refuse(SESSION_NOT_AVAILABLE));
+        }
         let value = json!({});
         let mut set = serde_json::Map::new();
-        set.insert("title".into(), Value::String(params.title));
+        set.insert("title".into(), Value::String(title));
+        // A name the user gave, with the keys Node's `updateSessionManualTitle` writes (`session-crud.mjs`):
+        // no generated, model or retired-home title replaces it.
+        set.insert("titleLocked".into(), Value::Bool(true));
+        set.insert("titleSource".into(), Value::String("user".to_owned()));
+        set.insert("titleUpdatedAt".into(), json!(self.deps.clock.now_ms()));
         let record = Record::Meta(MetaRecord {
             op: self.op_ref(req, Some(&value))?,
             change: Slot::Inline(HeaderChange {

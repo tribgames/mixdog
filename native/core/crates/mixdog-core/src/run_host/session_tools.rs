@@ -16,6 +16,7 @@ use mixdog_core_api::domain::tool::{Freeform, Tool, ToolContext, ToolOutcome, To
 use mixdog_js::{js_trim, JsRegex};
 use mixdog_mcp::scopes::{ExtensionScopes, ScopeKind};
 use mixdog_mcp::McpHub;
+use mixdog_mcp::hub::normalize_scope;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::policy::surface::{AGENT_DENIED_TOOLS, READONLY_FS_TOOL_NAMES};
 use mixdog_tools::policy::SessionSurface;
@@ -266,10 +267,17 @@ fn bound_to_model(tool: Arc<dyn Tool>, model: &str) -> Arc<dyn Tool> {
     Arc::new(EditDialect { spec: spec.unwrap_or_else(|| tool.spec().clone()), agent: agent.or_else(|| tool.agent_spec().cloned()), inner: tool })
 }
 
-/// The connected MCP servers' tools a session at `cwd` may see (`getMcpTools` and
-/// `filterMcpToolsForSession`).
+/// The connected MCP servers' tools a session of MCP scope `scope` at `cwd` may see
+/// (`getMcpTools(scopeId)` and `filterMcpToolsForSession`). `scope` is the header's `mcpScopeId`;
+/// none is the default scope.
 pub trait SessionMcp: Send + Sync + 'static {
-    fn tools(&self, cwd: &Path) -> Tools;
+    fn tools(&self, scope: Option<&str>, cwd: &Path) -> Tools;
+}
+
+/// The `mcpScopeId` a header names, trimmed; none when it is absent, null or empty
+/// (`normalizeMcpScopeId` reads those as the default scope).
+pub(super) fn header_scope(header: &Header) -> Option<&str> {
+    header.get("mcpScopeId").and_then(Value::as_str).map(js_trim).filter(|scope| !scope.is_empty())
 }
 
 /// Whether skills are listed for a folder (`skills.length` of `resolveSessionTools`).
@@ -280,8 +288,9 @@ pub trait SkillsListed: Send + Sync + 'static {
     async fn any_for(&self, cwd: &Path) -> Result<bool, String>;
 }
 
-/// [`SessionMcp`] over the hub: the tools of every ready server whose own extension scope admits
-/// the folder (`filterMcpToolsForCwd`). An agent's connectors never narrow the list.
+/// [`SessionMcp`] over the hub: the tools of every ready server of the session's scope whose own
+/// extension scope admits the folder (`filterMcpToolsForCwd`). An agent's connectors never narrow
+/// the list.
 pub struct HubMcp {
     pub hub: Arc<McpHub>,
     /// The live `extensionScopes` setting.
@@ -289,13 +298,14 @@ pub struct HubMcp {
 }
 
 impl SessionMcp for HubMcp {
-    fn tools(&self, cwd: &Path) -> Tools {
+    fn tools(&self, scope: Option<&str>, cwd: &Path) -> Tools {
         let scopes = (self.scopes)();
+        let hub_scope = normalize_scope(scope);
         self.hub
-            .tools()
+            .tools_in(&hub_scope)
             .into_iter()
             .filter(|tool| {
-                let server = self.hub.tool_target(name(tool)).map(|target| target.server.name().to_owned());
+                let server = self.hub.tool_target_in(&hub_scope, name(tool)).map(|target| target.server.name().to_owned());
                 server.is_none_or(|server| scopes.allowed_for_cwd(ScopeKind::Mcp, &server, cwd))
             })
             .collect()
@@ -327,7 +337,7 @@ impl SessionToolBuilder {
         let skills_listed = self.skills.any_for(&cwd).await?;
         let resolved = resolve(
             &self.pool,
-            self.mcp.tools(&cwd),
+            self.mcp.tools(header_scope(header), &cwd),
             &Resolve {
                 tool_spec: header.get("toolSpec"),
                 model,
@@ -489,7 +499,7 @@ mod tests {
 
     struct Fixed(Tools);
     impl SessionMcp for Fixed {
-        fn tools(&self, cwd: &Path) -> Tools {
+        fn tools(&self, _: Option<&str>, cwd: &Path) -> Tools {
             assert_eq!(cwd, Path::new("/work"));
             self.0.clone()
         }

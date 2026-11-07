@@ -307,7 +307,7 @@ async fn the_scalar_actions_answer_what_the_recorded_node_executor_answered() {
 }
 
 #[tokio::test]
-async fn the_quota_switch_lives_in_the_quota_resume_section_and_off_drops_pending_resumes() {
+async fn the_quota_switch_is_the_quota_auto_resume_key_and_off_drops_pending_resumes() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-settings-twin.json");
     let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let world = Arc::new(World::default());
@@ -317,13 +317,67 @@ async fn the_quota_switch_lives_in_the_quota_resume_section_and_off_drops_pendin
     for entry in quota {
         let dir = tempfile::tempdir().unwrap();
         let stored = if entry["stored"].is_null() { json!({}) } else { entry["stored"].clone() };
-        let document = json!({ "agent": {}, "desktop": { "zoom": 1 }, "quotaResume": stored });
+        // Node's recorded section held the switch at `quotaResume.autoResume` beside its other keys. The core keeps the switch at
+        // `quotaAutoResume` and leaves the rest of the section where it is (the migration moves only the switch), so the
+        // stored section is seeded split the way the migration leaves it.
+        let mut rest = stored.as_object().cloned().unwrap_or_default();
+        let switch = rest.shift_remove("autoResume");
+        let mut document = json!({ "agent": {}, "desktop": { "zoom": 1 } });
+        if !rest.is_empty() {
+            document["quotaResume"] = Value::Object(rest);
+        }
+        if let Some(switch) = switch {
+            document["quotaAutoResume"] = switch;
+        }
         let (service, config, store) = settings_service(dir.path(), document, &world, entry["pending"].as_bool().unwrap()).await;
         let got = settings_call(&service, &entry["args"]).await.unwrap();
         assert_eq!(got, entry["result"]["answer"], "{entry}");
-        assert_eq!(config.get("quotaResume").unwrap(), entry["section"], "{entry}");
+        // Node's whole section, every extra key included, is what the two places hold together.
+        let mut section = config.get("quotaResume").and_then(|rest| rest.as_object().cloned()).unwrap_or_default();
+        if let Some(switch) = config.get("quotaAutoResume") {
+            section.insert("autoResume".into(), switch);
+        }
+        assert_eq!(Value::Object(section), entry["section"], "{entry}");
         assert_eq!(store.list().len() as u64, entry["entries"].as_u64().unwrap(), "{entry}");
     }
+}
+
+/// `config/value/write` of `quotaAutoResume: false` (or any writer) drops the pending resumes through the config follow, as
+/// Node's setter does; turning it on again drops nothing.
+#[tokio::test]
+async fn the_quota_switch_going_off_through_the_config_drops_pending_resumes() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = Arc::new(World::default());
+    let (_service, config, store) = settings_service(dir.path(), json!({ "agent": {}, "desktop": { "zoom": 1 } }), &world, true).await;
+    assert_eq!(store.list().len(), 1);
+    let cancel = CancellationToken::new();
+    let follow = QuotaAutoResume::new(config.clone(), store.clone()).follow(cancel.clone());
+    config
+        .update(move |doc| {
+            doc.insert("quotaAutoResume".into(), Value::Bool(false));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !store.list().is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "the pending resume was not dropped");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    // On again: a resume scheduled now stays.
+    config
+        .update(move |doc| {
+            doc.insert("quotaAutoResume".into(), Value::Bool(true));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let request = json!({ "sessionId": "sess_b", "turnKey": "t2", "provider": "openai", "resetAt": 4_102_444_800_000u64 });
+    store.schedule(&request).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(store.list().len(), 1);
+    cancel.cancel();
+    follow.await.unwrap();
 }
 
 /// A stand-in for the local-model owner: the services crate's handlers are replayed against Node

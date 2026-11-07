@@ -47,6 +47,8 @@ export type DesktopSectionsPush =
 /** The only core methods a renderer may call. Each is a detail read the pushed state does not carry (stubs, history). */
 export const RENDERER_PROTOCOL_METHODS = [
   'review/diff/get',
+  // Recomputes the `providerSetup` section (the `force`/`refresh`/keychain options of `getProviderSetup`).
+  'account/refreshProviderSetup',
   'usage/getUsageDashboard',
   'usage/getUsageStats',
   'usage/getUsageRequests',
@@ -61,6 +63,8 @@ export const RENDERER_PROTOCOL_METHODS = [
 export type RendererProtocolMethod = (typeof RENDERER_PROTOCOL_METHODS)[number];
 
 export const SECTIONS_IPC = {
+  /** Whether this window's connection has a core endpoint (the per-connection source of the replaced session capabilities). */
+  core: 'mixdog:sections:core',
   snapshot: 'mixdog:sections:snapshot',
   push: 'mixdog:sections:push',
   call: 'mixdog:protocol:call',
@@ -71,6 +75,8 @@ export const SECTIONS_IPC = {
 } as const;
 
 export interface DesktopSectionsApi {
+  /** True when this window's connection has a core endpoint; false on a Node-hosted connection. */
+  core(): Promise<boolean>;
   snapshot(): Promise<DesktopSectionsSnapshot>;
   subscribe(listener: (push: DesktopSectionsPush) => void): () => void;
   call(method: RendererProtocolMethod, params: unknown): Promise<unknown>;

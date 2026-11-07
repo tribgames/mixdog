@@ -137,19 +137,84 @@ fn split_patches(diff: &str, paths: &[&str]) -> HashMap<String, String> {
     out
 }
 
+/// One entry of a `gitReviewDiffs` request.
+pub struct BatchFile {
+    pub path: String,
+    pub untracked: bool,
+}
+
+/// Command-line text one batch passes to git (Windows caps it near 32k), in UTF-16 units.
+const BATCH_ARGS_CHARS: usize = 20_000;
+/// Total patch text one batch returns before the remaining files are omitted, in UTF-16 units.
+const BATCH_PATCH_CHARS: usize = 8_000_000;
+
+/// Paths git would quote in a diff header, so the header cannot be matched back
+/// (`UNMATCHABLE_HEADER_PATH`: `"`, `\` and control characters).
+pub fn batch_unmatchable(path: &str) -> bool {
+    path.chars().any(|c| c == '"' || c == '\\' || c < '\u{20}')
+}
+
+fn utf16_len(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
+/// `gitReviewDiffs`: `{patches, omitted}`, both always arrays. A repeated path counts once, at its
+/// first position, with its last entry. Tracked paths come first in request order, then the
+/// untracked ones. A tracked path git would quote in a header, or one past the command-line
+/// budget (`len + 3` units each), is `omitted`; so is any file whose patch no longer fits the
+/// patch budget (a patch is taken whole or not at all). `patch_of` answers a path's patch ("" for
+/// an unchanged file).
+pub fn review_batch(files: &[BatchFile], mut patch_of: impl FnMut(&str) -> String) -> serde_json::Value {
+    let mut order: Vec<&str> = Vec::new();
+    let mut untracked_of: HashMap<&str, bool> = HashMap::new();
+    for file in files {
+        if untracked_of.insert(file.path.as_str(), file.untracked).is_none() {
+            order.push(file.path.as_str());
+        }
+    }
+    let (mut tracked, mut untracked, mut omitted): (Vec<&str>, Vec<&str>, Vec<String>) = (Vec::new(), Vec::new(), Vec::new());
+    let mut arg_chars = 0usize;
+    for path in order {
+        if untracked_of[path] {
+            untracked.push(path);
+            continue;
+        }
+        arg_chars += utf16_len(path) + 3;
+        if batch_unmatchable(path) || arg_chars > BATCH_ARGS_CHARS {
+            omitted.push(path.to_owned());
+        } else {
+            tracked.push(path);
+        }
+    }
+    let mut budget = BATCH_PATCH_CHARS;
+    let mut patches: Vec<serde_json::Value> = Vec::new();
+    for path in tracked.into_iter().chain(untracked) {
+        let patch = patch_of(path);
+        let length = utf16_len(&patch);
+        if length > budget {
+            omitted.push(path.to_owned());
+        } else {
+            budget -= length;
+            patches.push(serde_json::json!({ "path": path, "patch": patch }));
+        }
+    }
+    serde_json::json!({ "patches": patches, "omitted": omitted })
+}
+
 /// The commit a repository review diffs against: HEAD for uncommitted work, the merge-base with
 /// the default branch for the branch view (origin's HEAD, else `origin/main`, `origin/master`,
 /// `main`, `master`; HEAD when none exists). An unborn HEAD is diffed against the empty tree.
+/// The name is the review's `base` as the pane shows it: the default branch, else `HEAD`.
 pub async fn repo_base(
     git: &Git,
     cancel: &CancellationToken,
     root: &std::path::Path,
     source: &str,
-) -> Result<ObjectId, ScmFailure> {
+) -> Result<(String, ObjectId), ScmFailure> {
     use crate::inspect::history::empty_tree;
     use crate::inspect::history::has_head;
     if !has_head(git, cancel, root).await? {
-        return Ok(ObjectId(empty_tree(git, cancel, root).await?));
+        return Ok(("HEAD".to_owned(), ObjectId(empty_tree(git, cancel, root).await?)));
     }
     let resolve = |rev: String| async move {
         let output = git
@@ -158,7 +223,7 @@ pub async fn repo_base(
         Ok::<_, ScmFailure>(output.success().then(|| output.stdout_text().trim().to_owned()))
     };
     if source == "uncommitted" {
-        return Ok(ObjectId(resolve("HEAD^{commit}".into()).await?.unwrap_or_default()));
+        return Ok(("HEAD".to_owned(), ObjectId(resolve("HEAD^{commit}".into()).await?.unwrap_or_default())));
     }
     let origin_head = git
         .outcome(
@@ -187,13 +252,14 @@ pub async fn repo_base(
     }
     let head = resolve("HEAD^{commit}".into()).await?.unwrap_or_default();
     let Some(base) = base else {
-        return Ok(ObjectId(head));
+        return Ok(("HEAD".to_owned(), ObjectId(head)));
     };
     let merged = git
         .outcome(cancel, root, &["--no-optional-locks", "merge-base", &base, "HEAD"], &RunOptions::read())
         .await?;
     let found = merged.stdout_text().trim().to_owned();
-    Ok(ObjectId(if merged.success() && !found.is_empty() { found } else { head }))
+    let point = if merged.success() && !found.is_empty() { found } else { head };
+    Ok((base, ObjectId(point)))
 }
 
 /// The tree of the work tree as it is now, untracked files included and ignored ones left out,
@@ -230,7 +296,23 @@ pub async fn work_tree_tree(
         } else {
             git.text(cancel, root, &["read-tree", "--empty"], &options).await?;
         }
-        git.text(cancel, root, &["add", "-A"], &options).await?;
+        // `git add -A` refuses the whole add over a nested repository with no commit ("does not have a commit checked out"), while Node's
+        // review (a status scan) lists it as an untracked folder; such a folder is left out of the tree, and the caller adds its row.
+        let others = git
+            .text(cancel, root, &["--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z"], &RunOptions::read())
+            .await?;
+        let mut pathspec: Vec<String> = Vec::new();
+        for folder in others.split('\0').filter_map(|record| record.strip_suffix('/')) {
+            let head = git
+                .outcome(cancel, &root.join(folder), &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default())
+                .await?;
+            if !head.success() {
+                pathspec.push(format!(":(exclude,literal){folder}"));
+            }
+        }
+        let mut add = vec!["add", "-A", "--", "."];
+        add.extend(pathspec.iter().map(String::as_str));
+        git.text(cancel, root, &add, &options).await?;
         Ok::<_, ScmFailure>(git.text(cancel, root, &["write-tree"], &options).await?.trim().to_owned())
     }
     .await;

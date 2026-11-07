@@ -277,8 +277,8 @@ impl DoctorSources for ServiceDoctor {
         self.host.active_provider()
     }
 
-    async fn mcp_status(&self) -> Probe {
-        self.status("mcp/mcpStatus", json!({})).await
+    async fn mcp_status(&self, thread: Option<&ThreadId>) -> Probe {
+        self.status("mcp/mcpStatus", thread.map_or_else(|| json!({}), |thread| json!({"threadId": thread.as_str()}))).await
     }
 
     async fn tool_module_settings(&self) -> Probe {

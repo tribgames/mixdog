@@ -32,6 +32,7 @@ use mixdog_core_ports::ports::route::LiveRoute;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::tools_status::SurfaceHost;
 use mixdog_core_ports::ports::tools_status::surface_of_header;
+use mixdog_core_session::session::EmptyToolSurface;
 use mixdog_core_session::session::NewThreadTools;
 use mixdog_core_session::session::agent_registry::LiveSessions;
 use mixdog_core_session::session::session_options::LEAD_DISALLOWED_TOOLS;
@@ -51,6 +52,8 @@ use mixdog_js::js_trim;
 use mixdog_store::agent_mode::session_mode_of;
 use mixdog_tools::policy::surface::AGENT_DENIED_TOOLS;
 use mixdog_mcp::McpHub;
+use mixdog_mcp::hub::normalize_scope;
+use mixdog_mcp::mcp_glue::McpScopes;
 use mixdog_mcp::server::ServerState;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
@@ -91,6 +94,7 @@ use super::session_tools::BRIDGE;
 use super::session_tools::Resolve;
 use super::session_tools::SessionMcp;
 use super::session_tools::SkillsListed;
+use super::session_tools::header_scope;
 use super::session_tools::internal_tools;
 use super::session_tools::resolve;
 use super::session_tools::route_rank;
@@ -122,7 +126,7 @@ pub fn bridge_docs(pool: &[Arc<dyn Tool>]) -> Vec<Value> {
 }
 
 /// [`ToolSurfaceHost`] over the tool pool and the MCP hub: the bridge definitions and the ready
-/// servers' initialize instructions (`getMcpServerInstructionsMap`; the hub is one scope).
+/// servers' initialize instructions (`getMcpServerInstructionsMap(scopeId)`).
 pub struct HubSurfaceHost {
     bridge: Vec<Value>,
     hub: Arc<McpHub>,
@@ -139,9 +143,9 @@ impl ToolSurfaceHost for HubSurfaceHost {
         self.bridge.clone()
     }
 
-    fn mcp_server_instructions(&self, _scope: Option<&str>) -> Value {
+    fn mcp_server_instructions(&self, scope: Option<&str>) -> Value {
         let mut out = Map::new();
-        for server in self.hub.servers() {
+        for server in self.hub.servers_in(&normalize_scope(scope)) {
             let state = server.state();
             let ServerState::Ready(ready) = &*state else { continue };
             let text = ready.instructions.as_deref().map_or("", js_trim);
@@ -176,8 +180,10 @@ pub struct SurfaceSources {
     pub pool: Vec<Arc<dyn Tool>>,
     /// `agentToolNames`: the delegation tools a workflow that delegates to no one hides.
     pub agent_tools: HashSet<&'static str>,
-    /// The connected servers' tools for a folder.
+    /// The connected servers' tools for a scope and a folder.
     pub mcp: Arc<dyn SessionMcp>,
+    /// Opens and releases a thread's MCP scope.
+    pub scopes: Arc<dyn McpScopes>,
     /// `rt.currentCwd` before any session exists: the daemon's startup folder.
     pub cwd: PathBuf,
     /// The runtime's live route; the pre-session route is its [`PRE_SESSION`] cell.
@@ -316,10 +322,13 @@ impl LeadSurfaceHost {
         let route = s.routes.route(&ThreadId::from(PRE_SESSION));
         let (provider, model) = (clean(route.get("provider")), clean(route.get("model")));
         let spec = tool_spec_for_mode(self.mode);
+        // The serving runtime's own scope (`getMcpScopeId()`, `tool-surface.mjs:100,109,142`): the runtime
+        // scope the daemon connected at boot. No session takes it; each is created with a scope of its own.
+        let runtime_scope = s.scopes.open_runtime(&s.cwd).await.map_err(|error| format!("mcp scope of the runtime: {error}"))?;
         // `previewSessionTools(toolSpecForMode(mode), [], ..)`: no skills, not an agent's session.
         let resolved = resolve(
             &s.pool,
-            s.mcp.tools(&s.cwd),
+            s.mcp.tools(Some(&runtime_scope), &s.cwd),
             &Resolve { tool_spec: Some(&spec), model: &model, skills_listed: false, agent_owned: false, schema_allowed: None, disallowed: &[] },
         );
         let feature_denied = s.feature_denied.denied().await?;
@@ -338,7 +347,7 @@ impl LeadSurfaceHost {
         let extra: Vec<Value> = model_internal_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect();
         let mut surface = json!({
             "tools": filter_disallowed_tools(&docs, &denied),
-            "mcpScopeId": Value::Null,
+            "mcpScopeId": runtime_scope,
             "cwd": s.cwd.to_string_lossy(),
             "orchestrationMode": (s.orchestration_mode)(),
         });
@@ -445,7 +454,7 @@ impl LeadSurfaceHost {
         let spec = tool_spec_for_mode(thread_mode(header));
         let previewed = resolve(
             &s.pool,
-            s.mcp.tools(&cwd),
+            s.mcp.tools(header_scope(header), &cwd),
             &Resolve { tool_spec: Some(&spec), model: &model, skills_listed: false, agent_owned: false, schema_allowed: None, disallowed: &[] },
         );
         let mut seen = HashSet::new();
@@ -682,7 +691,7 @@ impl LeadSurfaceHost {
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
             let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
-            let live: Vec<Value> = s.mcp.tools(&cwd).iter().map(tool_doc).collect();
+            let live: Vec<Value> = s.mcp.tools(header_scope(&header), &cwd).iter().map(tool_doc).collect();
             let (next, state) = self.folded_surface(thread, &header, &live, first_turn).map_err(|message| failed("tools", message))?;
             let change = header_diff(&header, &next);
             if change.set.is_empty() && change.unset.is_empty() {
@@ -813,10 +822,72 @@ impl LeadSurfaceHost {
 /// A new Lead thread starts as Node's `createSession` + `seedToolSurface` make it: the workflow
 /// the config gives, the tools its spec resolves to (`resolveSessionToolSurface`), the deferred
 /// surface over them, and the session system composed (`composeSessionSystem`) by the same
+/// `refreshEmptySessionToolPolicy`: the same rebuild a turn start gives an empty thread, asked for by `thread/clear`.
+#[async_trait]
+impl EmptyToolSurface for LeadSurfaceHost {
+    async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
+        let s = &self.sources;
+        let described = |error: CoreError| format!("{error:?}");
+        // `invalidatePreSessionToolSurface()` comes first, whether or not the thread admits the refresh.
+        s.surface_generation.bump();
+        // `admitsRefresh`: a running turn, or a conversation, keeps its surface.
+        if s.live.running(thread.as_str()) {
+            return Ok(false);
+        }
+        let messages = s.messages.messages(thread).await.map_err(|error| described(port(thread, error)))?;
+        if has_conversation_messages(&messages) {
+            return Ok(false);
+        }
+        let header = s.threads.header(thread).await.map_err(|error| described(port(thread, error)))?;
+        // `missing-prompt-identity`: an older record is never rebuilt.
+        if !header.get("promptIdentity").is_some_and(Value::is_object) {
+            return Ok(false);
+        }
+        self.settle_empty(thread).await.map_err(described)?;
+        Ok(true)
+    }
+}
+
 /// [`PromptRebuild`] a reconcile uses, so the prompt has one composition path.
 #[async_trait]
 impl NewThreadTools for LeadSurfaceHost {
+    /// The thread's own MCP scope comes first (`rt.mcpScopeId = randomUUID()`, `boot/begin.mjs:24`): the
+    /// configured servers connect under it (`mcp-glue/connect.mjs`) before the tools are read, and it
+    /// is written into the header as `createSession` records it. A seed that does not end in a
+    /// created thread is abandoned by `thread/start`, which releases the scope.
     async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+        let s = &self.sources;
+        let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
+        // Each session is created with a scope of its own, as each `createSession` boots a runtime of its
+        // own (`session-service/entries/lifecycle.mjs:47`, `begin.mjs:24`); the runtime scope is never handed on.
+        let scope = uuid::Uuid::new_v4().to_string();
+        s.scopes.open(&scope, thread.as_str(), &cwd).await.map_err(|error| format!("mcp scope {scope}: {error}"))?;
+        let mut scoped = header.clone();
+        scoped.insert("mcpScopeId".to_owned(), json!(scope));
+        self.seed_scoped(thread, &scoped, &scope).await
+    }
+
+    /// The desktop's control thread is the runtime that Node boots separately (`ensureControlSession`): it
+    /// opens no scope of its own and runs in the daemon's runtime scope, the one connected at boot, so
+    /// there is one connection set for it and for every read with no session. The scope is the daemon's,
+    /// not the thread's: closing the thread releases nothing.
+    async fn seed_control(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+        let s = &self.sources;
+        let scope = s.scopes.open_runtime(&s.cwd).await.map_err(|error| format!("mcp scope of the runtime: {error}"))?;
+        let mut scoped = header.clone();
+        scoped.insert("mcpScopeId".to_owned(), json!(scope));
+        self.seed_scoped(thread, &scoped, &scope).await
+    }
+
+    /// The thread was seeded and not created: the scope the seed opened for it is released.
+    fn abandon(&self, thread: &ThreadId) {
+        self.sources.scopes.release(thread.as_str());
+    }
+}
+
+impl LeadSurfaceHost {
+    /// `seed` over a header that already names the thread's MCP scope, `scope`, which is open.
+    async fn seed_scoped(&self, thread: &ThreadId, header: &Header, scope: &str) -> Result<Header, String> {
         let s = &self.sources;
         // `new-session-config.mjs:39`: a new session reloads the config and ends with `invalidatePreSessionToolSurface()`;
         // moved before the thread's key is taken, so the new thread is brought to the key it starts on.
@@ -849,12 +920,12 @@ impl NewThreadTools for LeadSurfaceHost {
         }
         let routing = resolve(
             &s.pool,
-            s.mcp.tools(&cwd),
+            s.mcp.tools(Some(scope), &cwd),
             &Resolve { tool_spec: header.get("toolSpec"), model: &model, skills_listed, agent_owned: false, schema_allowed: None, disallowed: &[] },
         );
         let resolved = resolve(
             &s.pool,
-            s.mcp.tools(&cwd),
+            s.mcp.tools(Some(scope), &cwd),
             &Resolve { tool_spec: header.get("toolSpec"), model: &model, skills_listed, agent_owned: false, schema_allowed: allowed.as_deref(), disallowed: &denied },
         );
         // `schemaOmittedToolNames`: with a caller allowlist, every routed tool it hides is omitted from BP1 too.
@@ -881,7 +952,7 @@ impl NewThreadTools for LeadSurfaceHost {
             };
             model_internal_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect()
         };
-        extra.extend(s.mcp.tools(&cwd).iter().map(tool_doc));
+        extra.extend(s.mcp.tools(Some(scope), &cwd).iter().map(tool_doc));
         // `composeSessionSystem`: a Lead's identity is the default one (no caller prompt, no skips), of the `lead` agent
         // (`sessionOptions`: `agent: homeAgent || 'lead'`).
         let mut identified = header.clone();

@@ -150,3 +150,41 @@ async fn every_setup_action_calls_and_answers_what_node_does() {
     }
     assert!(failures.is_empty(), "{} cases differ:\n{}", failures.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
 }
+
+/// A setup action's `mcp/*` calls address the session that runs it (`threadId`): the setup tool's
+/// `rt.*` calls act on the calling session's runtime in Node. Outside an action nothing is added.
+#[tokio::test]
+async fn a_setup_action_addresses_the_session_that_runs_it() {
+    use std::sync::Arc;
+
+    use mixdog_core_api::CoreError;
+    use mixdog_core_api::CoreRequest;
+    use mixdog_core_api::DomainService;
+    use mixdog_core_api::Reply;
+    use mixdog_core_api::ids::ConnectionId;
+    use mixdog_core_api::ids::Method;
+    use mixdog_core_api::service::Admit;
+    use mixdog_mcp::setup_runtime::ServiceSetupRuntime;
+    use mixdog_mcp::setup_runtime::as_caller;
+
+    struct Seen(Mutex<Vec<Value>>);
+    #[async_trait]
+    impl DomainService for Seen {
+        fn methods(&self) -> &'static [&'static str] {
+            &["mcp/mcpStatus"]
+        }
+        async fn call(&self, request: CoreRequest) -> Result<Reply, CoreError> {
+            self.0.lock().unwrap().push(request.params);
+            Ok(Reply::Value(json!({"servers": []})))
+        }
+        fn notify(&self, _: Method, _: Value, _: ConnectionId) -> Admit {
+            Admit::Accepted
+        }
+    }
+
+    let seen = Arc::new(Seen(Mutex::default()));
+    let runtime = ServiceSetupRuntime::new(seen.clone(), seen.clone(), seen.clone());
+    as_caller("sess_a", runtime.mcp_status()).await.unwrap();
+    runtime.mcp_status().await.unwrap();
+    assert_eq!(*seen.0.lock().unwrap(), [json!({"threadId": "sess_a"}), json!({})]);
+}

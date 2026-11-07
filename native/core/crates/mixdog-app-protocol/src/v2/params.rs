@@ -4037,9 +4037,13 @@ pub struct ProjectFsListDirParams {
 /// Params of `projectFs/readText`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ProjectFsReadTextParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 /// Params of `projectFs/writeText`.
@@ -4080,9 +4084,13 @@ impl crate::common::HasOpId for ProjectFsWriteTextBatchParams {
 /// Params of `projectFs/stat`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ProjectFsStatParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 /// Params of `projectFs/create`.
@@ -4208,10 +4216,14 @@ pub struct ProjectFsSearchTextParams {
 /// Params of `projectFs/replaceText`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ProjectFsReplaceTextParams {
     pub op_id: OpId,
     pub root: String,
     pub options: JsonValue,
+    pub replacement: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel_paths: Option<Vec<String>>,
 }
 
 impl crate::common::HasOpId for ProjectFsReplaceTextParams {
@@ -4223,10 +4235,15 @@ impl crate::common::HasOpId for ProjectFsReplaceTextParams {
 /// Params of `projectFs/recovery`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ProjectFsRecoveryParams {
     pub op_id: OpId,
     pub root: String,
     pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
 }
 
 impl crate::common::HasOpId for ProjectFsRecoveryParams {
@@ -4380,8 +4397,14 @@ pub struct TransferBeginZipParams {
 /// Params of `transfer/readRange`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TransferReadRangeParams {
-    pub transfer_id: TransferId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transfer_id: Option<TransferId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel: Option<String>,
     #[ts(type = "number")]
     pub offset: u64,
     #[ts(type = "number")]
@@ -4398,12 +4421,19 @@ pub struct TransferEndReadParams {
 /// Params of `transfer/beginWrite`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TransferBeginWriteParams {
     pub op_id: OpId,
-    pub root: String,
-    pub rel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel: Option<String>,
     #[ts(type = "number")]
     pub size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 impl crate::common::HasOpId for TransferBeginWriteParams {
@@ -4453,9 +4483,13 @@ pub struct TransferTrashInfoParams {
 /// Params of `transfer/trash/entry`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TransferTrashEntryParams {
     pub op_id: OpId,
     pub path: String,
+    pub rel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permanent: Option<bool>,
 }
 
 impl crate::common::HasOpId for TransferTrashEntryParams {
@@ -4464,10 +4498,21 @@ impl crate::common::HasOpId for TransferTrashEntryParams {
     }
 }
 
+/// Params of `transfer/grant/mint`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct TransferGrantMintParams {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
 /// Params of `lsp/document`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LspDocumentParams {
+    pub project_path: String,
     pub root: String,
     pub document: JsonValue,
 }
@@ -4485,6 +4530,7 @@ pub struct LspSubscribeParams {
 #[serde(rename_all = "camelCase")]
 pub struct LspRequestParams {
     pub op_id: OpId,
+    pub project_path: String,
     pub root: String,
     pub request: JsonValue,
 }
@@ -4542,8 +4588,13 @@ impl crate::common::HasOpId for DocumentInstallLibreOfficeParams {
 /// Params of `git/status`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct GitStatusParams {
     pub cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reuse_line_stats: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_line_stats: Option<bool>,
 }
 
 /// Params of `git/branches`.
@@ -5213,6 +5264,7 @@ impl crate::common::HasOpId for GithubInstallParams {
 #[serde(rename_all = "camelCase")]
 pub struct GithubRequestParams {
     pub op_id: OpId,
+    pub cwd: String,
     pub input: JsonValue,
 }
 
@@ -5346,9 +5398,11 @@ pub struct ProcessWriteStdinParams {
 /// Params of `terminal/ensure`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TerminalEnsureParams {
     pub op_id: OpId,
-    pub tab_id: TerminalTabId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<TerminalTabId>,
     pub options: JsonValue,
 }
 
@@ -5378,6 +5432,7 @@ pub struct TerminalProfilesParams {}
 #[serde(rename_all = "camelCase")]
 pub struct TerminalFocusParams {
     pub tab_id: TerminalTabId,
+    pub focused: bool,
 }
 
 /// Params of `terminal/pause`.
@@ -5479,7 +5534,8 @@ impl crate::common::HasOpId for RemoteAccessRotateParams {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessResolveClaimParams {
     pub op_id: OpId,
-    pub input: JsonValue,
+    pub claim_id: String,
+    pub approve: bool,
 }
 
 impl crate::common::HasOpId for RemoteAccessResolveClaimParams {
@@ -5493,6 +5549,7 @@ impl crate::common::HasOpId for RemoteAccessResolveClaimParams {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessPairCodeParams {
     pub op_id: OpId,
+    pub action: String,
 }
 
 impl crate::common::HasOpId for RemoteAccessPairCodeParams {
@@ -5548,6 +5605,23 @@ impl crate::common::HasOpId for RemoteAccessDeliverScreenControllerKeyParams {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessPushPublicKeyParams {}
 
+/// Params of `remoteAccess/activate`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAccessActivateParams {
+    pub op_id: OpId,
+}
+
+impl crate::common::HasOpId for RemoteAccessActivateParams {
+    fn op_id(&self) -> &OpId {
+        &self.op_id
+    }
+}
+
+/// Params of `remoteAccess/state`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAccessStateParams {}
 /// Params of `remoteAccess/registerPushSubscription`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]

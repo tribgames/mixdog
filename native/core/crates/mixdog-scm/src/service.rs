@@ -39,6 +39,10 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::state::SectionChange;
+use mixdog_core_api::turn_review::ChangesRead;
+use mixdog_core_api::turn_review::ReviewError;
+use mixdog_core_api::turn_review::ReviewRead;
+use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_api::DomainService;
 use mixdog_protocol::FeedId;
 use mixdog_protocol::LoginFlowId;
@@ -50,7 +54,6 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use crate::desktop::home_dir;
 use crate::engine::Scm;
 use crate::error::GITHUB_DOMAIN;
 use crate::error::ScmFailure;
@@ -75,6 +78,16 @@ pub trait ReviewBases: Send + Sync {
     ) -> Option<(PathBuf, ObjectId)>;
 }
 
+/// The working directory of a thread (the `cwd` of its header): what Node's session review reads
+/// resolve against (`getCwd()`).
+#[async_trait]
+pub trait ThreadWorktrees: Send + Sync {
+    /// `Ok(None)`: no such thread. `Err`: the record read never ran.
+    async fn cwd(&self, thread: &ThreadId) -> Result<Option<String>, CoreError>;
+}
+
+/** Untracked rows a review lists (`git-history.ts` `REVIEW_UNTRACKED_LIMIT`); the rest are only counted. */
+const REVIEW_UNTRACKED_LIMIT: usize = 256;
 const GATE_OFF: &str = "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.";
 
 struct GitWatch {
@@ -95,7 +108,8 @@ pub struct ScmService {
     feeds: Arc<dyn ScopedFeeds>,
     publisher: Arc<dyn StatePublisher>,
     gate: Arc<dyn FeatureGate>,
-    bases: Arc<dyn ReviewBases>,
+    reviews: Arc<dyn TurnReviewApi>,
+    worktrees: Arc<dyn ThreadWorktrees>,
     login: crate::gh::login::GithubLogin,
     flows: Mutex<HashMap<LoginFlowId, Arc<Flow>>>,
     flow_seq: AtomicU64,
@@ -107,6 +121,11 @@ fn invalid(error: serde_json::Error) -> CoreError {
         path: "params".into(),
         expected: error.to_string().into(),
     }
+}
+
+/// A turn-review failure, with the message Node's error carried.
+fn review_error(error: ReviewError) -> CoreError {
+    CoreError::DomainError { domain: "turnReview".into(), code: None, message: Some(error.message.into()), detail: None }
 }
 
 fn decode<T: DeserializeOwned>(req: &CoreRequest) -> Result<T, CoreError> {
@@ -188,7 +207,8 @@ impl ScmService {
         feeds: Arc<dyn ScopedFeeds>,
         publisher: Arc<dyn StatePublisher>,
         gate: Arc<dyn FeatureGate>,
-        bases: Arc<dyn ReviewBases>,
+        reviews: Arc<dyn TurnReviewApi>,
+        worktrees: Arc<dyn ThreadWorktrees>,
     ) -> Arc<Self> {
         Arc::new(Self {
             login: scm.github_login(),
@@ -196,7 +216,8 @@ impl ScmService {
             feeds,
             publisher,
             gate,
-            bases,
+            reviews,
+            worktrees,
             flows: Mutex::new(HashMap::new()),
             flow_seq: AtomicU64::new(0),
             watches: Mutex::new(HashMap::new()),
@@ -338,26 +359,49 @@ impl ScmService {
         Ok(initial)
     }
 
-    async fn review_get(self: &Arc<Self>, params: ReviewDiffGetParams, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        let (root, base) = match params.scope {
-            WireReviewScope::Repo => {
-                let dir = cwd(params.cwd.as_deref().unwrap_or(""))?;
-                let repo = self.scm.open(&dir, cancel).await?;
-                let root = repo.root()?.to_path_buf();
-                let base = review::repo_base(&self.scm.git, cancel, &root, params.source.as_deref().unwrap_or("branch")).await?;
-                (root, base)
+    /// The turn and session reviews of a thread, answered by the turn review exactly as Node's
+    /// `getTurnReviewDiff`, `getTurnReviewFilePatch`, `getTurnChanges`, `getSessionReviewDiff`
+    /// and `getSessionReviewFilePatch` do. What picks the read: the scope, a `checkpointId`
+    /// (`getTurnChanges`, which also takes `patch` and the file as `path`), a `path` (one file's
+    /// patch, a rename's source as `oldPath`), else the review itself (`summary`, `known`).
+    async fn thread_review(&self, params: ReviewDiffGetParams) -> Result<Value, CoreError> {
+        let thread = params.thread_id.clone().ok_or_else(|| CoreError::InvalidParams { path: "threadId".into(), expected: "a thread id".into() })?;
+        let session = thread.as_str();
+        let reply = match (params.scope, params.checkpoint_id.as_deref(), params.path.as_deref()) {
+            (WireReviewScope::Turn, Some(checkpoint), file) => {
+                let read = ChangesRead { checkpoint_id: checkpoint.to_owned(), patch: params.patch == Some(true), file: file.map(str::to_owned) };
+                self.reviews.turn_changes(session, read).await.map_err(review_error)?
             }
-            scope => {
-                let thread = params
-                    .thread_id
-                    .clone()
-                    .ok_or_else(|| ScmFailure::invalid("threadId", "a thread id"))?;
-                self.bases
-                    .base(&thread, scope, params.checkpoint_id.as_deref())
-                    .await
-                    .ok_or_else(|| ScmFailure::refused("REVIEW_UNAVAILABLE", "This review has no recorded starting point."))?
+            (WireReviewScope::Turn, None, Some(file)) => self.reviews.turn_review_file_patch("", session, file).await,
+            (WireReviewScope::Turn, None, None) => {
+                let read = ReviewRead { known: params.known.clone(), summary: params.summary == Some(true) };
+                self.reviews.turn_review_diff("", session, read).await
+            }
+            (WireReviewScope::Repo, ..) => {
+                return Err(CoreError::InvalidParams { path: "scope".into(), expected: "turn or session".into() });
+            }
+            (WireReviewScope::Session, _, file) => {
+                let worktree = self.worktrees.cwd(&thread).await?.ok_or_else(|| CoreError::InvalidParams {
+                    path: "threadId".into(),
+                    expected: "a thread with a working directory".into(),
+                })?;
+                match file {
+                    Some(file) => self.reviews.session_review_file_patch(&worktree, session, file, params.old_path.as_deref().unwrap_or("")).await,
+                    None => self.reviews.session_review_diff(&worktree, session).await,
+                }
             }
         };
+        Ok(Value::Object(reply))
+    }
+
+    async fn review_get(self: &Arc<Self>, params: ReviewDiffGetParams, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        // A repository review (`scope: repo`) answers in the pane's own shapes, by request form;
+        // `base_name` is set for it alone.
+        let dir = cwd(params.cwd.as_deref().unwrap_or(""))?;
+        let repo = self.scm.open(&dir, cancel).await?;
+        let root = repo.root()?.to_path_buf();
+        let (name, base) = review::repo_base(&self.scm.git, cancel, &root, params.source.as_deref().unwrap_or("branch")).await?;
+        let base_name = Some(name);
         let repo = self.scm.open(&root, cancel).await?;
         let request = ReviewRequest {
             repo: repo.repo_ref()?,
@@ -411,6 +455,82 @@ impl ScmService {
                 }
             }
         }
+        if let Some(name) = base_name {
+            // `gitReviewDiffs`: `{patches, omitted}`.
+            if params.files.is_some() {
+                let mut shaped = json!({ "patches": out["patches"], "omitted": [] });
+                if let Some(pending) = out.get("pending") {
+                    shaped["pending"] = pending.clone();
+                }
+                return Ok(shaped);
+            }
+            // `gitReviewDiff`: the patch text itself.
+            if params.path.is_some() {
+                return Ok(match out.get("patch") {
+                    Some(patch) => patch.clone(),
+                    None => json!({ "pending": out["pending"] }),
+                });
+            }
+            // `gitReview`: the rows with the repository, its base branch, each row's work-tree
+            // identity and the untracked files past the cap that are not listed.
+            // In Node's order: `files.sort((a, b) => a.path.localeCompare(b.path))` (`git-history.ts`), a stable sort by the process
+            // locale's collation; the summary's own order is by bytes.
+            let mut rows: Vec<Value> = out["files"].as_array().cloned().unwrap_or_default();
+            // The review diffs trees, so an untracked file is an added one there. Node reads the untracked files from its status scan
+            // (`reviewStatus`: the same command, the `?` records in git's order, bytes of the path): it lists the first
+            // `REVIEW_UNTRACKED_LIMIT` of them as rows (`untracked: true`) and only counts the rest in `untrackedOmitted`. Tracked rows
+            // are never capped.
+            let options = crate::git::RunOptions { max_output: Some(crate::git::STATUS_MAX_BYTES), ..crate::git::RunOptions::read() };
+            let scan = self
+                .scm
+                .git
+                .text(
+                    cancel,
+                    &root,
+                    &["--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--no-ahead-behind", "--untracked-files=all", "--no-renames"],
+                    &options,
+                )
+                .await?;
+            let listed: Vec<&str> = scan.split('\0').filter_map(|record| record.strip_prefix("? ")).collect();
+            let all: std::collections::HashSet<&str> = listed.iter().copied().collect();
+            let kept: std::collections::HashSet<&str> = listed.iter().take(REVIEW_UNTRACKED_LIMIT).copied().collect();
+            rows.retain(|row| row["path"].as_str().is_none_or(|path| !all.contains(path) || kept.contains(path)));
+            // A nested repository is one `name/` record. The tree build sees it as a gitlink `name` (or nothing, with no commit), so its
+            // row is Node's own: `reviewStatus` lists the record and `untrackedStat` of a folder counts no lines (`A`, 0, 0, untracked).
+            for folder in all.iter().filter(|path| path.ends_with('/')) {
+                let bare = &folder[..folder.len() - 1];
+                rows.retain(|row| row["path"].as_str() != Some(bare));
+                if kept.contains(folder) {
+                    rows.push(json!({ "path": folder, "status": "A", "additions": 0, "deletions": 0, "untracked": true }));
+                }
+            }
+            rows.sort_by(|a, b| mixdog_js::locale_compare(a["path"].as_str().unwrap_or_default(), b["path"].as_str().unwrap_or_default()));
+            for row in &mut rows {
+                let untracked = row["path"].as_str().is_some_and(|path| kept.contains(path));
+                row["untracked"] = json!(untracked);
+            }
+            let omitted = listed.len().saturating_sub(REVIEW_UNTRACKED_LIMIT);
+            let paths: Vec<String> = rows.iter().filter_map(|row| row["path"].as_str().map(str::to_owned)).collect();
+            let stat_root = root.clone();
+            let revisions = crate::repo::on_lane(self.scm.lane, cancel, move || {
+                paths.iter().map(|path| crate::inspect::status::worktree_revision(&stat_root, path)).collect::<Vec<_>>()
+            })
+            .await?;
+            for (row, revision) in rows.iter_mut().zip(revisions) {
+                row["revision"] = json!(revision);
+            }
+            out["files"] = Value::Array(rows);
+            out["untrackedOmitted"] = json!(omitted);
+            // Node's `gitReview` answers `{repository, root, base, files, untrackedOmitted}` (`git-history.ts` `GitReviewResult`): no `key`
+            // (the cache key `known` is asked against) and no `totals`, which are the thread review's.
+            if let Some(fields) = out.as_object_mut() {
+                fields.remove("key");
+                fields.remove("totals");
+            }
+            out["repository"] = json!(true);
+            out["root"] = json!(root.to_string_lossy());
+            out["base"] = json!(name);
+        }
         Ok(out)
     }
 
@@ -451,17 +571,12 @@ impl ScmService {
         Ok(())
     }
 
-    async fn github_request(self: &Arc<Self>, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+    async fn github_request(self: &Arc<Self>, project: &str, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         if !self.gate.github_enabled().await {
             return Err(ScmFailure::Refused { domain: GITHUB_DOMAIN, code: "FEATURE_DISABLED", message: GATE_OFF.into() });
         }
-        let mut input = input.clone();
-        // The project directory travels beside the request; the allowlist never sees it.
-        let dir = match input.as_object_mut().and_then(|map| map.shift_remove("cwd")) {
-            Some(Value::String(dir)) => cwd(&dir)?,
-            _ => home_dir(),
-        };
-        self.scm.github.execute(&input, &dir, cancel).await
+        // The repository the request runs in; the allowlist never sees it.
+        self.scm.github.execute(input, &cwd(project)?, cancel).await
     }
 
     async fn handle(self: &Arc<Self>, req: &CoreRequest) -> Result<Reply, CoreError> {
@@ -474,7 +589,7 @@ impl ScmService {
             };
         }
         let value: Value = match method {
-            "git/status" => { let p: p::GitStatusParams = decode(req)?; scm.git_status(&cwd(&p.cwd)?, cancel).await? }
+            "git/status" => { let p: p::GitStatusParams = decode(req)?; scm.git_status_counting(&cwd(&p.cwd)?, cancel, p.skip_line_stats != Some(true)).await? }
             "git/branches" => { let p: p::GitBranchesParams = decode(req)?; scm.git_branches(&cwd(&p.cwd)?, cancel).await? }
             "git/log" => { let p: p::GitLogParams = decode(req)?; scm.git_log(&cwd(&p.cwd)?, cancel, p.query.as_deref().unwrap_or(""), p.skip.unwrap_or(0), p.limit.unwrap_or(40)).await? }
             "git/show" => { let p: p::GitShowParams = decode(req)?; scm.git_show(&cwd(&p.cwd)?, cancel, &p.hash).await? }
@@ -543,7 +658,7 @@ impl ScmService {
             }
             "github/logout" => scm.gh_logout(cancel).await?,
             "github/install" => scm.gh_install(cancel).await?,
-            "github/request" => { let p: p::GithubRequestParams = decode(req)?; self.github_request(&p.input, cancel).await? }
+            "github/request" => { let p: p::GithubRequestParams = decode(req)?; self.github_request(&p.cwd, &p.input, cancel).await? }
             "github/starStatus" => scm.gh_star_status(cancel).await?,
             "github/star" => scm.gh_star(cancel).await?,
             "github/pr/list" => { let p: p::GithubPrListParams = decode(req)?; scm.gh_pr_list(&cwd(&p.cwd)?, cancel).await? }
@@ -553,7 +668,13 @@ impl ScmService {
             "github/pr/create" => { let p: p::GithubPrCreateParams = decode(req)?; scm.gh_pr_create(&cwd(&p.cwd)?, cancel, &p.value).await? }
             "github/pr/checkout" => { let p: p::GithubPrCheckoutParams = decode(req)?; scm.gh_pr_checkout(&cwd(&p.cwd)?, cancel, &p.value).await? }
             "github/pr/merge" => { let p: p::GithubPrMergeParams = decode(req)?; scm.gh_pr_merge(&cwd(&p.cwd)?, cancel, &p.value, &p.method).await? }
-            "review/diff/get" => self.review_get(decode(req)?, cancel).await?,
+            "review/diff/get" => {
+                let p: ReviewDiffGetParams = decode(req)?;
+                match p.scope {
+                    WireReviewScope::Repo => self.review_get(p, cancel).await?,
+                    WireReviewScope::Turn | WireReviewScope::Session => self.thread_review(p).await?,
+                }
+            }
             other => return Err(CoreError::InvalidParams { path: "method".into(), expected: format!("a method of git, github or review, not {other}").into() }),
         };
         Ok(Reply::Value(value))

@@ -619,7 +619,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         approval_presence: outgoing.clone(),
         client_epoch: outgoing.clone(),
         notifier: outgoing.clone(),
-        server_requests: outgoing,
+        server_requests: outgoing.clone(),
         ext_host: ext_host.clone(),
         process_manager,
         local_processes: local_processes.clone(),
@@ -650,6 +650,15 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     };
     // The stop procedure's first steps, in this order: the quota resume timer ends before the directory it resumes sessions on shuts down, then the directory.
     let resume_timer = real.resume_timer.clone();
+    // Node's boot coordinator (`daemon.mjs:1129`): Goal recovery, then `startQuotaResume`, once a client is ready.
+    let coordinator = crate::boot_coordinator::BootCoordinator::new(
+        Arc::new(crate::boot_coordinator::SessionBootSteps { recovery: real.goal_recovery.clone(), timer: resume_timer.clone() }),
+        log.line_log(),
+    );
+    if outgoing.set_client_hook(Arc::new(crate::boot_coordinator::BootHook(coordinator))).is_err() {
+        acquired.release().await;
+        return Err(ComposeError::AlreadyBound("client hook"));
+    }
     let shutdown = real.session_shutdown_step(stop_reason.clone());
     let later = real.runtime_stop_steps(stop_reason.clone());
     // The shell runtime's completions and strip changes (Node's `shellJobsPoller` and `notifySessionCompletion`) reach the directory and the sections.
@@ -696,8 +705,6 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     for (name, step) in later {
         core.on_stop(name, step);
     }
-    // `startQuotaResume`, the boot step (daemon.mjs:1132).
-    resume_timer.start();
     Ok(core)
 }
 

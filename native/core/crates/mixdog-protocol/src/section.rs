@@ -95,14 +95,15 @@ sections! {
     TerminalActivity => "terminalActivity", "terminal/activity/updated", App, keyed: false;
     /// Terminal tab list.
     TerminalTabs => "terminalTabs", "terminal/tabs/updated", App, keyed: false;
-    /// Remote access: `{info, settings, claims, clients, controllerKeys, owedKeys, pairCode}`;
-    /// `pairCode` is a `RemotePairCode`, or `null` while no live code is held.
+    /// Remote access: `{info, settings, claims, clients, controllerKeys, owedKeys, pairCode, pushRegistered}`;
+    /// `pairCode` is a `RemotePairCode`, or `null` while no live code is held; `pushRegistered` lists
+    /// the ids of the paired clients holding a native push registration.
     Remote => "remote", "remote/state/updated", App, keyed: false;
     /// In-app notices; key = notice id.
     Notice => "notice", "notice/updated", App, keyed: true;
     /// Update status (core updater and the desktop's `host/update/report`).
     Update => "update", "update/status/updated", App, keyed: false;
-    /// Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences`.
+    /// Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences` (desktop-published), or `remoteViewing` (core-published: the session ids paired devices show).
     HostState => "hostState", "host/state/updated", App, keyed: true;
     /// Computer use: `{active, observeOnly, controller, sessionThreadId}` (R40).
     Computer => "computer", "computer/updated", App, keyed: false;

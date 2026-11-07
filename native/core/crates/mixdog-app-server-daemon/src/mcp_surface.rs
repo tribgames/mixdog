@@ -474,6 +474,15 @@ impl McpSurface for DaemonMcpSurface {
         }
     }
 
+    /// `session.mcpScopeId`: what the thread's stored header names, which a spawned child takes from
+    /// the session that spawned it (`spawn-plan.mjs:108`) and a session from its own seed.
+    async fn thread_scope(&self, thread: &str) -> Result<Option<String>, String> {
+        let header = self.headers.header(&thread.into()).await.map_err(|error| error.to_string())?;
+        Ok(header
+            .and_then(|header| header.get("mcpScopeId").and_then(Value::as_str).map(|scope| mixdog_js::js_trim(scope).to_owned()))
+            .filter(|scope| !scope.is_empty()))
+    }
+
     /// `invalidatePreSessionToolSurface()`: the core builds a session's tool surface from its
     /// sources on every call and keeps no copy before the session exists, so there is nothing to
     /// drop (the same ruling as `DaemonFeatureEffects::invalidate_pre_session_tool_surface`); the

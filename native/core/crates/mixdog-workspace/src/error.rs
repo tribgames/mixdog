@@ -20,6 +20,12 @@ pub enum Reason {
     Changed,
     Expired,
     Busy,
+    /// An upload chunk that does not start where the received bytes end.
+    OutOfOrder,
+    /// A one-file grant that is not held, has expired or lost its conversation (Node's `SELECTED_FILE_GRANT_UNAVAILABLE`).
+    GrantUnavailable,
+    /// A one-file grant presented for a path other than the file it names.
+    GrantMismatch,
     FolderTooLarge,
     /// A `RECOVERY_*` code of the recovery journal.
     Recovery(&'static str),
@@ -44,6 +50,9 @@ impl Reason {
             Self::Changed => "changed",
             Self::Expired => "expired",
             Self::Busy => "busy",
+            Self::OutOfOrder => "outOfOrder",
+            Self::GrantUnavailable => "SELECTED_FILE_GRANT_UNAVAILABLE",
+            Self::GrantMismatch => "grantMismatch",
             Self::FolderTooLarge => "folderTooLarge",
             Self::Recovery(code) => code,
             Self::InvalidEncoding => "invalidEncoding",

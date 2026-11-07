@@ -21,6 +21,7 @@ use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_ai::service::admin_models::developer_option_enabled;
 use mixdog_mcp::McpHub;
+use mixdog_mcp::hub::normalize_scope;
 use mixdog_mcp::skill_catalog::SkillCatalog;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::policy::ToolResolver;
@@ -214,8 +215,9 @@ impl SkillsListed for CatalogSkillsListed {
 }
 
 /// `ToolResolver` for the policy: a tool of the pool by name or alias, or an MCP tool by its
-/// qualified name (`mcp__<server>__<tool>`) on a ready server of the hub, which a pool alone
-/// cannot resolve. A name neither knows resolves to nothing.
+/// qualified name (`mcp__<server>__<tool>`) on a ready server of the calling session's scope, which a
+/// pool alone cannot resolve (`isRegisteredMcpTool(name, sessionRef.mcpScopeId)`, `tool-exec/dispatch.mjs:57-59`).
+/// A name neither knows resolves to nothing, and no other session's server is consulted.
 pub struct McpAwareResolver {
     pool: Vec<Arc<dyn Tool>>,
     hub: Arc<McpHub>,
@@ -229,9 +231,9 @@ impl McpAwareResolver {
 }
 
 impl ToolResolver for McpAwareResolver {
-    fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>> {
+    fn resolve(&self, scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
         let pooled = self.pool.iter().find(|tool| tool.spec().name == name || tool.spec().aliases.iter().any(|alias| alias == name));
-        pooled.cloned().or_else(|| self.hub.tool(name))
+        pooled.cloned().or_else(|| self.hub.tool_in(&normalize_scope(scope), name))
     }
 }
 
@@ -296,8 +298,10 @@ impl GateEnv for HostGateEnv {
 
     /// The account `args.account` names, else the one the conversation (the thread) used last;
     /// the refusal when it cannot be used.
-    async fn connector_account(&self, thread: &ThreadId, _header: &Header, call: &GateCall) -> Result<Option<BoundAccount>, String> {
-        match self.hub.resolve_tool_account(&call.name, &call.args, thread.as_str()).await {
+    async fn connector_account(&self, thread: &ThreadId, header: &Header, call: &GateCall) -> Result<Option<BoundAccount>, String> {
+        // `resolveMcpToolAccount(name, args, { scopeId: ctx.mcpScopeId })`: the servers of the session's scope.
+        let scope = normalize_scope(super::session_tools::header_scope(header));
+        match self.hub.resolve_tool_account_in(&scope, &call.name, &call.args, thread.as_str()).await {
             Ok(chosen) => Ok(chosen.map(|account| BoundAccount { name: account.name, label: account.label })),
             Err(refusal) => Err(refusal.to_string()),
         }

@@ -51,6 +51,9 @@ pub enum ThreadStartKind {
     ProjectTask,
     /// Today's `startTask` / `submitNewTask` / `session.create`.
     Task,
+    /// The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in
+    /// the task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.
+    Control,
 }
 
 /// Today's `DesktopNewTaskDraft`.
@@ -540,7 +543,7 @@ pub struct ThreadMetadataUpdateParams {
 pub struct ThreadDeleteParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
-    /// Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → `preconditionFailed`.
+    /// Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → the reply `{deleted: false, reason}`, never an error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub if_idle: Option<JsonValue>,
 }
@@ -559,6 +562,16 @@ pub struct ThreadForkParams {
     pub route: Option<ModelSelection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ThreadClearParams {
+    pub thread_id: ThreadId,
+    pub op_id: OpId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rebuild_prompt: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -596,6 +609,7 @@ pub struct ThreadCompactStartParams {
 pub struct ThreadQueueDeleteParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
+    /// Absent with `restore`: every queued entry is handed back (today's `restoreQueued` with no id).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_id: Option<QueuedId>,
     /// Today's `restoreQueued` submission identity.
@@ -603,6 +617,10 @@ pub struct ThreadQueueDeleteParams {
     pub submission_id: Option<String>,
     /// Hand the entry back to the composer.
     pub restore: bool,
+    /// The composer's text when the entry is handed back (today's `restoreQueued` first
+    /// argument): the reply's `text` ends with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -678,9 +696,12 @@ pub struct TurnInterruptResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TurnSteerParams {
     pub thread_id: ThreadId,
-    pub expected_turn_id: TurnId,
+    /// Absent: the core steers the thread's active turn (today's `prioritizeQueued` names none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_turn_id: Option<TurnId>,
     pub queued_id: QueuedId,
 }
 
@@ -704,6 +725,7 @@ pub struct TurnRetryFailedParams {
 has_op_id!(
     ThreadStartParams,
     ThreadOpParams,
+    ThreadClearParams,
     ThreadReadStateUpdateParams,
     ThreadNameSetParams,
     ThreadMetadataUpdateParams,
@@ -945,15 +967,15 @@ pub struct ThreadContext {
     pub stats: Option<JsonValue>,
     // Node's runtime.rawContextWindow: the model's window before the effective-percent cut, null while unknown.
     #[serde(default)]
-    #[ts(type = "number")]
+    #[ts(type = "number", optional)]
     pub raw_context_window: Option<i64>,
     // Node's runtime.effectiveContextWindowPercent: the share of the raw window the session may use, null while unknown.
     #[serde(default)]
-    #[ts(type = "number")]
+    #[ts(type = "number", optional)]
     pub effective_context_window_percent: Option<i64>,
     // Node's compactBoundaryTokens (syncContextDisplayFields): the compaction boundary, 0 until known.
     #[serde(default)]
-    #[ts(type = "number")]
+    #[ts(type = "number", optional)]
     pub compact_boundary_tokens: Option<i64>,
 }
 

@@ -170,7 +170,7 @@ pub fn normalize_source(_lane: &InLane<MaintenanceIo>, input: &Value) -> Result<
 }
 
 /// `pluginMetadata(manifest)`: display-only fields; malformed values stay empty.
-fn plugin_metadata(manifest: &Value) -> Vec<(&'static str, Value)> {
+pub(crate) fn plugin_metadata(manifest: &Value) -> Vec<(&'static str, Value)> {
     let object = |v: Option<&Value>| v.filter(|v| v.is_object()).cloned().unwrap_or(Value::Null);
     let author = match manifest.get("author") {
         Some(Value::String(s)) => js_trim(s).to_owned(),

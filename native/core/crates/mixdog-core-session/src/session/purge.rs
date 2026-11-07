@@ -16,6 +16,7 @@ use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::flow::worker_turns::WorkerTurns;
 use mixdog_ai::warmer::chain::Warmer;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_mcp::mcp_glue::McpScopes;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
 use mixdog_rt::LaneToken;
@@ -292,12 +293,18 @@ pub struct SessionDeletion {
     pub shells: Arc<dyn OwnedShells>,
     /// `<data>/tool-events.log`, the close metric.
     pub tool_events: Arc<ToolEventsLog>,
+    /// The sessions' MCP scopes (`disconnectAll({ scopeId })` of the runtime's close).
+    pub mcp_scopes: Arc<dyn McpScopes>,
 }
 
 #[async_trait]
 impl DeleteSeams for SessionDeletion {
     fn session_closed(&self, session_id: &str, reason: &str, header: &Header, closed_at_ms: i64) {
         self.tool_events.session_closed(session_id, header, reason, closed_at_ms);
+    }
+
+    fn release_mcp_scope(&self, session_id: &str) {
+        self.mcp_scopes.release(session_id);
     }
 
     async fn release_session_work(&self, session_id: &str, reason: &str) {

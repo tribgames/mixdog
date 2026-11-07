@@ -30,6 +30,8 @@ import type {
 } from './desktop-service-contract';
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import type { CapabilityLane } from './protocol/capability-route';
+import type { OperationLane } from './protocol/desktop-operation-route';
+import type { ServiceLane } from './protocol/service-route';
 import { filterSessionIds } from './desktop-state';
 import { longRunningRequestTimeout } from './local-provider-install-timeout';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
@@ -52,6 +54,11 @@ interface DesktopServiceClientOptions {
   /** The connection's core, when it has one: session capabilities are requests of that core, not calls of the Node
    *  service. Removed with the Node lane at K1. */
   capabilityLane?: CapabilityLane;
+  /** The connection's core, for desktop operations: `invokeDesktopOperation` is the core request of the operation
+   *  (desktop-operation-route.ts), not a call of the Node service. Removed with the Node lane at K1. */
+  operationLane?: OperationLane;
+  /** The connection's core, for the DesktopService methods (service-route.ts). Removed with the Node lane at K1. */
+  serviceLane?: ServiceLane;
   requestTimeoutMs?: number;
   startupTimeoutMs?: number;
   restartBaseDelayMs?: number;
@@ -718,11 +725,15 @@ export class DesktopServiceClient implements DesktopService {
     timeoutMs?: number,
     signal?: AbortSignal
   ): Promise<T> {
+    // A connection with a core sends the method there (service-route.ts); the Node service is not started for it.
+    const lane = this.options.serviceLane;
+    if (lane) return lane.call<T>(method, args, signal);
     await this.start();
     return await this.sendRequest<T>(method, args, timeoutMs, signal);
   }
 
   private async invokeRead<T>(method: DesktopServiceMethod, args: unknown[] = [], signal?: AbortSignal): Promise<T> {
+    if (this.options.serviceLane) return await this.invoke<T>(method, args, undefined, signal);
     try {
       return await this.invoke<T>(method, args, undefined, signal);
     } catch (error) {
@@ -785,7 +796,8 @@ export class DesktopServiceClient implements DesktopService {
 
   private async invokeAndPublish(method: DesktopServiceMethod, args: unknown[] = []): Promise<SessionSnapshot> {
     const snapshot = await this.invoke<SessionSnapshot>(method, args);
-    this.publish(snapshot);
+    // The core lane answers with the snapshot this process already holds: nothing new to publish.
+    if (!this.options.serviceLane) this.publish(snapshot);
     return snapshot;
   }
   startProject(projectPath: string): Promise<SessionSnapshot> {
@@ -853,6 +865,7 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('codeGraphQuery', [projectPath, mode, query]);
   }
   async listSessions(): Promise<DesktopSessionSummary[]> {
+    if (this.options.serviceLane) return this.invoke('listSessions');
     await this.start();
     if (this.sessionCacheFresh && this.cachedSessions) {
       this.sessionCacheFresh = false;
@@ -869,6 +882,7 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('searchSessionContent', [query]);
   }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
+    if (this.options.serviceLane) return this.invoke('listAgentPool');
     await this.start();
     if (this.agentPoolCacheFresh && this.cachedAgentPool) {
       this.agentPoolCacheFresh = false;
@@ -879,6 +893,8 @@ export class DesktopServiceClient implements DesktopService {
     return this.cachedAgentPool.slice();
   }
   renameSession(sessionId: string, title: string): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.renameSession(sessionId, title);
     return this.invoke('renameSession', [sessionId, title]);
   }
   continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean> {
@@ -891,18 +907,26 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('cancelQuotaResume', [sessionId]);
   }
   stopShellJob(sessionId: string, taskId: string): Promise<DesktopShellStopResult> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.stopShellJob(sessionId, taskId);
     return this.invoke('stopShellJob', [sessionId, taskId]);
   }
   releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.releaseShellJob(sessionId, taskId);
     return this.invoke('releaseShellJob', [sessionId, taskId]);
   }
   getQuotaAutoResume(): Promise<boolean> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.getQuotaAutoResume();
     return this.invoke('getQuotaAutoResume', []);
   }
   getTaskWorkspace(): Promise<string> {
     return this.invoke('getTaskWorkspace', []);
   }
   setQuotaAutoResume(enabled: boolean): Promise<boolean> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.setQuotaAutoResume(enabled);
     return this.invoke('setQuotaAutoResume', [enabled]);
   }
   readAttachmentImage(attachmentRef: string, maxBytes?: number): Promise<string | null> {
@@ -926,14 +950,20 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt], signal);
   }
   setSessionFavorite(sessionId: string, favorite: boolean): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.setSessionFavorite(sessionId, favorite);
     return this.invoke('setSessionFavorite', [sessionId, favorite]);
   }
 
   setSessionProject(sessionId: string, projectPath: string): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.setSessionProject(sessionId, projectPath);
     return this.invoke('setSessionProject', [sessionId, projectPath]);
   }
 
   setSessionArchived(sessionId: string, archived: boolean): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.setSessionArchived(sessionId, archived);
     return this.invoke('setSessionArchived', [sessionId, archived]);
   }
   openAgentHome(agentId: string): Promise<{ sessionId: string }> {
@@ -952,6 +982,8 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('agentRoomAction', [action, args]);
   }
   deleteSession(sessionId: string): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.deleteSession(sessionId);
     return this.invoke('deleteSession', [sessionId]);
   }
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
@@ -1041,13 +1073,27 @@ export class DesktopServiceClient implements DesktopService {
     const lane = this.options.capabilityLane;
     return lane ? lane.read(requests) : this.invokeRead('readCapabilities', [requests]);
   }
+  /** An event this process raises for its own windows, as the Node service's broadcast reached them (a core connection
+   *  has no Node service to send it). */
+  emitDesktopEvent(name: string, value: unknown): void {
+    for (const listener of [...this.desktopEventListeners]) listener({ name, value });
+  }
   invokeDesktopOperation(method: string, args: unknown[] = []): Promise<unknown> {
+    const lane = this.options.operationLane;
+    if (lane) return lane.invoke(method, args);
     return this.invoke('invokeDesktopOperation', [method, wireArgs(args)], longRunningRequestTimeout(method, args));
   }
   /** Fire-and-forget service call: no pending request (with its 120s timer)
    *  per terminal keystroke or resize, and no wait for a reply behind
    *  whatever session traffic is in flight. */
   notifyDesktopOperation(method: string, args: unknown[] = []): void {
+    const lane = this.options.operationLane;
+    if (lane) {
+      void lane.invoke(method, args).catch(() => {
+        /* fire-and-forget: the caller never reads a reply */
+      });
+      return;
+    }
     const transport = this.transport;
     if (!transport) {
       // Pre-ready (or mid-restart): fall back to the request lane, which waits

@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use mixdog_mcp::setup_actions::SETUP_ACTIONS;
 use mixdog_mcp::setup_actions::SetupRuntime;
 use mixdog_mcp::setup_actions::run;
+use mixdog_mcp::setup_runtime::as_caller;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
 
@@ -31,7 +32,7 @@ impl SetupActions for McpSetup {
     }
 
     async fn run(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
-        run(call.action, call.args, self.runtime.as_ref())
+        as_caller(call.thread.as_str(), run(call.action, call.args, self.runtime.as_ref()))
             .await
             .map_err(|message| PortError::Failed { capability: "setup".into(), message })
     }
