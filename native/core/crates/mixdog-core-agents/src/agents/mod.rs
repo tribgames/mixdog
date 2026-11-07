@@ -22,6 +22,7 @@ mod home_api;
 mod memory_runtime;
 mod permissions;
 mod pool_list;
+pub mod section;
 mod service;
 #[cfg(test)]
 mod api_tests;
