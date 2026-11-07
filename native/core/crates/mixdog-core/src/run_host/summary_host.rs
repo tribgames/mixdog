@@ -333,6 +333,7 @@ impl SummarySender for RegistrySender {
             progress: deps.progress.clone(),
             deadline_of: None,
             notify: None,
+            review: None,
         };
         // Usage attribution: the summary is the session's, on a request of its own, unless the
         // step belongs to no session.

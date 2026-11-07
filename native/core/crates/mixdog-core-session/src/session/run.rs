@@ -411,6 +411,13 @@ impl RunPort {
         self.call(ProducerMsg::Header { turn: self.turn.clone(), change, ack }, rx).await?
     }
 
+    /// The port for what closes a cancelled run (`finalizeCancelledTurn` saves after the abort): the same
+    /// producer lane, but its waits no longer end with the run's fired token.
+    #[must_use]
+    pub fn closing(&self) -> Self {
+        Self { cancel: CancellationToken::new(), ..self.clone() }
+    }
+
     pub fn thread(&self) -> &ThreadId {
         &self.thread
     }

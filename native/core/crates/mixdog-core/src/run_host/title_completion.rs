@@ -142,6 +142,7 @@ impl TitleModel for TitleCompletion {
             progress: deps.progress.clone(),
             deadline_of: None,
             notify: None,
+            review: None,
         };
         // The spend belongs to the titled session and the ledger names it a title call; the
         // provider still sees a sessionless one-shot request.

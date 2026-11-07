@@ -79,6 +79,26 @@ async fn each_family_builds_under_its_own_id() {
     assert_eq!(id_of(&b, "custom-abc", custom).await, "custom-abc");
 }
 
+/// `createCustomProvider` registers a wire profile for every OpenAI-compatible protocol, so a one-wire provider
+/// routes (and pins) its wire. The route is the one the real-turn harness recorded in Node's stored header
+/// (`out/read/compare/stored-header.node.json` `wireRoute`: `custom-harness:chat`, source `default`); the
+/// anthropic protocol has no profile and no `resolveWireRoute`.
+#[tokio::test]
+async fn a_one_wire_custom_provider_routes_its_wire_like_node() {
+    use mixdog_core_api::domain::provider::WireRouteContext;
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    let context = WireRouteContext { agent: true, ..WireRouteContext::default() };
+    let chat = b.build("custom-harness", &json!({"type": "custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
+    let route = chat.wire_routing().expect("an OpenAI-compatible custom provider routes").resolve_wire_route("harness-model", &context).await.unwrap().unwrap();
+    assert_eq!((route.wire.as_str(), route.source.as_str(), route.profile_id.as_str()), ("chat", "default", "custom-harness:chat"));
+    let responses = b.build("custom-r", &json!({"type": "custom", "protocol": "openai-responses", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
+    let route = responses.wire_routing().expect("routes").resolve_wire_route("m", &context).await.unwrap().unwrap();
+    assert_eq!((route.wire.as_str(), route.profile_id.as_str()), ("responses", "custom-r:responses"));
+    let anthropic = b.build("custom-a", &json!({"type": "custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"})).await.unwrap();
+    assert!(anthropic.wire_routing().is_none());
+}
+
 /// `describeVertexAdc` against Node's (`fixtures/vertex-adc/golden.json`, `record-vertex-adc.mjs`):
 /// the gcloud login the settings show, over ADC files and gcloud configuration seeded in a folder.
 mod adc {

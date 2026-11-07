@@ -58,6 +58,7 @@ impl ExplorerEnv {
             progress: Arc::new(DroppedProgress),
             deadline_of: None,
             notify: None,
+            review: None,
         }
     }
 

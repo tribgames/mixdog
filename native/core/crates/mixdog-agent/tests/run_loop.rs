@@ -693,6 +693,7 @@ impl Harness {
             progress: Arc::new(MockProgress::default()),
             deadline_of: None,
             notify: None,
+            review: None,
         }
     }
 
