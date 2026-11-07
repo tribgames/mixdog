@@ -10083,6 +10083,211 @@
               "memory",
               "office"
             ],
+            "deferredInitialRefreshPending": false
+          }
+        },
+        {
+          "call": "boundary",
+          "live": [],
+          "set": null,
+          "transcript": null,
+          "result": null,
+          "after": {
+            "id": "sess_fold",
+            "provider": "anthropic-oauth",
+            "model": "model-x",
+            "cwd": "/work",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "messages": [
+              {
+                "role": "system",
+                "content": "# Base rules"
+              },
+              {
+                "role": "system",
+                "content": "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- github: github tool\n- memory: memory tool\n- office: Create a document.\n</available-deferred-tools>"
+              },
+              {
+                "role": "system",
+                "cacheTier": "tier3",
+                "content": "# Core"
+              },
+              {
+                "role": "system",
+                "cacheTier": "env",
+                "content": "# Env"
+              }
+            ],
+            "toolSpec": "full",
+            "disallowedTools": [
+              "get_goal"
+            ],
+            "callerDisallowedTools": [
+              "get_goal"
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredProviderMode": "native",
+            "deferredNativeTools": true,
+            "deferredSurfaceMode": "lead",
+            "deferredCallableTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredDiscoveredTools": [],
+            "mcpServerInstructions": {},
+            "deferredToolBp2Applied": true,
+            "updatedAt": 1700000000000,
+            "deferredAnnouncedTools": [
+              "github",
+              "memory",
+              "office"
+            ],
             "deferredInitialRefreshPending": false,
             "deferredMcpToolNames": [],
             "deferredLateToolCatalog": []
@@ -10648,6 +10853,288 @@
               "memory",
               "office"
             ],
+            "deferredInitialRefreshPending": false
+          }
+        },
+        {
+          "call": "boundary",
+          "live": [],
+          "set": null,
+          "transcript": null,
+          "result": null,
+          "after": {
+            "id": "sess_fold",
+            "provider": "openrouter",
+            "model": "model-x",
+            "cwd": "/work",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "load_tool",
+                "title": "load_tool",
+                "annotations": {
+                  "title": "load_tool",
+                  "readOnlyHint": true,
+                  "destructiveHint": false,
+                  "idempotentHint": true,
+                  "openWorldHint": false,
+                  "agentHidden": true
+                },
+                "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "names": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      ],
+                      "description": "Exact name(s)/aliases."
+                    }
+                  },
+                  "required": [
+                    "names"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "call_tool",
+                "title": "call_tool",
+                "annotations": {
+                  "title": "call_tool",
+                  "readOnlyHint": false,
+                  "destructiveHint": true,
+                  "idempotentHint": false,
+                  "openWorldHint": true,
+                  "agentHidden": true
+                },
+                "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "description": "Exact tool name."
+                    },
+                    "arguments": {
+                      "type": "object",
+                      "description": "Arguments for that tool."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "arguments"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "messages": [
+              {
+                "role": "system",
+                "content": "# Base rules"
+              },
+              {
+                "role": "system",
+                "content": "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- github: github tool\n- memory: memory tool\n- office: Create a document.\n</available-deferred-tools>\n\n<tool-bridge>\nDeferred tools (listed above, or announced later as added) are not defined here: run one with call_tool {name, arguments}, and use load_tool first to see its parameters (a keyword instead of a name searches the deferred tools). Call directly defined tools directly.\n</tool-bridge>"
+              },
+              {
+                "role": "system",
+                "cacheTier": "tier3",
+                "content": "# Core"
+              },
+              {
+                "role": "system",
+                "cacheTier": "env",
+                "content": "# Env"
+              }
+            ],
+            "toolSpec": "full",
+            "disallowedTools": [
+              "get_goal"
+            ],
+            "callerDisallowedTools": [
+              "get_goal"
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredProviderMode": "canonical",
+            "deferredNativeTools": false,
+            "deferredSurfaceMode": "lead",
+            "toolExposureMode": "bridge-v1",
+            "deferredCallableTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredDiscoveredTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "mcpServerInstructions": {},
+            "deferredToolBp2Applied": true,
+            "updatedAt": 1700000000000,
+            "deferredAnnouncedTools": [
+              "github",
+              "memory",
+              "office"
+            ],
             "deferredInitialRefreshPending": false,
             "deferredMcpToolNames": [],
             "deferredLateToolCatalog": []
@@ -10859,6 +11346,254 @@
       "steps": [
         {
           "call": "turn",
+          "live": [
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things. Pages of twenty.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "mcpServerName": "alpha",
+              "mcpToolName": "list"
+            },
+            {
+              "name": "mcp__alpha__get",
+              "description": "Get one thing by id.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "mcpServerName": "alpha",
+              "mcpToolName": "get"
+            }
+          ],
+          "set": null,
+          "transcript": null,
+          "result": null,
+          "after": {
+            "id": "sess_fold",
+            "provider": "anthropic-oauth",
+            "model": "model-x",
+            "cwd": "/work",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "messages": [
+              {
+                "role": "system",
+                "content": "# Base rules"
+              },
+              {
+                "role": "system",
+                "content": "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- github: github tool\n- mcp__alpha: Get one thing by id\n- memory: memory tool\n- office: Create a document.\n</available-deferred-tools>"
+              },
+              {
+                "role": "system",
+                "cacheTier": "tier3",
+                "content": "# Core"
+              },
+              {
+                "role": "system",
+                "cacheTier": "env",
+                "content": "# Env"
+              }
+            ],
+            "toolSpec": "full",
+            "disallowedTools": [
+              "get_goal"
+            ],
+            "callerDisallowedTools": [
+              "get_goal"
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "List the things. Pages of twenty.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "mcpServerName": "alpha",
+                "mcpToolName": "list"
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing by id.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "mcpServerName": "alpha",
+                "mcpToolName": "get"
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredProviderMode": "native",
+            "deferredNativeTools": true,
+            "deferredSurfaceMode": "lead",
+            "deferredCallableTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredDiscoveredTools": [],
+            "mcpServerInstructions": {},
+            "deferredToolBp2Applied": true,
+            "updatedAt": 1700000000000,
+            "deferredAnnouncedTools": [
+              "github",
+              "mcp__alpha__get",
+              "mcp__alpha__list",
+              "memory",
+              "office"
+            ],
+            "deferredInitialRefreshPending": false
+          }
+        },
+        {
+          "call": "boundary",
           "live": [
             {
               "name": "mcp__alpha__list",
@@ -11991,6 +12726,288 @@
       "steps": [
         {
           "call": "turn",
+          "live": [],
+          "set": null,
+          "transcript": null,
+          "result": null,
+          "after": {
+            "id": "sess_fold",
+            "provider": "openrouter",
+            "model": "model-x",
+            "cwd": "/work",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "load_tool",
+                "title": "load_tool",
+                "annotations": {
+                  "title": "load_tool",
+                  "readOnlyHint": true,
+                  "destructiveHint": false,
+                  "idempotentHint": true,
+                  "openWorldHint": false,
+                  "agentHidden": true
+                },
+                "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "names": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      ],
+                      "description": "Exact name(s)/aliases."
+                    }
+                  },
+                  "required": [
+                    "names"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "call_tool",
+                "title": "call_tool",
+                "annotations": {
+                  "title": "call_tool",
+                  "readOnlyHint": false,
+                  "destructiveHint": true,
+                  "idempotentHint": false,
+                  "openWorldHint": true,
+                  "agentHidden": true
+                },
+                "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "description": "Exact tool name."
+                    },
+                    "arguments": {
+                      "type": "object",
+                      "description": "Arguments for that tool."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "arguments"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "messages": [
+              {
+                "role": "system",
+                "content": "# Base rules"
+              },
+              {
+                "role": "system",
+                "content": "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- github: github tool\n- memory: memory tool\n- office: Create a document.\n</available-deferred-tools>\n\n<tool-bridge>\nDeferred tools (listed above, or announced later as added) are not defined here: run one with call_tool {name, arguments}, and use load_tool first to see its parameters (a keyword instead of a name searches the deferred tools). Call directly defined tools directly.\n</tool-bridge>"
+              },
+              {
+                "role": "system",
+                "cacheTier": "tier3",
+                "content": "# Core"
+              },
+              {
+                "role": "system",
+                "cacheTier": "env",
+                "content": "# Env"
+              }
+            ],
+            "toolSpec": "full",
+            "disallowedTools": [
+              "get_goal"
+            ],
+            "callerDisallowedTools": [
+              "get_goal"
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredProviderMode": "canonical",
+            "deferredNativeTools": false,
+            "deferredSurfaceMode": "lead",
+            "toolExposureMode": "bridge-v1",
+            "deferredCallableTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredDiscoveredTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "mcpServerInstructions": {},
+            "deferredToolBp2Applied": true,
+            "updatedAt": 1700000000000,
+            "deferredAnnouncedTools": [
+              "github",
+              "memory",
+              "office"
+            ],
+            "deferredInitialRefreshPending": false
+          }
+        },
+        {
+          "call": "boundary",
           "live": [],
           "set": null,
           "transcript": null,
@@ -14069,6 +15086,308 @@
               "memory",
               "office"
             ],
+            "deferredInitialRefreshPending": false
+          }
+        },
+        {
+          "call": "boundary",
+          "live": [
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things. Pages of twenty.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "mcpServerName": "alpha",
+              "mcpToolName": "list"
+            }
+          ],
+          "set": null,
+          "transcript": null,
+          "result": null,
+          "after": {
+            "id": "sess_fold",
+            "provider": "openrouter",
+            "model": "model-x",
+            "cwd": "/work",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "load_tool",
+                "title": "load_tool",
+                "annotations": {
+                  "title": "load_tool",
+                  "readOnlyHint": true,
+                  "destructiveHint": false,
+                  "idempotentHint": true,
+                  "openWorldHint": false,
+                  "agentHidden": true
+                },
+                "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "names": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      ],
+                      "description": "Exact name(s)/aliases."
+                    }
+                  },
+                  "required": [
+                    "names"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "call_tool",
+                "title": "call_tool",
+                "annotations": {
+                  "title": "call_tool",
+                  "readOnlyHint": false,
+                  "destructiveHint": true,
+                  "idempotentHint": false,
+                  "openWorldHint": true,
+                  "agentHidden": true
+                },
+                "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "description": "Exact tool name."
+                    },
+                    "arguments": {
+                      "type": "object",
+                      "description": "Arguments for that tool."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "arguments"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "messages": [
+              {
+                "role": "system",
+                "content": "# Base rules"
+              },
+              {
+                "role": "system",
+                "content": "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- github: github tool\n- memory: memory tool\n- office: Create a document.\n</available-deferred-tools>\n\n<tool-bridge>\nDeferred tools (listed above, or announced later as added) are not defined here: run one with call_tool {name, arguments}, and use load_tool first to see its parameters (a keyword instead of a name searches the deferred tools). Call directly defined tools directly.\n</tool-bridge>"
+              },
+              {
+                "role": "system",
+                "cacheTier": "tier3",
+                "content": "# Core"
+              },
+              {
+                "role": "system",
+                "cacheTier": "env",
+                "content": "# Env"
+              }
+            ],
+            "toolSpec": "full",
+            "disallowedTools": [
+              "get_goal"
+            ],
+            "callerDisallowedTools": [
+              "get_goal"
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "List the things. Pages of twenty.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "mcpServerName": "alpha",
+                "mcpToolName": "list"
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredProviderMode": "canonical",
+            "deferredNativeTools": false,
+            "deferredSurfaceMode": "lead",
+            "deferredCallableTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredDiscoveredTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "mcpServerInstructions": {},
+            "deferredToolBp2Applied": true,
+            "updatedAt": 1700000000000,
+            "deferredAnnouncedTools": [
+              "github",
+              "memory",
+              "office"
+            ],
             "deferredInitialRefreshPending": false,
             "deferredMcpToolNames": [
               "mcp__alpha__list"
@@ -14563,6 +15882,233 @@
       "steps": [
         {
           "call": "turn",
+          "live": [
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things. Pages of twenty.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "mcpServerName": "alpha",
+              "mcpToolName": "list"
+            }
+          ],
+          "set": null,
+          "transcript": null,
+          "result": null,
+          "after": {
+            "id": "sess_fold",
+            "provider": "anthropic-oauth",
+            "model": "model-x",
+            "cwd": "/work",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "messages": [
+              {
+                "role": "system",
+                "content": "# Base rules"
+              },
+              {
+                "role": "system",
+                "content": "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- github: github tool\n- mcp__alpha: List the things\n- memory: memory tool\n- office: Create a document.\n</available-deferred-tools>"
+              },
+              {
+                "role": "system",
+                "cacheTier": "tier3",
+                "content": "# Core"
+              },
+              {
+                "role": "system",
+                "cacheTier": "env",
+                "content": "# Env"
+              }
+            ],
+            "toolSpec": "full",
+            "disallowedTools": [
+              "get_goal"
+            ],
+            "callerDisallowedTools": [
+              "get_goal"
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "List the things. Pages of twenty.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "mcpServerName": "alpha",
+                "mcpToolName": "list"
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredProviderMode": "native",
+            "deferredNativeTools": true,
+            "deferredSurfaceMode": "lead",
+            "deferredCallableTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredDiscoveredTools": [],
+            "mcpServerInstructions": {},
+            "deferredToolBp2Applied": true,
+            "updatedAt": 1700000000000,
+            "deferredAnnouncedTools": [
+              "github",
+              "mcp__alpha__list",
+              "memory",
+              "office"
+            ],
+            "deferredInitialRefreshPending": false
+          }
+        },
+        {
+          "call": "boundary",
           "live": [
             {
               "name": "mcp__alpha__list",
@@ -15790,6 +17336,233 @@
       "steps": [
         {
           "call": "turn",
+          "live": [
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things. Pages of twenty.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "mcpServerName": "alpha",
+              "mcpToolName": "list"
+            }
+          ],
+          "set": null,
+          "transcript": null,
+          "result": null,
+          "after": {
+            "id": "sess_fold",
+            "provider": "anthropic-oauth",
+            "model": "model-x",
+            "cwd": "/work",
+            "tools": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "messages": [
+              {
+                "role": "system",
+                "content": "# Base rules"
+              },
+              {
+                "role": "system",
+                "content": "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- github: github tool\n- mcp__alpha: List the things\n- memory: memory tool\n- office: Create a document.\n</available-deferred-tools>"
+              },
+              {
+                "role": "system",
+                "cacheTier": "tier3",
+                "content": "# Core"
+              },
+              {
+                "role": "system",
+                "cacheTier": "env",
+                "content": "# Env"
+              }
+            ],
+            "toolSpec": "full",
+            "disallowedTools": [
+              "get_goal"
+            ],
+            "callerDisallowedTools": [
+              "get_goal"
+            ],
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "read tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "shell",
+                "description": "shell tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "web_search",
+                "description": "web_search tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "Skill",
+                "description": "Skill tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "todo",
+                "description": "todo tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__list",
+                "description": "List the things. Pages of twenty.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "mcpServerName": "alpha",
+                "mcpToolName": "list"
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredProviderMode": "native",
+            "deferredNativeTools": true,
+            "deferredSurfaceMode": "lead",
+            "deferredCallableTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "shell",
+              "web_search",
+              "Skill",
+              "todo"
+            ],
+            "deferredDiscoveredTools": [],
+            "mcpServerInstructions": {},
+            "deferredToolBp2Applied": true,
+            "updatedAt": 1700000000000,
+            "deferredAnnouncedTools": [
+              "github",
+              "mcp__alpha__list",
+              "memory",
+              "office"
+            ],
+            "deferredInitialRefreshPending": false
+          }
+        },
+        {
+          "call": "boundary",
           "live": [
             {
               "name": "mcp__alpha__list",
