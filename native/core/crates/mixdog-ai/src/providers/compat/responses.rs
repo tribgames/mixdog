@@ -33,6 +33,8 @@ use super::models::{CompatModelInfo, fold_declared_effort};
 use super::profile::{CompatProfile, EffortDialect, ResponsesShape, ToolChoiceSupport};
 use super::schema::SchemaMemo;
 use super::schema::report_exclusion;
+use crate::providers::leak::ToolNames;
+use crate::providers::leak::body_tool_names;
 
 const MUSE_SPARK_MAX_OUTPUT: u32 = 131_072;
 const MUSE_FIVE_LEVELS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
@@ -388,7 +390,10 @@ impl WireCodec for CompatResponsesCodec {
         let profile = self.responses_profile(request, info.as_deref());
         // `streamCompatResponses`: `<provider>:responses` over HTTP/SSE; the socket is the xAI WebSocket (`_wsErrLabel`).
         let label = if self.is_socket() { "xAI WS".to_owned() } else { format!("{}:responses", self.profile.id) };
-        let decoder = profile.decoder_for(request, framing, Arc::new(ClockOnly)).with_label(label);
+        let decoder = profile
+            .decoder_for(request, framing, Arc::new(ClockOnly))
+            .with_label(label)
+            .with_known_tools(body_tool_names(self, request, ToolNames::Named));
         // Over HTTP/SSE a compatible route is folded by Node's compatible events collector; its socket by the WebSocket one.
         Box::new(if self.is_socket() { decoder } else { decoder.compat_events() })
     }

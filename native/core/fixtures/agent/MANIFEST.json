@@ -1,6 +1,6 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
-  "fileCount": 80,
+  "fileCount": 82,
   "files": [
     {
       "bytes": 47880,
@@ -243,6 +243,16 @@
       "sha256": "6ec1f55693dc2179b2faa0382abeafdd0b96a18ffcea52c590b2e5573e7e10a1"
     },
     {
+      "bytes": 1216479,
+      "path": "leaked-toolcall/golden/leaked_toolcall.json",
+      "sha256": "15f9c9edbdcbd9a2a3121824333678d0a184fe31de5c05a3a6f6b3cad7f26774"
+    },
+    {
+      "bytes": 30672,
+      "path": "leaked-toolcall/record.mjs",
+      "sha256": "0875dd5fcaac4416122ee0ecb346a2f1844ad1540c1b20a6a6a2d6f11e4223a1"
+    },
+    {
       "bytes": 18290,
       "path": "record-agent-tool.mjs",
       "sha256": "1fa0c1d52e1cc2c945e276a4a8a6002235a94e6af2726c3cd23589fee123d2a2"
@@ -421,5 +431,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 2873635
+  "totalBytes": 4120786
 }

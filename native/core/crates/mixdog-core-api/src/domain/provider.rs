@@ -615,6 +615,17 @@ pub enum StreamEvent {
     /// `None`: transport only). Emitted before the chunk's own events: the text and reasoning deltas that follow do not
     /// report a kind of their own. Folds into nothing.
     ChunkProgress(Option<ProgressKind>),
+    /// The assistant text the provider returns for the turn when it is not what the deltas folded to (Node's
+    /// result `content`: Gemini re-scans the final text for leaked tool calls after the deltas were relayed).
+    /// Replaces the folded text.
+    FinalContent(String),
+    /// The tool calls the provider returns for the turn when they are not the ones it dispatched live (Node's result
+    /// `toolCalls` after `dedupeToolCallList`: a text-leaked call that already ran is replaced by the native call
+    /// that repeats it). Replaces the folded list; the calls that ran stay the `ToolCallDone` events.
+    ReturnedCalls(Vec<ToolCall>),
+    /// Anthropic extended-thinking blocks (Node `thinkingBlocks`), verbatim and ordered, for a turn that carries
+    /// no provider replay (a turn with a text-leaked call has no exact block replay).
+    ThinkingBlocks(JsonValue),
     /// The session's provider state changed during the request (Node writes
     /// `opts.providerState` back); the whole new state, to be persisted.
     ProviderState(ProviderState),
