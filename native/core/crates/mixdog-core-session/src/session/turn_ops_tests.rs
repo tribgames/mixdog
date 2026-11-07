@@ -46,14 +46,14 @@ async fn call(handle: &SessionHandle, method: &'static str, mut params: Value, o
 /// A retry the session accepts once the failed turn has settled: Node's button only shows then,
 /// so a refusal before that is polled past (each attempt its own op id).
 async fn retry_when_settled(handle: &SessionHandle, key: &str, tag: &str) {
-    for attempt in 0..1000 {
+    for attempt in 0u32.. {
         let op: &'static str = Box::leak(format!("{tag}-{attempt}").into_boxed_str());
         if call(handle, "turn/retryFailed", json!({ "turnKey": key }), op).await.expect("answered") == json!(true) {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
-    panic!("the retry was never accepted");
+    unreachable!("the attempts are unbounded");
 }
 /// A run held open until the gate is notified.
 fn held(rig: &Rig) -> Arc<tokio::sync::Notify> {

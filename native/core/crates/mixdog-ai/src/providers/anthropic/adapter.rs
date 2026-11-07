@@ -9,6 +9,8 @@
 //!
 //! The HTTP exchange is the shared [`HttpSend`] seam of `transport::http`.
 
+use crate::transport::deadlines::MODEL_STREAM;
+use crate::transport::deadlines::NODE_DISPATCHER;
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
@@ -218,7 +220,7 @@ impl AnthropicAdapter {
             request.body = self.gzip(&wire.body).await?;
             request.headers.push(("content-encoding".to_owned(), "gzip".to_owned()));
         }
-        self.http.send(request).await
+        self.http.send(request, MODEL_STREAM).await
     }
 
     /// The body to replay at standard speed after `rejected` refused the fast request `body`, when
@@ -289,7 +291,10 @@ impl AnthropicAdapter {
             headers,
             body: Vec::new(),
         };
-        let response = self.http.send(self.request_with(&wire, &secret)).await?;
+        let response = self
+            .http
+            .send(self.request_with(&wire, &secret), NODE_DISPATCHER)
+            .await?;
         if !(200..300).contains(&response.status) {
             return Err(self.failure(response).await);
         }
@@ -325,7 +330,7 @@ impl CacheWarmSend for AnthropicAdapter {
         let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.message))?;
         let post: Post<'_> = Box::new(move || {
             Box::pin(async move {
-                let response = self.http.send(self.request_with(&wire, &secret)).await?;
+                let response = self.http.send(self.request_with(&wire, &secret), MODEL_STREAM).await?;
                 if response.is_success() { Ok(response) } else { Err(self.warm_failure(response).await) }
             })
         });

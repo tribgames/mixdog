@@ -161,13 +161,16 @@ async fn shared_http_link_returns_status_headers_and_a_streaming_body() {
     });
     let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap();
     let response = link
-        .send(WireRequest {
-            transport: Kind::Http1,
-            method: "POST".into(),
-            url: format!("http://{addr}/"),
-            headers: vec![("x-test".into(), "1".into())],
-            body: b"{}".to_vec(),
-        })
+        .send(
+            WireRequest {
+                transport: Kind::Http1,
+                method: "POST".into(),
+                url: format!("http://{addr}/"),
+                headers: vec![("x-test".into(), "1".into())],
+                body: b"{}".to_vec(),
+            },
+            mixdog_ai::transport::deadlines::MODEL_STREAM,
+        )
         .await
         .unwrap();
     assert_eq!(response.status, 429);
@@ -205,4 +208,87 @@ async fn silent_http2_peer_fails_the_request_within_the_schedule() {
         started.elapsed()
     );
     server.abort();
+}
+
+/// A server whose `/final` answers 200 `land` and whose every other path answers a 302 to it.
+async fn redirecting_server() -> std::net::SocketAddr {
+    use tokio::io::AsyncWriteExt;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut buf = [0u8; 2048];
+                let read = stream.read(&mut buf).await.unwrap_or(0);
+                let head = String::from_utf8_lossy(&buf[..read]).into_owned();
+                let path = head.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                let reply: &[u8] = if path == "/final" {
+                    b"HTTP/1.1 200 OK\r\ncontent-length: 4\r\nconnection: close\r\n\r\nland"
+                } else {
+                    b"HTTP/1.1 302 Found\r\nlocation: /final\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                };
+                let _ = stream.write_all(reply).await;
+            });
+        }
+    });
+    addr
+}
+
+async fn get_through_redirect(
+    exchange: mixdog_ai::transport::Exchange,
+) -> Result<mixdog_ai::transport::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+    use mixdog_ai::transport::HttpSend;
+    use mixdog_ai::transport::ReqwestLink;
+    use mixdog_core_api::domain::provider::WireRequest;
+
+    let addr = redirecting_server().await;
+    let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap();
+    link.send(
+        WireRequest {
+            transport: TransportKind::Http1,
+            method: "GET".into(),
+            url: format!("http://{addr}/start"),
+            headers: Vec::new(),
+            body: Vec::new(),
+        },
+        exchange,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_follow_site_lands_on_the_redirect_target() {
+    // Model calls, model lists and the updater: `fetch` follows by default.
+    let response = get_through_redirect(mixdog_ai::transport::deadlines::OPENAI_CATALOG)
+        .await
+        .unwrap();
+    assert_eq!(response.status, 200);
+    assert_eq!(response.read_all().await.unwrap().body, b"land");
+}
+
+#[tokio::test]
+async fn a_manual_site_gets_the_302_itself() {
+    // The Cursor wire is raw HTTP/2 in Node: the answer is returned, never followed.
+    let response = get_through_redirect(mixdog_ai::transport::deadlines::CURSOR_MODELS)
+        .await
+        .unwrap();
+    assert_eq!(response.status, 302);
+    assert!(
+        response
+            .headers
+            .iter()
+            .any(|(k, v)| k == "location" && v == "/final")
+    );
+}
+
+#[tokio::test]
+async fn an_error_site_fails_on_the_302_as_a_network_error() {
+    // Token exchange and every credential-bearing call: `redirect: 'error'`.
+    let error = get_through_redirect(mixdog_ai::transport::deadlines::TOKEN_EXCHANGE)
+        .await
+        .err()
+        .expect("a redirect is refused");
+    assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
+    assert_eq!(error.message, "unexpected redirect (HTTP 302)");
 }

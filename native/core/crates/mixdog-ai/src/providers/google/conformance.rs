@@ -471,7 +471,11 @@ impl Scripted {
 
 #[async_trait]
 impl HttpSend for Scripted {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         self.seen.lock().unwrap().push(request);
         match self.steps.lock().unwrap().pop_front().expect("scripted step") {
             Step::Fail(err) => Err(err),

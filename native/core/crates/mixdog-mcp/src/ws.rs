@@ -1,6 +1,7 @@
 //! WebSocket transport: JSON-RPC messages as text frames over a socket opened with the `mcp`
 //! subprotocol and the server's configured headers.
 
+use mixdog_rt::Liveness;
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
@@ -87,8 +88,9 @@ impl Drop for WebSocketTransport {
 
 #[async_trait]
 impl Transport for WebSocketTransport {
-    async fn send(&self, message: Value) -> Result<(), TransportError> {
-        let text = serde_json::to_string(&message).map_err(|e| TransportError::Request(e.to_string()))?;
+    async fn send(&self, message: Value, _liveness: Liveness) -> Result<(), TransportError> {
+        let text =
+            serde_json::to_string(&message).map_err(|e| TransportError::Request(e.to_string()))?;
         self.outgoing.send(text).map_err(|_| TransportError::Closed)
     }
 

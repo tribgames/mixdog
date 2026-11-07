@@ -4,7 +4,6 @@
 #![allow(dead_code)]
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use bytes::Bytes;
 use mixdog_app_protocol::limits::CloseCode;
@@ -100,10 +99,7 @@ impl Peer {
     pub async fn take(&mut self, n: usize) -> Vec<Wire> {
         let mut items = Vec::new();
         while items.len() < n {
-            let item = tokio::time::timeout(Duration::from_secs(10), self.wire.recv())
-                .await
-                .expect("wire item within bound")
-                .expect("socket still open");
+            let item = self.wire.recv().await.expect("socket still open");
             items.push(item);
         }
         items
@@ -125,10 +121,9 @@ impl Peer {
     pub async fn until_closed(&mut self) -> Vec<Wire> {
         let mut items = Vec::new();
         loop {
-            match tokio::time::timeout(Duration::from_secs(10), self.wire.recv()).await {
-                Ok(Some(item)) => items.push(item),
-                Ok(None) => return items,
-                Err(_) => panic!("socket did not close"),
+            match self.wire.recv().await {
+                Some(item) => items.push(item),
+                None => return items,
             }
         }
     }

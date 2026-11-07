@@ -176,6 +176,8 @@ pub struct HostServices {
     /// The runtime's shell control, which the progress watchdog's stop reaps a turn's shells
     /// through; `None` reaps nothing.
     pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
+    /// The tools the provider left out of a session's requests (`recordProviderToolExclusion`).
+    pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
 }
 
 mod session_view;
@@ -374,8 +376,15 @@ impl RunParts for HostRunParts {
             notify: input.notify.clone(),
         };
         let guards: Arc<dyn TurnGuards> = Arc::new(TodoGuards::new(seams.todo_view(thread, header), hidden));
+        let observer: super::tool_exclusions::ObserverSlot = Arc::default();
 
         let mut config = RunConfig::new(thread.clone(), input.turn.clone(), text(header, "model"));
+        // `send-phase.mjs:117`: the adapters report the tools they leave out of a request here.
+        let mut options = options;
+        options.on_tool_excluded = Some(super::tool_exclusions::sink(s.exclusions.clone(), thread.clone(), observer.clone(), s.directory.clone()));
+        // Each provider attempt of the loop, whatever provider a route hop moved it to, begins a new set;
+        // a side question's attempts do not (Node's `send-phase` is the loop's).
+        config.request_begin = Some(super::tool_exclusions::request_begin(s.exclusions.clone(), thread.clone(), s.directory.clone()));
         config.options = options;
         config.hidden_agent = hidden;
         config.agent_mode = settings.agent_mode;
@@ -413,7 +422,10 @@ impl RunParts for HostRunParts {
             let grants = directory.grants(thread);
             let session = Arc::new(SessionGate::new(thread.clone(), directory.live_header(thread), input.surface_rx.clone(), s.gate_env.clone()));
             let (thread, cwd) = (thread.clone(), cwd.clone());
+            let observer = observer.clone();
             Box::new(move |context: GateContext| {
+                // The run's observer shows the exclusion notices; the factory builds the gate before the first request.
+                let _ = observer.set(context.observer.clone());
                 Arc::new(mixdog_agent::env::PolicyGate::new(mixdog_agent::env::PolicyGateParts {
                     policy,
                     connectors,

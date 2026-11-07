@@ -65,7 +65,7 @@ impl FolderAdmission for Admission {
         holds.push(Box::new(inner.gate.hold_activity(&checkouts, actor)?));
         let live = inner.host.live_sessions();
         let mut consumers: BTreeMap<String, LiveSession> =
-            inner.host.stored_consumers().await.into_iter().map(|s| (s.id.clone(), s)).collect();
+            inner.host.stored_consumers().await?.into_iter().map(|s| (s.id.clone(), s)).collect();
         for session in live.into_iter().filter(|s| !s.closed) {
             consumers.insert(session.id.clone(), session);
         }

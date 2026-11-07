@@ -21,6 +21,8 @@ pub mod variants;
 #[cfg(test)]
 mod listing_tests;
 
+use crate::transport::deadlines::CURSOR_MODELS;
+use crate::transport::deadlines::CURSOR_RUN;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
@@ -393,13 +395,19 @@ impl CursorAdapter {
     pub async fn fetch_models(&self, access_token: &str) -> Result<Vec<CursorModel>, ProviderError> {
         let head = self
             .http
-            .send(WireRequest {
-                transport: TransportKind::Http2,
-                method: "POST".to_owned(),
-                url: format!("{}{AVAILABLE_MODELS_PATH}", self.api_url.trim_end_matches('/')),
-                headers: rpc_headers(access_token, &self.client_version.get(), true),
-                body: models::available_models_request(),
-            })
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http2,
+                    method: "POST".to_owned(),
+                    url: format!(
+                        "{}{AVAILABLE_MODELS_PATH}",
+                        self.api_url.trim_end_matches('/')
+                    ),
+                    headers: rpc_headers(access_token, &self.client_version.get(), true),
+                    body: models::available_models_request(),
+                },
+                CURSOR_MODELS,
+            )
             .await?;
         let success = head.is_success();
         let response = head.read_all().await?;
@@ -454,7 +462,7 @@ impl CursorAdapter {
         )?;
         let wire = codec.encode(request)?;
         let first = wire.body.clone();
-        let (head, sink) = self.bidi.open(wire, first).await?;
+        let (head, sink) = self.bidi.open(wire, first, CURSOR_RUN).await?;
         if !head.is_success() {
             let response = head.read_all().await?;
             return Err(codec.classify(&response));

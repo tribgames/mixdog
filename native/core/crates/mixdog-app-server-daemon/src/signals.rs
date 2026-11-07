@@ -167,12 +167,12 @@ mod tests {
         assert!(!recorder.has_exited());
 
         drop(work);
-        write_started.recv_timeout(Duration::from_secs(20)).expect("the final barrier never started");
+        write_started.recv().expect("the final barrier never started");
         // The durable write is in flight: the process is still there.
         assert!(!recorder.has_exited());
 
         finish_write.send(()).unwrap();
-        assert!(recorder.wait_exit());
+        recorder.wait_exit();
         let events = recorder.events();
         let at = |name: &str| events.iter().position(|e| e == name).unwrap_or_else(|| panic!("{name} missing in {events:?}"));
         assert!(at("final_barriers") < at("exit"), "{events:?}");

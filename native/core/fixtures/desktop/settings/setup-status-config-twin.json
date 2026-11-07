@@ -1,0 +1,2203 @@
+{
+  "domain": "setup-status-config-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-setup-status-config.mjs",
+  "cases": [
+    {
+      "domain": "autoclear",
+      "values": {
+        "getAutoClear": {
+          "enabled": true,
+          "duration": "45m",
+          "providers": {
+            "groq": "45m"
+          }
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getAutoClear",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "autoclear",
+        "enabled": true,
+        "duration": "45m",
+        "providers": {
+          "groq": "45m"
+        }
+      }
+    },
+    {
+      "domain": "autoclear",
+      "values": {
+        "getAutoClear": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getAutoClear",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "autoclear"
+      }
+    },
+    {
+      "domain": "autoclear",
+      "values": {
+        "getAutoClear": null
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getAutoClear",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "autoclear"
+      }
+    },
+    {
+      "domain": "autoclear",
+      "values": {
+        "getAutoClear": 0
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getAutoClear",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "autoclear"
+      }
+    },
+    {
+      "domain": "shell",
+      "values": {
+        "getSystemShell": {
+          "enabled": true,
+          "home": "pwsh"
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getSystemShell",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "shell",
+        "enabled": true,
+        "home": "pwsh"
+      }
+    },
+    {
+      "domain": "shell",
+      "values": {
+        "getSystemShell": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getSystemShell",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "shell"
+      }
+    },
+    {
+      "domain": "shell",
+      "values": {
+        "getSystemShell": null
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getSystemShell",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "shell"
+      }
+    },
+    {
+      "domain": "developer",
+      "values": {
+        "getDeveloperSettings": {
+          "allowAllActions": false,
+          "cursorOAuth": true
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getDeveloperSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "developer",
+        "allowAllActions": false,
+        "cursorOAuth": true
+      }
+    },
+    {
+      "domain": "developer",
+      "values": {
+        "getDeveloperSettings": {
+          "z": 1,
+          "a": 2
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getDeveloperSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "developer",
+        "z": 1,
+        "a": 2
+      }
+    },
+    {
+      "domain": "update",
+      "values": {
+        "getUpdateSettings": {
+          "autoUpdate": true,
+          "currentVersion": "1.0.0",
+          "latestVersion": null
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getUpdateSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "update",
+        "autoUpdate": true,
+        "currentVersion": "1.0.0",
+        "latestVersion": null
+      }
+    },
+    {
+      "domain": "update",
+      "values": {
+        "getUpdateSettings": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getUpdateSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "update"
+      }
+    },
+    {
+      "domain": "update",
+      "values": {
+        "getUpdateSettings": null
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getUpdateSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "update"
+      }
+    },
+    {
+      "domain": "worktree",
+      "values": {
+        "getWorktreeSettings": {
+          "newTaskDefaults": {
+            "mode": "worktree"
+          },
+          "root": "r"
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getWorktreeSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "worktree",
+        "newTaskDefaults": {
+          "mode": "worktree"
+        },
+        "root": "r"
+      }
+    },
+    {
+      "domain": "worktree",
+      "values": {
+        "getWorktreeSettings": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getWorktreeSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "worktree"
+      }
+    },
+    {
+      "domain": "network-proxy",
+      "values": {
+        "getNetworkProxy": {
+          "mode": "system",
+          "url": ""
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getNetworkProxy",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "network-proxy",
+        "mode": "system",
+        "url": ""
+      }
+    },
+    {
+      "domain": "network-proxy",
+      "values": {
+        "getNetworkProxy": {
+          "mode": "manual",
+          "url": "http://h:1",
+          "source": "config"
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getNetworkProxy",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "network-proxy",
+        "mode": "manual",
+        "url": "http://h:1",
+        "source": "config"
+      }
+    },
+    {
+      "domain": "output-style",
+      "values": {
+        "getOutputStyle": {
+          "configured": "concise",
+          "available": [
+            "concise",
+            "plain"
+          ]
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getOutputStyle",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "output-style",
+        "configured": "concise",
+        "available": [
+          "concise",
+          "plain"
+        ]
+      }
+    },
+    {
+      "domain": "output-style",
+      "values": {
+        "getOutputStyle": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getOutputStyle",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "output-style"
+      }
+    },
+    {
+      "domain": "output-style",
+      "values": {
+        "getOutputStyle": null
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getOutputStyle",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "output-style"
+      }
+    },
+    {
+      "domain": "local-provider",
+      "values": {
+        "getToolModuleSettings": {
+          "localProvider": {
+            "enabled": true,
+            "installed": false,
+            "models": []
+          },
+          "memory": {
+            "enabled": true
+          }
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "local-provider",
+        "enabled": true,
+        "installed": false,
+        "models": []
+      }
+    },
+    {
+      "domain": "local-provider",
+      "values": {
+        "getToolModuleSettings": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "local-provider"
+      }
+    },
+    {
+      "domain": "local-provider",
+      "values": {
+        "getToolModuleSettings": {
+          "localProvider": null
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "local-provider"
+      }
+    },
+    {
+      "domain": "memory",
+      "values": {
+        "getToolModuleSettings": {
+          "memory": {
+            "enabled": true,
+            "installed": true
+          }
+        },
+        "getRecapSettings": {
+          "enabled": false
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getRecapSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "memory",
+        "enabled": true,
+        "installed": true,
+        "recap": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "domain": "memory",
+      "values": {
+        "getToolModuleSettings": {
+          "memory": {
+            "enabled": false
+          }
+        },
+        "getRecapSettings": null
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getRecapSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "memory",
+        "enabled": false,
+        "recap": null
+      }
+    },
+    {
+      "domain": "memory",
+      "values": {
+        "getToolModuleSettings": {},
+        "getRecapSettings": {
+          "enabled": true
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getRecapSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "memory",
+        "recap": {
+          "enabled": true
+        }
+      }
+    },
+    {
+      "domain": "memory",
+      "values": {
+        "getToolModuleSettings": {
+          "other": 1
+        },
+        "getRecapSettings": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getRecapSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "memory",
+        "recap": {}
+      }
+    },
+    {
+      "domain": "compaction",
+      "values": {
+        "getCompactionSettings": {
+          "auto": true,
+          "summaryMode": "self"
+        },
+        "getSessionTitleSettings": {
+          "aiSessionTitles": true
+        },
+        "getCacheWarmingSettings": {
+          "enabled": false
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getCompactionSettings",
+          "args": []
+        },
+        {
+          "method": "getSessionTitleSettings",
+          "args": []
+        },
+        {
+          "method": "getCacheWarmingSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "compaction",
+        "auto": true,
+        "summaryMode": "self",
+        "aiSessionTitles": true,
+        "promptCacheWarming": false
+      }
+    },
+    {
+      "domain": "compaction",
+      "values": {
+        "getCompactionSettings": {
+          "auto": false
+        },
+        "getSessionTitleSettings": {},
+        "getCacheWarmingSettings": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getCompactionSettings",
+          "args": []
+        },
+        {
+          "method": "getSessionTitleSettings",
+          "args": []
+        },
+        {
+          "method": "getCacheWarmingSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "compaction",
+        "auto": false
+      }
+    },
+    {
+      "domain": "compaction",
+      "values": {
+        "getCompactionSettings": {},
+        "getSessionTitleSettings": {
+          "aiSessionTitles": false
+        },
+        "getCacheWarmingSettings": {
+          "enabled": true
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getCompactionSettings",
+          "args": []
+        },
+        {
+          "method": "getSessionTitleSettings",
+          "args": []
+        },
+        {
+          "method": "getCacheWarmingSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "compaction",
+        "aiSessionTitles": false,
+        "promptCacheWarming": true
+      }
+    },
+    {
+      "domain": "compaction",
+      "values": {
+        "getCompactionSettings": null,
+        "getSessionTitleSettings": null,
+        "getCacheWarmingSettings": {
+          "enabled": true
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getCompactionSettings",
+          "args": []
+        },
+        {
+          "method": "getSessionTitleSettings",
+          "args": []
+        },
+        {
+          "method": "getCacheWarmingSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "compaction",
+        "promptCacheWarming": true
+      }
+    },
+    {
+      "domain": "compaction",
+      "values": {
+        "getCompactionSettings": {
+          "z": 1,
+          "a": 2
+        },
+        "getSessionTitleSettings": {
+          "a": 3
+        },
+        "getCacheWarmingSettings": {
+          "enabled": false,
+          "other": 1
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getCompactionSettings",
+          "args": []
+        },
+        {
+          "method": "getSessionTitleSettings",
+          "args": []
+        },
+        {
+          "method": "getCacheWarmingSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "compaction",
+        "z": 1,
+        "a": 3,
+        "promptCacheWarming": false
+      }
+    },
+    {
+      "domain": "profile",
+      "values": {
+        "getProfile": {
+          "title": "Kim",
+          "language": "ko",
+          "experienceLevel": "expert",
+          "languages": [
+            {
+              "id": "ko"
+            },
+            "en",
+            {
+              "id": "ja",
+              "label": "x"
+            }
+          ],
+          "experienceLevels": [
+            {
+              "id": "vibe"
+            },
+            "expert"
+          ]
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getProfile",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "profile",
+        "title": "Kim",
+        "language": "ko",
+        "experienceLevel": "expert",
+        "languages": [
+          "ko",
+          "en",
+          "ja"
+        ],
+        "experienceLevels": [
+          "vibe",
+          "expert"
+        ]
+      }
+    },
+    {
+      "domain": "profile",
+      "values": {
+        "getProfile": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getProfile",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "profile",
+        "title": "",
+        "language": "system",
+        "experienceLevel": "",
+        "languages": [],
+        "experienceLevels": []
+      }
+    },
+    {
+      "domain": "profile",
+      "values": {
+        "getProfile": null
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getProfile",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "profile",
+        "title": "",
+        "language": "system",
+        "experienceLevel": "",
+        "languages": [],
+        "experienceLevels": []
+      }
+    },
+    {
+      "domain": "profile",
+      "values": {
+        "getProfile": {
+          "title": "",
+          "language": "",
+          "experienceLevel": "",
+          "languages": [],
+          "experienceLevels": []
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getProfile",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "profile",
+        "title": "",
+        "language": "system",
+        "experienceLevel": "",
+        "languages": [],
+        "experienceLevels": []
+      }
+    },
+    {
+      "domain": "profile",
+      "values": {
+        "getProfile": {
+          "title": "T",
+          "languages": [
+            {
+              "label": "no id"
+            }
+          ],
+          "experienceLevels": [
+            "a"
+          ]
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getProfile",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "profile",
+        "title": "T",
+        "language": "system",
+        "experienceLevel": "",
+        "languages": [
+          {
+            "label": "no id"
+          }
+        ],
+        "experienceLevels": [
+          "a"
+        ]
+      }
+    },
+    {
+      "domain": "websearch",
+      "values": {
+        "getWebSearchRoute": {
+          "provider": "openai",
+          "model": "gpt-5"
+        },
+        "getToolModuleSettings": {
+          "webSearch": {
+            "enabled": true
+          }
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getWebSearchRoute",
+          "args": []
+        },
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "websearch",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5"
+        },
+        "enabled": true
+      }
+    },
+    {
+      "domain": "websearch",
+      "values": {
+        "getWebSearchRoute": {},
+        "getToolModuleSettings": {
+          "webSearch": {
+            "enabled": false
+          }
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getWebSearchRoute",
+          "args": []
+        },
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "websearch",
+        "route": {},
+        "enabled": false
+      }
+    },
+    {
+      "domain": "websearch",
+      "values": {
+        "getWebSearchRoute": null,
+        "getToolModuleSettings": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getWebSearchRoute",
+          "args": []
+        },
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "websearch",
+        "route": null,
+        "enabled": true
+      }
+    },
+    {
+      "domain": "websearch",
+      "values": {
+        "getWebSearchRoute": {
+          "provider": ""
+        },
+        "getToolModuleSettings": {
+          "webSearch": {}
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getWebSearchRoute",
+          "args": []
+        },
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "websearch",
+        "route": {
+          "provider": ""
+        },
+        "enabled": true
+      }
+    },
+    {
+      "domain": "websearch",
+      "values": {
+        "getWebSearchRoute": {
+          "provider": "xai",
+          "model": "grok",
+          "fallbacks": []
+        },
+        "getToolModuleSettings": null
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getWebSearchRoute",
+          "args": []
+        },
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "websearch",
+        "route": {
+          "provider": "xai",
+          "model": "grok",
+          "fallbacks": []
+        },
+        "enabled": true
+      }
+    },
+    {
+      "domain": "onboarding",
+      "values": {
+        "getOnboardingStatus": {
+          "completed": true,
+          "version": 2,
+          "routes": []
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getOnboardingStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "onboarding",
+        "completed": true,
+        "version": 2,
+        "routes": []
+      }
+    },
+    {
+      "domain": "onboarding",
+      "values": {
+        "getOnboardingStatus": {}
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getOnboardingStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "onboarding"
+      }
+    },
+    {
+      "domain": "onboarding",
+      "values": {
+        "getOnboardingStatus": null
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getOnboardingStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "onboarding"
+      }
+    },
+    {
+      "domain": "onboarding",
+      "values": {
+        "getOnboardingStatus": {
+          "z": 1,
+          "a": {
+            "b": 2
+          }
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getOnboardingStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "onboarding",
+        "z": 1,
+        "a": {
+          "b": 2
+        }
+      }
+    },
+    {
+      "domain": "workflow",
+      "values": {
+        "listWorkflows": [
+          {
+            "id": "default",
+            "name": "Default",
+            "description": "d",
+            "source": "built-in",
+            "active": true
+          },
+          {
+            "id": "review",
+            "name": "Review",
+            "description": "",
+            "source": "user",
+            "overridesBuiltIn": true,
+            "active": false
+          }
+        ]
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listWorkflows",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "workflow",
+        "workflows": [
+          {
+            "id": "default",
+            "name": "Default",
+            "description": "d",
+            "source": "built-in",
+            "active": true
+          },
+          {
+            "id": "review",
+            "name": "Review",
+            "description": "",
+            "source": "user",
+            "overridesBuiltIn": true,
+            "active": false
+          }
+        ]
+      }
+    },
+    {
+      "domain": "workflow",
+      "values": {
+        "listWorkflows": []
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listWorkflows",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "workflow",
+        "workflows": []
+      }
+    },
+    {
+      "domain": "workflow",
+      "values": {
+        "listWorkflows": null
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listWorkflows",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "workflow",
+        "workflows": []
+      }
+    },
+    {
+      "domain": "features",
+      "values": {
+        "getToolModuleSettings": {
+          "git": {
+            "enabled": true,
+            "installed": true,
+            "extra": 1
+          },
+          "autoEffort": {
+            "enabled": true,
+            "installed": false,
+            "supported": true,
+            "ready": false,
+            "installing": true,
+            "other": 2
+          },
+          "instructionFiles": "off",
+          "webSearch": {
+            "enabled": false
+          },
+          "localProvider": null
+        },
+        "getVoiceStatus": {
+          "enabled": true,
+          "installed": true,
+          "components": {
+            "whisper": true
+          },
+          "busy": false
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getVoiceStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "features",
+        "git": {
+          "enabled": true,
+          "installed": true
+        },
+        "autoEffort": {
+          "enabled": true,
+          "installed": false,
+          "supported": true,
+          "ready": false,
+          "installing": true
+        },
+        "instructionFiles": "off",
+        "webSearch": {
+          "enabled": false
+        },
+        "localProvider": null,
+        "browser": {
+          "active": false
+        },
+        "computer": {
+          "active": false
+        },
+        "terminal": {
+          "active": false
+        },
+        "heartbeat": {
+          "enabled": false,
+          "intervalMinutes": 60
+        },
+        "reactions": {
+          "enabled": true
+        },
+        "voice": {
+          "enabled": true,
+          "installed": true,
+          "components": {
+            "whisper": true
+          },
+          "installing": false
+        }
+      }
+    },
+    {
+      "domain": "features",
+      "values": {
+        "getToolModuleSettings": {
+          "git": {
+            "enabled": true,
+            "installed": true,
+            "extra": 1
+          },
+          "autoEffort": {
+            "enabled": true,
+            "installed": false,
+            "supported": true,
+            "ready": false,
+            "installing": true,
+            "other": 2
+          },
+          "instructionFiles": "off",
+          "webSearch": {
+            "enabled": false
+          },
+          "localProvider": null
+        },
+        "getVoiceStatus": {
+          "enabled": false,
+          "installed": false,
+          "busy": true
+        }
+      },
+      "config": {
+        "heartbeat": true,
+        "heartbeatIntervalMinutes": 120,
+        "reactions": false
+      },
+      "env": {
+        "MIXDOG_FEATURE_BROWSER": "1"
+      },
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getVoiceStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "features",
+        "git": {
+          "enabled": true,
+          "installed": true
+        },
+        "autoEffort": {
+          "enabled": true,
+          "installed": false,
+          "supported": true,
+          "ready": false,
+          "installing": true
+        },
+        "instructionFiles": "off",
+        "webSearch": {
+          "enabled": false
+        },
+        "localProvider": null,
+        "browser": {
+          "active": true
+        },
+        "computer": {
+          "active": false
+        },
+        "terminal": {
+          "active": false
+        },
+        "heartbeat": {
+          "enabled": true,
+          "intervalMinutes": 120
+        },
+        "reactions": {
+          "enabled": false
+        },
+        "voice": {
+          "enabled": false,
+          "installed": false,
+          "installing": true
+        }
+      }
+    },
+    {
+      "domain": "features",
+      "values": {
+        "getToolModuleSettings": {},
+        "getVoiceStatus": {}
+      },
+      "config": {
+        "heartbeat": "yes",
+        "heartbeatIntervalMinutes": 45
+      },
+      "env": {
+        "MIXDOG_FEATURE_COMPUTER": "off",
+        "MIXDOG_FEATURE_TERMINAL": "1"
+      },
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getVoiceStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "features",
+        "browser": {
+          "active": false
+        },
+        "computer": {
+          "active": false
+        },
+        "terminal": {
+          "active": true
+        },
+        "heartbeat": {
+          "enabled": false,
+          "intervalMinutes": 60
+        },
+        "reactions": {
+          "enabled": true
+        },
+        "voice": {
+          "enabled": false,
+          "installed": false,
+          "installing": false
+        }
+      }
+    },
+    {
+      "domain": "features",
+      "values": {
+        "getToolModuleSettings": null,
+        "getVoiceStatus": {
+          "enabled": "true",
+          "installed": 1
+        }
+      },
+      "config": {
+        "reactions": null
+      },
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getVoiceStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "features",
+        "browser": {
+          "active": false
+        },
+        "computer": {
+          "active": false
+        },
+        "terminal": {
+          "active": false
+        },
+        "heartbeat": {
+          "enabled": false,
+          "intervalMinutes": 60
+        },
+        "reactions": {
+          "enabled": true
+        },
+        "voice": {
+          "enabled": false,
+          "installed": false,
+          "installing": false
+        }
+      }
+    },
+    {
+      "domain": "features",
+      "values": {
+        "getToolModuleSettings": {
+          "voice": "x",
+          "browser": "y",
+          "zeta": {
+            "enabled": true
+          }
+        },
+        "getVoiceStatus": {
+          "enabled": true,
+          "installed": true
+        }
+      },
+      "config": {
+        "heartbeatIntervalMinutes": "30"
+      },
+      "env": {},
+      "calls": [
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getVoiceStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "features",
+        "voice": {
+          "enabled": true,
+          "installed": true,
+          "installing": false
+        },
+        "browser": {
+          "active": false
+        },
+        "zeta": {
+          "enabled": true
+        },
+        "computer": {
+          "active": false
+        },
+        "terminal": {
+          "active": false
+        },
+        "heartbeat": {
+          "enabled": false,
+          "intervalMinutes": 60
+        },
+        "reactions": {
+          "enabled": true
+        }
+      }
+    },
+    {
+      "domain": "summary",
+      "values": {
+        "props": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "temperature": 0.2
+          },
+          "contextPercent": 40,
+          "contextTokens": 0
+        },
+        "listWorkflows": [
+          {
+            "id": "default",
+            "name": "Default",
+            "source": "built-in",
+            "active": false
+          },
+          {
+            "id": "review",
+            "name": "Review",
+            "source": "user",
+            "active": true
+          }
+        ],
+        "getOutputStyle": {
+          "configured": "concise"
+        },
+        "getProfile": {
+          "title": "Kim",
+          "language": "ko",
+          "experienceLevel": "expert",
+          "languages": [
+            "ko"
+          ]
+        },
+        "getOnboardingStatus": {
+          "completed": true
+        },
+        "getToolModuleSettings": {
+          "git": {
+            "enabled": true,
+            "installed": false,
+            "x": 1
+          }
+        },
+        "getVoiceStatus": {
+          "enabled": false,
+          "installed": true
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listWorkflows",
+          "args": []
+        },
+        {
+          "method": "getOutputStyle",
+          "args": []
+        },
+        {
+          "method": "getProfile",
+          "args": []
+        },
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getVoiceStatus",
+          "args": []
+        },
+        {
+          "method": "getOnboardingStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "summary",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "temperature": 0.2
+          },
+          "contextPercent": 40,
+          "contextTokens": 0
+        },
+        "workflow": {
+          "id": "review",
+          "name": "Review",
+          "source": "user",
+          "active": true
+        },
+        "outputStyle": "concise",
+        "profile": {
+          "title": "Kim",
+          "language": "ko",
+          "experienceLevel": "expert"
+        },
+        "features": {
+          "git": {
+            "enabled": true,
+            "installed": false
+          },
+          "browser": {
+            "active": false
+          },
+          "computer": {
+            "active": false
+          },
+          "terminal": {
+            "active": false
+          },
+          "heartbeat": {
+            "enabled": false,
+            "intervalMinutes": 60
+          },
+          "reactions": {
+            "enabled": true
+          },
+          "voice": {
+            "enabled": false,
+            "installed": true,
+            "installing": false
+          }
+        },
+        "onboarding": {
+          "completed": true
+        }
+      }
+    },
+    {
+      "domain": "summary",
+      "values": {
+        "props": {},
+        "listWorkflows": [],
+        "getOutputStyle": {},
+        "getProfile": {},
+        "getOnboardingStatus": null,
+        "getToolModuleSettings": {
+          "git": {
+            "enabled": true,
+            "installed": false,
+            "x": 1
+          }
+        },
+        "getVoiceStatus": {
+          "enabled": false,
+          "installed": true
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listWorkflows",
+          "args": []
+        },
+        {
+          "method": "getOutputStyle",
+          "args": []
+        },
+        {
+          "method": "getProfile",
+          "args": []
+        },
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getVoiceStatus",
+          "args": []
+        },
+        {
+          "method": "getOnboardingStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "summary",
+        "route": {
+          "provider": "",
+          "model": "",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null
+        },
+        "workflow": null,
+        "outputStyle": null,
+        "profile": {},
+        "features": {
+          "git": {
+            "enabled": true,
+            "installed": false
+          },
+          "browser": {
+            "active": false
+          },
+          "computer": {
+            "active": false
+          },
+          "terminal": {
+            "active": false
+          },
+          "heartbeat": {
+            "enabled": false,
+            "intervalMinutes": 60
+          },
+          "reactions": {
+            "enabled": true
+          },
+          "voice": {
+            "enabled": false,
+            "installed": true,
+            "installing": false
+          }
+        },
+        "onboarding": null
+      }
+    },
+    {
+      "domain": "summary",
+      "values": {
+        "props": {
+          "provider": "",
+          "model": null,
+          "effort": "",
+          "fast": "yes",
+          "fastCapable": 1,
+          "modelParameters": null,
+          "contextPercent": null
+        },
+        "listWorkflows": [
+          {
+            "id": "a",
+            "active": false
+          }
+        ],
+        "getOutputStyle": null,
+        "getProfile": null,
+        "getOnboardingStatus": {},
+        "getToolModuleSettings": {
+          "git": {
+            "enabled": true,
+            "installed": false,
+            "x": 1
+          }
+        },
+        "getVoiceStatus": {
+          "enabled": false,
+          "installed": true
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listWorkflows",
+          "args": []
+        },
+        {
+          "method": "getOutputStyle",
+          "args": []
+        },
+        {
+          "method": "getProfile",
+          "args": []
+        },
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getVoiceStatus",
+          "args": []
+        },
+        {
+          "method": "getOnboardingStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "summary",
+        "route": {
+          "provider": "",
+          "model": "",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null
+        },
+        "workflow": null,
+        "outputStyle": null,
+        "profile": {},
+        "features": {
+          "git": {
+            "enabled": true,
+            "installed": false
+          },
+          "browser": {
+            "active": false
+          },
+          "computer": {
+            "active": false
+          },
+          "terminal": {
+            "active": false
+          },
+          "heartbeat": {
+            "enabled": false,
+            "intervalMinutes": 60
+          },
+          "reactions": {
+            "enabled": true
+          },
+          "voice": {
+            "enabled": false,
+            "installed": true,
+            "installing": false
+          }
+        },
+        "onboarding": {}
+      }
+    },
+    {
+      "domain": "summary",
+      "values": {
+        "props": {
+          "provider": "xai",
+          "model": "grok",
+          "fast": false,
+          "contextPercent": 0
+        },
+        "listWorkflows": [
+          {
+            "id": "a",
+            "active": true
+          },
+          {
+            "id": "b",
+            "active": true
+          }
+        ],
+        "getOutputStyle": {
+          "configured": ""
+        },
+        "getProfile": {
+          "title": ""
+        },
+        "getOnboardingStatus": null,
+        "getToolModuleSettings": {
+          "git": {
+            "enabled": true,
+            "installed": false,
+            "x": 1
+          }
+        },
+        "getVoiceStatus": {
+          "enabled": false,
+          "installed": true
+        }
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listWorkflows",
+          "args": []
+        },
+        {
+          "method": "getOutputStyle",
+          "args": []
+        },
+        {
+          "method": "getProfile",
+          "args": []
+        },
+        {
+          "method": "getToolModuleSettings",
+          "args": []
+        },
+        {
+          "method": "getVoiceStatus",
+          "args": []
+        },
+        {
+          "method": "getOnboardingStatus",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "summary",
+        "route": {
+          "provider": "xai",
+          "model": "grok",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 0,
+          "contextTokens": null
+        },
+        "workflow": {
+          "id": "a",
+          "active": true
+        },
+        "outputStyle": null,
+        "profile": {
+          "title": ""
+        },
+        "features": {
+          "git": {
+            "enabled": true,
+            "installed": false
+          },
+          "browser": {
+            "active": false
+          },
+          "computer": {
+            "active": false
+          },
+          "terminal": {
+            "active": false
+          },
+          "heartbeat": {
+            "enabled": false,
+            "intervalMinutes": 60
+          },
+          "reactions": {
+            "enabled": true
+          },
+          "voice": {
+            "enabled": false,
+            "installed": true,
+            "installing": false
+          }
+        },
+        "onboarding": null
+      }
+    },
+    {
+      "domain": "model",
+      "values": {
+        "props": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "temperature": 0.2
+          },
+          "contextPercent": 40,
+          "contextTokens": 0,
+          "autoEffort": true,
+          "effortOptions": [
+            {
+              "value": "low"
+            },
+            {
+              "value": "high",
+              "label": "High"
+            }
+          ]
+        },
+        "listPresets": [
+          {
+            "id": "workflow-lead",
+            "fallbacks": [
+              {
+                "provider": "xai",
+                "model": "grok"
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "fallbacks": [
+              {
+                "provider": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listPresets",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "model",
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "temperature": 0.2
+          },
+          "contextPercent": 40,
+          "contextTokens": 0,
+          "autoEffort": true,
+          "fallbacks": [
+            {
+              "provider": "xai",
+              "model": "grok"
+            }
+          ]
+        },
+        "effortOptions": [
+          {
+            "value": "low"
+          },
+          {
+            "value": "high",
+            "label": "High"
+          }
+        ],
+        "sessions": []
+      }
+    },
+    {
+      "domain": "model",
+      "values": {
+        "props": {
+          "autoEffort": false
+        },
+        "listPresets": []
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listPresets",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "model",
+        "route": {
+          "provider": "",
+          "model": "",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": false,
+          "fallbacks": []
+        },
+        "effortOptions": [],
+        "sessions": []
+      }
+    },
+    {
+      "domain": "model",
+      "values": {
+        "props": {},
+        "listPresets": [
+          {
+            "id": "workflow-lead"
+          }
+        ]
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listPresets",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "model",
+        "route": {
+          "provider": "",
+          "model": "",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [],
+        "sessions": []
+      }
+    },
+    {
+      "domain": "model",
+      "values": {
+        "props": {
+          "provider": "openai",
+          "autoEffort": null,
+          "effortOptions": null
+        },
+        "listPresets": [
+          null,
+          {
+            "id": "workflow-lead",
+            "fallbacks": null
+          }
+        ]
+      },
+      "config": {},
+      "env": {},
+      "calls": [
+        {
+          "method": "listPresets",
+          "args": []
+        }
+      ],
+      "result": {
+        "domain": "model",
+        "route": {
+          "provider": "openai",
+          "model": "",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [],
+        "sessions": []
+      }
+    }
+  ]
+}

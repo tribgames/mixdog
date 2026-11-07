@@ -213,7 +213,7 @@ mod tests {
 
     /// Every entry point of `createAuthRefresh` against the recorded Node run: the calls made
     /// at once, the calls once the refresh settled, and whether the old cooldown is still held.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn the_flow_equals_nodes_for_every_recorded_entry() {
         mixdog_rt::testing::tokens();
         let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/auth-refresh/golden.json")).unwrap();

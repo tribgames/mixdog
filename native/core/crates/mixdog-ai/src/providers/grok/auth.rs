@@ -3,6 +3,8 @@
 //! login flow are the shared `oauth` plumbing; this module supplies the
 //! URLs, the client id and the token-endpoint bodies.
 
+use crate::transport::deadlines::GROK_DISCOVERY;
+use crate::transport::deadlines::TOKEN_EXCHANGE;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -147,13 +149,19 @@ pub async fn refresh(http: &dyn HttpSend, tokens: &StoredTokens) -> Result<Store
         trusted_xai_endpoint(&tokens.token_endpoint)?.to_string()
     };
     let head = http
-        .send(WireRequest {
-            transport: TransportKind::Http1,
-            method: "POST".to_owned(),
-            url: endpoint.clone(),
-            headers: vec![("content-type".to_owned(), "application/x-www-form-urlencoded".to_owned())],
-            body: refresh_form(tokens).into_bytes(),
-        })
+        .send(
+            WireRequest {
+                transport: TransportKind::Http1,
+                method: "POST".to_owned(),
+                url: endpoint.clone(),
+                headers: vec![(
+                    "content-type".to_owned(),
+                    "application/x-www-form-urlencoded".to_owned(),
+                )],
+                body: refresh_form(tokens).into_bytes(),
+            },
+            TOKEN_EXCHANGE,
+        )
         .await?;
     let success = head.is_success();
     let response = head.read_all().await?;
@@ -191,13 +199,16 @@ pub async fn refresh(http: &dyn HttpSend, tokens: &StoredTokens) -> Result<Store
 
 async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<String, ProviderError> {
     let head = http
-        .send(WireRequest {
-            transport: TransportKind::Http1,
-            method: "GET".to_owned(),
-            url: DISCOVERY_URL.to_owned(),
-            headers: vec![("accept".to_owned(), "application/json".to_owned())],
-            body: Vec::new(),
-        })
+        .send(
+            WireRequest {
+                transport: TransportKind::Http1,
+                method: "GET".to_owned(),
+                url: DISCOVERY_URL.to_owned(),
+                headers: vec![("accept".to_owned(), "application/json".to_owned())],
+                body: Vec::new(),
+            },
+            GROK_DISCOVERY,
+        )
         .await?;
     let success = head.is_success();
     let response = head.read_all().await?;
@@ -397,13 +408,19 @@ impl PkceProvider for GrokLogin {
             .finish();
         let head = self
             .http
-            .send(WireRequest {
-                transport: TransportKind::Http1,
-                method: "POST".to_owned(),
-                url: self.token_endpoint.to_string(),
-                headers: vec![("content-type".to_owned(), "application/x-www-form-urlencoded".to_owned())],
-                body: body.into_bytes(),
-            })
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "POST".to_owned(),
+                    url: self.token_endpoint.to_string(),
+                    headers: vec![(
+                        "content-type".to_owned(),
+                        "application/x-www-form-urlencoded".to_owned(),
+                    )],
+                    body: body.into_bytes(),
+                },
+                TOKEN_EXCHANGE,
+            )
             .await
             .map_err(|e| failed("transport", e.message))?;
         let success = head.is_success();

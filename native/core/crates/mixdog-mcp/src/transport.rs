@@ -3,6 +3,7 @@
 //! [`Incoming::Closed`]. "Alive" is the transport being open — a fact — never a probe.
 
 use async_trait::async_trait;
+use mixdog_rt::Liveness;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -70,8 +71,9 @@ pub fn challenge_of(response: &reqwest::Response) -> Option<String> {
 
 #[async_trait]
 pub trait Transport: Send + Sync {
-    /// Sends one message. Completing means the message was handed to the wire.
-    async fn send(&self, message: Value) -> Result<(), TransportError>;
+    /// Sends one message under its [`Liveness`]. Completing means the message was handed to the
+    /// wire; a send that outlives its deadline fails instead of waiting for the peer.
+    async fn send(&self, message: Value, liveness: Liveness) -> Result<(), TransportError>;
 
     /// Ends the transport. Idempotent; the receiver then gets `Closed`.
     async fn close(&self);

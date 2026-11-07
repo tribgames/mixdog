@@ -2,9 +2,13 @@
 //! 202. After the handshake one GET stream carries server-initiated messages when the server
 //! offers it.
 
+use crate::deadlines::STARTUP;
+use crate::deadlines::expired;
+use mixdog_rt::Liveness;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -102,17 +106,32 @@ fn deliver(tx: &IncomingTx, value: Value) {
     }
 }
 
-/// Splits an SSE byte stream into events and forwards each `data` payload that is JSON.
-async fn pump_sse(response: reqwest::Response, tx: IncomingTx, shutdown: CancellationToken) {
+/// What an SSE stream said about resuming it when it ended.
+#[derive(Default, Debug, PartialEq, Eq)]
+struct SseEnd {
+    /// The last `id:` seen, sent back as `Last-Event-ID`.
+    last_id: Option<String>,
+    /// The server's `retry:` interval, which replaces the backoff delay.
+    retry: Option<Duration>,
+}
+
+/// Splits an SSE byte stream into events and forwards each `data` payload that is JSON. Returns
+/// when the stream ends or `shutdown` is cancelled.
+async fn pump_sse(
+    response: reqwest::Response,
+    tx: IncomingTx,
+    shutdown: CancellationToken,
+) -> SseEnd {
+    let mut end = SseEnd::default();
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut pending_bytes: Vec<u8> = Vec::new();
     loop {
         let chunk = tokio::select! {
-            () = shutdown.cancelled() => return,
+            () = shutdown.cancelled() => break,
             chunk = stream.next() => chunk,
         };
-        let Some(Ok(chunk)) = chunk else { return };
+        let Some(Ok(chunk)) = chunk else { break };
         pending_bytes.extend_from_slice(&chunk);
         match std::str::from_utf8(&pending_bytes) {
             Ok(text) => {
@@ -127,9 +146,19 @@ async fn pump_sse(response: reqwest::Response, tx: IncomingTx, shutdown: Cancell
         }
         let normalized = buffer.replace("\r\n", "\n");
         let mut rest = normalized.as_str();
-        while let Some(end) = rest.find("\n\n") {
-            let event = &rest[..end];
-            rest = &rest[end + 2..];
+        while let Some(stop) = rest.find("\n\n") {
+            let event = &rest[..stop];
+            rest = &rest[stop + 2..];
+            for line in event.lines() {
+                if let Some(id) = line.strip_prefix("id:") {
+                    end.last_id = Some(id.strip_prefix(' ').unwrap_or(id).to_owned());
+                } else if let Some(ms) = line
+                    .strip_prefix("retry:")
+                    .and_then(|ms| ms.trim().parse::<u64>().ok())
+                {
+                    end.retry = Some(Duration::from_millis(ms));
+                }
+            }
             let data: Vec<&str> = event
                 .lines()
                 .filter_map(|l| l.strip_prefix("data:"))
@@ -145,6 +174,73 @@ async fn pump_sse(response: reqwest::Response, tx: IncomingTx, shutdown: Cancell
         }
         buffer = rest.to_owned();
     }
+    end
+}
+
+/// How the standalone GET stream came up.
+enum Listener {
+    Stream(reqwest::Response),
+    /// 405: the server offers no standalone stream.
+    Absent,
+    Failed,
+}
+
+/// The SDK's reconnection options (`StreamableHTTPClientTransport`
+/// `DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS`, `@modelcontextprotocol/sdk` `client/streamableHttp.js:7-12`).
+const RECONNECT_INITIAL: Duration = Duration::from_millis(1000);
+const RECONNECT_MAX: Duration = Duration::from_millis(30_000);
+const RECONNECT_GROWTH: f64 = 1.5;
+const RECONNECT_RETRIES: u32 = 2;
+
+fn reconnect_delay(attempt: u32, server_retry: Option<Duration>) -> Duration {
+    server_retry.unwrap_or_else(|| {
+        RECONNECT_INITIAL
+            .mul_f64(RECONNECT_GROWTH.powi(attempt as i32))
+            .min(RECONNECT_MAX)
+    })
+}
+
+/// The standalone stream as the SDK keeps it (`_startOrAuthSse`, `_scheduleReconnection`): the
+/// first open is tried once; once a stream has been up, its end (clean or not) reopens it after a
+/// backoff with `Last-Event-ID`, and a reopen that fails is retried up to `RECONNECT_RETRIES`
+/// times before the stream is given up. The client itself stays up either way, because POSTs
+/// still work.
+async fn keep_listening<O, F>(mut open: O, tx: IncomingTx, shutdown: CancellationToken)
+where
+    O: FnMut(Option<String>) -> F,
+    F: std::future::Future<Output = Listener>,
+{
+    let mut resume: Option<String> = None;
+    let mut server_retry: Option<Duration> = None;
+    let mut attempt = 0;
+    let mut first = true;
+    loop {
+        if !first {
+            if attempt >= RECONNECT_RETRIES {
+                tracing::warn!("mcp http: standalone stream reconnection attempts exceeded");
+                return;
+            }
+            tokio::select! {
+                () = shutdown.cancelled() => return,
+                () = tokio::time::sleep(reconnect_delay(attempt, server_retry)) => {}
+            }
+        }
+        match open(resume.clone()).await {
+            Listener::Stream(response) => {
+                let ended = pump_sse(response, tx.clone(), shutdown.clone()).await;
+                if shutdown.is_cancelled() {
+                    return;
+                }
+                resume = ended.last_id.or(resume);
+                server_retry = ended.retry.or(server_retry);
+                attempt = 0;
+            }
+            Listener::Absent => return,
+            Listener::Failed if first => return,
+            Listener::Failed => attempt += 1,
+        }
+        first = false;
+    }
 }
 
 impl Drop for HttpTransport {
@@ -155,7 +251,93 @@ impl Drop for HttpTransport {
 
 #[async_trait]
 impl Transport for HttpTransport {
-    async fn send(&self, message: Value) -> Result<(), TransportError> {
+    async fn send(&self, message: Value, liveness: Liveness) -> Result<(), TransportError> {
+        liveness
+            .bound_head(self.post_message(message))
+            .await
+            .map_err(expired)?
+    }
+
+    async fn close(&self) {
+        if self.shutdown.is_cancelled() {
+            return;
+        }
+        self.shutdown.cancel();
+        let has_session = self
+            .session
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some();
+        if has_session {
+            // Tells the server the session is over; the answer does not matter.
+            let _ = STARTUP
+                .bound_head(self.decorate(self.client.delete(self.url.clone())).send())
+                .await;
+        }
+        let _ = self.incoming.send(Incoming::Closed(CloseCause {
+            reason: "closed by client".to_owned(),
+            stderr_tail: String::new(),
+        }));
+    }
+
+    fn set_protocol_version(&self, version: &str) {
+        *self.version.lock().unwrap_or_else(|e| e.into_inner()) = Some(version.to_owned());
+    }
+
+    fn initialized(&self) {
+        let Ok(base) = self
+            .decorate(self.client.get(self.url.clone()))
+            .header(reqwest::header::ACCEPT, "text/event-stream")
+            .build()
+        else {
+            return;
+        };
+        let client = self.client.clone();
+        let tx = self.incoming.clone();
+        let shutdown = self.shutdown.clone();
+        let auth = self.auth.clone();
+        let open = move |resume: Option<String>| {
+            let (client, auth, base) = (client.clone(), auth.clone(), base.try_clone());
+            async move {
+                let Some(mut request) = base else {
+                    return Listener::Failed;
+                };
+                // A reopen takes the current token, as the SDK's `_commonHeaders` does.
+                if let Some(auth) = auth
+                    && let Ok(Some(token)) = auth.token().await
+                    && let Ok(mut value) = HeaderValue::from_str(&format!("Bearer {token}"))
+                {
+                    value.set_sensitive(true);
+                    request
+                        .headers_mut()
+                        .insert(reqwest::header::AUTHORIZATION, value);
+                }
+                if let Some(id) = resume.and_then(|id| HeaderValue::from_str(&id).ok()) {
+                    request.headers_mut().insert("last-event-id", id);
+                }
+                match STARTUP.bound_head(client.execute(request)).await {
+                    Ok(Ok(response)) if response.status().is_success() => {
+                        Listener::Stream(response)
+                    }
+                    Ok(Ok(response))
+                        if response.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED =>
+                    {
+                        Listener::Absent
+                    }
+                    _ => Listener::Failed,
+                }
+            }
+        };
+        mixdog_rt::spawn(
+            "mcp.http.listen",
+            mixdog_rt::TaskClass::Work,
+            keep_listening(open, tx, shutdown),
+        );
+    }
+}
+
+impl HttpTransport {
+    async fn post_message(&self, message: Value) -> Result<(), TransportError> {
         if self.shutdown.is_cancelled() {
             return Err(TransportError::Closed);
         }
@@ -214,46 +396,97 @@ impl Transport for HttpTransport {
         }
         Ok(())
     }
+}
 
-    async fn close(&self) {
-        if self.shutdown.is_cancelled() {
-            return;
-        }
-        self.shutdown.cancel();
-        let has_session = self.session.lock().unwrap_or_else(|e| e.into_inner()).is_some();
-        if has_session {
-            // Tells the server the session is over; the answer does not matter.
-            let _ = self.decorate(self.client.delete(self.url.clone())).send().await;
-        }
-        let _ = self.incoming.send(Incoming::Closed(CloseCause {
-            reason: "closed by client".to_owned(),
-            stderr_tail: String::new(),
-        }));
-    }
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
-    fn set_protocol_version(&self, version: &str) {
-        *self.version.lock().unwrap_or_else(|e| e.into_inner()) = Some(version.to_owned());
-    }
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
 
-    fn initialized(&self) {
-        let mut request = self
-            .decorate(self.client.get(self.url.clone()))
-            .header(reqwest::header::ACCEPT, "text/event-stream");
-        let tx = self.incoming.clone();
-        let shutdown = self.shutdown.clone();
-        let auth = self.auth.clone();
-        mixdog_rt::spawn("mcp.http.listen", mixdog_rt::TaskClass::Work, async move {
-            if let Some(auth) = auth
-                && let Ok(Some(token)) = auth.token().await
-            {
-                request = request.bearer_auth(token);
-            }
-            // 405 means the server has no standalone stream; any other outcome ends it too.
-            if let Ok(response) = request.send().await
-                && response.status().is_success()
-            {
-                pump_sse(response, tx, shutdown).await;
+    use super::*;
+
+    /// The first GET gets a stream that ends after one event with an id and a `retry:`; every
+    /// later GET gets a 500 and its `Last-Event-ID` is recorded.
+    async fn listener_server() -> (std::net::SocketAddr, Arc<Mutex<Vec<Option<String>>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let served = Arc::new(AtomicUsize::new(0));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let record = Arc::clone(&seen);
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let (record, served) = (Arc::clone(&record), Arc::clone(&served));
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let read = socket.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..read]).to_lowercase();
+                    let id = head
+                        .lines()
+                        .find_map(|l| l.strip_prefix("last-event-id: "))
+                        .map(|v| v.trim().to_owned());
+                    record.lock().unwrap().push(id);
+                    let reply = if served.fetch_add(1, Ordering::SeqCst) == 0 {
+                        let body = "id: 7\nretry: 100\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
+                        format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                    } else {
+                        "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
+                    };
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                });
             }
         });
+        (addr, seen)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_listener_stream_ends_and_is_reopened_with_its_last_event_id_then_given_up_after_two_failures()
+     {
+        let (addr, seen) = listener_server().await;
+        let client = reqwest::Client::new();
+        let open = move |resume: Option<String>| {
+            let client = client.clone();
+            async move {
+                let mut request = client.get(format!("http://{addr}/mcp"));
+                if let Some(id) = resume {
+                    request = request.header("last-event-id", id);
+                }
+                match request.send().await {
+                    Ok(response) if response.status().is_success() => Listener::Stream(response),
+                    _ => Listener::Failed,
+                }
+            }
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        keep_listening(open, tx, CancellationToken::new()).await;
+
+        // One stream, then two failed reopens: the SDK's `maxRetries` of 2. Both reopens resumed from id 7.
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![None, Some("7".to_owned()), Some("7".to_owned())]
+        );
+        // The event arrived, and the client was never told the connection closed.
+        assert!(matches!(rx.try_recv(), Ok(Incoming::Message(_))));
+        assert!(
+            rx.try_recv().is_err(),
+            "no Incoming::Closed: the POST path still works"
+        );
+    }
+
+    #[test]
+    fn the_reconnect_delay_grows_by_half_each_attempt_up_to_the_cap_and_yields_to_the_server() {
+        assert_eq!(reconnect_delay(0, None), Duration::from_millis(1000));
+        assert_eq!(reconnect_delay(1, None), Duration::from_millis(1500));
+        assert_eq!(reconnect_delay(30, None), Duration::from_millis(30_000));
+        assert_eq!(
+            reconnect_delay(1, Some(Duration::from_millis(100))),
+            Duration::from_millis(100)
+        );
     }
 }

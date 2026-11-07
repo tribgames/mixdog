@@ -382,7 +382,9 @@ mod tests {
         let env = env_for(dir.path());
         let p = dir.path().join("claude/projects");
         put(&p.join("proj-a/old.jsonl"), "{}");
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        // An explicit time, a minute older, instead of sleeping until the clock ticks over.
+        let old = std::fs::OpenOptions::new().write(true).open(p.join("proj-a/old.jsonl")).unwrap();
+        old.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(60)).unwrap();
         put(&p.join("proj-b/new.JSONL"), "{}");
         put(&p.join("proj-b/deeper/skip.jsonl"), "{}");
         put(&p.join("loose.jsonl"), "{}");

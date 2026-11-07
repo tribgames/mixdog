@@ -25,8 +25,8 @@ struct Agents(Vec<String>);
 
 #[async_trait]
 impl AgentDirectory for Agents {
-    async fn agent_ids(&self) -> Vec<String> {
-        self.0.clone()
+    async fn agent_ids(&self) -> Result<Vec<String>, String> {
+        Ok(self.0.clone())
     }
 }
 
@@ -113,7 +113,7 @@ fn message(error: PortError) -> String {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn every_action_answers_and_calls_the_runtime_as_node_does() {
     let twin = twin();
     let agents: Vec<String> = twin["agents"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().into()).collect();

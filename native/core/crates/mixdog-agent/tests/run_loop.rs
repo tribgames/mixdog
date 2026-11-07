@@ -737,6 +737,24 @@ async fn tool_round_then_final_text() {
     assert_eq!(h.sink.committed.lock().unwrap().len(), 2);
 }
 
+/// The host's request hook runs before every provider attempt of the turn, once per request.
+#[tokio::test]
+async fn the_request_hook_runs_before_each_provider_attempt() {
+    let h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let begun = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut config = config();
+    let counter = begun.clone();
+    config.request_begin = Some(Arc::new(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
+    finish(h.run(config, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(h.provider.requests().len(), 2);
+    assert_eq!(begun.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
 #[tokio::test]
 async fn provider_state_is_sent_updated_by_the_provider_and_handed_back() {
     use mixdog_core_api::domain::provider::ProviderState;
@@ -2116,7 +2134,7 @@ async fn a_switch_strips_provider_replay_and_continues_on_the_next_model() {
     assert_eq!(route.current.lock().unwrap().as_ref().map(|c| c.1.as_str()), Some("m2"));
     let events = h.observer.events();
     assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::ModelFallback { model }) if model == "m2")));
-    assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { message }) if message == "m1 refused — switched to m2.")));
+    assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { message, tone: Tone::Info }) if message == "m1 refused — switched to m2.")));
 }
 
 #[tokio::test]

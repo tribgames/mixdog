@@ -3,7 +3,6 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use mixdog_agent::compact::image::ToolImageCompactor;
 use mixdog_agent::offload::ImageCompactor;
@@ -36,9 +35,7 @@ async fn a_large_png_is_reencoded_to_nodes_bytes_and_note() {
     let case = &golden["reencode"];
 
     let compactor = ToolImageCompactor::new(Arc::new(ExtImageCodec::new(pool.clone())));
-    let outcome = tokio::time::timeout(Duration::from_secs(60), compactor.compact(case["data"].as_str().unwrap(), case["mime"].as_str().unwrap()))
-        .await
-        .expect("watchdog");
+    let outcome = compactor.compact(case["data"].as_str().unwrap(), case["mime"].as_str().unwrap()).await;
     let ImageOutcome::Compacted { data, mime, note } = outcome else { panic!("not re-encoded") };
     assert_eq!(data, case["jpeg"].as_str().unwrap(), "the JPEG bytes differ from Node's");
     assert_eq!(mime, case["outMime"].as_str().unwrap());

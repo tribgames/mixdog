@@ -131,6 +131,9 @@ pub struct TurnPath {
     pub unattended: Arc<UnattendedRunRegistry>,
     /// The contact-bot snapshot; call `refresh().await` at start and when the agents change.
     pub contacts: Arc<ContactIds>,
+    /// The provider tool exclusions the turns record into: pass this same value to
+    /// `SessionCatalog::new` as its `exclusions`.
+    pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
 }
 
 impl TurnPath {
@@ -143,6 +146,7 @@ impl TurnPath {
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
         let reaction_targets: Arc<ReactionTargets> = Arc::default();
         let reuses: Arc<super::result_reuse::LiveReuses> = Arc::default();
+        let exclusions: Arc<mixdog_core_session::session::SessionToolExclusions> = Arc::default();
         let unattended = UnattendedRunRegistry::new(run_stamps);
         let contacts = Arc::new(ContactIds::new(agents));
         let gate_env = Arc::new(HostGateEnv::new(unattended.clone(), contacts.clone(), allow_all, hub));
@@ -176,9 +180,10 @@ impl TurnPath {
             probes: Arc::new(StartupProbes::new(io, processes)),
             observed: Arc::new(StartupObservations::new(clock)),
             shells,
+            exclusions: exclusions.clone(),
         };
         let compactors = Arc::new(SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(compaction)), host.clock.clone()));
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
-        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts })
+        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions })
     }
 }

@@ -46,6 +46,7 @@ mixdog-core-config = { workspace = true }
 mixdog-core-domains = { workspace = true }
 mixdog-core-goal = { workspace = true }
 mixdog-core-ports = { workspace = true }
+mixdog-core-prompt = { workspace = true }
 mixdog-core-run = { workspace = true }
 mixdog-core-review = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }

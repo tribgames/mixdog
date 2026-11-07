@@ -30,11 +30,21 @@ use super::SetupDesktop;
 const NO_SURFACE: &str = "setup: no attached Desktop surface; nothing was changed";
 const NOT_CLAIMED: &str = "setup: no Desktop window claimed the request; nothing was changed";
 
-/// `notifySessionUi(sessionId, 'Desktop settings request', { kind: 'setup-ui', id })`: whether a
-/// desktop surface is attached to the session and took the notice.
+/// `notifySessionUi(sessionId, 'Desktop settings request', { kind: 'setup-ui', id })`: whether
+/// the session took the notice. The session shows the request to every window, a late one
+/// included, until it is settled or `window` (its claim window) ends.
 #[async_trait]
 pub trait SetupUiSurface: Send + Sync {
-    async fn notify(&self, thread: &ThreadId, request_id: &str) -> bool;
+    async fn notify(&self, thread: &ThreadId, request_id: &str, window: Duration) -> bool;
+    /// The request can no longer be claimed (a window claimed it, or it ended unclaimed): the
+    /// session stops showing it.
+    async fn settled(&self, thread: &ThreadId, request_id: &str);
+    /// `open`: asks the app attached to the session to go to a surface, as Node's
+    /// `notifySessionUi(sessionId, 'Open /<command>', { kind: 'ui-open', command })` does; whether one
+    /// took it. No attached UI is the default.
+    async fn open(&self, _thread: &ThreadId, _command: &str) -> bool {
+        false
+    }
 }
 
 pub const CLAIM_TIMEOUT: Duration = Duration::from_secs(15);
@@ -178,11 +188,13 @@ impl SetupDesktop for SetupRequests {
             },
         );
         let _guard = Pending { requests: self, id: id.clone() };
-        if !self.surface.notify(thread, &id).await {
+        if !self.surface.notify(thread, &id, self.claim_timeout).await {
             return Ok(DesktopAnswer::Unclaimed(NO_SURFACE.into()));
         }
         tokio::pin!(outcome);
-        loop {
+        // Whether the session was told the request can no longer be claimed.
+        let mut settled = false;
+        let answer = loop {
             let (deadline, is_claimed) = {
                 let pending = self.pending.lock().expect("setup requests");
                 // Finished while this task was not polling: its outcome is already sent.
@@ -191,14 +203,21 @@ impl SetupDesktop for SetupRequests {
             tokio::select! {
                 biased;
                 result = &mut outcome => {
-                    return match result {
+                    break match result {
                         Ok(Ok(value)) => Ok(DesktopAnswer::Done(value)),
                         Ok(Err(message)) => Err(PortError::Failed { capability: "setup".into(), message }),
                         Err(_) => Ok(DesktopAnswer::Unclaimed(NOT_CLAIMED.into())),
                     };
                 }
-                // A claim moved the deadline: wait on the new one.
-                () = claimed.notified() => continue,
+                // A claim moved the deadline: the session stops showing the request, and the
+                // wait goes on to the new deadline.
+                () = claimed.notified() => {
+                    if !settled {
+                        self.surface.settled(thread, &id).await;
+                        settled = true;
+                    }
+                    continue;
+                }
                 () = tokio::time::sleep_until(deadline) => {
                     let (now_claimed, now_deadline) = {
                         let pending = self.pending.lock().expect("setup requests");
@@ -208,16 +227,19 @@ impl SetupDesktop for SetupRequests {
                         continue;
                     }
                     if now_claimed {
-                        return Err(PortError::Failed {
+                        break Err(PortError::Failed {
                             capability: "setup".into(),
                             message: "setup: Desktop did not return a receipt. The operation may still be running; inspect its state before retrying.".into(),
                         });
                     }
-                    return Ok(DesktopAnswer::Unclaimed(NOT_CLAIMED.into()));
+                    break Ok(DesktopAnswer::Unclaimed(NOT_CLAIMED.into()));
                 }
             }
+        };
+        if !settled {
+            self.surface.settled(thread, &id).await;
         }
-        Ok(DesktopAnswer::Unclaimed(NOT_CLAIMED.into()))
+        answer
     }
 }
 

@@ -10,6 +10,7 @@
 #![cfg(feature = "core")]
 
 mod contain;
+pub mod detached;
 mod feed;
 mod launch;
 pub mod manager;

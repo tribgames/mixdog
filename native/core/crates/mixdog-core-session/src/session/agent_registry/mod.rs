@@ -25,6 +25,7 @@ mod flow;
 mod lead_row;
 mod sessions;
 mod workers;
+mod worker_view;
 #[cfg(test)]
 mod tests;
 

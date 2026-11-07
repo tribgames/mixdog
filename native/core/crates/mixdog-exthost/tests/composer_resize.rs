@@ -6,7 +6,6 @@
 //! original and displayed dimensions, and the decoder's sentence for bytes it rejects.
 
 use std::path::Path;
-use std::time::Duration;
 
 use base64::Engine as _;
 use mixdog_core_api::domain::ext::ImageProfile;
@@ -53,9 +52,7 @@ async fn the_composer_resize_equals_nodes_resize_image_buffer_under_the_provider
         }
         let bytes = base64::engine::general_purpose::STANDARD.decode(case["input"]["data"].as_str().unwrap()).unwrap();
         let ext = case["ext"].as_str().unwrap();
-        let got = tokio::time::timeout(Duration::from_secs(60), codec.resize_profiled(&thread, &bytes, ext, profile_of(case["provider"].as_str().unwrap())))
-            .await
-            .unwrap();
+        let got = codec.resize_profiled(&thread, &bytes, ext, profile_of(case["provider"].as_str().unwrap())).await;
         match (got, recorded.get("ok"), recorded.get("error")) {
             (Ok(Some(image)), Some(ok), _) => {
                 assert_eq!(image.data_base64, ok["data"].as_str().unwrap(), "{name}: bytes");

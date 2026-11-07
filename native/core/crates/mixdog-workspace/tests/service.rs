@@ -211,8 +211,12 @@ async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() 
     for i in 0..300 {
         std::fs::write(env.root.join(format!("t{i}.txt")), "x").unwrap();
     }
-    tokio::time::sleep(Duration::from_millis(900)).await;
-    let frames: Vec<String> = conn.drain_text().into_iter().filter(|f| f.contains("fs/changed")).collect();
+    // Until every path has been announced; the batches are counted below.
+    let covered = |texts: &[String]| {
+        let all = texts.iter().filter(|f| f.contains("fs/changed")).cloned().collect::<Vec<_>>().join("");
+        (0..300).all(|i| all.contains(&format!("t{i}.txt")))
+    };
+    let frames: Vec<String> = conn.drain_text_until(covered).await.into_iter().filter(|f| f.contains("fs/changed")).collect();
     assert!((1..=5).contains(&frames.len()), "{} notifications", frames.len());
     let all = frames.join("");
     assert!((0..300).all(|i| all.contains(&format!("t{i}.txt"))), "every path is covered");
@@ -236,8 +240,9 @@ async fn search_session_ends_with_the_last_query_and_stop_frees_the_index() {
         call(&env, "search/update", json!({ "sessionId": "q1", "query": format!("zz{i}") })).await.unwrap();
     }
     call(&env, "search/update", json!({ "sessionId": "q1", "query": "main" })).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(600)).await;
-    let updates: Vec<String> = conn.drain_text().into_iter().filter(|f| f.contains("search/updated")).collect();
+    // Until the result of the last query has been pushed.
+    let answered = |texts: &[String]| texts.iter().any(|f| f.contains("search/updated") && f.contains("\"query\":\"main\"") && f.contains("src/main.rs"));
+    let updates: Vec<String> = conn.drain_text_until(answered).await.into_iter().filter(|f| f.contains("search/updated")).collect();
     let last = updates.last().expect("a result frame");
     assert!(last.contains("\"query\":\"main\"") && last.contains("src/main.rs"), "{last}");
     assert!(updates.iter().all(|u| u.contains("\"query\":\"main\"") || !u.contains("main.rs")));
@@ -837,8 +842,7 @@ async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribe
     conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
     // The mock process manager starts no real server: opening a TypeScript file publishes statuses.
     call(&env, "lsp/document", json!({ "root": root, "document": { "kind": "open", "languageId": "typescript", "relPath": "a.ts", "content": "x", "version": 1 } })).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let raw = conn.drain_text();
+    let raw = conn.drain_text_until(|texts| texts.iter().any(|f| f.contains("lsp/status/updated"))).await;
     let frames: Vec<Value> = raw.iter().filter_map(|f| serde_json::from_str(f.split_once(':')?.1).ok()).collect();
     assert!(!raw.is_empty(), "no frames at all");
     let status = frames.iter().find(|f| f["method"] == "lsp/status/updated").unwrap_or_else(|| panic!("a status frame in {raw:?}"));
@@ -855,8 +859,7 @@ async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribe
     let conn2 = MockConnection::new(ConnectionId(2), env.limits);
     let attached = subscribe(&late.feed, SubscriptionId::from("s2"), late.window, None, &conn2).unwrap();
     conn2.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    let snapshot = conn2.drain_text().into_iter().find(|f| f.contains("feed/snapshot")).expect("a snapshot");
+    let snapshot = conn2.drain_text_until(|texts| texts.iter().any(|f| f.contains("feed/snapshot"))).await.into_iter().find(|f| f.contains("feed/snapshot")).expect("a snapshot");
     assert!(snapshot.contains("lspStatus") && snapshot.contains(key.replace('\0', "\\u0000").as_str()), "{snapshot}");
 }
 

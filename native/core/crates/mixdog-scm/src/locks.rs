@@ -155,7 +155,7 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn disjoint_work_trees_run_together_and_whole_repo_waits() {
         let locks = RepoLocks::new();
         let cancel = CancellationToken::new();
@@ -176,7 +176,7 @@ mod tests {
         assert!(whole.await.unwrap().is_ok());
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_later_write_never_overtakes_a_conflicting_earlier_one() {
         let locks = RepoLocks::new();
         let cancel = CancellationToken::new();
@@ -207,7 +207,7 @@ mod tests {
         assert!(later.await.unwrap().is_ok());
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn repositories_do_not_wait_on_each_other() {
         let locks = RepoLocks::new();
         let cancel = CancellationToken::new();
@@ -220,7 +220,7 @@ mod tests {
         assert!(other.is_ok());
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_cancelled_waiter_leaves_the_queue() {
         let locks = RepoLocks::new();
         let cancel = CancellationToken::new();

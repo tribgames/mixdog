@@ -38,7 +38,11 @@ struct TokenEndpoint {
 
 #[async_trait]
 impl HttpSend for TokenEndpoint {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         self.seen.lock().unwrap().push(request);
         let (status, body) = self.replies.lock().unwrap().pop_front().expect("scripted reply");
         Ok(HttpResponse {

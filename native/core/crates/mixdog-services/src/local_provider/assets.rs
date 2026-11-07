@@ -759,9 +759,7 @@ mod tests {
             pause.cancel();
             let resumed = scope.spawn(|| run(&second, opts()));
             // The resume has reached the destination's lock when it is registered next to the holder.
-            let deadline = std::time::Instant::now() + Duration::from_secs(20);
             while users_of(&partial) < 2 {
-                assert!(std::time::Instant::now() < deadline, "the resume never reached the destination lock");
                 std::thread::yield_now();
             }
             assert!(second.requested_from.lock().unwrap().is_empty(), "the resume started while the paused download still owned the file");

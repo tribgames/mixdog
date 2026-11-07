@@ -339,7 +339,12 @@ impl OpenCodeGoAuth {
     /// Concurrent callers on one credential file share a single refresh POST.
     async fn refresh(&self, held: OpenCodeGoCredentials, force: bool) -> Result<OpenCodeGoCredentials, RefreshError> {
         let this = Self { http: self.http.clone(), pace: self.pace.clone(), file: self.file.clone() };
-        self.file.refresh_once(async move { this.refresh_unshared(held, force).await }).await
+        self.file
+            .refresh_once(async move { this.refresh_unshared(held, force).await })
+            .await
+            .unwrap_or_else(|expired| {
+                Err(RefreshError::Failed(format!("token refresh: request timed out after {}ms", expired.after.as_millis())))
+            })
     }
 
     async fn refresh_unshared(&self, held: OpenCodeGoCredentials, force: bool) -> Result<OpenCodeGoCredentials, RefreshError> {

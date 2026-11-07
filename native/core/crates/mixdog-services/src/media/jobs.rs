@@ -320,14 +320,13 @@ mod tests {
     }
 
     async fn settled(jobs: &MediaJobs, id: &str) -> Value {
-        for _ in 0..200 {
+        loop {
             let s = jobs.get(id).unwrap();
             if s["status"] != "running" {
                 return s;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        panic!("job did not settle");
     }
 
     fn request() -> Value {

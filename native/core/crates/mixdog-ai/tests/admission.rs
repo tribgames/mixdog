@@ -44,7 +44,7 @@ async fn unbounded_lane_never_queues() {
     assert_eq!(permits[99].metrics().queued, 0);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn waiters_go_by_priority_then_round_robin_by_owner() {
     mixdog_rt::testing::tokens();
     let admission = Arc::new(Admission::new());
@@ -82,7 +82,7 @@ async fn waiters_go_by_priority_then_round_robin_by_owner() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn queue_bound_and_cancellation() {
     mixdog_rt::testing::tokens();
     let admission = Arc::new(Admission::new());

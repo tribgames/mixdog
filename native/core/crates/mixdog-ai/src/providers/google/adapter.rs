@@ -4,6 +4,8 @@
 //! (one refreshed credential, one resend), which is part of getting one
 //! request accepted.
 
+use crate::transport::deadlines::GEMINI_MODELS;
+use crate::transport::deadlines::MODEL_STREAM;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -188,11 +190,17 @@ impl GoogleAdapter {
     async fn dispatch(&self, wire: &WireRequest) -> Result<HttpResponse, ProviderError> {
         let mut authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
-        let mut response = self.http.send(Self::authorized(wire, &authorization)).await?;
+        let mut response = self
+            .http
+            .send(Self::authorized(wire, &authorization), MODEL_STREAM)
+            .await?;
         if response.status == 401 && self.auth.rejected(&authorization).await {
             authorization = self.auth.authorize().await?;
             self.check_identity(&authorization)?;
-            response = self.http.send(Self::authorized(wire, &authorization)).await?;
+            response = self
+                .http
+                .send(Self::authorized(wire, &authorization), MODEL_STREAM)
+                .await?;
         }
         Ok(response)
     }
@@ -202,7 +210,10 @@ impl GoogleAdapter {
     async fn fetch_listing(&self, wire: &WireRequest) -> Result<Vec<u8>, ProviderError> {
         let authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
-        let response = self.http.send(Self::authorized(wire, &authorization)).await?;
+        let response = self
+            .http
+            .send(Self::authorized(wire, &authorization), GEMINI_MODELS)
+            .await?;
         let succeeded = response.is_success();
         let read = response.read_all().await?;
         if !succeeded {

@@ -627,7 +627,7 @@ mod tests {
         assert_eq!(Limits::from_env(2, &set), Limits { max_agents: 3, max_shells: 64, max_high_load: 8, max_queue: 0 });
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_full_pool_queues_in_order_and_a_full_queue_refuses_with_nodes_text() {
         let a = admission(1, 2);
         let cancel = Cancel::new();
@@ -648,7 +648,7 @@ mod tests {
         assert_eq!((a.active(Pool::Agent), a.queued()), (0, 0));
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn priority_beats_arrival_and_owners_take_turns() {
         let a = admission(1, 16);
         let first = a.acquire_in(Pool::Agent, Some("x"), Priority::UserVisible, &Cancel::new()).await.unwrap();
@@ -672,7 +672,7 @@ mod tests {
         assert_eq!(*order.lock().unwrap(), ["c-blocking", "a1", "b1", "a2", "a-best"]);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn shells_and_agents_never_wait_behind_each_other() {
         let a = admission(1, 4);
         let cancel = Cancel::new();
@@ -687,7 +687,7 @@ mod tests {
         queued_agent.abort();
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_cancelled_wait_leaves_the_queue_and_a_freed_slot_is_not_lost() {
         let a = admission(1, 4);
         let first = a.acquire_in(Pool::Agent, None, Priority::UserVisible, &Cancel::new()).await.unwrap();
@@ -711,7 +711,7 @@ mod tests {
     }
 
     /// Node's real controller on three queues: the grant order and the refusal.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn grant_order_and_refusal_follow_node() {
         let golden: serde_json::Value = serde_json::from_str(include_str!("golden/admission.json")).unwrap();
         let scenarios: [(&str, usize, Vec<(&'static str, Priority, &'static str)>); 3] = [
@@ -746,7 +746,7 @@ mod tests {
 
     /// Node's real controller: a yielded agent lets another run; its slot comes back in the
     /// queue, behind an owner that was already waiting.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_yielded_agent_lets_another_run_and_gets_its_slot_back_in_order() {
         let a = admission(1, 16);
         let ev: Arc<Mutex<Vec<String>>> = Arc::default();
@@ -831,7 +831,7 @@ mod tests {
     }
 
     /// What Node's cancelled wait says per source of the cancel.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_cancelled_wait_says_what_its_source_said() {
         let golden = yield_golden();
         let probe = |abort: Box<dyn Fn(&Cancel)>| async move {

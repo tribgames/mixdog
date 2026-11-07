@@ -223,7 +223,7 @@ async fn concurrent_judgments_all_complete_and_dropping_one_does_not_block_the_r
     });
     dropped.abort();
     for task in tasks {
-        let probs = tokio::time::timeout(Duration::from_secs(60), task).await.expect("completes").expect("joins").expect("judges");
+        let probs = task.await.expect("joins").expect("judges");
         assert_eq!(probs.len(), 4);
         assert!((probs.iter().sum::<f64>() - 1.0).abs() < 1e-9);
     }

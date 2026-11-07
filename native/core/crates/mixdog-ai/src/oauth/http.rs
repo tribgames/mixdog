@@ -3,6 +3,7 @@
 //! the transport's own reason, and the scrubber that keeps secrets out of
 //! failure messages.
 
+use crate::transport::deadlines::TOKEN_EXCHANGE;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::login::LoginFailure;
 use mixdog_core_api::domain::provider::WireRequest;
@@ -53,16 +54,19 @@ pub async fn call(
     body: Vec<u8>,
 ) -> Result<Reply, LoginFailure> {
     let response = http
-        .send(WireRequest {
-            transport: TransportKind::Http1,
-            method: method.into(),
-            url: url.into(),
-            headers: headers
-                .into_iter()
-                .map(|(k, v)| (k.to_owned(), v))
-                .collect(),
-            body,
-        })
+        .send(
+            WireRequest {
+                transport: TransportKind::Http1,
+                method: method.into(),
+                url: url.into(),
+                headers: headers
+                    .into_iter()
+                    .map(|(k, v)| (k.to_owned(), v))
+                    .collect(),
+                body,
+            },
+            TOKEN_EXCHANGE,
+        )
         .await
         .map_err(|err| failed("transport", err.message))?;
     let read = response
@@ -147,7 +151,11 @@ pub(crate) mod testing {
 
     #[async_trait]
     impl HttpSend for Scripted {
-        async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+        async fn send(
+            &self,
+            request: WireRequest,
+            _exchange: crate::transport::Exchange,
+        ) -> Result<HttpResponse, ProviderError> {
             self.seen.lock().unwrap().push(request);
             let (status, body) = self.replies.lock().unwrap().pop_front().expect("a scripted reply");
             Ok(HttpResponse {

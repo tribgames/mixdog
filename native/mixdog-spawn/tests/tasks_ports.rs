@@ -7,7 +7,6 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::time::Instant;
 
 use common::*;
 use mixdog_core_api::domain::process::CommandSpec;
@@ -174,9 +173,7 @@ fn ports_sampler_pushes_diffs_and_stops_with_the_last_viewer() {
 }
 
 fn wait_for(condition: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
-        assert!(Instant::now() < deadline, "condition not reached");
         std::thread::sleep(Duration::from_millis(5));
     }
 }

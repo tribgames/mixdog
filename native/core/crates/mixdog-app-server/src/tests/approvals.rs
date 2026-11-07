@@ -88,7 +88,7 @@ fn ids(frames: &[Value]) -> Vec<&str> {
         .collect()
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_request_reaches_subscribers_of_its_thread_or_surface_and_inbox_connections() {
     let rig = Rig::new();
     let _t1 = thread(&rig, "t1");
@@ -112,7 +112,7 @@ async fn a_request_reaches_subscribers_of_its_thread_or_surface_and_inbox_connec
     assert_eq!(ids(&control(on_surface.drain())), Vec::<&str>::new());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_connection_that_becomes_eligible_later_gets_pending_requests_after_its_attach_response() {
     let rig = Rig::new();
     let _thread = thread(&rig, "t1");
@@ -147,7 +147,7 @@ async fn an_inbox_connection_gets_pending_requests_right_after_initialize() {
     assert_eq!(ids(&control[1..]), ["ap1"]);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_decision_goes_to_the_owning_thread_and_only_from_a_connection_that_has_the_request() {
     let rig = Rig::new();
     let owner = thread(&rig, "t1");
@@ -270,7 +270,7 @@ async fn simultaneous_answers_one_wins_and_every_connection_hears_the_winners_de
     assert_eq!(owner.actor.pending(), 0);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_invalid_decision_leaves_the_request_pending_and_only_its_sender_hears_of_it() {
     let rig = Rig::new();
     let owner = actor(&rig, "t1");
@@ -314,7 +314,7 @@ async fn an_invalid_decision_leaves_the_request_pending_and_only_its_sender_hear
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_request_that_outlives_its_expiry_resolves_timed_out_for_everyone() {
     let rig = Rig::new();
     let owner = actor(&rig, "t1");
@@ -345,7 +345,7 @@ async fn a_request_that_outlives_its_expiry_resolves_timed_out_for_everyone() {
     assert!(late.drain().is_empty());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_abort_resolves_only_the_threads_own_requests() {
     let rig = Rig::new();
     let parent = actor(&rig, "t1");
@@ -381,7 +381,7 @@ async fn an_abort_resolves_only_the_threads_own_requests() {
     assert_eq!(child.actor.resolutions().len(), 1);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_core_restart_while_waiting_interrupts_every_open_request() {
     let rig = Rig::new();
     let parent = actor(&rig, "t1");
@@ -492,7 +492,7 @@ async fn a_rejected_response_is_an_error_notification_to_the_sender_only() {
     assert!(other.drain().is_empty());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn pending_requests_survive_a_disconnect() {
     let rig = Rig::new();
     let owner = thread(&rig, "t1");

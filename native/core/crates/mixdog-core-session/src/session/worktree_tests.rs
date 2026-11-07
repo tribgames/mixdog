@@ -84,8 +84,8 @@ impl WorkspaceHost for FakeHost {
         self.state.lock().unwrap().live.clone()
     }
 
-    async fn stored_consumers(&self) -> Vec<LiveSession> {
-        Vec::new()
+    async fn stored_consumers(&self) -> Result<Vec<LiveSession>, ScmFailure> {
+        Ok(Vec::new())
     }
 
     async fn running_jobs(&self) -> Vec<JobCwd> {

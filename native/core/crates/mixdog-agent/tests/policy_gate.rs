@@ -18,6 +18,7 @@ use mixdog_agent::env::RunEvent;
 use mixdog_agent::env::RunObserver;
 use mixdog_agent::env::Stage;
 use mixdog_agent::env::TextRetraction;
+use mixdog_agent::env::Tone;
 use mixdog_agent::env::ToolGate;
 use mixdog_agent::env::TurnGuards;
 use mixdog_core_api::domain::mock::MockApprovalGate;
@@ -372,5 +373,5 @@ async fn an_approved_ask_runs_and_an_unsaved_always_allow_is_noticed() {
         .0
         .lock()
         .expect("events")
-        .contains(&RunEvent::Stage(Stage::Notice { message: ALLOW_NOT_SAVED_NOTICE.into() })));
+        .contains(&RunEvent::Stage(Stage::Notice { message: ALLOW_NOT_SAVED_NOTICE.into(), tone: Tone::Warn })));
 }

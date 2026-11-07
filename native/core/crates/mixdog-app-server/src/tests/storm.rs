@@ -138,7 +138,7 @@ async fn reconnect(
     client
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(start_paused = true)]
 async fn g5_reconnect_storm_replays_by_position_loads_once_and_keeps_its_bounds() {
     let rig = Arc::new(Rig::new());
     let mut threads: Vec<Arc<MockThread>> = Vec::new();

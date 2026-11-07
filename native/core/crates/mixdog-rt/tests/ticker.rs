@@ -1,5 +1,6 @@
 //! The core ticker against the real executors.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -37,7 +38,7 @@ fn fires_in_deadline_order_at_or_after_the_deadline() {
         });
     }
     let got: Vec<_> = (0..3)
-        .map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap())
+        .map(|_| rx.recv().unwrap())
         .collect();
     assert_eq!(got.iter().map(|g| g.0).collect::<Vec<_>>(), ["a", "b", "c"]);
     assert!(got[0].1 >= ms(30) && got[2].1 >= ms(90));
@@ -50,7 +51,7 @@ fn an_earlier_deadline_preempts_a_pending_far_one() {
     let far = ticker.register(Instant::now() + Duration::from_secs(3600), || {});
     let (tx, rx) = mpsc::channel();
     let _ = ticker.register(Instant::now() + ms(20), move || tx.send(()).unwrap());
-    rx.recv_timeout(Duration::from_secs(5)).expect("woken for the earlier deadline");
+    rx.recv().expect("woken for the earlier deadline");
     assert!(far.cancel());
 }
 
@@ -72,7 +73,7 @@ fn cancel_prevents_the_callback_and_reports_it() {
     // Cancelling after it fired reports false.
     let (tx, rx) = mpsc::channel();
     let fired = ticker.register(Instant::now(), move || tx.send(()).unwrap());
-    rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    rx.recv().unwrap();
     assert!(!fired.cancel());
 }
 
@@ -83,7 +84,7 @@ fn a_dropped_handle_keeps_the_deadline_and_a_panic_does_not_stop_the_ticker() {
     let (tx, rx) = mpsc::channel();
     let _ = ticker.register(Instant::now() + ms(10), || panic!("callback panic"));
     let _ = ticker.register(Instant::now() + ms(30), move || tx.send(()).unwrap());
-    rx.recv_timeout(Duration::from_secs(5)).expect("ticker survived the panic");
+    rx.recv().expect("ticker survived the panic");
 }
 
 #[test]
@@ -99,7 +100,10 @@ fn wait_until_resolves_and_disarms_when_dropped() {
         assert!(started.elapsed() >= ms(30));
 
         let abandoned = ticker.wait_until(Instant::now() + Duration::from_secs(3600));
-        assert!(tokio::time::timeout(ms(20), abandoned).await.is_err());
+        // Polled once and still pending; dropped at the end of this block, which disarms it.
+        let mut abandoned = std::pin::pin!(abandoned);
+        let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(abandoned.as_mut().poll(cx))).await;
+        assert!(polled.is_pending());
     });
     assert_eq!(ticker.pending(), before, "the abandoned wait disarmed itself");
 }
@@ -121,7 +125,7 @@ fn many_deadlines_share_one_task() {
             }
         });
     }
-    rx.recv_timeout(Duration::from_secs(10)).expect("all fired");
+    rx.recv().expect("all fired");
     let diag = rt().diagnostics();
     let tasks = diag.tasks.iter().filter(|t| t.task == "core-ticker").count();
     assert_eq!(tasks, 1);

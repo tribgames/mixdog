@@ -115,6 +115,24 @@ pub trait SkillSelector: Send + Sync {
 // Events
 // ---------------------------------------------------------------------------
 
+/// How a notice is shown (`tone: 'warn'` in Node's stage payload; anything else is `info`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Tone {
+    #[default]
+    Info,
+    Warn,
+}
+
+impl Tone {
+    /// The notice item's `level`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Tone::Info => "info",
+            Tone::Warn => "warn",
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum Stage {
     Connecting,
@@ -131,8 +149,10 @@ pub enum Stage {
     ModelFallback {
         model: String,
     },
+    /// A display-only transcript notice (`onStageChange('notice', { tone, message })`).
     Notice {
         message: String,
+        tone: Tone,
     },
     Compacting,
     ApprovalWait {
@@ -792,6 +812,7 @@ impl ToolGate for PolicyGate {
                 if authorized.allow_not_saved {
                     self.approvals.observer.event(RunEvent::Stage(Stage::Notice {
                         message: ALLOW_NOT_SAVED_NOTICE.to_owned(),
+                        tone: Tone::Warn,
                     }));
                 }
                 // A hook's rewrite of the same tool keeps the bound account.

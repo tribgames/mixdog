@@ -71,7 +71,7 @@ struct Offline;
 
 #[async_trait]
 impl HttpSend for Offline {
-    async fn send(&self, _: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, _: WireRequest, _: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
     }
 }

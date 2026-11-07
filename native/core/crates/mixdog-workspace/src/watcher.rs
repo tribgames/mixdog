@@ -385,8 +385,15 @@ mod tests {
         watcher.watch("w", &root, true).unwrap();
         std::fs::write(root.join(".git/objects/blob"), "x").unwrap();
         std::fs::write(root.join(".git/index"), "x").unwrap();
-        std::thread::sleep(Duration::from_millis(700));
-        let mut git_paths = Vec::new();
+        // Until the `.git/index` write is announced; the objects write came first and is filtered
+        // by the watcher itself, so it would never arrive later.
+        let mut git_paths: Vec<String> = Vec::new();
+        while !git_paths.iter().any(|p| p.ends_with("index")) {
+            let (_, paths, kind) = rx.recv().expect("the watcher is alive");
+            if kind == ChangeKind::Git {
+                git_paths.extend(paths);
+            }
+        }
         while let Ok((_, paths, kind)) = rx.try_recv() {
             if kind == ChangeKind::Git {
                 git_paths.extend(paths);

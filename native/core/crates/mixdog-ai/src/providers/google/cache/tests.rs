@@ -44,7 +44,11 @@ struct FakeHttp {
 
 #[async_trait]
 impl HttpSend for FakeHttp {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         self.sent.lock().unwrap().push(request);
         // A create takes time on the wire; callers race while it is in flight.
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
@@ -103,7 +107,11 @@ struct StallHttp {
 
 #[async_trait]
 impl HttpSend for StallHttp {
-    async fn send(&self, _request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        _request: WireRequest,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         *self.sent.lock().unwrap() += 1;
         futures::future::pending().await
     }
@@ -236,7 +244,7 @@ async fn one_create_serves_concurrent_sessions_with_the_same_prefix() {
 
 /// A stalled create settles at Node's total deadline (180 s by default): the
 /// owner and a joiner both proceed uncached, and the key is free again.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_stalled_create_settles_at_the_deadline_and_releases_the_key() {
     let g = golden();
     let (tools, tool_config, contents) = parts(&g);
@@ -312,7 +320,11 @@ struct StallOnce {
 
 #[async_trait]
 impl HttpSend for StallOnce {
-    async fn send(&self, _request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        _request: WireRequest,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         let n = {
             let mut sent = self.sent.lock().unwrap();
             *sent += 1;
@@ -328,7 +340,7 @@ impl HttpSend for StallOnce {
 
 /// Node's `withRetry` around the create: an attempt stalled past the 120 s
 /// attempt limit is retried after the backoff, inside the 180 s total.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_create_attempt_stalled_past_its_limit_is_retried_inside_the_total() {
     let g = golden();
     let (tools, tool_config, contents) = parts(&g);

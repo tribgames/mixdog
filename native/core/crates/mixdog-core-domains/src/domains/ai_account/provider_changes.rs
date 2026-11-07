@@ -190,7 +190,7 @@ mod tests {
 
     /// Which changes re-initialize the providers, against the recorded Node run: its real
     /// `applyConfigChange` over config edits and key saves. Only the provider effects are compared.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn the_same_changes_reinitialize_the_providers_as_in_node() {
         let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/provider-change-effects/golden.json")).unwrap();
         let w = world(false, Duration::from_secs(1)).await;
@@ -228,7 +228,7 @@ mod tests {
     }
 
     /// A re-init that fails is run again after the backoff, with the cooldowns released again.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn a_failed_reinit_is_retried_after_the_backoff() {
         let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/provider-change-effects/golden.json")).unwrap();
         let strings = |value: &Value| value.as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_owned()).collect::<Vec<_>>();

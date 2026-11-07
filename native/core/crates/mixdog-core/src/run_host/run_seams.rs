@@ -34,14 +34,14 @@ const LEGACY_DEFAULT_BUFFER_RATIO: f64 = 0.1;
 
 pub struct ConfigRunSeams {
     config: Config,
-    agents: AgentDefinitions,
+    agents: Arc<AgentDefinitions>,
     plugin_root: PathBuf,
     data_dir: PathBuf,
     env: EnvReader,
 }
 
 impl ConfigRunSeams {
-    pub fn new(config: Config, agents: AgentDefinitions, plugin_root: PathBuf, data_dir: PathBuf, env: EnvReader) -> Self {
+    pub fn new(config: Config, agents: Arc<AgentDefinitions>, plugin_root: PathBuf, data_dir: PathBuf, env: EnvReader) -> Self {
         Self { config, agents, plugin_root, data_dir, env }
     }
 

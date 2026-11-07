@@ -61,6 +61,8 @@ pub(super) struct Rows {
     pub services: Vec<Arc<dyn DomainService>>,
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
     pub system: Arc<mixdog_spawn::service::SystemService>,
+    /// The one update service: `setup` `set_auto_update` answers its `getUpdateSettings()`.
+    pub update: Arc<UpdateService>,
     pub package_version: String,
 }
 
@@ -119,13 +121,15 @@ pub(super) async fn build(
         dev,
     );
     let auto = config.clone();
-    services.push(UpdateService::new(
+    let update = UpdateService::new(
         UpdateConfig {
             current_version: current_version.clone(),
             registry_url: REGISTRY_URL.to_owned(),
             data_dir: inputs.paths.data_dir.clone(),
-            // `config.update.auto !== false`, read on each use.
-            auto_update: Arc::new(move || auto.get("update.auto") != Some(Value::Bool(false))),
+            // `config.update.auto !== false` of the agent config, read on each use.
+            auto_update: Arc::new(move || {
+                auto.agent().get("update").and_then(Value::as_object).and_then(|update| update.get("auto")) != Some(&Value::Bool(false))
+            }),
             auto_switch: Arc::new(Settings::new(config.clone(), seams.settings_effects.clone(), inputs.env.clone())),
         },
         Arc::new(installer),
@@ -133,9 +137,10 @@ pub(super) async fn build(
         inputs.scopes.scopes("update")?,
         inputs.scopes.scopes("config")?,
         tokens,
-    ));
+    );
+    services.push(update.clone());
 
     let system = mixdog_spawn::service::SystemService::new(inputs.scoped_feeds.clone());
     services.push(system.clone());
-    Ok(Rows { services, transfer_sources, system, package_version: current_version })
+    Ok(Rows { services, transfer_sources, system, update, package_version: current_version })
 }

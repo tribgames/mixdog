@@ -9,6 +9,7 @@
 //! settling of the enriched rows and the shared picker sanitizer, in Node's
 //! order (`_fetchAndCacheCatalog`).
 
+use crate::transport::deadlines::GROK_LISTING;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -105,7 +106,16 @@ impl GrokListing {
     async fn items(&self, url: String, headers: Vec<(String, String)>) -> Result<Vec<Value>, ProviderError> {
         let head = self
             .http
-            .send(WireRequest { transport: TransportKind::Http1, method: "GET".to_owned(), url, headers, body: Vec::new() })
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "GET".to_owned(),
+                    url,
+                    headers,
+                    body: Vec::new(),
+                },
+                GROK_LISTING,
+            )
             .await?;
         let success = head.is_success();
         let response = head.read_all().await?;

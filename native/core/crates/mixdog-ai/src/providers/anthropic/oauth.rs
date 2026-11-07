@@ -5,6 +5,8 @@
 //! [`PkceProvider`]); this module supplies only Anthropic's URLs, client id and
 //! token bodies.
 
+use crate::transport::deadlines::TOKEN_EXCHANGE;
+use crate::transport::link::deadline_error;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
@@ -369,7 +371,10 @@ async fn token_call(
     now: u64,
     flow: TokenFlow,
 ) -> Result<StoredOAuth, TokenFailure> {
-    let response = http.send(request).await.map_err(TokenFailure::Failed)?;
+    let response = http
+        .send(request, TOKEN_EXCHANGE)
+        .await
+        .map_err(TokenFailure::Failed)?;
     let reply = response.read_all().await.map_err(TokenFailure::Failed)?;
     let status = reply.status.unwrap_or(0);
     if !(200..300).contains(&status) {
@@ -501,6 +506,7 @@ impl OAuthSession {
             .file
             .refresh_once(async move { parts.refresh(rejected).await })
             .await
+            .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous)))
     }
 }
 

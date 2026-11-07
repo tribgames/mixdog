@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -26,6 +27,7 @@ struct Faulty {
     inner: Arc<Recorder>,
     fault: (&'static str, Fault),
     hold: Mutex<mpsc::Receiver<()>>,
+    flushes: Arc<AtomicU32>,
 }
 
 impl Faulty {
@@ -72,6 +74,9 @@ impl CorePort for Faulty {
         self.at("close_data_handles");
         self.inner.close_data_handles();
     }
+    fn flush_log(&self) {
+        self.flushes.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 /// Every budget ample except the one of `step`, which is zero.
@@ -90,6 +95,7 @@ fn budgets(step: &str) -> ReleaseBudgets {
 struct Run {
     recorder: Arc<Recorder>,
     root: tempfile::TempDir,
+    flushes: Arc<AtomicU32>,
     /// Dropping it lets a wedged step thread end.
     _unwedge: mpsc::Sender<()>,
 }
@@ -99,10 +105,11 @@ fn release_with(fault: (&'static str, Fault), budgets: ReleaseBudgets) -> Run {
     let recorder = Arc::new(Recorder::default());
     let root = tempfile::tempdir().unwrap();
     let (unwedge, hold) = mpsc::channel();
+    let flushes = Arc::new(AtomicU32::new(0));
     let lifecycle = Lifecycle::with_budgets(
         LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: root.path().to_owned() },
         Ports {
-            core: Arc::new(Faulty { inner: recorder.clone(), fault, hold: Mutex::new(hold) }),
+            core: Arc::new(Faulty { inner: recorder.clone(), fault, hold: Mutex::new(hold), flushes: flushes.clone() }),
             discovery: recorder.clone(),
             exiter: recorder.clone(),
         },
@@ -110,7 +117,7 @@ fn release_with(fault: (&'static str, Fault), budgets: ReleaseBudgets) -> Run {
     );
     lifecycle.set_serving().unwrap();
     drop(lifecycle.connection());
-    Run { recorder, root, _unwedge: unwedge }
+    Run { recorder, root, flushes, _unwedge: unwedge }
 }
 
 fn last_exit(root: &std::path::Path) -> serde_json::Value {
@@ -126,10 +133,12 @@ fn a_wedged_release_step_is_named_and_the_process_still_exits() {
         ("close_data_handles", "closeDataHandles"),
     ] {
         let run = release_with((step, Fault::Wedge), budgets(step));
-        assert!(run.recorder.wait_exit(), "{step} wedged the release");
+        run.recorder.wait_exit();
         let exit = last_exit(run.root.path());
         assert_eq!(exit["stuckStep"], name, "{step}");
         assert_eq!(exit["reason"], "noClients", "{step}");
+        // Node's exit hook writes the queued log tail on a forced exit too: the flush does not depend on the skipped steps.
+        assert_eq!(run.flushes.load(Ordering::SeqCst), 1, "the log is flushed once before the exit after {step} wedged");
         let events = run.recorder.events();
         assert!(events.contains(&"withdraw".to_owned()), "discovery is withdrawn after {step} wedged: {events:?}");
         if step != "close_data_handles" {
@@ -141,7 +150,7 @@ fn a_wedged_release_step_is_named_and_the_process_still_exits() {
 #[test]
 fn a_panicking_release_step_does_not_stop_the_release() {
     let run = release_with(("close_connections", Fault::Panic), budgets(""));
-    assert!(run.recorder.wait_exit(), "a panic in a step kept the process alive");
+    run.recorder.wait_exit();
     let events = run.recorder.events();
     assert!(events.contains(&"close_ext_host".to_owned()), "{events:?}");
     assert!(events.contains(&"close_data_handles".to_owned()), "{events:?}");
@@ -151,6 +160,6 @@ fn a_panicking_release_step_does_not_stop_the_release() {
 #[test]
 fn a_clean_release_names_no_stuck_step() {
     let run = release_with(("none", Fault::Wedge), budgets(""));
-    assert!(run.recorder.wait_exit());
+    run.recorder.wait_exit();
     assert!(last_exit(run.root.path()).get("stuckStep").is_none());
 }

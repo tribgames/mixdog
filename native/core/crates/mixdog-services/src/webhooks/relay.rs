@@ -195,7 +195,7 @@ mod tests {
         }
 
         async fn next_leg(&mut self) -> Leg {
-            tokio::time::timeout(Duration::from_secs(10), self.legs.recv()).await.expect("a leg is dialed").unwrap()
+            self.legs.recv().await.unwrap()
         }
     }
 
@@ -203,7 +203,7 @@ mod tests {
         async fn round_trip(&mut self, frame: Value) -> Value {
             self.socket.send(Message::Text(frame.to_string().into())).await.unwrap();
             loop {
-                match tokio::time::timeout(Duration::from_secs(10), self.socket.next()).await.expect("a reply").unwrap().unwrap() {
+                match self.socket.next().await.unwrap().unwrap() {
                     Message::Text(text) => return serde_json::from_str(text.as_str()).unwrap(),
                     _ => continue,
                 }

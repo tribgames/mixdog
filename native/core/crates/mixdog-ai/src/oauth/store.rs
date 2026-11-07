@@ -249,8 +249,9 @@ impl CredentialFile {
 
     /// Runs `refresh` for this credential, or joins the one already running
     /// (any handle on the same file) and returns its result. Re-read the
-    /// credential at the start of `refresh`: it may just have been renewed.
-    pub async fn refresh_once<T, F>(&self, refresh: F) -> T
+    /// credential at the start of `refresh`: it may just have been renewed. A
+    /// refresh that outlives its deadline ends for every joiner as `Expired`.
+    pub async fn refresh_once<T, F>(&self, refresh: F) -> Result<T, mixdog_rt::Expired>
     where
         T: Clone + Send + Sync + 'static,
         F: std::future::Future<Output = T> + Send + 'static,

@@ -4,6 +4,8 @@
 //! PKCE live in the shared login plumbing; this module only describes what
 //! goes to Google and reads what comes back.
 
+use crate::transport::deadlines::ANTIGRAVITY_PROJECT;
+use crate::transport::deadlines::TOKEN_EXCHANGE;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -246,13 +248,19 @@ impl AntigravityAuth {
         ]);
         let response = self
             .http
-            .send(WireRequest {
-                transport: TransportKind::Http1,
-                method: "POST".into(),
-                url: TOKEN_URL.into(),
-                headers: vec![("content-type".into(), "application/x-www-form-urlencoded".into())],
-                body,
-            })
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "POST".into(),
+                    url: TOKEN_URL.into(),
+                    headers: vec![(
+                        "content-type".into(),
+                        "application/x-www-form-urlencoded".into(),
+                    )],
+                    body,
+                },
+                TOKEN_EXCHANGE,
+            )
             .await?;
         let status = response.status;
         let reply = response.read_all().await?;
@@ -407,7 +415,7 @@ impl CodeAssist<'_> {
                     ),
                 ],
                 body: body.map(|b| b.to_string().into_bytes()).unwrap_or_default(),
-            })
+            }, ANTIGRAVITY_PROJECT)
             .await?;
         let status = response.status;
         let reply = response.read_all().await?;
@@ -532,7 +540,14 @@ impl PkceProvider for AntigravityLogin {
 
     async fn exchange(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
         let fail = |err: ProviderError| login_failure(&err, "");
-        let response = self.http.send(exchange_request(code, verifier, redirect_uri)).await.map_err(fail)?;
+        let response = self
+            .http
+            .send(
+                exchange_request(code, verifier, redirect_uri),
+                TOKEN_EXCHANGE,
+            )
+            .await
+            .map_err(fail)?;
         let status = response.status;
         let reply = response.read_all().await.map_err(fail)?;
         if !(200..300).contains(&status) {
@@ -545,13 +560,19 @@ impl PkceProvider for AntigravityLogin {
         })?;
         let info = self
             .http
-            .send(WireRequest {
-                transport: TransportKind::Http1,
-                method: "GET".into(),
-                url: USERINFO_URL.into(),
-                headers: vec![("authorization".into(), format!("Bearer {}", grant.access_token))],
-                body: Vec::new(),
-            })
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "GET".into(),
+                    url: USERINFO_URL.into(),
+                    headers: vec![(
+                        "authorization".into(),
+                        format!("Bearer {}", grant.access_token),
+                    )],
+                    body: Vec::new(),
+                },
+                TOKEN_EXCHANGE,
+            )
             .await
             .map_err(fail)?;
         let info_status = info.status;

@@ -40,6 +40,8 @@ mod worktree_gate;
 mod worktree_host;
 #[path = "worktree_host_impl.rs"]
 mod worktree_host_impl;
+#[path = "worktree_consumers.rs"]
+mod worktree_consumers;
 #[path = "worktree_ops.rs"]
 mod worktree_ops;
 #[path = "worktree_state.rs"]
@@ -90,6 +92,7 @@ pub use self::worktree_gate::Cwd;
 pub use self::worktree_gate::SpawnGuard;
 pub use self::worktree_gate::TurnGuard;
 pub use self::worktree_host::JobCwd;
+pub use self::worktree_consumers::StoredConsumers;
 pub use self::worktree_host_impl::HostRuntime;
 pub use self::worktree_host_impl::SessionWorkspaceHost;
 pub use self::worktree_host_impl::WorkspaceContext;
@@ -107,6 +110,7 @@ pub use self::worktree_maintenance::WorktreeMaintenance;
 pub use self::worktree_maintenance::cleanup_summary;
 pub use self::worktree_maintenance::startup_summary;
 pub use self::worktree_reroot::PendingReroot;
+pub use self::worktree_reroot::PromptReroot;
 pub use self::worktree_reroot::PromptRewrite;
 pub use self::worktree_reroot::PromptView;
 pub use self::worktree_reroot::pending_workspace_reroot;

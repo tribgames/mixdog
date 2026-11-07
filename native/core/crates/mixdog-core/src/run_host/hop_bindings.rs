@@ -37,6 +37,10 @@ use mixdog_core_config::config::Config;
 pub struct HopBindings {
     pub wiring: Arc<dyn HopWiring>,
     pub errors: ErrorText,
+    /// The facts source and the Codex-declared lookup `wiring` is built over: the session's effort prewarm (`JudgePrewarm`) reads the same ones, so a
+    /// prewarm and a turn agree on what Auto effort can judge.
+    pub source: Arc<dyn WiringSource>,
+    pub codex_declared: Arc<CodexDeclared>,
 }
 
 struct ProcessWiring {
@@ -84,12 +88,12 @@ impl WiringSource for ProcessWiring {
 
 impl HopBindings {
     pub fn new(p: &ProcessServices) -> Self {
-        let source = ProcessWiring {
+        let source: Arc<dyn WiringSource> = Arc::new(ProcessWiring {
             catalog: p.catalog.clone(),
             config: p.config.clone(),
             caps: CatalogCaps::new(p.catalog.clone(), &*p.env),
             local: p.local.clone(),
-        };
+        });
         let catalog = p.catalog.clone();
         let codex_declared: Arc<CodexDeclared> = Arc::new(move |id| {
             let snapshot = catalog.snapshot();
@@ -97,8 +101,10 @@ impl HopBindings {
         });
         let unsupported: Arc<UnsupportedEfforts> = p.unsupported.clone();
         Self {
-            wiring: Arc::new(RouteWirer::new(Arc::new(source), unsupported, codex_declared)),
+            wiring: Arc::new(RouteWirer::new(source.clone(), unsupported, codex_declared.clone())),
             errors: Arc::new(|error| present_error_text(&ErrorView::from(error), &PresentOptions::default())),
+            source,
+            codex_declared,
         }
     }
 }

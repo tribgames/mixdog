@@ -12,6 +12,7 @@ use mixdog_protocol::JsonValue;
 
 use crate::env::RunEvent;
 use crate::env::Stage;
+use crate::env::Tone;
 use crate::message::AgentMessage;
 use crate::run::Run;
 
@@ -184,6 +185,7 @@ impl Run {
             message: format!(
                 "Tool \"{name}\" was excluded from this session's requests: its input schema is invalid at / ({reason}). Fix the tool's schema or disable the tool."
             ),
+            tone: Tone::Warn,
         }));
         self.dropped_tools.insert(
             name.clone(),

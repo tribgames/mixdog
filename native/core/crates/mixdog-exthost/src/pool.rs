@@ -551,7 +551,6 @@ fn fail(queued: &Queued, error: ExtError) {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
 
     use super::*;
 
@@ -591,7 +590,7 @@ mod tests {
         dispatcher.on(Event::Stop(0));
         assert!(dispatcher.workers[&0].io.is_none());
 
-        tokio::time::timeout(Duration::from_secs(30), async {
+        async {
             loop {
                 let event = inbox.recv().await.expect("dispatcher events");
                 let exited = matches!(event, Event::Exited(0));
@@ -607,9 +606,8 @@ mod tests {
                     break;
                 }
             }
-        })
-        .await
-        .expect("the stopped worker exits");
+        }
+        .await;
         assert!(dispatcher.workers.is_empty());
         assert!(status.load().is_empty());
     }

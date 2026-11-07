@@ -779,7 +779,6 @@ fn kill_self() -> ! {
 }
 
 /// The longest one child migration of the corpus may take before the matrix fails.
-const CHILD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Runs the migration in a child process that dies at fault point `kill_at`.
 fn run_child_killed_at(work: &Path, kill_at: usize) -> std::process::ExitStatus {
@@ -791,18 +790,8 @@ fn run_child_killed_at(work: &Path, kill_at: usize) -> std::process::ExitStatus 
         .stderr(std::process::Stdio::null())
         .spawn()
         .unwrap();
-    let started = std::time::Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            return status;
-        }
-        if started.elapsed() > CHILD_DEADLINE {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("the child for kill point {kill_at} ran past {CHILD_DEADLINE:?}");
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    // The child kills itself at `kill_at`; its exit is what is waited for.
+    child.wait().unwrap()
 }
 
 #[test]

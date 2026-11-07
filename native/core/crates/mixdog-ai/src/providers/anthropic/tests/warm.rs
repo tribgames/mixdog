@@ -62,7 +62,11 @@ struct WarmHttp {
 
 #[async_trait]
 impl HttpSend for WarmHttp {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         self.sent.lock().unwrap().push(request);
         let reply = self.script.lock().unwrap().pop_front().expect("scripted reply");
         Ok(match reply {
@@ -427,7 +431,11 @@ async fn a_post_that_never_answers_ends_at_the_first_byte_deadline() {
     struct Hang;
     #[async_trait]
     impl HttpSend for Hang {
-        async fn send(&self, _: WireRequest) -> Result<HttpResponse, ProviderError> {
+        async fn send(
+            &self,
+            _: WireRequest,
+            _exchange: crate::transport::Exchange,
+        ) -> Result<HttpResponse, ProviderError> {
             std::future::pending().await
         }
     }

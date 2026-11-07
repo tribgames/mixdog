@@ -35,7 +35,11 @@ fn server(rows: Vec<(u16, Vec<(&str, &str)>, &str)>) -> Arc<Server> {
 
 #[async_trait]
 impl HttpSend for Server {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         self.seen.lock().unwrap().push(request);
         let (status, headers, body) = self.rows.lock().unwrap().pop_front().expect("scripted answer");
         Ok(HttpResponse { status, headers, body: Box::new(Once(Some(Bytes::from(body)))) })

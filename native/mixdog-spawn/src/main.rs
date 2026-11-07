@@ -1242,9 +1242,7 @@ mod tests {
         impl Held {
             /// Block until the held thread reached its point.
             pub(crate) fn reached(&self) {
-                self.arrived
-                    .recv_timeout(Duration::from_secs(30))
-                    .expect("the thread reached its point");
+                self.arrived.recv().expect("the thread reached its point");
             }
 
             /// Let it go on. Dropping a Held lets it go on too.

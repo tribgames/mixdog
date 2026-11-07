@@ -936,7 +936,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_released_session_keeps_what_its_release_saved_when_its_flush_timer_would_have_fired() {
         let store = Arc::new(Memory::default());
         let state = persistent(store.clone());
@@ -958,7 +958,7 @@ mod tests {
         assert!(state.snapshot(Some("s0"), "/x").is_some());
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_deleted_session_loses_its_file_and_its_pending_flush() {
         let store = Arc::new(Memory::default());
         let state = persistent(store.clone());
@@ -972,7 +972,7 @@ mod tests {
 
     /// `session-close.mjs:releaseSessionReadCaches`: a closing session's snapshots leave memory
     /// and their last content is saved, where a deleted session's file goes.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_closed_session_leaves_memory_but_keeps_its_file() {
         let store = Arc::new(Memory::default());
         let state = persistent(store.clone());

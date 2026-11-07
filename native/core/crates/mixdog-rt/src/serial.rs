@@ -256,7 +256,7 @@ mod tests {
         assert!(!chain.is_busy());
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_waiter_cancelled_after_the_hand_off_passes_the_turn_on() {
         let chain = SerialChain::new();
         let first = chain.acquire().await;
@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(chains.busy_keys(), 0);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn state_is_readable_while_a_task_holding_the_turn_awaits() {
         let chain = SerialChain::new();
         let running = tokio::spawn({

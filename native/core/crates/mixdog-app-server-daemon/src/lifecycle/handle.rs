@@ -307,6 +307,11 @@ impl Lifecycle {
                 self.record_exit(&reason, stuck.or(Some("closeDataHandles")));
             }
         }
+        // Node's exit hook writes the queued log tail on every exit, a forced one included (`daemon.mjs:153`); `closeDataHandles` is skipped
+        // when an earlier step was stuck, so the flush has its own step. It goes through the log's own queue and lane, under the
+        // supervisor's existing record budget: a disk that never answers cannot hold the exit.
+        let flush = Arc::clone(core);
+        supervise("flushLog", budgets.record_exit, move || flush.flush_log());
         self.apply(Machine::mark_stopped);
         self.ports.exiter.exit();
     }

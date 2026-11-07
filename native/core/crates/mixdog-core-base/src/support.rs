@@ -99,6 +99,8 @@ pub enum FsStep {
     Stat(PathBuf),
     /// `copyFileSync(from, to)` / `fs.promises.copyFile`: `copyfile '<from>' -> '<to>'`.
     CopyFile(PathBuf, PathBuf),
+    /// `readdirSync(path)` / `fs.promises.readdir`: `scandir '<path>'`.
+    Scandir(PathBuf),
 }
 
 /// A file operation that failed, with the step Node would have failed at.
@@ -338,6 +340,7 @@ fn errno_of(error: &std::io::Error) -> Option<(&'static str, &'static str)> {
 /// A failed file operation as Node throws it: `code` is the errno name and the text
 /// `<code>: <description>, <syscall> '<path>'` (`rename '<from>' -> '<to>'`). Kinds without a
 /// known errno keep Rust's text and no code.
+#[allow(clippy::disallowed_methods, reason = "a stat of the failed path, on the lane job's thread that reports the failure")]
 pub fn io_failure(domain: &'static str, failure: &FsFailure) -> CoreError {
     if let FsStep::RemoveDirectory(path) = &failure.step {
         return coded(
@@ -349,7 +352,11 @@ pub fn io_failure(domain: &'static str, failure: &FsFailure) -> CoreError {
             ),
         );
     }
-    let Some((code, description)) = errno_of(&failure.error) else {
+    // libuv's `scandir` looks at the path's attributes first: a path that is not a directory is
+    // `ENOTDIR` whatever the system's own listing error says (Windows says `ENOENT`).
+    let not_a_directory = matches!(&failure.step, FsStep::Scandir(path) if path.exists() && !path.is_dir());
+    let errno = if not_a_directory { ERRNOS.iter().find(|(code, _)| *code == "ENOTDIR").copied() } else { errno_of(&failure.error) };
+    let Some((code, description)) = errno else {
         return failed(domain, failure.error.to_string());
     };
     let call = match &failure.step {
@@ -363,6 +370,7 @@ pub fn io_failure(domain: &'static str, failure: &FsFailure) -> CoreError {
         FsStep::Rmdir(path) => format!("rmdir '{}'", path.display()),
         FsStep::Stat(path) => format!("stat '{}'", path.display()),
         FsStep::CopyFile(from, to) => format!("copyfile '{}' -> '{}'", from.display(), to.display()),
+        FsStep::Scandir(path) => format!("scandir '{}'", path.display()),
         FsStep::RemoveDirectory(_) => unreachable!("answered above"),
     };
     coded(domain, code, format!("{code}: {description}, {call}"))

@@ -2,6 +2,9 @@
 //! announces (`endpoint` event) the URL the client POSTs its own messages to. The endpoint must be
 //! on the server's origin: nothing else receives the headers or the sign-in token.
 
+use crate::deadlines::STARTUP;
+use crate::deadlines::expired;
+use mixdog_rt::Liveness;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -170,13 +173,25 @@ impl SseTransport {
             Some(auth) => auth.token().await?,
             None => None,
         };
-        let mut response = get(attempted.clone()).send().await.map_err(request_error)?;
+        let mut response = STARTUP
+            .bound_head(get(attempted.clone()).send())
+            .await
+            .map_err(expired)?
+            .map_err(request_error)?;
         if let Some(auth) = &auth
             && crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref())
         {
-            auth.renew(attempted, crate::transport::challenge_of(&response)).await?;
-            response = get(auth.token().await?).send().await.map_err(request_error)?;
-            if crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref()) {
+            auth.renew(attempted, crate::transport::challenge_of(&response))
+                .await?;
+            response = STARTUP
+                .bound_head(get(auth.token().await?).send())
+                .await
+                .map_err(expired)?
+                .map_err(request_error)?;
+            if crate::transport::refused(
+                response.status().as_u16(),
+                crate::transport::challenge_of(&response).as_deref(),
+            ) {
                 return Err(TransportError::AuthRequired);
             }
         }
@@ -193,8 +208,22 @@ impl SseTransport {
             mixdog_rt::TaskClass::Work,
             pump(response, url, incoming.clone(), endpoint_tx, shutdown.clone()),
         );
-        let endpoint = endpoint_rx.await.map_err(|_| TransportError::Closed)??;
-        Ok((Self { client, endpoint, headers, auth, shutdown, incoming }, rx))
+        let endpoint = STARTUP
+            .bound_head(endpoint_rx)
+            .await
+            .map_err(expired)?
+            .map_err(|_| TransportError::Closed)??;
+        Ok((
+            Self {
+                client,
+                endpoint,
+                headers,
+                auth,
+                shutdown,
+                incoming,
+            },
+            rx,
+        ))
     }
 }
 
@@ -206,7 +235,26 @@ impl Drop for SseTransport {
 
 #[async_trait]
 impl Transport for SseTransport {
-    async fn send(&self, message: Value) -> Result<(), TransportError> {
+    async fn send(&self, message: Value, liveness: Liveness) -> Result<(), TransportError> {
+        liveness
+            .bound_head(self.post_message(message))
+            .await
+            .map_err(expired)?
+    }
+
+    async fn close(&self) {
+        if !self.shutdown.is_cancelled() {
+            self.shutdown.cancel();
+            let _ = self.incoming.send(Incoming::Closed(CloseCause {
+                reason: "closed by client".to_owned(),
+                stderr_tail: String::new(),
+            }));
+        }
+    }
+}
+
+impl SseTransport {
+    async fn post_message(&self, message: Value) -> Result<(), TransportError> {
         if self.shutdown.is_cancelled() {
             return Err(TransportError::Closed);
         }
@@ -237,16 +285,6 @@ impl Transport for SseTransport {
         }
         let body = response.text().await.unwrap_or_default();
         Err(TransportError::Http { status: status.as_u16(), body: body.chars().take(ERROR_BODY_CHARS).collect() })
-    }
-
-    async fn close(&self) {
-        if !self.shutdown.is_cancelled() {
-            self.shutdown.cancel();
-            let _ = self.incoming.send(Incoming::Closed(CloseCause {
-                reason: "closed by client".to_owned(),
-                stderr_tail: String::new(),
-            }));
-        }
     }
 }
 

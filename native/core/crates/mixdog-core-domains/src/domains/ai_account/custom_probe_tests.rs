@@ -49,7 +49,11 @@ struct Scripted {
 
 #[async_trait]
 impl HttpSend for Scripted {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         self.seen.lock().unwrap().push(request);
         Ok(HttpResponse { status: self.status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(self.body.clone())))) })
     }

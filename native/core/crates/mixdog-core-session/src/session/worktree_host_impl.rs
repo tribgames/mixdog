@@ -61,7 +61,8 @@ pub trait HostRuntime: Send + Sync + 'static {
     async fn reroot_prompt(&self, session_id: &str, cwd: &str, context: &WorkspaceContext) -> Result<Undo, ScmFailure>;
     async fn activity(&self, session_id: &str) -> LeadActivity;
     fn live_sessions(&self) -> Vec<LiveSession>;
-    async fn stored_consumers(&self) -> Vec<LiveSession>;
+    /// [`StoredConsumers::list`](super::worktree_consumers::StoredConsumers::list).
+    async fn stored_consumers(&self) -> Result<Vec<LiveSession>, ScmFailure>;
     async fn running_jobs(&self) -> Vec<JobCwd>;
     async fn shell_job_count(&self, session_ids: &[String]) -> u64;
     /// `copyProjectIdentity`: writes `<worktree>/.mixdog/project.id` unless it holds data.
@@ -110,7 +111,7 @@ pub struct SessionWorkspaceHost {
     marker: Arc<Mutex<HashMap<String, Option<Value>>>>,
 }
 
-fn port(error: impl std::fmt::Debug) -> ScmFailure {
+pub(super) fn port(error: impl std::fmt::Debug) -> ScmFailure {
     plain(format!("{error:?}"))
 }
 
@@ -181,7 +182,7 @@ impl WorkspaceHost for SessionWorkspaceHost {
         self.runtime.live_sessions()
     }
 
-    async fn stored_consumers(&self) -> Vec<LiveSession> {
+    async fn stored_consumers(&self) -> Result<Vec<LiveSession>, ScmFailure> {
         self.runtime.stored_consumers().await
     }
 

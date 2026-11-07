@@ -1,0 +1,3026 @@
+{
+  "domain": "workflow-list-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-workflow-list.mjs",
+  "cases": [
+    {
+      "world": "empty",
+      "files": [],
+      "config": {},
+      "result": []
+    },
+    {
+      "world": "empty",
+      "files": [],
+      "config": {
+        "workflow": {
+          "active": "review"
+        }
+      },
+      "result": []
+    },
+    {
+      "world": "empty",
+      "files": [],
+      "config": {
+        "workflow": {
+          "active": "Review"
+        }
+      },
+      "result": []
+    },
+    {
+      "world": "empty",
+      "files": [],
+      "config": {
+        "workflow": {
+          "active": "solo"
+        }
+      },
+      "result": []
+    },
+    {
+      "world": "empty",
+      "files": [],
+      "config": {
+        "workflow": {
+          "active": "default"
+        }
+      },
+      "result": []
+    },
+    {
+      "world": "empty",
+      "files": [],
+      "config": {
+        "workflow": {
+          "active": "ghost"
+        }
+      },
+      "result": []
+    },
+    {
+      "world": "empty",
+      "files": [],
+      "config": {
+        "workflow": {
+          "active": ""
+        }
+      },
+      "result": []
+    },
+    {
+      "world": "empty",
+      "files": [],
+      "config": {
+        "workflow": {
+          "active": null
+        }
+      },
+      "result": []
+    },
+    {
+      "world": "empty",
+      "files": [],
+      "config": {
+        "workflow": {
+          "active": "mine-pack"
+        }
+      },
+      "result": []
+    },
+    {
+      "world": "empty",
+      "files": [],
+      "config": {
+        "workflow": {
+          "active": "a"
+        }
+      },
+      "result": []
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {},
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        }
+      ]
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "review"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "Review"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "solo"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        }
+      ]
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "default"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        }
+      ]
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "ghost"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": ""
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        }
+      ]
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": null
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        }
+      ]
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "mine-pack"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "default only",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "a"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {},
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "review"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": true
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "Review"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": true
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "solo"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "default"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "ghost"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": ""
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": null
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": true
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "mine-pack"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": true
+        }
+      ]
+    },
+    {
+      "world": "mixed",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\ndescription: The default.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\ndescription: Reviews.\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "headless/WORKFLOW.md",
+          "text": "---\nname: Headless\nhidden: true\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "alpha/WORKFLOW.md",
+          "text": "---\nname: alpha\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "stray/readme.txt",
+          "text": "x"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: My Review\ndescription: Mine.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "mine/WORKFLOW.md",
+          "text": "---\nid: Mine Pack\nname: Zeta\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "Éclair/WORKFLOW.md",
+          "text": "---\nname: Éclair\ndescription: Accent.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "bodiless/WORKFLOW.md",
+          "text": "---\nname: Bodiless\n---\n"
+        },
+        {
+          "side": "data",
+          "path": "hidden-user/WORKFLOW.md",
+          "text": "---\nname: Hidden\nhidden:  TRUE \n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "unnamed/WORKFLOW.md",
+          "text": "---\ndescription: No name.\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "not-hidden/WORKFLOW.md",
+          "text": "---\nname: Shown\nhidden: false\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "a"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "The default.",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "alpha",
+          "name": "alpha",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "My Review",
+          "description": "Mine.",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "not-hidden",
+          "name": "Shown",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "unnamed",
+          "name": "unnamed",
+          "description": "No name.",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "mine-pack",
+          "name": "Zeta",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {},
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": true
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "review"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": true
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "Review"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": true
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "solo"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": true
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "default"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": true
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "ghost"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": ""
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": true
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": null
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": true
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "mine-pack"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "user default override and hidden shipped override",
+      "files": [
+        {
+          "side": "root",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: Default\n---\nBody text.\n"
+        },
+        {
+          "side": "root",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "default/WORKFLOW.md",
+          "text": "---\nname: My Default\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "review/WORKFLOW.md",
+          "text": "---\nname: Review\nhidden: true\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "a"
+        }
+      },
+      "result": [
+        {
+          "id": "default",
+          "name": "My Default",
+          "description": "",
+          "source": "user",
+          "overridesBuiltIn": true,
+          "active": false
+        },
+        {
+          "id": "review",
+          "name": "Review",
+          "description": "",
+          "source": "built-in",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {},
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "review"
+        }
+      },
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "Review"
+        }
+      },
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "solo"
+        }
+      },
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "default"
+        }
+      },
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "ghost"
+        }
+      },
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": ""
+        }
+      },
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": null
+        }
+      },
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "mine-pack"
+        }
+      },
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    },
+    {
+      "world": "sorting",
+      "files": [
+        {
+          "side": "data",
+          "path": "b/WORKFLOW.md",
+          "text": "---\nname: banana\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "a/WORKFLOW.md",
+          "text": "---\nname: Apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "c/WORKFLOW.md",
+          "text": "---\nname: cherry\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "d/WORKFLOW.md",
+          "text": "---\nname: apple\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "e/WORKFLOW.md",
+          "text": "---\nname: Zed\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "f/WORKFLOW.md",
+          "text": "---\nname: ábaco\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "g/WORKFLOW.md",
+          "text": "---\nname: 10 ten\n---\nBody text.\n"
+        },
+        {
+          "side": "data",
+          "path": "h/WORKFLOW.md",
+          "text": "---\nname: 9 nine\n---\nBody text.\n"
+        }
+      ],
+      "config": {
+        "workflow": {
+          "active": "a"
+        }
+      },
+      "result": [
+        {
+          "id": "g",
+          "name": "10 ten",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "h",
+          "name": "9 nine",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "f",
+          "name": "ábaco",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "d",
+          "name": "apple",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "a",
+          "name": "Apple",
+          "description": "",
+          "source": "user",
+          "active": true
+        },
+        {
+          "id": "b",
+          "name": "banana",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "c",
+          "name": "cherry",
+          "description": "",
+          "source": "user",
+          "active": false
+        },
+        {
+          "id": "e",
+          "name": "Zed",
+          "description": "",
+          "source": "user",
+          "active": false
+        }
+      ]
+    }
+  ]
+}

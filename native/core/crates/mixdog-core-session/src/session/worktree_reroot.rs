@@ -2,14 +2,28 @@
 //! messages that carry the prompt: Node's `stageWorkspaceReroot` state (`session.workspaceReroot`),
 //! `applyPendingWorkspaceReroot` and the `# Session` block rebuild `refreshSessionBp3Environment`
 //! (`prompt-utils.mjs`), as `updateSessionRoute` runs them on a route change
-//! (`session-lifecycle.mjs:517-518`). Nothing here writes; the caller lands the returned change.
+//! (`session-lifecycle.mjs:517-518`), and the in-place re-root of a session without a
+//! conversation (`refreshSessionWorkspaceContext`). The reads are pure; [`PromptReroot`] is the one
+//! writer, landing the in-place re-root with its undo.
 
+use std::sync::Arc;
+
+use mixdog_core_api::ids::ThreadId;
+use mixdog_core_ports::ports::threads::ThreadState;
+use mixdog_core_prompt::prompt::blocks::SystemBlocks;
 use mixdog_js::js_trim;
 use mixdog_js::value_to_string;
+use mixdog_scm::error::ScmFailure;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
 use serde_json::Map;
 use serde_json::Value;
+
+use crate::session::SessionDirectory;
+use super::worktree_host::Undo;
+use super::worktree_host_impl::WorkspaceContext;
+use super::worktree_host_impl::port;
+use super::worktree_state::plain;
 
 const SEPARATOR: &str = "\n\n---\n\n";
 const CORE_MEMORY_HEADING: &str = "# Core Memory\n";
@@ -317,6 +331,96 @@ pub fn presented_workspace(view: &PromptView) -> Value {
     Value::Object(presented)
 }
 
+/// `refreshSessionWorkspaceContext(session, context)` for a session without a user conversation:
+/// a staged change is applied first (`applyPendingWorkspaceReroot`, which drops it), then the
+/// prompt is re-rooted at `cwd` in place (`rerootSessionWorkspace`): environment facts, project
+/// memory and instruction files are replaced (`None` keeps a slice, an empty one drops it) and the
+/// `# Session` block is rebuilt for `cwd`. The intermediate `# Session` refresh of the staged
+/// change is not kept: the final one rebuilds the same blocks from the same fields.
+pub fn in_place_reroot(view: &PromptView, cwd: &str, context: &WorkspaceContext) -> PromptRewrite {
+    let mut working = Working::new(view);
+    let pending = pending_workspace_reroot(view.header);
+    if let Some(pending) = &pending {
+        working.reroot(&pending.target);
+    }
+    let mut target = Map::new();
+    for (key, slice) in [
+        ("environmentContext", &context.environment_context),
+        ("coreMemoryContext", &context.core_memory_context),
+        ("instructionFilesContext", &context.instruction_files_context),
+    ] {
+        if let Some(slice) = slice {
+            target.insert(key.to_owned(), Value::String(slice.clone()));
+        }
+    }
+    working.reroot(&Value::Object(target));
+    working.refresh(view.header, cwd);
+    working.finish(view, pending.is_some())
+}
+
+/// The in-place re-root of the prompt stored in `header` as one header change (the rewritten
+/// fields and the `tier3` / `env` blocks that differ, under the [`SystemBlocks`] keys), and the
+/// change that puts back every key it touches as `header` had it (Node's `snapshotPrompt`).
+pub fn in_place_reroot_patch(header: &Header, cwd: &str, context: &WorkspaceContext) -> (HeaderChange, HeaderChange) {
+    let blocks = SystemBlocks::from_header(header);
+    let rewrite = in_place_reroot(&PromptView { header, tier3: blocks.core.as_deref(), env: blocks.env.as_deref() }, cwd, context);
+    let mut next = blocks.clone();
+    if let Some(core) = rewrite.tier3 {
+        next.core = Some(core);
+    }
+    if let Some(env) = rewrite.env {
+        next.env = Some(env);
+    }
+    let mut change = rewrite.change;
+    let written = next.change_from(&blocks);
+    change.set.extend(written.set);
+    for key in written.unset {
+        if !change.unset.contains(&key) {
+            change.unset.push(key);
+        }
+    }
+    let mut undo = HeaderChange { set: Map::new(), unset: Vec::new() };
+    for key in change.set.keys().chain(change.unset.iter()) {
+        match header.get(key) {
+            Some(value) => {
+                undo.set.insert(key.clone(), value.clone());
+            }
+            None if !undo.unset.contains(key) => undo.unset.push(key.clone()),
+            None => {}
+        }
+    }
+    (change, undo)
+}
+
+/// `HostRuntime::reroot_prompt`: the in-place re-root of a loaded session's prompt, landed in one
+/// durable header patch; the undo is one patch putting the touched keys back.
+pub struct PromptReroot {
+    directory: Arc<SessionDirectory>,
+    threads: Arc<dyn ThreadState>,
+}
+
+impl PromptReroot {
+    pub fn new(directory: Arc<SessionDirectory>, threads: Arc<dyn ThreadState>) -> Self {
+        Self { directory, threads }
+    }
+
+    /// Re-roots the prompt of `session_id` at `cwd` with `context`'s slices. Rejects when the
+    /// session is not loaded or the save fails (nothing changed then).
+    pub async fn reroot(&self, session_id: &str, cwd: &str, context: &WorkspaceContext) -> Result<Undo, ScmFailure> {
+        let thread = ThreadId::from(session_id);
+        let header = self.directory.handle(&thread).map(|handle| handle.cell.header.load_full()).ok_or_else(|| plain("session: the session is not loaded"))?;
+        let (change, back) = in_place_reroot_patch(&header, cwd, context);
+        if change.set.is_empty() && change.unset.is_empty() {
+            let nothing: Undo = Box::new(|| Box::pin(async { Ok(()) }));
+            return Ok(nothing);
+        }
+        self.threads.patch_header(&thread, change.set, change.unset).await.map_err(port)?;
+        let threads = self.threads.clone();
+        let undo: Undo = Box::new(move || Box::pin(async move { threads.patch_header(&thread, back.set, back.unset).await.map_err(port) }));
+        Ok(undo)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +461,66 @@ mod tests {
             assert_eq!(applied, case["applied"], "{}: applied", case["name"]);
             let kept = landed(before, &route_prompt_refresh(&view(&header, before), false));
             assert_eq!(kept, case["kept"], "{}: kept", case["name"]);
+        }
+    }
+
+    /// Node's prompt state as the header holds it: the fields, the `tier3` message under its block
+    /// key (`bp3CoreContext` itself in the split layout, `promptTier3` in the combined one) and
+    /// the `env` message as `promptEnv`.
+    fn stored(state: &Value) -> Header {
+        let mut header = header_of(state);
+        let split = header.get("bp3EnvSplit") == Some(&Value::Bool(true));
+        if let Some(tier3) = state["tier3"].as_str() {
+            if split {
+                assert_eq!(header.get("bp3CoreContext").and_then(Value::as_str), Some(tier3), "the split tier3 message is bp3CoreContext");
+            } else {
+                header.insert("promptTier3".to_owned(), Value::String(tier3.to_owned()));
+            }
+        }
+        if let Some(env) = state["env"].as_str() {
+            header.insert("promptEnv".to_owned(), Value::String(env.to_owned()));
+        }
+        header
+    }
+
+    fn patched(header: &Header, change: &HeaderChange) -> Header {
+        let mut next = header.clone();
+        for key in &change.unset {
+            next.shift_remove(key);
+        }
+        for (key, value) in &change.set {
+            next.insert(key.clone(), value.clone());
+        }
+        next
+    }
+
+    /// `refreshWorkspacePrompt`'s context: an absent slice is `undefined` (kept).
+    fn context_of(context: &Value) -> WorkspaceContext {
+        let slice = |key: &str| context.get(key).and_then(Value::as_str).map(str::to_owned);
+        WorkspaceContext {
+            environment_context: slice("environmentContext"),
+            core_memory_context: slice("coreMemoryContext"),
+            instruction_files_context: slice("instructionFilesContext"),
+        }
+    }
+
+    /// Node's `refreshSessionWorkspaceContext` on a session without a conversation
+    /// (`fixtures/prompt-reroot`), case by case, byte for byte; the undo puts every touched key
+    /// back (`snapshotPrompt`).
+    #[test]
+    fn a_session_without_a_conversation_is_rerooted_in_place_exactly_as_node_does() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/prompt-reroot/golden.json")).expect("golden");
+        let cases = golden["cases"].as_array().expect("cases");
+        assert_eq!(cases.len(), 11);
+        for case in cases {
+            let name = &case["name"];
+            assert_eq!(case["before"]["systemOnly"], Value::Bool(true), "{name}: no conversation");
+            let before = stored(&case["before"]);
+            let cwd = case["context"]["cwd"].as_str().expect("cwd");
+            let (change, undo) = in_place_reroot_patch(&before, cwd, &context_of(&case["context"]));
+            let after = patched(&before, &change);
+            assert_eq!(after, stored(&case["after"]), "{name}: after");
+            assert_eq!(patched(&after, &undo), before, "{name}: the undo restores the prompt");
         }
     }
 

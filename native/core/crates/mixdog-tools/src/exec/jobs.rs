@@ -130,6 +130,37 @@ pub struct IoLanes {
     pub maintenance: MaintenanceIo,
 }
 
+/// `shell-runtime.mjs`' `_configuredShell` and `_resolvedShell`. The default program is resolved
+/// when first needed and kept until the setting changes (`setConfiguredShell` clears it), so a
+/// PATH or install change is seen after a setting change, as in Node.
+pub trait ShellSource: Send + Sync {
+    /// `getConfiguredShell()`.
+    fn configured(&self) -> String;
+    /// The kept default program, `None` after a setting change (or before the first use).
+    fn kept_default(&self) -> Option<String>;
+    /// `resolveShell()` without a setting: probes the file system, so it runs in a lane job.
+    fn resolve_default(&self) -> String;
+    /// Keeps `program` unless the setting is no longer `configured` (a change during the probe
+    /// leaves the cleared state; the next spawn probes again).
+    fn keep_default(&self, configured: &str, program: String);
+}
+
+/// A shell source whose default never changes (hosts without a setting, tests).
+pub struct FixedShell(pub String);
+
+impl ShellSource for FixedShell {
+    fn configured(&self) -> String {
+        String::new()
+    }
+    fn kept_default(&self) -> Option<String> {
+        Some(self.0.clone())
+    }
+    fn resolve_default(&self) -> String {
+        self.0.clone()
+    }
+    fn keep_default(&self, _: &str, _: String) {}
+}
+
 #[derive(Clone)]
 pub struct ExecConfig {
     pub tasks: Arc<SpawnTasks>,
@@ -152,11 +183,9 @@ pub struct ExecConfig {
     /// The runtime a skill script runs on (this daemon's executable and the skill entry); the
     /// PowerShell `mixdog-skill-node` function and the launcher files are built from it.
     pub skill_runtime: Option<super::invocation::SkillRuntime>,
-    /// The resolved shell's program path (`/bin/bash`): bash and zsh get the environment snapshot.
-    pub shell_path: String,
-    /// The default shell's program name (`powershell.exe`, `pwsh`): Windows PowerShell 5.1 has no
-    /// `&&`, PowerShell 7 does.
-    pub shell_name: String,
+    /// The "system shell" setting and the default program, both read at every spawn (see
+    /// [`super::shell_choice::chosen_shell`]).
+    pub shell: Arc<dyn ShellSource>,
     /// Tells whether a Node script body compiles as CommonJS (see [`super::hoist::ScriptSyntax`]).
     pub script_syntax: Arc<dyn super::hoist::ScriptSyntax>,
     /// The host is Windows (PowerShell hints, `Path` casing, UTF-8 Python variables).

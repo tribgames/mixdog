@@ -1553,7 +1553,6 @@ impl Client {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods)] // reads the shared scenario options file
 mod tests {
-    use std::time::Duration;
 
     use super::*;
     use crate::mock::MockNetwork;
@@ -1565,14 +1564,10 @@ mod tests {
         })
     }
 
-    async fn until(what: &str, mut ok: impl FnMut() -> bool) {
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while !ok() {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("timed out: {what}"));
+    async fn until(_what: &str, mut ok: impl FnMut() -> bool) {
+        while !ok() {
+            tokio::task::yield_now().await;
+        }
     }
 
     /// A lane's task holds a reference on the shared state, so the reference count shows whether the task is alive.

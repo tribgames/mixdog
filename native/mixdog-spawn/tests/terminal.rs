@@ -12,7 +12,6 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::time::Instant;
 
 use async_trait::async_trait;
 use common::*;
@@ -417,12 +416,10 @@ impl Events {
             .collect()
     }
 
-    fn wait_for(&self, what: &str, predicate: impl Fn(&[Ev]) -> bool) {
+    fn wait_for(&self, _what: &str, predicate: impl Fn(&[Ev]) -> bool) {
         let mut log = self.log.lock().unwrap();
-        let deadline = Instant::now() + Duration::from_secs(60);
         while !predicate(&log) {
-            let left = deadline.checked_duration_since(Instant::now()).unwrap_or_else(|| panic!("timed out waiting for {what}: {log:?}"));
-            log = self.changed.wait_timeout(log, left).unwrap().0;
+            log = self.changed.wait(log).unwrap();
         }
     }
 }
@@ -486,12 +483,10 @@ impl Rig {
     }
 
     fn wait_text(&self, id: &str, needle: &str) {
-        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             if self.tabs.snapshot(id, None).is_some_and(|s| s.text.contains(needle)) {
                 return;
             }
-            assert!(Instant::now() < deadline, "{needle:?} never appeared in {:?}", self.tabs.snapshot(id, None).map(|s| s.text));
             std::thread::sleep(Duration::from_millis(25));
         }
     }

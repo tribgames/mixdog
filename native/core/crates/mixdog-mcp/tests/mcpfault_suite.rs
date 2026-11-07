@@ -56,7 +56,10 @@ impl ExtensionConfig for Config {
     fn set_disabled_skills(&self, _: &[String]) {}
 }
 
-struct Host;
+struct Host {
+    /// The failure of the working-folder read, when the test switches one on.
+    cwd_error: Option<&'static str>,
+}
 
 #[async_trait]
 impl ExtensionHost for Host {
@@ -64,8 +67,8 @@ impl ExtensionHost for Host {
     async fn announce(&self, _: &str) {}
     async fn announce_without_invalidating(&self, _: &str) {}
 
-    async fn tool_names(&self) -> Vec<String> {
-        Vec::new()
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
 
     async fn reconnect_mcp_and_announce(&self, only: Option<&str>, _: bool, _: &[String]) -> Value {
@@ -90,8 +93,11 @@ impl ExtensionHost for Host {
     fn invalidate_skills(&self) {}
     async fn flush_skills_save(&self) {}
 
-    async fn current_cwd(&self, _: Option<&str>) -> PathBuf {
-        std::env::temp_dir()
+    async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
+        match self.cwd_error {
+            Some(message) => Err(message.to_owned()),
+            None => Ok(std::env::temp_dir()),
+        }
     }
 
     async fn skills_status(&self) -> Value {
@@ -243,6 +249,10 @@ struct Fixture {
 }
 
 fn fixture(servers: Value) -> Fixture {
+    fixture_over(servers, Host { cwd_error: None })
+}
+
+fn fixture_over(servers: Value, host: Host) -> Fixture {
     let home = tempfile::tempdir().unwrap();
     let mut agent = Map::new();
     agent.insert("mcpServers".to_owned(), servers);
@@ -257,7 +267,7 @@ fn fixture(servers: Value) -> Fixture {
         fail_gmail_forget: AtomicBool::new(false),
     });
     let secrets = Arc::new(McpServerSecrets::new(ops.clone(), Default::default()));
-    let service = McpService::new(config.clone(), Arc::new(Host), Arc::new(Runtime(Arc::clone(&config))), secrets, home.path().join("home"));
+    let service = McpService::new(config.clone(), Arc::new(host), Arc::new(Runtime(Arc::clone(&config))), secrets, home.path().join("home"));
     Fixture { service, config, ops, _home: home }
 }
 
@@ -335,6 +345,13 @@ async fn a_failed_release_is_reported_at_once_and_the_others_still_run() {
     let mut released = f.ops.released.lock().unwrap().clone();
     released.sort();
     assert_eq!(released, ["notion", "notion-2", "notion-3"]);
+}
+
+/// A working folder that cannot be read (the read never ran) is the caller's error, not the process folder.
+#[tokio::test]
+async fn a_working_folder_that_cannot_be_read_is_the_failure_reported() {
+    let f = fixture_over(json!({}), Host { cwd_error: Some("the interactive lane is full") });
+    assert_eq!(call(&f, "mcp/mcpStatus", json!({})).await.unwrap_err(), "the interactive lane is full");
 }
 
 #[tokio::test]

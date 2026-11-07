@@ -13,7 +13,7 @@ use super::reason;
 use super::settle;
 use crate::Inbound;
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_request_before_initialize_is_not_initialized() {
     let rig = Rig::new();
     let client = rig.connect(1, Origin::Local);
@@ -26,7 +26,7 @@ async fn a_request_before_initialize_is_not_initialized() {
     assert_eq!(response["error"]["code"], json!(-32600));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn initialize_reports_the_core_and_latches() {
     let rig = Rig::new();
     let client = rig.connect(1, Origin::Ssh);
@@ -47,7 +47,7 @@ async fn initialize_reports_the_core_and_latches() {
     assert_eq!(reason(&again), "alreadyInitialized");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn initialized_changes_nothing() {
     let rig = Rig::new();
     let client = rig.ready(1, json!({}));
@@ -61,7 +61,7 @@ async fn initialized_changes_nothing() {
     assert!(client.response(1).await.get("result").is_some());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_version_mismatch_is_refused_and_closes_with_4002() {
     for (version, expected) in [("1.4.5", "clientOutdated"), ("1.5.0", "serverOutdated")] {
         let rig = Rig::new();
@@ -84,7 +84,7 @@ async fn a_version_mismatch_is_refused_and_closes_with_4002() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn unknown_methods_and_bad_params_are_typed_errors() {
     let rig = Rig::new();
     let client = rig.ready(1, json!({}));
@@ -117,7 +117,7 @@ async fn bad_frames_end_the_connection() {
     ));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn binary_frames_need_the_host_media_role() {
     let rig = Rig::new();
     let plain = rig.ready(1, json!({}));

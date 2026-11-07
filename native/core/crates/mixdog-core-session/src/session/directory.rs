@@ -179,6 +179,12 @@ impl SessionDirectory {
         &self.inner.left
     }
 
+    /// The production `ThreadOpGates` over this directory's threads. Build it once: its gates
+    /// are what orders the ops of one thread, so every user of the thread scope shares this one.
+    pub fn thread_ops(&self) -> Arc<super::thread_ops::ThreadOps> {
+        super::thread_ops::ThreadOps::new(self.inner.clone())
+    }
+
     /// The concrete handle of a loaded thread.
     pub fn handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         self.inner.loaded(id)
@@ -274,13 +280,21 @@ impl SessionDirectory {
         handle.inbox.send(Inbox::CompletionCard { content, meta }).await.is_ok()
     }
 
-    /// `notifySessionUi(id, content, meta)`: a UI-only notice on the thread's feed, and whether
-    /// the thread took it. Node's taker is the session runtime's own store, bound when the runtime
-    /// is created whoever views it (`local-session-runtime.mjs:487`), so a thread loaded here
-    /// takes it with or without subscribers; one not loaded has no runtime and does not.
-    pub async fn notify_ui(&self, id: &ThreadId, content: String, meta: Value) -> bool {
+    /// `notifySessionUi(id, 'Desktop settings request', { kind: 'setup-ui', id: request })`, and
+    /// whether the thread took it. Node's taker is the session runtime's own store, bound when
+    /// the runtime is created whoever views it (`local-session-runtime.mjs:487`), so a thread
+    /// loaded here takes it with or without subscribers; one not loaded has no runtime and does
+    /// not. The thread shows the request until it is settled or `window` ends.
+    pub async fn request_setup_ui(&self, id: &ThreadId, request: &str, window: std::time::Duration) -> bool {
         let Some(handle) = self.inner.loaded(id) else { return false };
-        handle.inbox.send(Inbox::UiNotice { content, meta }).await.is_ok()
+        handle.inbox.send(Inbox::SetupUiRequest { id: request.to_owned(), window }).await.is_ok()
+    }
+
+    /// The desktop request `request` can no longer be claimed: the thread stops showing it.
+    pub async fn settle_setup_ui(&self, id: &ThreadId, request: &str) {
+        if let Some(handle) = self.inner.loaded(id) {
+            let _ = handle.inbox.send(Inbox::SetupUiSettled { id: request.to_owned() }).await;
+        }
     }
 
     /// The live compaction (ordinal and `cid`) whose replacement holds the entry `iid`.
@@ -513,7 +527,7 @@ impl DirInner {
 
     /// A session's header: the live one of a loaded thread, else the stored record read on the io
     /// lane. `None` when the session is unknown or deleted.
-    async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
+    pub(super) async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
         // For read-only views, where an unrun read can only read as unknown.
         self.try_stored_header(id).await.ok().flatten()
     }
@@ -604,6 +618,15 @@ impl DirInner {
         }
     }
 
+    /// The thread an op record is written through: loaded, else opened for it (no prewarm);
+    /// `threadNotFound` when there is none.
+    pub(crate) async fn op_target(&self, id: &ThreadId) -> Result<Arc<SessionHandle>, CoreError> {
+        if let Some(handle) = self.loaded(id) {
+            return Ok(handle);
+        }
+        self.open_with(id, &CallContext::internal("thread-op"), false).await
+    }
+
     pub(super) fn loaded(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         match lock(self.shard(id)).get(id) {
             Some(Slot_::Loaded(handle)) => Some(handle.clone()),
@@ -692,6 +715,13 @@ impl DirInner {
             })?
             .await
             .map_err(|_| dropped())??;
+        let (store, thread) = (deps.store.clone(), id.clone());
+        let fenced = deps
+            .lanes
+            .io
+            .submit(&token, move |lane| store.fenced_ops(lane, &thread))?
+            .await
+            .map_err(|_| dropped())??;
         let lineage = self.lineage_of(id, &opened.state.header);
         if prewarm {
             deps.effort.prewarm(id, &opened.state.header);
@@ -703,7 +733,7 @@ impl DirInner {
             opened.log_id,
             opened.next_ordinal,
             opened.log,
-            Init::Open,
+            Init::Open { fenced },
         ))
     }
 

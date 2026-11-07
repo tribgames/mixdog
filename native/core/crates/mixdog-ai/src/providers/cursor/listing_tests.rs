@@ -37,7 +37,12 @@ struct NoRun;
 
 #[async_trait]
 impl BidiOpen for NoRun {
-    async fn open(&self, _request: WireRequest, _first: Vec<u8>) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+    async fn open(
+        &self,
+        _request: WireRequest,
+        _first: Vec<u8>,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         unreachable!("a listing opens no run")
     }
 }

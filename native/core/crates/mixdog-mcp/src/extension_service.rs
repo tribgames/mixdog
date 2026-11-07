@@ -76,8 +76,9 @@ pub trait ExtensionHost: Send + Sync {
     /// [`announce`](Self::announce) for a caller that already dropped the skills cache itself
     /// (`announce(kind, { invalidate: false })`).
     async fn announce_without_invalidating(&self, kind: &str);
-    /// The names of the tools the session offers (`getTools()`).
-    async fn tool_names(&self) -> Vec<String>;
+    /// The names of the tools the session offers (`getTools()`); a surface that cannot be read is
+    /// the error.
+    async fn tool_names(&self) -> Result<Vec<String>, String>;
     /// `reconnectMcpAndAnnounce({ only, enabled, drop })`: connect (or, when `enabled` is false,
     /// disconnect) server `only` and disconnect the `drop` names, reconcile, announce `mcp` with
     /// that change list to the other runtimes, and answer the MCP status.
@@ -99,7 +100,7 @@ pub trait ExtensionHost: Send + Sync {
     /// Persists debounced skill-state writes now.
     async fn flush_skills_save(&self);
     /// The folder the caller's session works in (`getCurrentCwd()`).
-    async fn current_cwd(&self, thread_id: Option<&str>) -> PathBuf;
+    async fn current_cwd(&self, thread_id: Option<&str>) -> Result<PathBuf, String>;
     /// The skills status (`skillsStatus()`), undecorated.
     async fn skills_status(&self) -> Value;
 }
@@ -239,7 +240,7 @@ impl PluginsService {
     async fn adopt_plugin_server_copies(&self, thread: Option<&str>, transform: impl FnOnce(Value) -> Value) -> Result<(), CoreError> {
         let before = self.config.agent();
         let current = Value::Object(before.clone());
-        let cwd = self.host.current_cwd(thread).await.to_string_lossy().into_owned();
+        let cwd = self.host.current_cwd(thread).await.map_err(|e| domain_error("config", e))?.to_string_lossy().into_owned();
         let catalog = self.catalog(current.clone(), cwd).await?;
         let adopted = with_adopted_copies(&current, catalog.adoption.as_ref());
         let next = transform(with_pinned_collision_names(&adopted, &catalog));
@@ -310,7 +311,7 @@ impl PluginsService {
         // Connections and files are untouched; only what sessions see changes.
         let announced = if change.kind == ScopeKind::Skills { "skills" } else { "plugins" };
         self.host.announce(announced).await;
-        let cwd = self.host.current_cwd(thread).await;
+        let cwd = self.host.current_cwd(thread).await.map_err(|e| domain_error("config", e))?;
         let scopes = self.scopes();
         Ok(match change.kind {
             ScopeKind::Skills => decorate_skills(&self.host.skills_status().await, &scopes, &cwd),
@@ -331,7 +332,7 @@ impl DomainService for PluginsService {
         let value = match req.method.as_str() {
             "plugins/pluginsStatus" => {
                 let status = self.status().await?;
-                let cwd = self.host.current_cwd(thread).await;
+                let cwd = self.host.current_cwd(thread).await.map_err(|e| domain_error("config", e))?;
                 decorate_plugins(&status, &self.scopes(), &cwd)
             }
             "plugins/reloadPlugins" => {

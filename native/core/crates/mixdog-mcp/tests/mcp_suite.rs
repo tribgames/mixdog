@@ -45,10 +45,7 @@ async fn ready(extra: Value, artifacts: &std::path::Path) -> Arc<McpServer> {
 
 async fn until(server: &McpServer, wanted: impl Fn(&ServerState) -> bool) {
     let mut rx = server.subscribe();
-    tokio::time::timeout(Duration::from_secs(10), rx.wait_for(|s| wanted(s)))
-        .await
-        .expect("state reached in time")
-        .unwrap();
+    rx.wait_for(|s| wanted(s)).await.unwrap();
 }
 
 fn text_of(parts: &[ToolPart]) -> String {

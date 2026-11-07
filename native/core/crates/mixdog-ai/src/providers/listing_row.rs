@@ -86,7 +86,11 @@ pub(crate) mod testing {
 
     #[async_trait]
     impl HttpSend for Replay {
-        async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+        async fn send(
+            &self,
+            request: WireRequest,
+            _exchange: crate::transport::Exchange,
+        ) -> Result<HttpResponse, ProviderError> {
             let (status, body) = (self.answer)(&request);
             self.requests.lock().unwrap().push(request);
             Ok(HttpResponse { status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })

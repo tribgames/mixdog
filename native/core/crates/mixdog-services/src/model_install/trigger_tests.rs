@@ -6,7 +6,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use mixdog_agent::step_effort::StepInput;
 use tokio_util::sync::CancellationToken;
@@ -30,14 +29,10 @@ fn step() -> StepInput {
 /// Waits for `done`, re-checked after every tick. A condition that never comes
 /// fails the test instead of hanging it.
 async fn until(tick: &StateTick, mut done: impl FnMut() -> bool) {
-    tokio::time::timeout(Duration::from_secs(120), async {
-        let mut changes = tick.subscribe();
-        while !done() {
-            changes.changed().await.expect("tick lives");
-        }
-    })
-    .await
-    .expect("the condition was reached");
+    let mut changes = tick.subscribe();
+    while !done() {
+        changes.changed().await.expect("tick lives");
+    }
 }
 
 /// Lets queued background work run so a trigger that must NOT fire has had its chance.

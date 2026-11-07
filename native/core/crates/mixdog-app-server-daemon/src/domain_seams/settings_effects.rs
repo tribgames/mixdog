@@ -26,23 +26,63 @@ fn provider_of_option(id: &str) -> Option<&'static str> {
     DEV_PROVIDERS.into_iter().find(|provider| developer_option_for_provider(provider) == Some(id))
 }
 
-/// `_configuredShell` of `shell-runtime.mjs`: the command the settings name, `None` for none.
+/// `_configuredShell` of `shell-runtime.mjs` (the command the settings name, `None` for none) and
+/// `_resolvedShell` (the default program found by walking PATH, dropped when the command changes).
 #[derive(Default)]
-pub struct ConfiguredShell(Mutex<Option<String>>);
+pub struct ConfiguredShell(Mutex<(Option<String>, Option<String>)>);
 
 impl ConfiguredShell {
-    /// `setConfiguredShell(value)`: `String(value || '').trim() || null`; true when it changed.
+    /// `setConfiguredShell(value)`: `String(value || '').trim() || null`; true when it changed,
+    /// which also drops the kept default program.
     pub fn set(&self, value: &str) -> bool {
         let next = Some(js_trim(value).to_owned()).filter(|text| !text.is_empty());
-        let mut current = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        let changed = *current != next;
-        *current = next;
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let changed = state.0 != next;
+        if changed {
+            *state = (next, None);
+        }
         changed
     }
 
     /// `getConfiguredShell()`.
     pub fn get(&self) -> String {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).clone().unwrap_or_default()
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).0.clone().unwrap_or_default()
+    }
+
+    /// The kept default program (`_resolvedShell`).
+    pub fn kept_default(&self) -> Option<String> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).1.clone()
+    }
+
+    /// Keeps a probed default program unless the command changed while it was probed.
+    pub fn keep_default(&self, configured: &str, program: String) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.0.as_deref().unwrap_or_default() == configured {
+            state.1 = Some(program);
+        }
+    }
+}
+
+#[cfg(test)]
+mod default_tests {
+    use super::*;
+
+    /// `setConfiguredShell` clears `_resolvedShell` only when the value changes.
+    #[test]
+    fn the_kept_default_program_is_dropped_by_a_changed_command_only() {
+        let shell = ConfiguredShell::default();
+        assert_eq!(shell.kept_default(), None);
+        shell.keep_default("", "/bin/bash".to_owned());
+        assert_eq!(shell.kept_default().as_deref(), Some("/bin/bash"));
+        assert!(!shell.set("  "));
+        assert_eq!(shell.kept_default().as_deref(), Some("/bin/bash"));
+        assert!(shell.set("pwsh"));
+        assert_eq!(shell.kept_default(), None);
+        // A probe that started before the change does not keep its stale answer.
+        shell.keep_default("", "/bin/bash".to_owned());
+        assert_eq!(shell.kept_default(), None);
+        shell.keep_default("pwsh", "/bin/zsh".to_owned());
+        assert_eq!(shell.kept_default().as_deref(), Some("/bin/zsh"));
     }
 }
 

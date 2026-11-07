@@ -67,7 +67,7 @@ async fn a_resume_position_in_the_ring_replays() {
     assert_eq!(subscription["startSeq"], json!(2));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn thread_resume_adds_the_subscription_to_the_owners_result() {
     let rig = Rig::new();
     let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
@@ -134,7 +134,7 @@ async fn closing_the_connection_detaches_its_subscriptions() {
     assert!(wire.drain().is_empty());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_failed_attach_is_an_error_response_and_registers_nothing() {
     let rig = Rig::new();
     let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));

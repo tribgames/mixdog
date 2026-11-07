@@ -12,11 +12,15 @@ use std::cmp::Ordering;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
+use mixdog_ai::transport::HttpSend;
+use mixdog_ai::transport::KeepaliveSchedule;
+use mixdog_ai::transport::ReqwestLink;
+use mixdog_ai::transport::TransportKind;
+use mixdog_ai::transport::deadlines::UPDATE_CHECK;
 use mixdog_app_protocol::v2::host::UpdateDesktopCommandParams;
 use mixdog_app_protocol::v2::host::UpdaterAction;
 use mixdog_app_protocol::v2::params::ConfigSetAutoUpdateParams;
@@ -27,6 +31,7 @@ use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
 use mixdog_core_api::Reply;
+use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
@@ -51,7 +56,6 @@ use mixdog_core_base::support::wrong_method;
 const DOMAIN: &str = "update";
 /// `https://registry.npmjs.org/mixdog/latest`.
 pub const REGISTRY_URL: &str = "https://registry.npmjs.org/mixdog/latest";
-const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 const CACHE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const CACHE_FILE: &str = "update-check-cache.json";
 
@@ -291,7 +295,6 @@ pub struct UpdateService {
     ops: OpScopes,
     /// The `config` scope's gates, for `config/setAutoUpdate` (`thread_or_global`).
     config_ops: OpScopes,
-    http: reqwest::Client,
     interactive: InteractiveIo,
     durability: DurabilityIo,
     state: Mutex<State>,
@@ -313,7 +316,6 @@ impl UpdateService {
             host,
             ops,
             config_ops,
-            http: reqwest::Client::new(),
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,
             state: Mutex::new(State {
@@ -333,17 +335,19 @@ impl UpdateService {
     }
 
     async fn fetch_latest(&self) -> Option<String> {
-        let response = self
-            .http
-            .get(&self.config.registry_url)
-            .timeout(FETCH_TIMEOUT)
-            .send()
-            .await
-            .ok()?;
-        if !response.status().is_success() {
+        let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).ok()?;
+        let request = WireRequest {
+            transport: TransportKind::Http1,
+            method: "GET".to_owned(),
+            url: self.config.registry_url.clone(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        let response = link.send(request, UPDATE_CHECK).await.ok()?;
+        if !response.is_success() {
             return None;
         }
-        let body: Value = serde_json::from_slice(&response.bytes().await.ok()?).ok()?;
+        let body: Value = serde_json::from_slice(&response.read_all().await.ok()?.body).ok()?;
         let version = match body.get("version") {
             Some(Value::String(version)) => mixdog_core_base::support::js_trim(version).to_owned(),
             _ => String::new(),
@@ -450,7 +454,7 @@ impl UpdateService {
     }
 
     /// `getUpdateSettings()`.
-    fn settings(&self) -> Value {
+    pub fn settings(&self) -> Value {
         let check = self.state().check.clone();
         json!({
             "autoUpdate": (self.config.auto_update)(),

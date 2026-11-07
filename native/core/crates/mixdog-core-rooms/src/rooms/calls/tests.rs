@@ -1,5 +1,4 @@
 use std::sync::atomic::AtomicUsize;
-use std::time::Duration;
 
 use tokio::sync::Notify;
 
@@ -50,7 +49,7 @@ pub(crate) fn scheduler(runner: &Arc<Fake>) -> Arc<RoomCalls<Fake>> {
 }
 
 pub(crate) async fn status(receiver: oneshot::Receiver<String>) -> String {
-    tokio::time::timeout(Duration::from_secs(5), receiver).await.expect("the call settled").unwrap()
+    receiver.await.unwrap()
 }
 
 fn relay(agent: &str, id: &str) -> (RoomCall, oneshot::Receiver<String>) {

@@ -344,6 +344,10 @@ pub struct ThreadState {
     pub provider_account_change: Option<ProviderAccountChange>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_enabled: Option<bool>,
+    /// The setup tool's desktop request, from the notice until it is claimed or its claim window
+    /// ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_ui_request: Option<SetupUiRequest>,
     /// The composer's Up-arrow recall (today's `promptHistoryList`, Node's merged list): the
     /// thread's user prompts over the whole transcript plus the per-folder saved prompt
     /// history of its cwd, newest first, trimmed, at most `PROMPT_HISTORY_LIMIT` (50), one
@@ -928,6 +932,16 @@ pub struct PromptRestore {
 pub struct ProviderAccountChange {
     pub provider: String,
     pub account_id: String,
+    #[ts(type = "number")]
+    pub at: i64,
+}
+
+/// The setup tool's desktop request waiting for a window to claim it (Node's session store
+/// `setupUiRequest`): its id, and when the thread took it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupUiRequest {
+    pub id: String,
     #[ts(type = "number")]
     pub at: i64,
 }

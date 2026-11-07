@@ -156,6 +156,47 @@ pub(crate) fn load_pack(paths: &WorkflowPaths, id: &str) -> Option<Pack> {
         })
 }
 
+/// A pack of the catalog listing.
+pub(crate) struct Listed {
+    pub pack: Pack,
+    /// A user copy of a shipped pack.
+    pub overrides_built_in: bool,
+}
+
+/// `listWorkflowPacks(dir)`: shipped packs, then user packs (a user copy shadows the shipped one),
+/// hidden ones left out, the default pack first and the rest by name.
+pub(crate) fn list_packs(paths: &WorkflowPaths) -> Vec<Listed> {
+    let mut found: Vec<Listed> = Vec::new();
+    for (root, source) in [(paths.root.join("workflows"), "built-in"), (paths.data.join("workflows"), "user")] {
+        let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(&root)
+            .map(|entries| entries.filter_map(Result::ok).filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).map(|entry| entry.file_name()).collect())
+            .unwrap_or_default();
+        names.sort();
+        for name in names {
+            let entry = root.join(&name).join(ENTRY);
+            if !entry.exists() {
+                continue;
+            }
+            let text = read_text_safe(&entry);
+            let (meta, _) = read_document(&text);
+            let hidden = js_trim(&meta.get("hidden").map(value_to_string).unwrap_or_default()).to_lowercase() == "true";
+            let Some(pack) = parse_pack(&text, source, &name.to_string_lossy()) else { continue };
+            if hidden {
+                continue;
+            }
+            match found.iter().position(|seen| seen.pack.id == pack.id) {
+                Some(at) => {
+                    let overrides_built_in = source == "user" && found[at].pack.source == "built-in";
+                    found[at] = Listed { pack, overrides_built_in };
+                }
+                None => found.push(Listed { pack, overrides_built_in: false }),
+            }
+        }
+    }
+    let weight = |listed: &Listed| u8::from(listed.pack.id != DEFAULT_WORKFLOW_ID);
+    found.sort_by(|a, b| weight(a).cmp(&weight(b)).then_with(|| mixdog_js::locale_compare(&a.pack.name, &b.pack.name)));
+    found
+}
 pub(crate) fn pack_exists(paths: &WorkflowPaths, id: &str) -> bool {
     load_pack(paths, id).is_some_and(|pack| pack.id == id)
 }

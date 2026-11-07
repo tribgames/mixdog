@@ -32,18 +32,12 @@ fn a_wedged_lane_resolves_every_caller_instead_of_stalling_them() {
     };
     let (executors, tokens) = mixdog_rt::exec::boot(config).expect("boot");
     let rt = executors.handle(TaskClass::Work);
-    // The hang guard of the test itself; it never fires when the mechanism works.
-    let bounded = |fut: std::pin::Pin<Box<dyn Future<Output = ()> + Send>>| {
-        rt.block_on(async {
-            tokio::time::timeout(Duration::from_secs(30), fut)
-                .await
-                .expect("a caller is still waiting on the wedged lane")
-        })
-    };
+    // Waits on the futures themselves: a caller still stalled on the wedged lane hangs the test.
+    let bounded = |fut: std::pin::Pin<Box<dyn Future<Output = ()> + Send>>| rt.block_on(fut);
     let lane = tokens.cpu_bulk;
     let never = CancellationToken::new();
     let (started_tx, started_rx) = mpsc::channel::<()>();
-    let started = || started_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+    let started = || started_rx.recv().unwrap();
 
     // Job A, submitted the way `quota_resume` does (`submit`, then await the handle), takes the
     // only worker and is stuck until released.

@@ -376,7 +376,7 @@ impl Replay {
     }
 }
 
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test(start_paused = true)]
 async fn replays_the_node_delivery_script() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let mut replay = Replay::new();

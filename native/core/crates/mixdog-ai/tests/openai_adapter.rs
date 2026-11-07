@@ -76,7 +76,11 @@ impl ScriptedHttp {
 
 #[async_trait]
 impl HttpSend for ScriptedHttp {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         self.seen.lock().unwrap().push(request);
         let (status, headers, chunks) = self.responses.lock().unwrap().pop_front().expect("scripted response");
         Ok(HttpResponse { status, headers, body: Box::new(VecBody(chunks.into())) })

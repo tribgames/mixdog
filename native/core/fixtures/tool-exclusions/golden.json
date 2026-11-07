@@ -1,0 +1,342 @@
+{
+  "cases": [
+    {
+      "name": "the first exclusion is noticed and a repeat is not",
+      "route": {
+        "provider": "anthropic",
+        "model": "claude-opus"
+      },
+      "steps": [
+        {
+          "op": "record",
+          "tool": {
+            "name": "mcp__x__broken",
+            "pointer": "/properties/mode/type",
+            "reason": "must be equal to one of the allowed values"
+          },
+          "notices": [
+            {
+              "stage": "notice",
+              "tone": "warn",
+              "message": "Tool \"mcp__x__broken\" was excluded from this session's requests: its input schema is invalid at /properties/mode/type (must be equal to one of the allowed values). Fix the tool's schema or disable the tool."
+            }
+          ]
+        },
+        {
+          "op": "reason",
+          "name": "mcp__x__broken",
+          "reason": "tool \"mcp__x__broken\" is unavailable with the current model: the provider rejected its input schema at /properties/mode/type (must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        },
+        {
+          "op": "deny",
+          "name": "mcp__x__broken",
+          "answer": "Error: tool \"mcp__x__broken\" is unavailable with the current model: the provider rejected its input schema at /properties/mode/type (must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        },
+        {
+          "op": "record",
+          "tool": {
+            "name": "mcp__x__broken",
+            "pointer": "/properties/mode/type",
+            "reason": "must be equal to one of the allowed values"
+          },
+          "notices": []
+        },
+        {
+          "op": "deny",
+          "name": "mcp__x__fine",
+          "answer": null,
+          "notices": []
+        }
+      ]
+    },
+    {
+      "name": "an empty pointer reads as the root",
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5"
+      },
+      "steps": [
+        {
+          "op": "record",
+          "tool": {
+            "name": "b",
+            "pointer": "",
+            "reason": "non-object root"
+          },
+          "notices": [
+            {
+              "stage": "notice",
+              "tone": "warn",
+              "message": "Tool \"b\" was excluded from this session's requests: its input schema is invalid at / (non-object root). Fix the tool's schema or disable the tool."
+            }
+          ]
+        },
+        {
+          "op": "reason",
+          "name": "b",
+          "reason": "tool \"b\" is unavailable with the current model: the provider rejected its input schema at / (non-object root), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        }
+      ]
+    },
+    {
+      "name": "a new request forgets the current exclusions but not the notice",
+      "route": {
+        "provider": "anthropic",
+        "model": "claude-opus"
+      },
+      "steps": [
+        {
+          "op": "record",
+          "tool": {
+            "name": "mcp__x__broken",
+            "pointer": "/properties/mode/type",
+            "reason": "must be equal to one of the allowed values"
+          },
+          "notices": [
+            {
+              "stage": "notice",
+              "tone": "warn",
+              "message": "Tool \"mcp__x__broken\" was excluded from this session's requests: its input schema is invalid at /properties/mode/type (must be equal to one of the allowed values). Fix the tool's schema or disable the tool."
+            }
+          ]
+        },
+        {
+          "op": "begin",
+          "notices": []
+        },
+        {
+          "op": "reason",
+          "name": "mcp__x__broken",
+          "reason": null,
+          "notices": []
+        },
+        {
+          "op": "deny",
+          "name": "mcp__x__broken",
+          "answer": null,
+          "notices": []
+        },
+        {
+          "op": "record",
+          "tool": {
+            "name": "mcp__x__broken",
+            "pointer": "/properties/mode/type",
+            "reason": "must be equal to one of the allowed values"
+          },
+          "notices": []
+        },
+        {
+          "op": "reason",
+          "name": "mcp__x__broken",
+          "reason": "tool \"mcp__x__broken\" is unavailable with the current model: the provider rejected its input schema at /properties/mode/type (must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        }
+      ]
+    },
+    {
+      "name": "an unnamed tool is ignored",
+      "route": {
+        "provider": "anthropic",
+        "model": "claude-opus"
+      },
+      "steps": [
+        {
+          "op": "record",
+          "tool": {
+            "name": "",
+            "pointer": "/x",
+            "reason": "bad"
+          },
+          "notices": []
+        },
+        {
+          "op": "reason",
+          "name": "",
+          "reason": null,
+          "notices": []
+        }
+      ]
+    },
+    {
+      "name": "a tool recorded again keeps the latest reason and one notice",
+      "route": {
+        "provider": "gemini",
+        "model": "gemini-3-pro"
+      },
+      "steps": [
+        {
+          "op": "record",
+          "tool": {
+            "name": "t",
+            "pointer": "/a",
+            "reason": "first"
+          },
+          "notices": [
+            {
+              "stage": "notice",
+              "tone": "warn",
+              "message": "Tool \"t\" was excluded from this session's requests: its input schema is invalid at /a (first). Fix the tool's schema or disable the tool."
+            }
+          ]
+        },
+        {
+          "op": "record",
+          "tool": {
+            "name": "t",
+            "pointer": "/b",
+            "reason": "second"
+          },
+          "notices": []
+        },
+        {
+          "op": "reason",
+          "name": "t",
+          "reason": "tool \"t\" is unavailable with the current model: the provider rejected its input schema at /b (second), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        },
+        {
+          "op": "deny",
+          "name": "t",
+          "answer": "Error: tool \"t\" is unavailable with the current model: the provider rejected its input schema at /b (second), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        }
+      ]
+    },
+    {
+      "name": "two tools are noticed separately",
+      "route": {
+        "provider": "anthropic",
+        "model": "claude-opus"
+      },
+      "steps": [
+        {
+          "op": "record",
+          "tool": {
+            "name": "one",
+            "pointer": "/p",
+            "reason": "r1"
+          },
+          "notices": [
+            {
+              "stage": "notice",
+              "tone": "warn",
+              "message": "Tool \"one\" was excluded from this session's requests: its input schema is invalid at /p (r1). Fix the tool's schema or disable the tool."
+            }
+          ]
+        },
+        {
+          "op": "record",
+          "tool": {
+            "name": "two",
+            "pointer": "/q",
+            "reason": "r2"
+          },
+          "notices": [
+            {
+              "stage": "notice",
+              "tone": "warn",
+              "message": "Tool \"two\" was excluded from this session's requests: its input schema is invalid at /q (r2). Fix the tool's schema or disable the tool."
+            }
+          ]
+        },
+        {
+          "op": "record",
+          "tool": {
+            "name": "one",
+            "pointer": "/p",
+            "reason": "r1"
+          },
+          "notices": []
+        },
+        {
+          "op": "reason",
+          "name": "one",
+          "reason": "tool \"one\" is unavailable with the current model: the provider rejected its input schema at /p (r1), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        },
+        {
+          "op": "reason",
+          "name": "two",
+          "reason": "tool \"two\" is unavailable with the current model: the provider rejected its input schema at /q (r2), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        }
+      ]
+    },
+    {
+      "name": "a tool dropped for the session holds on its wire family only",
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5"
+      },
+      "steps": [
+        {
+          "op": "drop",
+          "tool": {
+            "name": "mcp__x__broken",
+            "pointer": "/properties/mode/type",
+            "reason": "must be equal to one of the allowed values"
+          },
+          "notices": [
+            {
+              "stage": "notice",
+              "tone": "warn",
+              "message": "Tool \"mcp__x__broken\" was excluded from this session's requests: its input schema is invalid at /properties/mode/type (must be equal to one of the allowed values). Fix the tool's schema or disable the tool."
+            }
+          ]
+        },
+        {
+          "op": "begin",
+          "notices": []
+        },
+        {
+          "op": "reason",
+          "name": "mcp__x__broken",
+          "reason": "tool \"mcp__x__broken\" is unavailable with the current model: the provider rejected its input schema at /properties/mode/type (must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        },
+        {
+          "op": "deny",
+          "name": "mcp__x__broken",
+          "answer": "Error: tool \"mcp__x__broken\" is unavailable with the current model: the provider rejected its input schema at /properties/mode/type (must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        },
+        {
+          "op": "route",
+          "provider": "gemini",
+          "model": "gemini-3-pro",
+          "notices": []
+        },
+        {
+          "op": "reason",
+          "name": "mcp__x__broken",
+          "reason": null,
+          "notices": []
+        },
+        {
+          "op": "route",
+          "provider": "openai",
+          "model": "gpt-4.1",
+          "notices": []
+        },
+        {
+          "op": "reason",
+          "name": "mcp__x__broken",
+          "reason": "tool \"mcp__x__broken\" is unavailable with the current model: the provider rejected its input schema at /properties/mode/type (must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
+          "notices": []
+        },
+        {
+          "op": "drop",
+          "tool": {
+            "name": "mcp__x__broken",
+            "pointer": "/properties/mode/type",
+            "reason": "must be equal to one of the allowed values"
+          },
+          "notices": []
+        }
+      ]
+    }
+  ]
+}

@@ -168,7 +168,7 @@ mod tests {
     use mixdog_services::bots::{RoutineKind, RoutineTrigger};
 
     use super::*;
-    use crate::session::tests::{eventually, idle, start_thread, turn};
+    use crate::session::tests::{eventually_on, idle, start_thread, turn};
     use crate::session::testing::Rig;
 
     fn routine(id: &str, thread: &ThreadId) -> RoutineTurn {
@@ -257,20 +257,21 @@ mod tests {
     }
 
     /// A fire behind a running turn waits in the queue (never steered into it); cancelled there it
-    /// leaves the queue and never runs. Time is paused and the runtime has one thread: each wait
-    /// below ends when the tasks have run, never on a deadline measured in real time, so a loaded
-    /// machine cannot change the outcome.
-    #[tokio::test(start_paused = true)]
+    /// leaves the queue and never runs. Every wait below is on a signal (the script's own, or a step
+    /// of the thread's actor), never on the clock, so a loaded machine cannot change the outcome.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_fire_behind_a_running_turn_waits_and_a_cancel_drops_it_unrun() {
         let rig = Rig::new();
         let hold = Arc::new(tokio::sync::Notify::new());
         let runs: Arc<Mutex<Vec<String>>> = Arc::default();
-        let (gate, record) = (hold.clone(), runs.clone());
+        let ran = Arc::new(tokio::sync::Notify::new());
+        let (gate, record, said) = (hold.clone(), runs.clone(), ran.clone());
         rig.set_script(Arc::new(move |run| {
-            let (gate, record) = (gate.clone(), record.clone());
+            let (gate, record, said) = (gate.clone(), record.clone(), said.clone());
             Box::pin(async move {
                 run.port.input_durable().await.expect("input durable");
                 record.lock().unwrap().push(run.input_body["content"].to_string());
+                said.notify_waiters();
                 gate.notified().await;
                 crate::session::RunOutcome::Completed(Box::default())
             })
@@ -278,20 +279,20 @@ mod tests {
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let handle = start_thread(&directory).await;
         turn(&handle, "user work", "op-1").await;
-        eventually(|| (runs.lock().unwrap().len() == 1).then_some(())).await;
+        eventually_on(&[&ran, &handle.cell.stepped], || (runs.lock().unwrap().len() == 1).then_some(())).await;
         let cancel = CancellationToken::new();
         let waiting = {
             let (directory, cancel, thread) = (directory.clone(), cancel.clone(), handle.id.clone());
             tokio::spawn(async move { directory.run_routine_turn(routine("routine_2", &thread), Box::new(|| {}), cancel).await })
         };
-        eventually(|| handle.cell.routine_starts.lock().unwrap().contains_key("routine_2").then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || handle.cell.routine_starts.lock().unwrap().contains_key("routine_2").then_some(())).await;
         assert!(handle.cell.queued.load().len() == 1, "the fire rides the thread's queue");
         cancel.cancel();
         assert_eq!(waiting.await.unwrap(), TurnSettle::Cancelled);
         assert!(handle.cell.routine_starts.lock().unwrap().is_empty());
-        eventually(|| (handle.cell.queued.load().is_empty()).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (handle.cell.queued.load().is_empty()).then_some(())).await;
         hold.notify_one();
-        eventually(|| idle(&handle).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         assert_eq!(runs.lock().unwrap().len(), 1, "the dropped fire never ran");
     }
 }

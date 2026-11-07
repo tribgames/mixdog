@@ -293,6 +293,17 @@ impl ApprovalBook {
         }
     }
 
+    /// Hands `resolution` to the waiting run now, ahead of its durable record. For a run that is
+    /// being closed or aborted, whose token fires right after: Node resolves the pending approval
+    /// `interrupted` and then aborts, so the run must see that resolution before it sees the
+    /// cancel, however long the record takes to land. The record's ack ([`Self::resolved`]) later
+    /// finds nobody left to tell.
+    pub fn answer(&mut self, aid: ApprovalId, resolution: &ApprovalResolution) {
+        if let Some(waiter) = self.open.get_mut(&aid).and_then(|open| open.waiter.take()) {
+            let _ = waiter.send(resolution.clone());
+        }
+    }
+
     /// A resolution record failed its barrier: the request is pending again.
     pub fn unresolve(&mut self, aid: ApprovalId) {
         if let Some(open) = self.open.get_mut(&aid) {
@@ -485,6 +496,24 @@ mod tests {
         let frame: Value = serde_json::from_slice(&request_frame(&request, params)).unwrap();
         assert_eq!(frame["id"], json!("3"));
         assert_eq!(frame["method"], json!("item/tool/requestApproval"));
+    }
+
+    /// A close or abort answers the waiting run `interrupted` at once; the durable record
+    /// that follows has nobody left to tell.
+    #[test]
+    fn an_answer_reaches_the_waiting_run_before_the_record_is_durable() {
+        let thread = ThreadId::from("t");
+        let mut book = ApprovalBook::default();
+        let aid = ApprovalId(4);
+        let request = ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), ask(vec![]), 1000);
+        let (waiter, mut answered) = oneshot::channel();
+        book.insert(request, TurnId::from("r"), Some(waiter));
+        assert_eq!(book.take_run(&TurnId::from("r")), vec![aid]);
+        let interrupted = ApprovalResolution::Interrupted { at: 7 };
+        book.answer(aid, &interrupted);
+        assert!(matches!(answered.try_recv(), Ok(ApprovalResolution::Interrupted { at: 7 })), "answered before the ack");
+        book.resolved(aid, &interrupted);
+        assert!(book.decidable().is_empty() && book.open_asks().next().is_none(), "the ack forgets the request");
     }
 
     /// A takeover card the core times out is announced to clients as `serverRequest/resolved`: that

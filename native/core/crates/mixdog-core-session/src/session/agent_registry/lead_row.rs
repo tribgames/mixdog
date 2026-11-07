@@ -2,10 +2,13 @@
 //! `updateLeadWorkerCwd`).
 //!
 //! 1.4.5 keeps Lead rows in `lead-workers.json`; here a Lead's row is the `worker` map of its own
-//! session header (migration folds the file in), the map whose `agent` is `lead`. The registry
-//! excludes those maps from every other read and write, so this is its one Lead-row writer: it
-//! moves the `cwd` of an existing row and leaves every other field as it is. No row, nothing to
-//! write.
+//! session header (migration folds the file in verbatim). Node takes every row of that file as a
+//! Lead row whatever its `agent` (`normalizeLeadRows` stamps `agent: 'lead'`), so a folded row
+//! may have no `agent`, or no `tag`. The session's own map is therefore its Lead row unless the
+//! registry reads it as a worker row ([`normalize_row`]: a tag, a session id and an agent that is
+//! not `lead`); an agent's map always has its tag. The registry excludes Lead rows from every
+//! other read and write, so this is its one Lead-row writer: it moves the `cwd` of an existing
+//! row and leaves every other field as it is. No row, nothing to write.
 //!
 //! 1.4.5's writer rewrites the document through `normalizeLeadRows`, so the row it leaves is the
 //! normalized one (`tag`, `ownerSessionId`, `agent`, `status`, `stage`, `updatedAt`, `reapAt`
@@ -55,7 +58,7 @@ impl AgentRegistry {
             st.leads.remove(&id);
         }
         let Some(current) = st.leads.get(&id).cloned().or(stored) else { return true };
-        if !is_lead_pool_agent(current.get("agent")) || clean(current.get("sessionId")) != id {
+        if clean(current.get("sessionId")) != id || normalize_row(&current).is_some() {
             return true;
         }
         let mut row = normalized(&current, &id);

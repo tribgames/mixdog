@@ -366,8 +366,34 @@ impl WorkflowConfig {
 
     // --- onboarding ---
 
-    fn onboarding_status(&self) -> Result<Value, CoreError> {
+    /// `listWorkflows()`: the catalog with the configured workflow marked active.
+    pub async fn list_workflows(&self) -> Result<Value, CoreError> {
+        let paths = self.paths.clone();
+        let packs = on_lane(self.interactive, &mixdog_rt::CancellationToken::new(), move |_| pack::list_packs(&paths)).await?;
+        let active = ids::active_workflow_id(&self.config.agent());
+        let rows = packs.into_iter().map(|listed| {
+            let mut row = Map::new();
+            row.insert("id".into(), json!(listed.pack.id));
+            row.insert("name".into(), json!(listed.pack.name));
+            row.insert("description".into(), json!(listed.pack.description));
+            row.insert("source".into(), json!(listed.pack.source));
+            if listed.overrides_built_in {
+                row.insert("overridesBuiltIn".into(), Value::Bool(true));
+            }
+            row.insert("active".into(), Value::Bool(listed.pack.id == active));
+            Value::Object(row)
+        });
+        Ok(Value::Array(rows.collect()))
+    }
+
+    /// `getOnboardingStatus()`.
+    pub fn onboarding_status(&self) -> Result<Value, CoreError> {
         onboarding::status(&self.config.agent()).map_err(thrown)
+    }
+
+    /// `getWebSearchRoute()`: the stored route, the follow-Main marker when there is none.
+    pub fn web_search_route(&self) -> Result<Value, CoreError> {
+        search::current(&self.config.agent()).map_err(thrown)
     }
 
     /// The status of the config a save just adopted: Node reads its in-memory config, which

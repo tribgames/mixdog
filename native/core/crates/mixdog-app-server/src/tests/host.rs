@@ -52,7 +52,7 @@ async fn a_claim_that_runs_after_its_connection_closed_is_not_recorded() {
     drop(host);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn only_a_connection_that_declared_the_host_role_can_claim() {
     let rig = Rig::new();
     let plain = rig.ready(1, json!({}));
@@ -61,7 +61,7 @@ async fn only_a_connection_that_declared_the_host_role_can_claim() {
     assert_eq!(reason(&refused), "capabilityUnavailable");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_host_request_is_answered_by_the_claimant() {
     let rig = Rig::new();
     let host = claimed(&rig, 1).await;
@@ -78,7 +78,7 @@ async fn a_host_request_is_answered_by_the_claimant() {
     assert_eq!(call.await.unwrap(), Ok(json!({ "rules": "DIRECT" })));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_failed_host_request_is_a_domain_error() {
     let rig = Rig::new();
     let host = claimed(&rig, 1).await;
@@ -100,7 +100,7 @@ async fn a_failed_host_request_is_a_domain_error() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn without_a_claimant_or_after_it_leaves_the_host_is_unavailable() {
     let rig = Rig::new();
     let params = json!({ "url": "u" });
@@ -126,7 +126,7 @@ async fn without_a_claimant_or_after_it_leaves_the_host_is_unavailable() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_capability_the_claimant_did_not_declare_is_unavailable_at_once() {
     let rig = Rig::new();
     let _host = claimed(&rig, 1).await;
@@ -143,7 +143,7 @@ async fn a_capability_the_claimant_did_not_declare_is_unavailable_at_once() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn the_latest_claim_of_a_capability_serves_it_and_an_earlier_one_takes_over_when_it_leaves() {
     let rig = Rig::new();
     let old = claimed_as(&rig, 1, "old", json!({ "browser": true })).await;
@@ -168,7 +168,7 @@ async fn the_latest_claim_of_a_capability_serves_it_and_an_earlier_one_takes_ove
     assert_eq!(second.await.unwrap(), Ok(json!("old")));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn each_capability_goes_to_the_latest_claimant_that_declared_it() {
     let rig = Rig::new();
     let both = claimed_as(&rig, 1, "a", json!({ "browser": true, "visualize": true })).await;
@@ -195,7 +195,7 @@ async fn each_capability_goes_to_the_latest_claimant_that_declared_it() {
     assert_eq!(browser.await.unwrap(), Ok(json!("br")));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_reclaimed_host_id_replaces_its_stale_connection() {
     let rig = Rig::new();
     let stale = claimed_as(&rig, 1, "pc", json!({ "browser": true })).await;
@@ -210,7 +210,7 @@ async fn a_reclaimed_host_id_replaces_its_stale_connection() {
     assert!(stale.drain().is_empty());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_host_notification_goes_to_the_claimant() {
     let rig = Rig::new();
     let host = claimed(&rig, 1).await;
@@ -226,7 +226,7 @@ async fn a_host_notification_goes_to_the_claimant() {
     assert!(frames[0].body.get("id").is_none());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn only_a_desktop_live_on_the_app_feed_is_a_window() {
     use mixdog_core_api::DesktopPresence;
     let rig = Rig::new();
@@ -251,7 +251,7 @@ async fn only_a_desktop_live_on_the_app_feed_is_a_window() {
 
 const EXECUTE: Method = Method("model/proxy/execute");
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_model_proxy_serves_from_initialize_and_streams_its_events_ahead_of_the_answer() {
     use mixdog_core_api::ids::ConnectionId;
     let rig = Rig::new();
@@ -278,7 +278,7 @@ async fn a_model_proxy_serves_from_initialize_and_streams_its_events_ahead_of_th
     assert!(!rig.outgoing.stream_event(ConnectionId(2), &request["id"], json!({})));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_model_proxy_that_closes_mid_call_is_a_closed_claimant() {
     let rig = Rig::new();
     let pc = rig.ready(1, json!({ "modelProxy": true }));
@@ -297,7 +297,7 @@ async fn a_model_proxy_that_closes_mid_call_is_a_closed_claimant() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn only_a_connection_that_declared_model_proxy_serves_it() {
     let rig = Rig::new();
     let _host = claimed(&rig, 1).await;
@@ -321,7 +321,7 @@ async fn a_notification_reaches_its_connection_by_id() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_model_proxy_call_given_up_is_cancelled_on_the_connection_and_an_answered_one_is_not() {
     let rig = Rig::new();
     let pc = rig.ready(1, json!({ "modelProxy": true }));
@@ -346,7 +346,7 @@ async fn a_model_proxy_call_given_up_is_cancelled_on_the_connection_and_an_answe
     assert!(pc.drain().is_empty());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_cancelled_caller_releases_a_host_request_the_claimant_never_answers() {
     let rig = Rig::new();
     let host = claimed(&rig, 1).await;

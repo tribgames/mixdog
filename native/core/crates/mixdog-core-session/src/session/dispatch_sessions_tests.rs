@@ -21,7 +21,7 @@ use crate::session::agent_registry::RuntimeRelease;
 use crate::session::agent_registry::SessionTurns;
 use crate::session::close::SessionClose;
 use crate::session::testing::Rig;
-use crate::session::tests::eventually;
+use crate::session::tests::eventually_on;
 
 fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../fixtures/dispatch-sessions/golden.json")).expect("golden.json")
@@ -111,8 +111,11 @@ async fn an_ask_answers_the_reply_and_an_abort_ends_the_turn_with_nodes_text() {
     let seen = signal.clone();
     let started: Arc<Mutex<bool>> = Arc::default();
     let marked = started.clone();
+    // Raised by the script after each flag it sets: what the waits below are woken by.
+    let changed = Arc::new(tokio::sync::Notify::new());
+    let wake = changed.clone();
     rig.set_script(Arc::new(move |run| {
-        let (record, aborted, ready) = (record.clone(), seen.clone(), marked.clone());
+        let (record, aborted, ready, wake) = (record.clone(), seen.clone(), marked.clone(), wake.clone());
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             // As the run host does at each ask (`markSessionAskStart`): a fresh entry.
@@ -135,8 +138,10 @@ async fn an_ask_answers_the_reply_and_an_abort_ends_the_turn_with_nodes_text() {
                     run.progress.send_modify(|p| p.stage_change("tool_running", 0));
                 }
                 *ready.lock().unwrap() = true;
+                wake.notify_waiters();
                 run.cancel.cancelled().await;
                 *aborted.lock().unwrap() = Some(run.signal.reason());
+                wake.notify_waiters();
                 return RunOutcome::Interrupted;
             }
             RunOutcome::Completed(Box::new(TurnResult { content: "reply text".into(), iterations: 1, ..Default::default() }))
@@ -162,7 +167,7 @@ async fn an_ask_answers_the_reply_and_an_abort_ends_the_turn_with_nodes_text() {
     let thread = ThreadId::from(id.as_str());
     let threads = Arc::new(threads);
     let abort_in = |prompt: &'static str| {
-        let (threads, id, directory, thread, signal, started) = (threads.clone(), id.clone(), directory.clone(), thread.clone(), signal.clone(), started.clone());
+        let (threads, id, directory, thread, signal, started, changed) = (threads.clone(), id.clone(), directory.clone(), thread.clone(), signal.clone(), started.clone(), changed.clone());
         async move {
             *started.lock().unwrap() = false;
             *signal.lock().unwrap() = None;
@@ -171,12 +176,13 @@ async fn an_ask_answers_the_reply_and_an_abort_ends_the_turn_with_nodes_text() {
                 let (threads, id, cancel) = (threads.clone(), id.clone(), cancel.clone());
                 async move { threads.ask(&id, prompt, None, Arc::new(Immediate), &cancel).await }
             });
-            eventually(|| started.lock().unwrap().then_some(())).await;
+            eventually_on(&[&changed], || started.lock().unwrap().then_some(())).await;
             cancel.abort("parent aborted");
             let answer = asking.await.expect("ask");
-            eventually(|| signal.lock().unwrap().clone()).await;
+            eventually_on(&[&changed], || signal.lock().unwrap().clone()).await;
             assert_eq!(signal.lock().unwrap().as_deref(), Some("parent aborted"), "{prompt}: the turn ends with the signal's reason");
-            eventually(|| directory.handle(&thread).filter(|handle| handle.cell.run.load_full().is_none()).map(|_| ())).await;
+            let live = directory.handle(&thread).expect("the thread is loaded while its turn runs");
+            eventually_on(&[&live.cell.stepped], || live.cell.run.load_full().is_none().then_some(())).await;
             answer
         }
     };

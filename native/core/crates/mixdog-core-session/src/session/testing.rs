@@ -427,6 +427,15 @@ impl ThreadStore for MemStore {
         Ok(rows.into_iter().map(|(_, row)| row).collect())
     }
 
+    fn fenced_ops(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId) -> Result<Vec<String>, CoreError> {
+        Ok(Vec::new())
+    }
+
+    /// The in-memory store keeps no op index.
+    fn thread_op(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId, _op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
+        Ok(None)
+    }
+
     fn history_rows(
         &self,
         _lane: &InLane<InteractiveIo>,
@@ -787,6 +796,50 @@ impl ToolSurfaceSource for HeaderSurfaces {
     }
 }
 
+/// The Goal runtime's clock in the test runtime's time domain: wall time from when the Rig was
+/// built, advanced by the tokio clock (paused or not), paired with the same clock as its
+/// monotonic reading, so a suspend is never inferred.
+struct RigGoalClock {
+    wall_ms: f64,
+    start: tokio::time::Instant,
+}
+
+impl RigGoalClock {
+    fn new() -> Self {
+        let wall_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |since| since.as_secs_f64() * 1000.0);
+        Self { wall_ms, start: tokio::time::Instant::now() }
+    }
+}
+
+impl mixdog_core_goal::goal::GoalClock for RigGoalClock {
+    fn now(&self) -> f64 {
+        self.wall_ms + self.start.elapsed().as_secs_f64() * 1000.0
+    }
+
+    fn monotonic(&self) -> Option<f64> {
+        Some(self.start.elapsed().as_secs_f64() * 1000.0)
+    }
+}
+
+/// The Goal runtime's deadlines as tasks of the runtime that arms them: they follow that runtime's
+/// clock and die with it, and no callback runs inside another test's runtime.
+pub(crate) struct RigGoalTimers;
+
+impl mixdog_core_goal::goal::GoalTimers for RigGoalTimers {
+    fn after(&self, _kind: mixdog_core_goal::goal::TimerKind, delay_ms: f64, callback: Box<dyn FnOnce() + Send>) -> mixdog_core_goal::goal::Timer {
+        let cancel = mixdog_rt::CancellationToken::new();
+        let stop = cancel.clone();
+        let delay = std::time::Duration::from_secs_f64(delay_ms.max(0.0) / 1000.0);
+        drop(tokio::spawn(async move {
+            tokio::select! {
+                () = stop.cancelled() => {}
+                () = tokio::time::sleep(delay) => callback(),
+            }
+        }));
+        mixdog_core_goal::goal::Timer::new(move || cancel.cancel())
+    }
+}
+
 /// One wired session stack over shared doubles.
 pub struct Rig {
     pub store: Arc<MemStore>,
@@ -979,9 +1032,16 @@ impl Rig {
         let store = Arc::new(MemStore::default());
         let idle: Script = Arc::new(|_run| Box::pin(async { RunOutcome::Completed(Default::default()) }));
         let data = tempfile::tempdir().expect("temp data dir");
+        // The goal runtime's time and timers are the test runtime's own (`GoalEnv::system` would
+        // use std time and the process-global ticker, which belongs to whichever test runtime
+        // first touched it).
         let goals = mixdog_core_goal::goal::GoalRuntime::new(
             mixdog_core_goal::goal::GoalConfig::new(data.path().join("goals").to_string_lossy().into_owned()),
-            mixdog_core_goal::goal::GoalEnv::system(mixdog_rt::testing::tokens().durability_io),
+            mixdog_core_goal::goal::GoalEnv {
+                clock: Arc::new(RigGoalClock::new()),
+                timers: Arc::new(RigGoalTimers),
+                ..mixdog_core_goal::goal::GoalEnv::system(mixdog_rt::testing::tokens().durability_io)
+            },
         );
         // The open is one lane job, which runs on the lane's own thread.
         let quota = futures::executor::block_on(mixdog_core_base::quota_resume::QuotaResumeStore::open(

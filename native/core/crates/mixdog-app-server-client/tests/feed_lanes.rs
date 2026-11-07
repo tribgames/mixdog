@@ -25,7 +25,7 @@ fn thread_result(id: &str) -> Json {
     })
 }
 
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test(start_paused = true)]
 async fn a_feed_waiting_on_a_blob_does_not_delay_another_feed() {
     let options = options();
     let net = Arc::new(MockNetwork::default());

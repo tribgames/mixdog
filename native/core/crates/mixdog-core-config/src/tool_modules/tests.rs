@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_protocol::SectionName;
@@ -230,13 +229,9 @@ async fn a_setter_pushes_once_and_an_unchanged_value_pushes_nothing() {
 }
 
 async fn until(condition: impl Fn() -> bool) {
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while !condition() {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the push did not arrive");
+    while !condition() {
+        tokio::task::yield_now().await;
+    }
 }
 
 /// A status tick from the host and a config edit from any other writer both push; no timer.

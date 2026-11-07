@@ -73,10 +73,12 @@ use mixdog_protocol::ThreadId;
 use mixdog_rt::LaneTokens;
 use mixdog_secrets::SecretStore;
 use mixdog_services::bots::heartbeat::HeartbeatSessions;
+use mixdog_services::channels::setup::AutomationAdmin;
 use serde_json::Map;
 use serde_json::Value;
 
 use crate::compose_domains::EnvReader;
+use crate::domain_seams::automation_setup::AutomationActions;
 use crate::held_requests::HeldHome;
 use crate::domain_seams::doctor::HooksStatus;
 use crate::hook_rule_setup::HookRuleSetup;
@@ -130,7 +132,7 @@ impl ExtensionHost for LateExtensionHost {
     async fn announce_without_invalidating(&self, kind: &str) {
         self.get().announce_without_invalidating(kind).await;
     }
-    async fn tool_names(&self) -> Vec<String> {
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
         self.get().tool_names().await
     }
     async fn reconnect_mcp_and_announce(&self, only: Option<&str>, enabled: bool, drop: &[String]) -> Value {
@@ -157,7 +159,7 @@ impl ExtensionHost for LateExtensionHost {
     async fn flush_skills_save(&self) {
         self.get().flush_skills_save().await;
     }
-    async fn current_cwd(&self, thread_id: Option<&str>) -> PathBuf {
+    async fn current_cwd(&self, thread_id: Option<&str>) -> Result<PathBuf, String> {
         self.get().current_cwd(thread_id).await
     }
     async fn skills_status(&self) -> Value {
@@ -393,6 +395,8 @@ pub struct SetupSeams {
     pub facts: Arc<dyn SessionFacts>,
     pub desktop: Arc<dyn SetupDesktop>,
     pub voice: Arc<dyn SetupVoice>,
+    /// The daemon's one `ChannelAdmin`: the five automation actions of the setup tool.
+    pub automation: Arc<dyn AutomationAdmin>,
     /// The other owners' setup actions (`SetupService::with_actions` takes one owner at a time;
     /// every owner's goes into the one service).
     pub other_actions: Vec<Arc<dyn SetupActions>>,
@@ -504,11 +508,14 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         inputs.setup.facts.clone(),
     ));
     let runtime = Arc::new(ServiceSetupRuntime::new(mcp.clone(), skills.clone(), plugins.clone()));
+    let automation = Arc::new(AutomationActions::new(inputs.setup.automation.clone(), agents.clone(), callers.clone()));
     let mut setup = SetupService::new(config.clone(), tool_modules.clone(), callers.clone(), inputs.setup.desktop.clone(), inputs.setup.voice.clone())
         .with_settings(Settings::new(config.clone(), inputs.settings_effects.clone(), env.clone()))
         .with_output_styles(OutputStyles::new(config.clone(), package_root.join("output-styles"), data_dir))
         .with_actions(Arc::new(McpSetup::new(runtime)))
         .with_actions(Arc::new(HookRuleSetup::new(hook_rules_path(env, data_dir), tokens.maintenance_io, inputs.hooks.clone(), inputs.hook_observer.clone())))
+        .with_actions(automation.clone())
+        .with_status(automation)
         .with_actions(Arc::new(DefinitionSetup::new(agents.clone(), callers, workflow.clone(), skills.clone())));
     for owner in &inputs.setup.other_actions {
         setup = setup.with_actions(owner.clone());
@@ -589,12 +596,12 @@ mod tests {
     }
     #[async_trait]
     impl McpSurface for Quiet {
-        async fn current_cwd(&self, _: Option<&str>) -> PathBuf {
-            PathBuf::new()
+        async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
+            Ok(PathBuf::new())
         }
         async fn refresh_surface(&self) {}
-        async fn tool_names(&self) -> Vec<String> {
-            Vec::new()
+        async fn tool_names(&self) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
         }
         fn open_browser(&self, _: &str) {}
         fn announce_plugins(&self) {}
@@ -694,6 +701,39 @@ mod tests {
     impl SetupDesktop for Quiet {
         async fn request(&self, _: &ThreadId, _: &Value) -> Result<mixdog_core_agents::setup::DesktopAnswer, mixdog_tools::orch::util::PortError> {
             Ok(mixdog_core_agents::setup::DesktopAnswer::Done(Value::Null))
+        }
+    }
+    #[async_trait]
+    impl AutomationAdmin for Quiet {
+        async fn get_channel_setup(&self) -> Result<Value, String> {
+            Err("no channels".into())
+        }
+        async fn save_schedule(&self, _: &Value) -> Result<Value, String> {
+            Err("no channels".into())
+        }
+        async fn save_webhook(&self, _: &Value) -> Result<Value, String> {
+            Err("no channels".into())
+        }
+        async fn delete_schedule(&self, _: &str) -> Result<Value, String> {
+            Err("no channels".into())
+        }
+        async fn delete_webhook(&self, _: &str) -> Result<Value, String> {
+            Err("no channels".into())
+        }
+        async fn set_schedule_enabled(&self, _: &str, _: Option<&Value>) -> Result<Value, String> {
+            Err("no channels".into())
+        }
+        async fn set_webhook_enabled(&self, _: &str, _: Option<&Value>) -> Result<Value, String> {
+            Err("no channels".into())
+        }
+        async fn run_schedule_now(&self, _: &str) -> Result<Value, String> {
+            Err("no channels".into())
+        }
+        async fn run_webhook_now(&self, _: &str) -> Result<Value, String> {
+            Err("no channels".into())
+        }
+        async fn set_webhook_config(&self, _: Option<&Value>) -> Result<Value, String> {
+            Err("no channels".into())
         }
     }
     #[async_trait]
@@ -822,7 +862,8 @@ mod tests {
                 runs: quiet.clone(),
                 facts: quiet.clone(),
                 desktop: quiet.clone(),
-                voice: quiet,
+                voice: quiet.clone(),
+                automation: quiet,
                 other_actions: Vec::new(),
             },
         });

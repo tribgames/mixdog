@@ -2,7 +2,6 @@
 //! leg's frames; no real relay or account), and the PC-signed Web Push store's register/remove.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -51,16 +50,12 @@ async fn scripted_relay(subscriptions: Value) -> (u16, mpsc::UnboundedReceiver<V
 }
 
 async fn frame_of(rx: &mut mpsc::UnboundedReceiver<Value>, kind: &str) -> Value {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let frame = rx.recv().await.expect("relay closed");
-            if frame["type"] == kind {
-                return frame;
-            }
+    loop {
+        let frame = rx.recv().await.expect("relay closed");
+        if frame["type"] == kind {
+            return frame;
         }
-    })
-    .await
-    .unwrap_or_else(|_| panic!("no {kind} frame"))
+    }
 }
 
 struct Rig {

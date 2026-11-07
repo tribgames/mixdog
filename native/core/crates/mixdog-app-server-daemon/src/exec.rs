@@ -17,6 +17,7 @@ use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use crate::domain_seams::settings_effects::ConfiguredShell;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::LaneTokens;
 use mixdog_rt::TimerHandle;
@@ -30,6 +31,7 @@ use mixdog_tools::exec::ExtSyntax;
 use mixdog_tools::exec::ExecRuntime;
 use mixdog_tools::exec::IoLanes;
 use mixdog_tools::exec::OsPromptElevation;
+use mixdog_tools::exec::ShellSource;
 use mixdog_tools::exec::SkillRuntime;
 use mixdog_tools::exec::TaskNotifier;
 use mixdog_tools::exec::WakeHub;
@@ -131,19 +133,50 @@ pub struct ExecEvents {
 }
 
 /// The built runtime. `wakes` is the hub `SessionDeps::wakes` must share: the session calls
-/// `WakeHub::interrupt` on user input or a notification.
+/// `WakeHub::interrupt` on user input or a notification. `configured_shell` is the one
+/// `ConfiguredShell` every spawn reads: the settings effects (`DaemonSettingsEffects::new`) take
+/// this same `Arc`, and the boot value from `config.shell` is `set` on it.
 pub struct Exec {
     pub runtime: Arc<ExecRuntime>,
     pub wakes: Arc<WakeHub>,
+    pub configured_shell: Arc<ConfiguredShell>,
+}
+
+impl ShellSource for ConfiguredShell {
+    fn configured(&self) -> String {
+        self.get()
+    }
+
+    fn kept_default(&self) -> Option<String> {
+        ConfiguredShell::kept_default(self)
+    }
+
+    /// The one resolver (`shell_name::resolve_program`) over this process's directory, PATH and
+    /// environment; the caller runs it in a lane job.
+    fn resolve_default(&self) -> String {
+        crate::shell_name::resolve_program(
+            cfg!(windows),
+            std::env::current_dir().ok().as_deref(),
+            std::env::var_os("PATH").as_deref(),
+            &|name| std::env::var(name).ok(),
+        )
+    }
+
+    fn keep_default(&self, configured: &str, program: String) {
+        ConfiguredShell::keep_default(self, configured, program);
+    }
 }
 
 /// `skill_launcher_dir` is the directory the skills owner ensured (`mixdog_mcp::launcher`);
-/// `shell_path` the default shell, probed on a lane (`shell_name::resolve_program_current_on`).
+/// `shell_path` the default shell, probed on a lane (`shell_name::resolve_program_current_on`);
+/// `configured_shell` the one `ConfiguredShell` the settings effects write (its initial value is
+/// the config's `shell.command` at boot), which every spawn reads (`getConfiguredShell()`).
 pub fn build_exec(
     tokens: &LaneTokens,
     data_dir: &Path,
     skill_launcher_dir: PathBuf,
     shell_path: String,
+    configured_shell: Arc<ConfiguredShell>,
     skill_runtime: SkillRuntime,
     ext_pool: Arc<dyn ExtPool>,
 ) -> (Exec, ExecEvents) {
@@ -159,6 +192,8 @@ pub fn build_exec(
     let tasks = Arc::new(TaskRegistry::new(publisher.clone(), now_ms));
     let _ = publisher.registry.set(Arc::downgrade(&tasks));
     let wakes = WakeHub::new();
+    // The boot probe is the first kept default program; a setting change drops it.
+    configured_shell.keep_default(&configured_shell.get(), shell_path);
     let runtime = ExecRuntime::new(ExecConfig {
         tasks,
         lanes: IoLanes {
@@ -176,8 +211,7 @@ pub fn build_exec(
         elevation: Arc::new(OsPromptElevation),
         oem: host_oem(),
         skill_runtime: Some(skill_runtime),
-        shell_name: crate::shell_name::name_of(&shell_path),
-        shell_path,
+        shell: configured_shell.clone(),
         script_syntax: Arc::new(ExtSyntax::new(ext_pool)),
         windows: cfg!(windows),
         // Node's default shell on Windows is PowerShell.
@@ -186,5 +220,5 @@ pub fn build_exec(
         policy: Arc::new(NodeCommandPolicy),
         now_ms: Arc::new(now_ms),
     });
-    (Exec { runtime, wakes }, ExecEvents { finished, thread_strips, host_strip })
+    (Exec { runtime, wakes, configured_shell }, ExecEvents { finished, thread_strips, host_strip })
 }

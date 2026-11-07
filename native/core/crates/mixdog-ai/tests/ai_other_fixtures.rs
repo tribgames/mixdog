@@ -170,7 +170,11 @@ fn path_of(url: &str) -> String {
 
 #[async_trait]
 impl HttpSend for Replay {
-    async fn send(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
         let path = path_of(&request.url);
         self.sent.lock().unwrap().push((path.clone(), request.body.clone()));
         // A request the Node run never made (a catalog it had cached) is refused.
@@ -194,7 +198,12 @@ impl FrameSink for Sink {
 
 #[async_trait]
 impl BidiOpen for Replay {
-    async fn open(&self, request: WireRequest, first: Vec<u8>) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+    async fn open(
+        &self,
+        request: WireRequest,
+        first: Vec<u8>,
+        _exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         let path = path_of(&request.url);
         self.sent.lock().unwrap().push((path.clone(), first));
         let record = self.take(&path, true).unwrap_or_else(|| panic!("unrecorded stream {path}"));

@@ -1,6 +1,7 @@
 //! Devin request identity, unary RPCs and the session-token → user-JWT
 //! exchange.
 
+use crate::transport::deadlines::DEVIN_EXCHANGE;
 use std::io::Read;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
@@ -144,13 +145,16 @@ pub async fn unary(
 ) -> Result<Vec<u8>, ProviderError> {
     let operation = path.rsplit('/').next().unwrap_or("request");
     let head = http
-        .send(WireRequest {
-            transport: TransportKind::Http1,
-            method: "POST".to_owned(),
-            url: join_url(base_url, path),
-            headers: unary_headers(),
-            body,
-        })
+        .send(
+            WireRequest {
+                transport: TransportKind::Http1,
+                method: "POST".to_owned(),
+                url: join_url(base_url, path),
+                headers: unary_headers(),
+                body,
+            },
+            DEVIN_EXCHANGE,
+        )
         .await?;
     if (300..400).contains(&head.status) {
         let mut error = protocol_error("Devin server redirected the request; redirects are refused");

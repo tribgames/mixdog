@@ -20,6 +20,15 @@
       "totalBytes": 1957497
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-agent-effects.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "agent-effects/MANIFEST.json",
+      "manifestSha256": "0fb227a06521248c5add26d0f3ef8d26cd7815f0aa156c99f4cf5d1ec753b450",
+      "recorder": "benchmarks/rust-core/recorders/record-agent-effects.mjs",
+      "set": "agent-effects",
+      "totalBytes": 4408
+    },
+    {
       "command": "node --experimental-test-module-mocks <repo>/benchmarks/rust-core/recorders/record-agent-evidence.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "agent-evidence/MANIFEST.json",
@@ -72,6 +81,24 @@
       "recorder": "benchmarks/rust-core/recorders/record-auth-refresh.mjs",
       "set": "auth-refresh",
       "totalBytes": 5996
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-automation-setup-reply.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "automation-setup-reply/MANIFEST.json",
+      "manifestSha256": "3875382a631d17cade60b2d38c31745156cc48f541a2d28f97e533addc2347b9",
+      "recorder": "benchmarks/rust-core/recorders/record-automation-setup-reply.mjs",
+      "set": "automation-setup-reply",
+      "totalBytes": 329841
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-automation-status.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "automation-status/MANIFEST.json",
+      "manifestSha256": "23fa8a30430b3ee3ac52602d84efed86f6f760e9847f22540d1f24cf94792669",
+      "recorder": "benchmarks/rust-core/recorders/record-automation-status.mjs",
+      "set": "automation-status",
+      "totalBytes": 46918
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-cache-warm.mjs --tree <tree>",
@@ -524,6 +551,15 @@
       "totalBytes": 1119360
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-prompt-reroot.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "prompt-reroot/MANIFEST.json",
+      "manifestSha256": "96e3046befd8431446151ce5f72f176e539e465bdd5fa6cf4a65588fd6e5f77e",
+      "recorder": "benchmarks/rust-core/recorders/record-prompt-reroot.mjs",
+      "set": "prompt-reroot",
+      "totalBytes": 28581
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-prompt-sources.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "prompt-sources/MANIFEST.json",
@@ -660,12 +696,12 @@
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-setup-local-voice.mjs --tree <tree>",
-      "fileCount": 22,
+      "fileCount": 13,
       "manifest": "services/MANIFEST.json",
-      "manifestSha256": "95dca5d01df450b1a532b37adb0390ff26c5f92c01ec8a06d147497c222eb854",
+      "manifestSha256": "7ad99f64b020e473dfc6dd163994cc7f78df380edea76bb29aa25a153c069a2d",
       "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
       "set": "services",
-      "totalBytes": 2408484
+      "totalBytes": 1932149
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-session-activity.mjs --tree <tree>",

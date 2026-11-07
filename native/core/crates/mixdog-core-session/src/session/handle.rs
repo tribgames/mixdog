@@ -173,6 +173,13 @@ impl SessionHandle {
         Ok(rx)
     }
 
+    /// A call on the thread scope's op store, answered by the actor.
+    pub(crate) async fn op_call(&self, call: super::thread_ops::OpCall) -> Result<Reply, CoreError> {
+        let (tx, rx) = oneshot::channel();
+        self.inbox.send(Inbox::Op { call, tx }).await.map_err(|_| self.closing())?;
+        rx.await.map_err(|_| self.closing())?
+    }
+
     async fn to_actor(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         self.enqueue(req).await?.await.map_err(|_| self.closing())?
     }

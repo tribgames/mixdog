@@ -148,7 +148,7 @@ mod tests {
 
     /// The whole reveal: the host publishes the request on the app feed, a pane's
     /// `ui/terminalRun/claimed` reaches the one `PendingWaits`, and the run is shown.
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test(start_paused = true)]
     async fn the_reveal_is_shown_when_the_pane_claims_the_request_and_not_otherwise() {
         mixdog_rt::testing::tokens();
         let feeds = RecFeeds::default();

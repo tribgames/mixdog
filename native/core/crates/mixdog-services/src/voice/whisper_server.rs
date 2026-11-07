@@ -14,6 +14,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::FutureExt;
+use mixdog_ai::transport::BodyStream;
+use mixdog_ai::transport::HttpSend;
+use mixdog_ai::transport::KeepaliveSchedule;
+use mixdog_ai::transport::ReqwestLink;
+use mixdog_ai::transport::TransportKind;
+use mixdog_ai::transport::deadlines::VOICE_INFERENCE;
+use mixdog_core_api::domain::provider::WireRequest;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
@@ -235,7 +242,6 @@ async fn run_actor(core: Core, usage: Arc<Usage>, weak: mpsc::WeakSender<Command
 #[derive(Clone)]
 pub struct WhisperServer {
     shared: Arc<Shared>,
-    http: reqwest::Client,
     processes: Processes,
 }
 
@@ -256,8 +262,11 @@ impl WhisperServer {
     pub fn new(preferred_port: u16, idle_timeout: Option<Duration>, processes: &Processes) -> Self {
         let core = Core { preferred_port, idle_timeout, launcher: Arc::new(SystemLauncher::new(processes)), processes: processes.clone() };
         Self {
-            shared: Arc::new(Shared { usage: Arc::default(), commands: OnceLock::new(), core: StdMutex::new(Some(core)) }),
-            http: reqwest::Client::new(),
+            shared: Arc::new(Shared {
+                usage: Arc::default(),
+                commands: OnceLock::new(),
+                core: StdMutex::new(Some(core)),
+            }),
             processes: processes.clone(),
         }
     }
@@ -388,17 +397,28 @@ impl WhisperServer {
         let name = wav.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let boundary = format!("----mixdog{}", uuid::Uuid::new_v4().simple());
         let body = multipart_body(&boundary, &name, &data, language);
-        let response = self
-            .http
-            .post(format!("http://{host}:{port}/inference"))
-            .header("content-type", format!("multipart/form-data; boundary={boundary}"))
-            .body(body)
-            .send()
-            .await
+        let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false)
             .map_err(|e| VoiceError(e.to_string()))?;
-        let status = response.status();
-        let text = response.text().await.map_err(|e| VoiceError(e.to_string()))?;
-        parse_inference(status.as_u16(), &text)
+        let request = WireRequest {
+            transport: TransportKind::Http1,
+            method: "POST".to_owned(),
+            url: format!("http://{host}:{port}/inference"),
+            headers: vec![(
+                "content-type".to_owned(),
+                format!("multipart/form-data; boundary={boundary}"),
+            )],
+            body,
+        };
+        let mut response = link
+            .send(request, VOICE_INFERENCE)
+            .await
+            .map_err(|e| VoiceError(e.message))?;
+        // Not `read_all`: its dispatcher ceiling is a timer, and this exchange has none.
+        let mut text = Vec::new();
+        while let Some(chunk) = response.body.next().await {
+            text.extend_from_slice(&chunk.map_err(|fault| VoiceError(format!("{fault:?}")))?);
+        }
+        parse_inference(response.status, &String::from_utf8_lossy(&text))
     }
 }
 
@@ -599,7 +619,7 @@ mod tests {
 
     /// `transcribe` dropped while it waits for the handle reply: the actor has already counted the
     /// request, and the unreceived reply must give the count back so the idle release still runs.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_transcribe_cancelled_before_its_handle_reply_does_not_pin_the_child() {
         let (dir, manager, server, contract) = scripted_server(Some(Duration::from_millis(200)));
         server.ensure_ready(&contract).await.unwrap();
@@ -625,7 +645,7 @@ mod tests {
     }
 
     /// The idle timer belongs to the actor: a start whose caller gave up still ends in a release.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn an_abandoned_start_still_arms_the_idle_release() {
         let (_dir, manager, server, contract) = scripted_server(Some(Duration::from_millis(200)));
         // Polled once, so the command is queued, then dropped.

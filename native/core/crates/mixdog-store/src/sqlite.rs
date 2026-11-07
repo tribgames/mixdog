@@ -1437,6 +1437,18 @@ impl SqliteStore {
         .await
     }
 
+    /// The ops of `session` that `op/status{fence}` fenced (P §9.4): an actor refuses them at
+    /// load, so a fence survives a reload.
+    pub async fn fenced_ops(&self, session: &str) -> Result<Vec<String>, DbError> {
+        let (session, fenced) = (session.to_owned(), serde_name(&crate::schema::record::OpState::Fenced));
+        self.read(move |c| {
+            let mut rows = c.prepare_cached("SELECT op_id FROM thread_ops WHERE session = ?1 AND state = ?2")?;
+            let ids = rows.query_map([&session, &fenced], |r| r.get::<_, String>(0))?;
+            Ok(ids.collect::<Result<Vec<_>, _>>()?)
+        })
+        .await
+    }
+
     /// The compaction dividers of the display history placed before rows of
     /// `lineage[level]` with ordinals in `[from, to)` (a page's span, `to` exclusive;
     /// `u64::MAX` for the newest page), in display order. Each live `compacted` frame of the

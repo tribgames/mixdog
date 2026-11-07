@@ -58,7 +58,7 @@ fn sha(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn secret_slots_follow_the_recorded_cases() {
     let doc = golden("secret-slots.json");
     for case in doc["cases"].as_array().unwrap() {

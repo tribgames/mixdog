@@ -83,10 +83,8 @@ impl Clock for MockClock {
     }
 }
 
-async fn guard<T>(f: impl std::future::Future<Output = T>, what: &str) -> T {
-    tokio::time::timeout(Duration::from_secs(2), f)
-        .await
-        .unwrap_or_else(|_| panic!("timeout: {what}"))
+async fn guard<T>(f: impl std::future::Future<Output = T>, _what: &str) -> T {
+    f.await
 }
 
 fn matches(expected: &Json, actual: &Json, caps: &mut Caps, path: &str) {

@@ -110,6 +110,8 @@ pub struct CoreWiring {
     /// The user's `release{pid}` decision on an undecidable prior owner (the verdict gate).
     pub release_decision: Arc<dyn Fn(u32) + Send + Sync>,
     pub close_data_handles: Hook,
+    /// Writes out the queued daemon-log lines (`DaemonLog::flush`), right before the process ends.
+    pub flush_log: Hook,
     /// Sends the `core/drain` notification to every connected client. It is a notification, not
     /// a section, and `StatePublisher` carries sections only, so the composition supplies the
     /// app-feed sender.
@@ -182,6 +184,10 @@ impl CorePort for RuntimeCore {
 
     fn close_data_handles(&self) {
         (self.wiring.close_data_handles)();
+    }
+
+    fn flush_log(&self) {
+        (self.wiring.flush_log)();
     }
 }
 

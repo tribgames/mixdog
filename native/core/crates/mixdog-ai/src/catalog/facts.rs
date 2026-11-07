@@ -297,7 +297,11 @@ pub(super) mod tests {
         async fn send(
             &self,
             _: mixdog_core_api::domain::provider::WireRequest,
-        ) -> Result<crate::transport::http::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+            _exchange: crate::transport::Exchange,
+        ) -> Result<
+            crate::transport::http::HttpResponse,
+            mixdog_core_api::domain::provider::ProviderError,
+        > {
             Err(mixdog_core_api::domain::provider::ProviderError::new(
                 mixdog_core_api::domain::provider::ErrorKind::Transient,
                 mixdog_core_api::domain::provider::DeliveryState::NotSent,

@@ -262,8 +262,15 @@ struct Offline;
 
 #[async_trait]
 impl mixdog_ai::transport::HttpSend for Offline {
-    async fn send(&self, _: p::WireRequest) -> Result<mixdog_ai::transport::HttpResponse, p::ProviderError> {
-        Err(p::ProviderError::new(p::ErrorKind::Transient, p::DeliveryState::NotSent))
+    async fn send(
+        &self,
+        _: p::WireRequest,
+        _exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<mixdog_ai::transport::HttpResponse, p::ProviderError> {
+        Err(p::ProviderError::new(
+            p::ErrorKind::Transient,
+            p::DeliveryState::NotSent,
+        ))
     }
 }
 

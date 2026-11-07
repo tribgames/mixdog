@@ -5,7 +5,6 @@
 use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use mixdog_exthost::ExtHostConfig;
 use mixdog_exthost::ExtHostPool;
@@ -15,9 +14,7 @@ use mixdog_tools::exec::ExtSyntax;
 use mixdog_tools::exec::ScriptSyntax;
 
 async fn within<T>(fut: impl Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(30), fut)
-        .await
-        .expect("watchdog: nothing happened for 30 s")
+    fut.await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -8,6 +8,7 @@ pub mod admission;
 pub mod config;
 pub mod connector_accounts;
 mod containment;
+pub mod deadlines;
 pub mod declaration_cache;
 pub mod extension_service;
 pub mod gmail_verify;

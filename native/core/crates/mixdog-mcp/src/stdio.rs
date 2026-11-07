@@ -1,6 +1,7 @@
 //! stdio transport: one child process, newline-delimited JSON on its stdin/stdout. The child
 //! is created on the spawn lane; the process-group leader is killed as a group.
 
+use mixdog_rt::Liveness;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -234,8 +235,9 @@ impl Drop for StdioTransport {
 
 #[async_trait]
 impl Transport for StdioTransport {
-    async fn send(&self, message: Value) -> Result<(), TransportError> {
-        let mut bytes = serde_json::to_vec(&message).map_err(|e| TransportError::Request(e.to_string()))?;
+    async fn send(&self, message: Value, _liveness: Liveness) -> Result<(), TransportError> {
+        let mut bytes =
+            serde_json::to_vec(&message).map_err(|e| TransportError::Request(e.to_string()))?;
         bytes.push(b'\n');
         self.outgoing.send(bytes).map_err(|_| TransportError::Closed)
     }

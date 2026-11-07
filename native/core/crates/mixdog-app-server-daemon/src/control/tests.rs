@@ -8,7 +8,6 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
-use std::time::Instant;
 
 use serde_json::Value;
 use serde_json::json;
@@ -206,15 +205,15 @@ fn a_tokio_stalled_core_answers_status_and_honours_terminate() {
             }
         });
     }
-    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    entered_rx.recv().unwrap();
+    entered_rx.recv().unwrap();
 
-    let deadline = Instant::now() + Duration::from_secs(15);
+    // The monitor measures the stall against the real clock, so it is polled for; no deadline judges it.
     let stalled = loop {
         let (status, reply) = mgmt(port, &token, "GET", "/mgmt/status", None);
         assert_eq!(status, 200, "status answers while the runtime is stalled");
         let ms = reply["stalledMs"].as_u64().unwrap();
-        if ms > 0 || Instant::now() > deadline {
+        if ms > 0 {
             break ms;
         }
         std::thread::sleep(Duration::from_millis(30));

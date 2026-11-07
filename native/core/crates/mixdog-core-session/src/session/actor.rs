@@ -176,9 +176,12 @@ pub(crate) enum Inbox {
     /// A completion as the session's listeners receive it (`{content, meta}`): shown as a live
     /// card when the card gates admit it.
     CompletionCard { content: String, meta: Value },
-    /// `notifySessionUi(id, content, meta)`: a notice for the surfaces attached now, published as
-    /// `thread/notification`; never a row, never queued for the model.
-    UiNotice { content: String, meta: Value },
+    /// The setup tool's desktop request `id` (`notifySessionUi(.., { kind: 'setup-ui', id })`,
+    /// taken by the session store's `setup-ui` action): the thread shows it as `setupUiRequest`
+    /// until it is settled or `window` (its claim window) ends.
+    SetupUiRequest { id: String, window: std::time::Duration },
+    /// The desktop request `id` can no longer be claimed (claimed, or ended unclaimed).
+    SetupUiSettled { id: String },
     /// `TaskNotifier`: a detached job of this thread finished.
     TaskNotification {
         surface: String,
@@ -193,6 +196,8 @@ pub(crate) enum Inbox {
         req: CoreRequest,
         tx: Waiter,
     },
+    /// The op store of this thread's scope (`ThreadOps`): the actor is the scope's only writer.
+    Op { call: super::thread_ops::OpCall, tx: Waiter },
     /// `thread/fork`: the base the new thread continues (acked end of this lineage) and the
     /// header it copies. The handle creates the thread through the directory.
     ForkPlan {
@@ -268,6 +273,8 @@ pub(crate) enum JobDone {
     Compacted { op: Option<OpId>, tx: Waiter, result: Value, recover: bool },
     /// A manual compaction ended (its answer follows).
     CompactionEnded,
+    /// The claim window of the desktop request `id` ended.
+    SetupUiExpired(String),
     /// `retainedRetryInput()` for a `turn/retryFailed` that passed its first gates.
     RetryChecked { op: Option<OpId>, tx: Waiter, key: String, retained: Option<super::quota_lane::Retained> },
     /// `reactivateUsageLimitedGoal` of a Goal resume answered.
@@ -327,8 +334,9 @@ pub(crate) enum Init {
         tx: Option<Waiter>,
         value: Value,
     },
-    /// An opened log: interrupted runs and their approvals are recovered (P §5.2, §8.2).
-    Open,
+    /// An opened log: interrupted runs and their approvals are recovered (P §5.2, §8.2); the
+    /// ops its scope fenced are refused from the start (P §9.4).
+    Open { fenced: Vec<String> },
 }
 
 struct RunSlot {
@@ -562,7 +570,12 @@ impl SessionActor {
                     }],
                 );
             }
-            Init::Open => self.recover(),
+            Init::Open { fenced } => {
+                for op in fenced {
+                    self.ops.fence(&OpId::from(op)).expect("a loading actor has seen no op");
+                }
+                self.recover();
+            }
         }
         self.deps.runtime_hooks.started(&self.id);
         self.load_persisted_prompts();
@@ -659,7 +672,10 @@ impl SessionActor {
             let turn = run.turn.clone();
             let at = self.deps.clock.now_ms();
             for aid in self.book.take_run(&turn) {
-                self.resolve(aid, &turn, ApprovalResolution::Interrupted { at });
+                // The run's token fires right below: it must see `interrupted`, not the cancel.
+                let interrupted = ApprovalResolution::Interrupted { at };
+                self.book.answer(aid, &interrupted);
+                self.resolve(aid, &turn, interrupted);
             }
             if let Some(run) = &self.run {
                 run.cancel.abort(reason);
@@ -923,6 +939,7 @@ impl SessionActor {
             JobDone::Replied { op, tx, result } => self.replied(op, tx, result),
             JobDone::Compacted { op, tx, result, recover } => self.compacted(op, tx, result, recover),
             JobDone::CompactionEnded => self.compactions = self.compactions.saturating_sub(1),
+            JobDone::SetupUiExpired(id) => self.setup_ui_settled(&id),
             JobDone::RetryChecked { op, tx, key, retained } => self.retry_checked(op, tx, key, retained),
             JobDone::Resumed(done) => self.resumed(*done),
             JobDone::CompactionRows(done) => self.compaction_rows(*done),
@@ -1393,6 +1410,7 @@ impl SessionActor {
             Section::PromptRestore(v) => note("thread/promptRestore", t, v),
             Section::ProviderAccount(v) => note("thread/providerAccount/changed", t, v),
             Section::Remote(v) => note("thread/remote/updated", t, v),
+            Section::SetupUiRequest(v) => note("thread/setupUiRequest/updated", t, v),
         }
     }
 
@@ -1601,7 +1619,9 @@ impl SessionActor {
                 if self.run.as_ref().is_some_and(|run| run.turn == turn) {
                     let now = self.deps.clock.now_ms();
                     for aid in self.book.take_run(&turn) {
-                        self.resolve(aid, &turn, ApprovalResolution::Interrupted { at: now });
+                        let interrupted = ApprovalResolution::Interrupted { at: now };
+                        self.book.answer(aid, &interrupted);
+                        self.resolve(aid, &turn, interrupted);
                     }
                 }
             }
@@ -2394,12 +2414,12 @@ impl SessionActor {
     /// A run's live-only line or notification (`RunPort::notice`, `usage`, `compact_event`).
     fn run_shown(&mut self, turn: TurnId, shown: RunShown) {
         match shown {
-            RunShown::Notice(text) => {
+            RunShown::Notice { text, tone } => {
                 let text = super::live_rows::polish_notice_text(&text);
                 if text.is_empty() {
                     return;
                 }
-                let item = super::transcript::notice_item(&new_id(), turn.as_str(), &text, "info");
+                let item = super::transcript::notice_item(&new_id(), turn.as_str(), &text, tone.as_str());
                 self.show_live(turn, item, None);
             }
             RunShown::Reasoning(item) => self.show_live(turn, item, None),
@@ -2553,13 +2573,8 @@ impl SessionActor {
         match msg {
             Inbox::GoalChanged(goal) => self.goal_changed(goal),
             Inbox::CompletionCard { content, meta } => self.completion_card(&content, &meta),
-            Inbox::UiNotice { content, meta } => {
-                let note = Note::new(
-                    "thread/notification",
-                    &mixdog_app_protocol::v2::thread::ThreadNotificationParams { thread_id: self.id.clone(), turn_id: None, content, meta },
-                );
-                self.accept_view(Change::Barrier, vec![note]);
-            }
+            Inbox::SetupUiRequest { id, window } => self.setup_ui_request(id, window),
+            Inbox::SetupUiSettled { id } => self.setup_ui_settled(&id),
             Inbox::TaskNotification {
                 surface,
                 task_id,
@@ -2591,6 +2606,7 @@ impl SessionActor {
                     let _ = tx.send(());
                 });
             }
+            Inbox::Op { call, tx } => self.op_call(call, tx),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {
@@ -2605,6 +2621,45 @@ impl SessionActor {
                 if let Err((error, tx)) = self.mutation(req, tx) {
                     let _ = tx.send(Err(error));
                 }
+            }
+        }
+    }
+
+    /// The thread scope's op store (P §9.2): `Await` answers once a running execution of the op
+    /// has settled; `Record` appends an `op` record (rejection, fence, external state), answered
+    /// once durable.
+    fn op_call(&mut self, call: super::thread_ops::OpCall, tx: Waiter) {
+        use super::thread_ops::OpCall;
+        match call {
+            OpCall::Await(op) => {
+                if let Some(tx) = self.ops.wait_for(&op, tx) {
+                    let _ = tx.send(Ok(Reply::Value(Value::Null)));
+                }
+            }
+            OpCall::Record { op, state, detail } => {
+                if !self.outbox.has_room(Class::Normal) {
+                    let _ = tx.send(Err(CoreError::WindowFull { thread_id: self.id.clone() }));
+                    return;
+                }
+                if state == mixdog_store::schema::record::OpState::Fenced
+                    && let Err(error) = self.ops.fence(&OpId::from(op.id.as_str().to_owned()))
+                {
+                    let _ = tx.send(Err(error));
+                    return;
+                }
+                let record = Record::Op(mixdog_store::schema::record::OpRecord {
+                    op,
+                    state,
+                    at: self.deps.clock.now_ms(),
+                    detail: detail.map(Slot::Inline),
+                });
+                let plan = Plan {
+                    kind: PlanKind::Records(vec![(record, Class::Normal, Display::None, Vec::new())], Vec::new()),
+                    value: json!({}),
+                    after: None,
+                    prompt: None,
+                };
+                self.apply_plan(plan, None, tx);
             }
         }
     }
@@ -3135,6 +3190,27 @@ impl SessionActor {
         records.push((meta, Class::Normal, Display::None, Vec::new()));
         // A row's prompt joins the prompt history as it is applied.
         Ok(Plan { kind: PlanKind::Records(records, Vec::new()), value, after: None, prompt: None })
+    }
+
+    /// The session store's `setup-ui` action (`set({ setupUiRequest: { id, at: Date.now() } })`):
+    /// the request is thread state, so a snapshot carries it as a replay does, until it is
+    /// settled or its claim window ends.
+    fn setup_ui_request(&mut self, id: String, window: std::time::Duration) {
+        let request = mixdog_app_protocol::v2::thread::SetupUiRequest { id: id.clone(), at: self.deps.clock.now_ms() };
+        self.accept_view(Change::Section(Section::SetupUiRequest(Some(request))), Vec::new());
+        let jobs = self.jobs_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(window).await;
+            let _ = jobs.send(JobDone::SetupUiExpired(id));
+        });
+    }
+
+    /// The request `id` can no longer be claimed: the thread stops showing it, unless a newer
+    /// request took its place.
+    fn setup_ui_settled(&mut self, id: &str) {
+        if self.projected.sections.setup_ui_request.as_ref().is_some_and(|request| request.id == id) {
+            self.accept_view(Change::Section(Section::SetupUiRequest(None)), Vec::new());
+        }
     }
 
     /// `pushAsyncAgentResponse` behind Node's card gates (`execution-delivery.mjs`): the

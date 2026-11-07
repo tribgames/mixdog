@@ -1,0 +1,609 @@
+{
+ "domain": "agent-job-busy-count",
+ "recorder": "benchmarks/rust-core/recorders/record-job-busy-count.mjs",
+ "scenarios": [
+  {
+   "name": "several-clients-share-the-daemon",
+   "start": 1772359200000,
+   "sessions": {
+    "w11": 11,
+    "w12": 12,
+    "wfloat": 12.7,
+    "wzero": 0,
+    "wnull": null
+   },
+   "ops": [
+    {
+     "op": "register",
+     "id": "a",
+     "caller": null,
+     "pid": 11,
+     "sessionId": "w11"
+    },
+    {
+     "op": "register",
+     "id": "b",
+     "caller": null,
+     "pid": 11,
+     "sessionId": "w12"
+    },
+    {
+     "op": "register",
+     "id": "c",
+     "caller": null,
+     "pid": 11,
+     "sessionId": "wnull"
+    },
+    {
+     "op": "register",
+     "id": "d",
+     "caller": null,
+     "pid": 11,
+     "sessionId": "unknown-session"
+    },
+    {
+     "op": "register",
+     "id": "e",
+     "caller": null,
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "f",
+     "caller": null,
+     "pid": 12,
+     "sessionId": "w12"
+    },
+    {
+     "op": "register",
+     "id": "g",
+     "caller": null,
+     "pid": 11,
+     "sessionId": "wfloat"
+    },
+    {
+     "op": "register",
+     "id": "h",
+     "caller": null,
+     "pid": 11,
+     "sessionId": "wzero"
+    },
+    {
+     "op": "register",
+     "id": "i",
+     "caller": "s1",
+     "pid": 11,
+     "sessionId": "w12"
+    },
+    {
+     "op": "register",
+     "id": "j",
+     "caller": "s1",
+     "pid": 12,
+     "sessionId": "w11"
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "pid": 11
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "pid": 12
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "pid": 999
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1",
+      "pid": 11
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1",
+      "pid": 12
+     }
+    },
+    {
+     "op": "busy"
+    },
+    {
+     "op": "complete",
+     "id": "b",
+     "status": "completed"
+    },
+    {
+     "op": "complete",
+     "id": "a",
+     "status": "queued"
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "pid": 11
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "pid": 12
+     }
+    }
+   ],
+   "results": [
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {
+     "listed": 5,
+     "busy": 5
+    },
+    {
+     "listed": 1,
+     "busy": 1
+    },
+    {
+     "listed": 0,
+     "busy": 0
+    },
+    {
+     "listed": 2,
+     "busy": 2
+    },
+    {
+     "listed": 6,
+     "busy": 6
+    },
+    {
+     "listed": 2,
+     "busy": 2
+    },
+    {
+     "listed": 10,
+     "busy": 10
+    },
+    {},
+    {},
+    {
+     "listed": 6,
+     "busy": 5
+    },
+    {
+     "listed": 1,
+     "busy": 1
+    }
+   ]
+  },
+  {
+   "name": "empty",
+   "start": 1772359200000,
+   "sessions": {},
+   "ops": [
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    },
+    {
+     "op": "busy"
+    }
+   ],
+   "results": [
+    {
+     "listed": 0,
+     "busy": 0
+    },
+    {
+     "listed": 0,
+     "busy": 0
+    }
+   ]
+  },
+  {
+   "name": "running-and-finished",
+   "start": 1772359200000,
+   "sessions": {},
+   "ops": [
+    {
+     "op": "register",
+     "id": "a",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "b",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "c",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "d",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    },
+    {
+     "op": "complete",
+     "id": "a",
+     "status": "completed"
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    },
+    {
+     "op": "complete",
+     "id": "b",
+     "status": "failed"
+    },
+    {
+     "op": "complete",
+     "id": "c",
+     "status": "cancelled"
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    },
+    {
+     "op": "complete",
+     "id": "d",
+     "status": "done"
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    }
+   ],
+   "results": [
+    {},
+    {},
+    {},
+    {},
+    {
+     "listed": 4,
+     "busy": 4
+    },
+    {},
+    {
+     "listed": 4,
+     "busy": 3
+    },
+    {},
+    {},
+    {
+     "listed": 4,
+     "busy": 1
+    },
+    {},
+    {
+     "listed": 4,
+     "busy": 0
+    }
+   ]
+  },
+  {
+   "name": "other-states-and-spellings",
+   "start": 1772359200000,
+   "sessions": {},
+   "ops": [
+    {
+     "op": "register",
+     "id": "q",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "p",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "s",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "x",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "e",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "complete",
+     "id": "q",
+     "status": "Queued"
+    },
+    {
+     "op": "complete",
+     "id": "p",
+     "status": " pending "
+    },
+    {
+     "op": "complete",
+     "id": "s",
+     "status": "starting"
+    },
+    {
+     "op": "complete",
+     "id": "x",
+     "status": "spawning"
+    },
+    {
+     "op": "complete",
+     "id": "e",
+     "status": "error"
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    }
+   ],
+   "results": [
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {
+     "listed": 5,
+     "busy": 4
+    }
+   ]
+  },
+  {
+   "name": "scoped-by-session-and-process",
+   "start": 1772359200000,
+   "sessions": {},
+   "ops": [
+    {
+     "op": "register",
+     "id": "t1",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "t2",
+     "caller": "s1",
+     "pid": 12
+    },
+    {
+     "op": "register",
+     "id": "t3",
+     "caller": "s2",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "t4",
+     "caller": null,
+     "pid": 13,
+     "owner": "s3"
+    },
+    {
+     "op": "register",
+     "id": "t5",
+     "caller": null,
+     "pid": 11,
+     "owner": null
+    },
+    {
+     "op": "register",
+     "id": "t6",
+     "caller": null,
+     "pid": null,
+     "owner": null
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s2"
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s3"
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s4"
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1",
+      "pid": 11
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s4",
+      "pid": 11
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "pid": 11
+     }
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "pid": 13
+     }
+    },
+    {
+     "op": "busy"
+    }
+   ],
+   "results": [
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {
+     "listed": 3,
+     "busy": 3
+    },
+    {
+     "listed": 2,
+     "busy": 2
+    },
+    {
+     "listed": 1,
+     "busy": 1
+    },
+    {
+     "listed": 1,
+     "busy": 1
+    },
+    {
+     "listed": 4,
+     "busy": 4
+    },
+    {
+     "listed": 2,
+     "busy": 2
+    },
+    {
+     "listed": 4,
+     "busy": 4
+    },
+    {
+     "listed": 2,
+     "busy": 2
+    },
+    {
+     "listed": 6,
+     "busy": 6
+    }
+   ]
+  },
+  {
+   "name": "a-finished-job-leaves-after-its-retention",
+   "start": 1772359200000,
+   "sessions": {},
+   "ops": [
+    {
+     "op": "register",
+     "id": "a",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "register",
+     "id": "b",
+     "caller": "s1",
+     "pid": 11
+    },
+    {
+     "op": "complete",
+     "id": "a",
+     "status": "completed"
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    },
+    {
+     "op": "advance",
+     "ms": 1860000
+    },
+    {
+     "op": "busy",
+     "scope": {
+      "session": "s1"
+     }
+    }
+   ],
+   "results": [
+    {},
+    {},
+    {},
+    {
+     "listed": 2,
+     "busy": 1
+    },
+    {},
+    {
+     "listed": 1,
+     "busy": 1
+    }
+   ]
+  }
+ ]
+}

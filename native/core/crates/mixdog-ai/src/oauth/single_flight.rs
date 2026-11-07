@@ -22,6 +22,9 @@ use std::sync::PoisonError;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::future::Shared;
+use mixdog_rt::Expired;
+
+use crate::transport::deadlines::REFRESH_FLIGHT;
 
 type Key = (PathBuf, TypeId);
 
@@ -33,8 +36,9 @@ fn flights() -> std::sync::MutexGuard<'static, HashMap<Key, Box<dyn Any + Send>>
 }
 
 /// Runs `refresh` unless one with the same result type is already running for
-/// `credential`; then waits for that one and returns its result.
-pub(crate) async fn refresh_once<T, F>(credential: &Path, refresh: F) -> T
+/// `credential`; then waits for that one and returns its result, or the
+/// [`Expired`] that ended the flight.
+pub(crate) async fn refresh_once<T, F>(credential: &Path, refresh: F) -> Result<T, Expired>
 where
     T: Clone + Send + Sync + 'static,
     F: Future<Output = T> + Send + 'static,
@@ -44,13 +48,15 @@ where
         let mut map = flights();
         match map
             .get(&key)
-            .and_then(|slot| slot.downcast_ref::<Shared<BoxFuture<'static, T>>>())
+            .and_then(|slot| slot.downcast_ref::<Shared<BoxFuture<'static, Result<T, Expired>>>>())
         {
             Some(running) => running.clone(),
             None => {
                 let done = key.clone();
                 let shared = async move {
-                    let result = refresh.await;
+                    // An expired flight leaves the map like a finished one, and every joiner
+                    // gets the same typed failure instead of a dead flight.
+                    let result = REFRESH_FLIGHT.bound_head(refresh).await;
                     flights().remove(&done);
                     result
                 }
@@ -87,10 +93,14 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let calls = (0..8).map(|_| refresh_once(path, slow(counter.clone(), 7)));
         let results = futures::future::join_all(calls).await;
-        assert!(results.iter().all(|r| *r == 7));
-        assert_eq!(counter.load(Ordering::SeqCst), 1, "one refresh for eight callers");
+        assert!(results.iter().all(|r| *r == Ok(7)));
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "one refresh for eight callers"
+        );
         // The flight is over: the next caller refreshes again.
-        assert_eq!(refresh_once(path, slow(counter.clone(), 8)).await, 8);
+        assert_eq!(refresh_once(path, slow(counter.clone(), 8)).await, Ok(8));
         assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 
@@ -101,7 +111,7 @@ mod tests {
             refresh_once(Path::new("x-oauth.json"), slow(counter.clone(), 1)),
             refresh_once(Path::new("y-oauth.json"), slow(counter.clone(), 2)),
         );
-        assert_eq!((a, b), (1, 2));
+        assert_eq!((a, b), (Ok(1), Ok(2)));
         assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 
@@ -114,7 +124,21 @@ mod tests {
         let mut first = Box::pin(first);
         assert!((&mut first).now_or_never().is_none(), "still pending");
         drop(first);
-        assert_eq!(second.await, 3);
+        assert_eq!(second.await, Ok(3));
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_that_never_answers_ends_and_frees_the_credential() {
+        let path = Path::new("hung-oauth.json");
+        let owner = refresh_once(path, std::future::pending::<u32>());
+        let joiner = refresh_once(path, std::future::pending::<u32>());
+        let (owner, joiner) = tokio::join!(owner, joiner);
+        let expired = Err(Expired {
+            after: std::time::Duration::from_secs(150),
+        });
+        assert_eq!((owner, joiner), (expired, expired));
+        // The dead flight is gone: the next caller starts a new refresh.
+        assert_eq!(refresh_once(path, async { 5u32 }).await, Ok(5));
     }
 }

@@ -36,6 +36,7 @@ use crate::oauth::classify_refresh_failure;
 use crate::oauth::CredentialFile;
 use crate::oauth::Probe;
 use crate::transport::HttpSend;
+use crate::transport::deadlines::TOKEN_EXCHANGE;
 
 pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
@@ -143,13 +144,19 @@ impl Inner {
             .into_bytes();
         let response = self
             .http
-            .send(WireRequest {
-                transport: TransportKind::Http1,
-                method: "POST".into(),
-                url: TOKEN_URL.into(),
-                headers: vec![("Content-Type".into(), "application/x-www-form-urlencoded".into())],
-                body,
-            })
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "POST".into(),
+                    url: TOKEN_URL.into(),
+                    headers: vec![(
+                        "Content-Type".into(),
+                        "application/x-www-form-urlencoded".into(),
+                    )],
+                    body,
+                },
+                TOKEN_EXCHANGE,
+            )
             .await;
         let (status, body) = match response {
             Ok(response) => {

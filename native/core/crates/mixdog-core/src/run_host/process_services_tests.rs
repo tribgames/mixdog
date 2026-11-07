@@ -309,7 +309,11 @@ impl mixdog_ai::transport::http::HttpSend for Offline {
     async fn send(
         &self,
         _: mixdog_core_api::domain::provider::WireRequest,
-    ) -> Result<mixdog_ai::transport::http::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+        _exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<
+        mixdog_ai::transport::http::HttpResponse,
+        mixdog_core_api::domain::provider::ProviderError,
+    > {
         Err(mixdog_core_api::domain::provider::ProviderError::new(
             mixdog_core_api::domain::provider::ErrorKind::Transient,
             mixdog_core_api::domain::provider::DeliveryState::NotSent,

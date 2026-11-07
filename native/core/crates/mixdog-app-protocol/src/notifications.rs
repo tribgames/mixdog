@@ -148,6 +148,7 @@ crate::notification_definitions! {
     ThreadProviderAccountChanged => "thread/providerAccount/changed" (ThreadSectionParams<Option<ProviderAccountChange>>) @thread,
     ThreadPromptHistoryUpdated => "thread/promptHistory/updated" (ThreadSectionParams<PromptHistoryChange>) @thread,
     ThreadRemoteUpdated => "thread/remote/updated" (ThreadSectionParams<bool>) @thread,
+    ThreadSetupUiRequestUpdated => "thread/setupUiRequest/updated" (ThreadSectionParams<Option<SetupUiRequest>>) @thread,
     /// Section `reviewDiff`, key = thread id.
     ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @thread,
     // ---- connection-scoped

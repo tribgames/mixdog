@@ -92,8 +92,8 @@ impl ExtensionHost for Host {
         self.push("surface");
     }
 
-    async fn tool_names(&self) -> Vec<String> {
-        Vec::new()
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
 
     async fn reconnect_mcp_and_announce(&self, _: Option<&str>, _: bool, _: &[String]) -> Value {
@@ -124,8 +124,8 @@ impl ExtensionHost for Host {
         self.push("flushSkills");
     }
 
-    async fn current_cwd(&self, _: Option<&str>) -> PathBuf {
-        self.cwd.clone()
+    async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
+        Ok(self.cwd.clone())
     }
 
     async fn skills_status(&self) -> Value {

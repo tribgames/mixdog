@@ -77,7 +77,21 @@ pub fn surface_of_header(mode: String, header: &Header) -> StatusSurface {
     let catalog = tools_of(header, "deferredToolCatalog").or_else(|| eager.clone()).unwrap_or_default();
     let mut active: Vec<String> = eager.unwrap_or_default().into_iter().map(|t| t.name).filter(|n| !n.is_empty()).collect();
     active.extend(names_of(header, "deferredCallableTools"));
-    StatusSurface { mode, catalog, active, discovered: names_of(header, "deferredDiscoveredTools") }
+    StatusSurface { mode, catalog, active, discovered: names_of(header, "deferredDiscoveredTools"), listed: listed_names(header) }
+}
+
+/// `getTools()` of `wireSkills` (`boot/infrastructure.mjs`): `new Map([...tools, ...deferredToolCatalog,
+/// ...deferredLateToolCatalog].map(tool => [tool.name, tool])).values()`: the first place of each name.
+/// An entry that is not an object, or has no text name, lists as the empty name.
+fn listed_names(header: &Header) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    ["tools", "deferredToolCatalog", "deferredLateToolCatalog"]
+        .iter()
+        .filter_map(|key| header.get(*key).and_then(Value::as_array))
+        .flatten()
+        .map(|doc| doc.get("name").and_then(Value::as_str).unwrap_or_default().to_owned())
+        .filter(|name| seen.insert(name.clone()))
+        .collect()
 }
 
 #[async_trait]
@@ -157,6 +171,16 @@ mod tests {
         let none = status.surface(None).await.unwrap();
         assert!(none.catalog.is_empty());
         assert_eq!(host.0.lock().unwrap().len(), 1);
+    }
+
+    /// `skillsStatus().tools` of the real Node skills API, over surfaces as headers carry them.
+    #[test]
+    fn the_listed_names_are_the_ones_node_lists() {
+        let golden: Value = serde_json::from_str(include_str!("golden/surface_listed.json")).expect("golden");
+        for case in golden["cases"].as_array().unwrap() {
+            let header = case["surface"].as_object().cloned().unwrap_or_default();
+            assert_eq!(serde_json::json!(surface_of_header("full".into(), &header).listed), case["tools"], "case {}", case["name"]);
+        }
     }
 
     #[test]

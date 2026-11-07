@@ -13,6 +13,7 @@
 
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
+use crate::transport::deadlines::MODEL_STREAM;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt;
@@ -273,8 +274,13 @@ impl OpenAiAdapter {
         }
     }
 
-    async fn open_http(&self, codec: &OpenAiCodec, request: &ModelRequest, wire: WireRequest) -> Result<Opened, ProviderError> {
-        let response = self.http.send(wire).await?;
+    async fn open_http(
+        &self,
+        codec: &OpenAiCodec,
+        request: &ModelRequest,
+        wire: WireRequest,
+    ) -> Result<Opened, ProviderError> {
+        let response = self.http.send(wire, MODEL_STREAM).await?;
         if response.is_success() {
             let token = header(&response.headers, TURN_STATE_HEADER).map(str::to_owned);
             self.remember_turn_state(request, token.as_deref());

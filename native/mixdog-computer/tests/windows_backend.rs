@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::sync::{Condvar, Mutex};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -20,6 +20,24 @@ use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 static CLICKS: AtomicUsize = AtomicUsize::new(0);
+/// The fixture's own signal, raised after every click it counts and when its message pump ends
+/// (the window is gone by then): what the test waits on instead of a timer.
+static SIGNAL: Mutex<()> = Mutex::new(());
+static CHANGED: Condvar = Condvar::new();
+
+fn raise() {
+    let _held = SIGNAL.lock().unwrap();
+    CHANGED.notify_all();
+}
+
+/// Blocks until `ready` holds. The state is checked under the signal's lock and `raise` takes it
+/// after changing the state, so a change between the check and the wait is not missed.
+fn wait_until(ready: impl Fn() -> bool) {
+    let mut held = SIGNAL.lock().unwrap();
+    while !ready() {
+        held = CHANGED.wait(held).unwrap();
+    }
+}
 static EDIT: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
 unsafe extern "system" fn fixture_proc(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -28,6 +46,7 @@ unsafe extern "system" fn fixture_proc(window: HWND, message: u32, wparam: WPARA
             // BN_CLICKED from the button child.
             if (wparam.0 >> 16) as u32 == 0 {
                 CLICKS.fetch_add(1, Ordering::SeqCst);
+                raise();
                 let _ = SetFocus(Some(HWND(EDIT.load(Ordering::SeqCst) as _)));
             }
             LRESULT(0)
@@ -119,8 +138,9 @@ impl Fixture {
                 let _ = TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
+            raise();
         });
-        let (window, edit) = wait.recv_timeout(Duration::from_secs(10)).unwrap();
+        let (window, edit) = wait.recv().unwrap();
         Fixture { window, edit, thread: Some(thread) }
     }
 
@@ -278,7 +298,8 @@ fn windows_backend_serves_the_computer_protocol() {
     let before = CLICKS.load(Ordering::SeqCst);
     let invoked = host.ok(json!({ "action": "invoke", "ref": button["ref"] }));
     assert_eq!(invoked["delivery_accepted"], json!(true));
-    std::thread::sleep(Duration::from_millis(150));
+    // Delivered by the fixture's own message pump, which raises its signal after counting it.
+    wait_until(|| CLICKS.load(Ordering::SeqCst) > before);
     assert_eq!(CLICKS.load(Ordering::SeqCst), before + 1);
 
     // Background input, delivered as messages to the fixture alone.
@@ -300,7 +321,8 @@ fn windows_backend_serves_the_computer_protocol() {
         "x": button["center_x"], "y": button["center_y"],
     }));
     assert_eq!(clicked["delivery_accepted"], json!(true), "{clicked}");
-    std::thread::sleep(Duration::from_millis(150));
+    // Delivered by the fixture's own message pump, which raises its signal after counting it.
+    wait_until(|| CLICKS.load(Ordering::SeqCst) > before);
     assert_eq!(CLICKS.load(Ordering::SeqCst), before + 1);
 
     // Window operations.
@@ -312,12 +334,8 @@ fn windows_backend_serves_the_computer_protocol() {
     let restored = host.ok(json!({ "action": "window_state", "window_id": fixture.id(), "state": "restore" }));
     assert_eq!(restored["verified"], json!(true));
     host.ok(json!({ "action": "close_window", "window_id": fixture.id() }));
-    for _ in 0..40 {
-        if !fixture.exists() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    // The pump ends (and raises) once the window is destroyed.
+    wait_until(|| !fixture.exists());
     assert!(!fixture.exists(), "the fixture closed");
 }
 

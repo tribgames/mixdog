@@ -123,7 +123,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_config_change_reaches_the_policy_and_a_changed_setting_moves_its_epoch() {
         let stack = NetworkStack::new(KeepaliveSchedule::SPEC);
         assert!(stack.policy.current().is_err(), "no setting is known before it is adopted");

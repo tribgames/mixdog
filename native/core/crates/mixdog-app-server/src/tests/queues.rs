@@ -222,7 +222,7 @@ async fn keys_that_keep_going_idle_lose_no_request_under_concurrent_enqueues() {
     assert_eq!(count, THREADS * PER_THREAD);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn exclusive_requests_of_one_key_run_in_arrival_order() {
     let queues = setup();
     let log: Log = Arc::default();

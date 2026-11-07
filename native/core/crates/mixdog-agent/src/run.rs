@@ -87,6 +87,10 @@ pub struct RunConfig {
     /// Node `opts.retry529`: `false` surfaces an overload (status 529) instead of retrying it, for a
     /// background call that falls back at once. The provider's own policy is kept otherwise.
     pub retry_529: bool,
+    /// Called before each provider attempt of the turn: the host begins the request's set of
+    /// provider-excluded tools there (`beginProviderToolExclusions`, `send-phase.mjs`). Whatever
+    /// provider the attempt goes to (a route hop included) is covered, because the loop calls it.
+    pub request_begin: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl RunConfig {
@@ -112,6 +116,7 @@ impl RunConfig {
             slot: None,
             signal: None,
             retry_529: true,
+            request_begin: None,
         }
     }
 }

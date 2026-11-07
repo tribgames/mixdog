@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-automation-status.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 46918,
+      "path": "golden.json",
+      "sha256": "8ac3273305e3963e1beecc4274f37e7c8958f1f2b9d62702cdb3639f5c15f265"
+    }
+  ],
+  "product": {
+    "appsSha256": "fafa2dadfb9db84dba5ba512f05574282fe76e530ac5b39b4bb99cc0f396199c",
+    "commit": "88cae41ca02aee4d86f0e85ac7a1dc568ac7b471",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "88cae41ca02aee4d86f0e85ac7a1dc568ac7b471",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-automation-status.mjs",
+  "set": "automation-status",
+  "totalBytes": 46918
+}
