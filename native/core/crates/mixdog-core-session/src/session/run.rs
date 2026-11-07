@@ -253,6 +253,8 @@ pub(crate) enum RunShown {
     Check(SendCheck),
     /// The ask's end (`applyAskTerminalUsageTotals`, `recordProviderContextBaseline`).
     Settled(Settled),
+    /// A hosted web search's spend (`onNativeWebSearchUsage`): the delta `reportNativeWebSearchUsage` hands the turn.
+    SearchUsage(Value),
 }
 
 /// The request the loop is about to send, as its pre-send check judged it.
@@ -490,6 +492,13 @@ impl RunPort {
     /// The ask's end: its usage and transcript, before the run's outcome is reported.
     pub async fn settled(&self, settled: Settled) -> Result<(), RunError> {
         self.shown(RunShown::Settled(settled)).await
+    }
+
+    /// A hosted web search's spend (`onNativeWebSearchUsage`): `thread/tokenUsage/updated` with the search's own
+    /// delta (`source: native_web_search`). The search is not a main-stream request, so the header's usage books
+    /// (`persistIterationMetrics`, fed by `onUsageDelta` only) and the live output count never hear it.
+    pub async fn search_usage(&self, delta: Value) -> Result<(), RunError> {
+        self.shown(RunShown::SearchUsage(delta)).await
     }
 
     async fn shown(&self, shown: RunShown) -> Result<(), RunError> {

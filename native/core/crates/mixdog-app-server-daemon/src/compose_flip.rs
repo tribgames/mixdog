@@ -1429,13 +1429,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         readiness: readiness.clone(),
         registry: registry.clone(),
     });
+    let search_usage = mixdog_tools::web::NativeSearchUsageSinks::new();
     let search_sender = mixdog_tools::web::ProviderSearchSender::new(
         search_host.clone(),
         mixdog_tools::web::SenderDeps {
             broker: broker.clone(), // the one broker (`broker.admission()` lanes, shared with the main sends)
             pricing: Arc::new(mixdog_ai::catalog::CatalogPricing(b.catalog.clone())),
             ledger: Some(usage_sink.clone()), // the one ledger source, asked per row
-            sinks: mixdog_tools::web::NativeSearchUsageSinks::new(),
+            sinks: search_usage.clone(), // the registry the runs register their turn in (`TurnPathParts.search_usage`)
             lane: mixdog_tools::web::SenderDeps::default_lane(&broker),
             account: Arc::new(account_store.clone()), // the roster each row's account is read from
             now: mixdog_tools::web::SenderDeps::system_clock(),
@@ -1741,6 +1742,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_core::run_host::code_graph_prewarm::SessionPrewarm { prewarm: code_graph_prewarm, lazy: prewarm_lazy });
     let owed = Owed {
         liveness: liveness.clone(),
+        search_usage,
         tokens: b.tokens.clone(),
         clock: clock_agent.clone(),
         paths: mixdog_store::paths::Paths { plugin_root: b.package_root.join("src"), data_dir: b.data_dir.clone() },

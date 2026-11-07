@@ -33,6 +33,7 @@ use super::route::validate_explicit_route;
 use super::seams::CoreLauncher;
 use super::seams::CoreSession;
 use super::usage::SessionStats;
+use super::usage::UsageDelta;
 use super::usage::UsageSession;
 use super::usage::usage_document;
 use super::usage::write_usage_document;
@@ -100,24 +101,31 @@ enum Step {
     End(TurnStatus, ResultInfo),
 }
 
+/// `recordUsage` (`headless-exec.mjs`): the observed model, the totals, and the usage document rewritten.
+fn record_usage(state: &mut RunState, delta: &UsageDelta) {
+    if let Some(model) = delta.model.as_deref().map(|model| clean(Some(model))).filter(|model| !model.is_empty()) {
+        if !state.observed_models.iter().any(|seen| seen == model) {
+            state.observed_models.push(model.to_owned());
+        }
+    }
+    state.stats.apply(delta);
+    // Telemetry must never break the run; the exit path reports.
+    let _ = state.write_usage();
+}
+
 /// Folds one observation into the run. The usage snapshot is rewritten after every model
 /// response, not only on the way out: a run killed mid-way never reaches the exit path and would
 /// otherwise leave no document for spend that already happened.
 fn apply(state: &mut RunState, last_text: &mut String, obs: Obs) -> Result<Step, String> {
     match obs {
         Obs::Usage(delta) => {
-            if let Some(model) = delta.model.as_deref().map(|model| clean(Some(model))).filter(|model| !model.is_empty()) {
-                if !state.observed_models.iter().any(|seen| seen == model) {
-                    state.observed_models.push(model.to_owned());
-                }
-            }
-            state.stats.apply(&delta);
-            // Telemetry must never break the run; the exit path reports.
-            let _ = state.write_usage();
+            record_usage(state, &delta);
             if let Some(lifecycle) = &mut state.lifecycle {
                 lifecycle.on_usage_delta(&delta);
             }
         }
+        // Native web search runs its own provider send; its spend joins the run's totals, and the lifecycle's model-request events stay untouched.
+        Obs::SearchUsage(delta) => record_usage(state, &delta),
         Obs::ModelRequestStarted => {
             if let Some(lifecycle) = &mut state.lifecycle {
                 lifecycle.on_provider_send_started();

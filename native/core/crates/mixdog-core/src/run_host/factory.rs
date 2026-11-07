@@ -187,18 +187,24 @@ pub struct RunHostFactory {
     parts: Arc<dyn RunParts>,
     /// The map TurnLiveness writes: one entry per run, read by the pool, the thread list and the report host.
     liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
+    /// The registry the hosted web search reports its spend to (`registerNativeWebSearchUsageSink`): the one `SenderDeps.sinks` holds.
+    search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
 }
 
 impl RunHostFactory {
-    pub fn new(liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>, parts: Arc<dyn RunParts>) -> Self {
-        Self { parts, liveness }
+    pub fn new(
+        liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
+        search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+        parts: Arc<dyn RunParts>,
+    ) -> Self {
+        Self { parts, liveness, search_usage }
     }
 }
 
 impl RunFactory for RunHostFactory {
     fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
-        let (parts, liveness) = (self.parts.clone(), self.liveness.clone());
-        Box::pin(drive(parts, liveness, run))
+        let (parts, liveness, search_usage) = (self.parts.clone(), self.liveness.clone(), self.search_usage.clone());
+        Box::pin(drive(parts, liveness, search_usage, run))
     }
 }
 
@@ -471,6 +477,8 @@ enum Shown {
     Check(mixdog_core_session::session::run::SendCheck),
     /// Answered once every report before it has reached the port.
     Barrier(tokio::sync::oneshot::Sender<()>),
+    /// A hosted web search's spend, as `reportNativeWebSearchUsage` shapes it.
+    SearchUsage(Value),
 }
 
 /// `RunObserver` over progress and the port: stage and stream marks feed the progress cell, shown
@@ -635,7 +643,12 @@ pub(crate) fn system_messages(header: &mixdog_store::schema::record::Header) -> 
         .collect()
 }
 
-async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>, run: RunStart) -> RunOutcome {
+async fn drive(
+    parts: Arc<dyn RunParts>,
+    liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
+    search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+    run: RunStart,
+) -> RunOutcome {
     let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, skill_selection: routine_selection, input: submitted, input_item, .. } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
     let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, Value::Object(header.clone()), progress.subscribe(), cancel.clone());
@@ -780,12 +793,19 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
                 Shown::Usage(report) => shown_port.usage(report).await,
                 Shown::Compact(event) => shown_port.compact_event(event).await,
                 Shown::Check(check) => shown_port.send_check(check).await,
+                Shown::SearchUsage(delta) => shown_port.search_usage(delta).await,
                 Shown::Barrier(done) => {
                     let _ = done.send(());
                     Ok(())
                 }
             };
         }
+    }));
+    // `registerNativeWebSearchUsageSink(session.id, options.onNativeWebSearchUsage)` (`turn-run.mjs`): from the first send to the
+    // ask's end the newest entry of this thread's session hears every search the turn runs, in the order the other reports reach the port.
+    let search_tx = shown_tx.clone();
+    let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
+        let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
     let observer = Arc::new(PortObserver { progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()) });
     let closing = observer.clone();
@@ -825,6 +845,8 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
     let provider_id = provider.id().as_str().to_owned();
     let result = Run::new(env, cancel.clone(), provider, tools, tool_env, config, messages, carry).run().await;
     progress.model_loop(false);
+    // `releaseWebSearchUsage?.()` after `askSession`.
+    drop(hears_search);
     // The model work is over: the watchdog, which judges only that, stops here.
     drop(watchdog);
     closing.end_reasoning();
@@ -1132,7 +1154,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1200,7 +1222,7 @@ mod tests {
         let rig = Rig::new();
         let settle = Arc::new(Settle { add: ("featureDeniedTools", json!(["web_search"])), seen: Mutex::default() });
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()) })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()) })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1239,7 +1261,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1351,7 +1373,7 @@ mod tests {
             rig.quota.subscribe(move |_| woke.notify_one())
         };
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1453,7 +1475,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1484,6 +1506,89 @@ mod tests {
             assert!(tokio::time::Instant::now() < deadline, "the hint was not withdrawn: {:?}", hints());
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    /// A tool that spends like a hosted web search: it reports its delta to the usage registry under the asking thread.
+    struct Searcher {
+        spec: ToolSpec,
+        sinks: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+        delta: Value,
+    }
+
+    #[async_trait]
+    impl Tool for Searcher {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        async fn call(&self, ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+            self.sinks.report(Some(ctx.thread_id.as_str()), || self.delta.clone());
+            Ok(ToolOutput { parts: vec![ToolPart::Text("searched".into())], ..ToolOutput::default() })
+        }
+    }
+
+    /// `registerNativeWebSearchUsageSink` (`turn-run.mjs`): a search a turn's tool runs reaches the thread's clients as
+    /// `thread/tokenUsage/updated` with the search's own delta (recorded from Node, `mixdog-cli/tests/record_search_usage.mjs`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_search_a_turns_tool_runs_is_heard_by_the_thread() {
+        let golden: Value = serde_json::from_str(include_str!("../../../mixdog-cli/tests/goldens/exec_search_usage.json")).unwrap();
+        let delta = golden["search"][0].clone();
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([
+                vec![
+                    StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "search".into(), arguments: json!({}), native_type: None }),
+                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                ],
+                vec![StreamEvent::TextDelta("ok".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+            ])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let sinks = mixdog_tools::web::NativeSearchUsageSinks::new();
+        let searcher = Searcher {
+            spec: ToolSpec {
+                name: "search".into(),
+                title: None,
+                trigger: None,
+                public: true,
+                aliases: Vec::new(),
+                description: "search".into(),
+                input_schema: json!({ "type": "object" }),
+                annotations: ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() },
+                parallel_safe: true,
+                exclusive_with: Vec::new(),
+            },
+            sinks: sinks.clone(),
+            delta: delta.clone(),
+        };
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), sinks, Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(searcher)], settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+
+        let heard = || -> Vec<Value> {
+            rig.feeds.frames(id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/tokenUsage/updated").map(|(_, _, params)| params["usage"].clone()).collect()
+        };
+        // Woken by each step of the thread's actor; registered before the check so a step in between is not missed.
+        loop {
+            let stepped = handle.stepped().notified();
+            tokio::pin!(stepped);
+            stepped.as_mut().enable();
+            if heard().contains(&delta) {
+                break;
+            }
+            stepped.await;
+        }
+        assert_eq!(heard().iter().filter(|usage| **usage == delta).count(), 1);
     }
 
     // ---- the real assembly -------------------------------------------------------------------------
@@ -1816,6 +1921,7 @@ mod tests {
             ladder: Arc::new(NoLadder),
             shells: None,
             liveness,
+            search_usage: mixdog_tools::web::NativeSearchUsageSinks::new(),
             deps: Box::new({
                 let store = rig.store.clone();
                 let rig_deps = rig.deps_parts(store);

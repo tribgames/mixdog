@@ -1,0 +1,63 @@
+{
+  "main": {
+    "sessionId": "sess_exec_test",
+    "iterationIndex": 0,
+    "source": "provider_send",
+    "requestedModel": "gpt-test",
+    "model": "gpt-test",
+    "deltaInput": 11,
+    "deltaOutput": 5,
+    "deltaToolCalls": 0,
+    "reasoningTokens": null,
+    "reasoningTokensComplete": false,
+    "deltaPrompt": 21,
+    "requestMs": 0,
+    "promptKnown": true,
+    "deltaCachedRead": 7,
+    "deltaCacheWrite": 3,
+    "contextInputTokens": 11,
+    "contextOutputTokens": 5,
+    "contextPromptTokens": 21,
+    "contextCachedReadTokens": 7,
+    "contextCacheWriteTokens": 3,
+    "contextMeasuredTokens": null,
+    "ts": 1700000000000
+  },
+  "search": [
+    {
+      "sessionId": "sess_exec_test:native-web-search:abc",
+      "iterationIndex": 0,
+      "source": "native_web_search",
+      "requestedModel": "gpt-search",
+      "model": "gpt-search-2",
+      "deltaInput": 40,
+      "deltaOutput": 9,
+      "deltaToolCalls": 0,
+      "reasoningTokens": null,
+      "reasoningTokensComplete": false,
+      "deltaPrompt": 54,
+      "requestMs": 0,
+      "promptKnown": true,
+      "deltaCachedRead": 12,
+      "deltaCacheWrite": 2,
+      "contextInputTokens": 40,
+      "contextOutputTokens": 9,
+      "contextPromptTokens": 54,
+      "contextCachedReadTokens": 12,
+      "contextCacheWriteTokens": 2,
+      "contextMeasuredTokens": null,
+      "ts": 1700000000000,
+      "agentRole": "web-search"
+    }
+  ],
+  "stats": {
+    "inputTokens": 51,
+    "outputTokens": 14,
+    "cachedTokens": 19,
+    "cacheWriteTokens": 5
+  },
+  "models": [
+    "gpt-test",
+    "gpt-search-2"
+  ]
+}

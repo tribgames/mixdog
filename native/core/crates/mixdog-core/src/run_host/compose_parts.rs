@@ -336,6 +336,8 @@ pub struct Owed {
     pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
     /// The runtime liveness map (TurnPathParts.liveness), made before the path because the prewarm inside the session deps reads it.
     pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
+    /// The hosted web search's usage registry (`TurnPathParts.search_usage`), made before the web tools are built.
+    pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
 }
 
 /// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
@@ -380,6 +382,7 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         hops,
         shells: owed.shells,
         liveness: owed.liveness,
+        search_usage: owed.search_usage,
     }
 }
 

@@ -1947,6 +1947,55 @@ async fn a_model_calls_usage_reaches_the_header_when_it_is_reported() {
     }
 }
 
+/// A hosted web search's spend reaches the feed as `thread/tokenUsage/updated` with Node's own delta (recorded by
+/// `mixdog-cli/tests/record_search_usage.mjs`), but never the header's usage books: Node feeds those from the
+/// main stream's `onUsageDelta` only, and hands the search's delta to `onNativeWebSearchUsage` alone.
+#[tokio::test(start_paused = true)]
+async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books() {
+    let golden: Value = serde_json::from_str(include_str!("../../../mixdog-cli/tests/goldens/exec_search_usage.json")).expect("golden");
+    let delta = golden["search"][0].clone();
+    let rig = Rig::new();
+    let gate: Arc<tokio::sync::Notify> = Arc::default();
+    let (release, sent) = (gate.clone(), delta.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (release, sent) = (release.clone(), sent.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, ..Default::default() };
+            run.port
+                .usage(crate::session::UsageReport {
+                    iteration: 1,
+                    usage,
+                    model: "m".into(),
+                    requested_model: "m".into(),
+                    delta_tool_calls: 0,
+                    request_ms: 0,
+                    delta_prompt: 10,
+                    send_tools: Vec::new(),
+                    reasoning_tokens: None,
+                    reasoning_tokens_complete: false,
+                    outgoing: Vec::new(),
+                })
+                .await
+                .expect("usage");
+            run.port.search_usage(sent).await.expect("search usage");
+            release.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    let heard = |rig: &Rig| -> Vec<Value> { rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/tokenUsage/updated").map(|(_, _, params)| params["usage"].clone()).collect() };
+    eventually(|| (heard(&rig).len() == 2).then_some(())).await;
+    assert_eq!(heard(&rig)[1], delta);
+    gate.notify_one();
+    eventually(|| idle(&handle).then_some(())).await;
+    let live = handle.live_header();
+    let header = live.header();
+    assert_eq!((header.get("totalInputTokens"), header.get("totalOutputTokens"), header.get("lastIterationIndex")), (Some(&json!(10)), Some(&json!(5)), Some(&json!(1))));
+}
+
 /// A Goal set during a user turn continues across it: once the turn settles with the Goal
 /// active and the thread idle, the runtime's continuation runs as an automatic turn whose input
 /// is runtime-synthetic (no user row); that turn pausing the Goal ends the chain, and the lane

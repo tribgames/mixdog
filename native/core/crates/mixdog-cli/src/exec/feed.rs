@@ -30,6 +30,8 @@ pub enum TurnStatus {
 pub enum Obs {
     ModelRequestStarted,
     Usage(UsageDelta),
+    /// A hosted web search's spend (`onNativeWebSearchUsage`): folded into the totals, but not a main-stream request.
+    SearchUsage(UsageDelta),
     Reasoning(String),
     Assistant(String),
     ToolObserved(ToolCall),
@@ -162,13 +164,14 @@ fn turn_end(params: &Value) -> Result<Obs, String> {
 
 fn usage_delta(params: &Value) -> Obs {
     let usage = params.get("usage").unwrap_or(&Value::Null);
-    Obs::Usage(UsageDelta {
+    let delta = UsageDelta {
         model: usage.get("model").and_then(Value::as_str).map(str::to_owned),
         input: finite(usage.get("deltaInput")),
         cached_read: finite(usage.get("deltaCachedRead")),
         cache_write: finite(usage.get("deltaCacheWrite")),
         output: finite(usage.get("deltaOutput")),
-    })
+    };
+    if usage.get("source").and_then(Value::as_str) == Some("native_web_search") { Obs::SearchUsage(delta) } else { Obs::Usage(delta) }
 }
 
 /// The observations of one thread-feed notification.

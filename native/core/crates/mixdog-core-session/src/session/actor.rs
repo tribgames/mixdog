@@ -2877,6 +2877,10 @@ impl SessionActor {
                 let change = super::usage_books::settled_change(&self.projected.header, &settled, self.usage_incremental, books.as_ref(), self.deps.clock.now_ms() as f64);
                 self.accept_header(change);
             }
+            RunShown::SearchUsage(usage) => {
+                let note = Note::new("thread/tokenUsage/updated", &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage });
+                self.accept_view(Change::Barrier, vec![note]);
+            }
             RunShown::Compact(event) => {
                 if super::live_rows::compact_changed(&event) {
                     let change = super::usage_books::compacted_change(&self.projected.header, self.deps.clock.now_ms() as f64);
