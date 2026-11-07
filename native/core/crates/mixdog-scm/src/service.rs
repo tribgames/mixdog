@@ -481,6 +481,10 @@ impl ScmService {
                 row["revision"] = json!(revision);
             }
             out["untrackedOmitted"] = json!(summary.omitted);
+            // Node's `gitReview` row has no `key` (it answers the rows, not a cache key to ask `known` against).
+            if let Some(fields) = out.as_object_mut() {
+                fields.remove("key");
+            }
             out["repository"] = json!(true);
             out["root"] = json!(root.to_string_lossy());
             out["base"] = json!(name);
