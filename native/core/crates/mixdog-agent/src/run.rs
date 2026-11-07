@@ -347,6 +347,9 @@ pub struct Run {
     pub(crate) last_reminder: Option<String>,
     /// Tools the provider rejected the schema of: name → why a call is refused.
     pub(crate) dropped_tools: std::collections::HashMap<String, String>,
+    /// The tool surface frozen for the requests of this run (`fixedProviderToolSurface`): the first request
+    /// takes the session's tools, later ones keep its eager prefix and adopt changed MCP definitions.
+    pub(crate) fixed_surface: Option<Vec<mixdog_core_api::domain::provider::ToolDefinition>>,
     /// The latest turn's images are left out of every request until a send
     /// succeeds.
     pub(crate) image_strip_active: bool,
@@ -465,6 +468,7 @@ impl Run {
             eager_sigs: std::collections::HashSet::new(),
             last_reminder: None,
             dropped_tools: std::collections::HashMap::new(),
+            fixed_surface: None,
             image_strip_active: false,
             image_strip_used: false,
             replay_repair_used: false,

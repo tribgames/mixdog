@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-request-tools.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 64950,
+      "path": "golden.json",
+      "sha256": "5b4f50543a448758f58fc047688bd3037dd0497de1d30de6bc8ba89c270df98f"
+    }
+  ],
+  "product": {
+    "appsSha256": "9bd8fb856b7e00e551f02099c8aa5ad3f6450f5e03419b97b2dc9be008094ac1",
+    "commit": "aeee33acf7fc0d694c9d74188e127cf85a8a27bc",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9249,
+    "refComparison": {
+      "closestCommit": "aeee33acf7fc0d694c9d74188e127cf85a8a27bc",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-request-tools.mjs",
+  "set": "request-tools",
+  "totalBytes": 64950
+}

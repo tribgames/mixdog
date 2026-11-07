@@ -639,6 +639,13 @@ pub trait TailReminder: Send + Sync {
 #[async_trait]
 pub trait McpCatalog: Send + Sync {
     async fn refresh(&self);
+
+    /// The run's tools as the session holds them now, rebuilt after a refresh (Node's `session.tools`, whose
+    /// active MCP entries `reconcileDeferredMcpToolCatalog` re-links to the live server tool): the request
+    /// boundary adopts their changed MCP definitions. `None`: the host keeps the run's set.
+    async fn tools(&self) -> Option<crate::tools::ToolSet> {
+        None
+    }
 }
 
 /// Todo / goal reminders around the end of a turn. State lives with the

@@ -4,6 +4,7 @@
 //! owns what the new transcript contains.
 
 use mixdog_core_api::domain::provider::Role;
+use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::Usage;
 
 use crate::env::CompactError;
@@ -266,7 +267,12 @@ impl Run {
         // the transcript is repaired and the request's tools are taken.
         if let Some(mcp) = self.env.mcp.clone() {
             mcp.refresh().await;
+            if let Some(live) = mcp.tools().await {
+                self.tools = live;
+            }
         }
+        // `adoptDynamicToolChanges`: the request's tools are the frozen surface, with MCP changes adopted.
+        self.fixed_surface = Some(adopt_dynamic_tool_changes(self.fixed_surface.take(), self.candidate_tools()));
         // A soft compact target may remain above an explicit trigger: never
         // compact the same input twice before a provider attempt.
         let mut compact_attempted = false;
@@ -335,7 +341,7 @@ impl Run {
             boundary_tokens: policy.boundary_tokens,
             will_compact: should,
             messages: self.messages.clone(),
-            tools: self.tools.definitions(),
+            tools: self.request_tools(),
             reactive,
         });
         if !should {
@@ -460,9 +466,87 @@ impl Run {
     }
 }
 
+/// A deferred or MCP definition: the part of the surface that changes while a run is going.
+fn is_dynamic_tool(tool: &ToolDefinition) -> bool {
+    tool.defer_loading || tool.name.starts_with("mcp__")
+}
+
+/// `adoptDynamicToolChanges` (`request-boundary.mjs:25`): the first request takes the candidate whole; later
+/// ones keep the frozen surface's eager prefix and adopt additions (at the end), schema updates (in place) and
+/// removals of its deferred / MCP definitions. An unchanged dynamic part leaves the surface as it was.
+pub(crate) fn adopt_dynamic_tool_changes(fixed: Option<Vec<ToolDefinition>>, candidate: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
+    let Some(fixed) = fixed else {
+        return candidate;
+    };
+    if candidate.iter().filter(|t| is_dynamic_tool(t)).eq(fixed.iter().filter(|t| is_dynamic_tool(t))) {
+        return fixed;
+    }
+    // `new Map(...)`: a name keeps the position of its first definition and the value of its last.
+    let mut replacements: Vec<(String, ToolDefinition)> = Vec::new();
+    for tool in candidate.into_iter().filter(is_dynamic_tool) {
+        match replacements.iter_mut().find(|(name, _)| *name == tool.name) {
+            Some(slot) => slot.1 = tool,
+            None => replacements.push((tool.name.clone(), tool)),
+        }
+    }
+    let mut merged = Vec::with_capacity(fixed.len());
+    for tool in fixed {
+        if !is_dynamic_tool(&tool) {
+            merged.push(tool);
+        } else if let Some(at) = replacements.iter().position(|(name, _)| *name == tool.name) {
+            merged.push(replacements.remove(at).1);
+        }
+    }
+    merged.extend(replacements.into_iter().map(|(_, tool)| tool));
+    merged
+}
+
+impl Run {
+    /// The tools the session offers now, less those the provider rejected the schema of.
+    fn candidate_tools(&self) -> Vec<ToolDefinition> {
+        self.tools.definitions().into_iter().filter(|t| !self.dropped_tools.contains_key(&t.name)).collect()
+    }
+
+    /// The tools the request carries: the frozen surface once the boundary has taken it.
+    pub(crate) fn request_tools(&self) -> Vec<ToolDefinition> {
+        self.fixed_surface.clone().unwrap_or_else(|| self.candidate_tools())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Replays the requests of `fixtures/request-tools/golden.json` (recorded from Node's `prepareProviderRequest`
+    /// over a session whose tools and connected MCP names change between requests): the surface each request
+    /// sent follows the candidate by `adoptDynamicToolChanges`.
+    #[test]
+    fn the_request_tools_adopt_changes_as_node_does() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/request-tools/golden.json"))).unwrap();
+        let tools = |list: &serde_json::Value| -> Vec<ToolDefinition> {
+            list.as_array()
+                .unwrap()
+                .iter()
+                .map(|t| ToolDefinition {
+                    name: t["name"].as_str().unwrap().to_owned(),
+                    description: t["description"].as_str().unwrap().to_owned(),
+                    input_schema: t["inputSchema"].clone(),
+                    defer_loading: false,
+                    freeform: None,
+                })
+                .collect()
+        };
+        let cases = golden["cases"].as_array().unwrap();
+        assert!(cases.len() >= 10);
+        for case in cases {
+            let mut fixed = None;
+            for (at, step) in case["steps"].as_array().unwrap().iter().enumerate() {
+                let sent = adopt_dynamic_tool_changes(fixed.take(), tools(&step["candidate"]));
+                assert_eq!(sent, tools(&step["sent"]), "{} (request {at})", case["name"]);
+                fixed = Some(sent);
+            }
+        }
+    }
 
     fn settings(window: u64) -> CompactSettings {
         CompactSettings {

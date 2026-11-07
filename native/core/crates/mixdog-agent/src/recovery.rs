@@ -193,6 +193,8 @@ impl Run {
                 "tool \"{name}\" is unavailable with the current model: the provider rejected its input schema at / ({reason}), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
             ),
         );
+        // The surface is rebuilt around the change (`send-phase.mjs`, `retry_tool_schema_drop`).
+        self.fixed_surface = None;
         true
     }
 }

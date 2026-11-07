@@ -341,6 +341,13 @@ impl RunParts for HostRunParts {
         self.services.turn_settings.refresh_mcp(thread).await.map_err(refuse)
     }
 
+    async fn request_tools(&self, thread: &ThreadId, surface: &mixdog_tools::policy::SessionSurface) -> Result<Option<ToolSet>, TurnError> {
+        let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
+        let header = directory.live_header(thread).header();
+        let SessionTools { tools, builtins, agent } = self.services.seams.tools(thread, &header, surface).await.map_err(refuse)?;
+        Ok(Some(ToolSet::with_builtins(tools, builtins).for_agent(agent)))
+    }
+
     fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
         self.services.seams.stall_cap_idle_seconds(agent)
     }
