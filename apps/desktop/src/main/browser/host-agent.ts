@@ -26,8 +26,6 @@ import { createBrowserTargetResolver } from './target-resolve';
 import type { createBrowserTaskLifecycle } from './task-lifecycle';
 import { takeoverGate } from '../takeover-gate';
 import {
-  SECRET_SAVE_SUFFIX,
-  SECRET_USERNAME_SUFFIX,
   type SecretFillOutcome,
   secretInputs,
   type SecretInputs,

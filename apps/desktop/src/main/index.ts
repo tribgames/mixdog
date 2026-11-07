@@ -1368,6 +1368,7 @@ const hostRole = createLocalHostRole({
   },
   visualize: () => ({
     execute: (command) => visualize.execute(command),
+    exportForDevice: (command) => visualize.exportForDevice(command),
     snapshot: () => visualize.hostSnapshot(),
   }),
   onVisualizePublishFailed: (error) => reportVisualizePublishFailure('host', error),
@@ -2497,7 +2498,7 @@ function installLocalWindowFeatures(
     savedLoginWorker: {
       run: async (command) => {
         if (!computerHost) throw new Error('saved_login_unavailable: Computer Use is not running; no input was sent');
-        return (await computerHost.executeSerialized(command as unknown as Parameters<ComputerHost['executeSerialized']>[0])) as { saved_login_response?: unknown };
+        return computerHost.executeSerialized(command as unknown as Parameters<ComputerHost['executeSerialized']>[0]);
       },
     },
     hidDevices: () => browserHidDevices,

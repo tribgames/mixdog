@@ -27,6 +27,7 @@ import { createComputerAuthorizationSettings } from './authorization-settings';
 import { createComputerFailureDiagnostics } from '../session/failure-diagnostics';
 import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
 import { mixdogDataDirectory } from '../shared/common';
+import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { createProcessFateReader } from './process-fate';
 import { createCaptureAuthorizer, listAuthorizationWindows } from './host-authorization';
 import { createSequenceHoldRelease, killSessionWorkers, retireBridgeWorkers } from './worker-control';
@@ -87,6 +88,8 @@ export interface PowerShellComputerHost {
   abortSession(sessionId: string): Promise<void>;
   /** Stop every live or paused session; reopen input only after optional turn confirmation. */
   stopAllSessions(turnsStopped?: Promise<void>): Promise<void>;
+  /** Run one command through the session queue (the saved-login worker steps the core runs). */
+  executeSerialized(command: ComputerCommand): Promise<ComputerCommandResult>;
   /** Live native worker PIDs, retained until each child actually exits. */
   residentWorkerPids(): number[];
   inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget>;
@@ -411,6 +414,7 @@ export function createPowerShellComputerHost(
       userWait.cancel();
       await lifecycle.stopAllComputerSessions(true, turnsStopped);
     },
+    executeSerialized: lifecycle.executeSerialized,
     residentWorkerPids: workerPool.residentWorkerPids,
     inspectChromeRemoteDebuggingTarget: chromeSetup.inspectChromeRemoteDebuggingTarget,
     prepareChromeRemoteDebugging: chromeSetup.prepareChromeRemoteDebugging,
