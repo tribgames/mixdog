@@ -42,6 +42,36 @@ impl QuotaAutoResume {
         Self { config, store }
     }
 
+    /// Follows the config for the daemon's life: when `quotaAutoResume` turns `false` (by `config/value/write` or any other
+    /// writer), every pending resume drops, as [`set`](Self::set) does for the setup action (Node's
+    /// `setQuotaAutoResumeEnabled`).
+    pub fn follow(&self, cancel: tokio_util::sync::CancellationToken) -> tokio::task::JoinHandle<()> {
+        let config = self.config.clone();
+        let store = self.store.clone();
+        let mut changes = config.changes();
+        let enabled = |config: &Config| config.get("quotaAutoResume") != Some(Value::Bool(false));
+        let mut on = enabled(&config);
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    changed = changes.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                    }
+                }
+                let now = enabled(&config);
+                if on && !now {
+                    if let Err(error) = store.cancel_all().await {
+                        tracing::warn!(?error, "[quota] the pending resumes were not dropped when the switch went off");
+                    }
+                }
+                on = now;
+            }
+        })
+    }
+
     async fn set(&self, enabled: bool) -> Result<bool, PortError> {
         self.config
             .update(move |doc| {

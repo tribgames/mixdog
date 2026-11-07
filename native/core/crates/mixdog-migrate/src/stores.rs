@@ -200,6 +200,32 @@ pub const LEGACY_COMPACTION_KEYS: &[&str] = &[
 pub const CONFIG_FILE: &str = "mixdog-config.json";
 pub const LEGACY_COMPACTION_ITEM: &str = "config/agent.compaction";
 const LEGACY_COMPACTION_TARGET: &str = "agent.compaction";
+/// 1.4.5 kept the quota auto-resume switch at `quotaResume.autoResume`; the core reads the registered key `quotaAutoResume`
+/// (`desktop-services.md` A2/D1).
+pub const LEGACY_QUOTA_ITEM: &str = "config/quotaResume.autoResume";
+const QUOTA_TARGET: &str = "quotaAutoResume";
+
+/// The config document with `quotaResume.autoResume` moved to `quotaAutoResume`; `None` when it holds no such key. The switch
+/// is on unless it is the boolean `false` (`quotaAutoResumeEnabled`), so only `false` is carried; any other value is the
+/// default and is just dropped. A `quotaAutoResume` the document already has wins. The rest of `quotaResume` stays, and an
+/// emptied `quotaResume` goes.
+fn moved_quota_config(doc: &Value) -> Option<Value> {
+    let section = doc.get("quotaResume")?.as_object()?;
+    let legacy = section.get("autoResume")?;
+    let mut next = doc.clone();
+    let root = next.as_object_mut()?;
+    let mut rest = section.clone();
+    rest.shift_remove("autoResume");
+    if rest.is_empty() {
+        root.shift_remove("quotaResume");
+    } else {
+        root.insert("quotaResume".into(), Value::Object(rest));
+    }
+    if *legacy == Value::Bool(false) && !root.contains_key(QUOTA_TARGET) {
+        root.insert(QUOTA_TARGET.into(), Value::Bool(false));
+    }
+    Some(next)
+}
 
 /// `agent.compaction` with the legacy keys folded into their current meaning and removed,
 /// or `None` when it holds none. Same reading as the 1.4.5 runtime
@@ -484,6 +510,58 @@ impl StoresDriver {
         )?)
     }
 
+    fn plan_legacy_quota(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
+        let Some((_, doc)) = read_config(&roots.data)? else {
+            return Ok(());
+        };
+        if moved_quota_config(&doc).is_none() {
+            return Ok(());
+        }
+        sink.add_item(plan::item(
+            LEGACY_QUOTA_ITEM,
+            KindGroup::Data,
+            K::Settings,
+            Contract::Convert,
+            Vec::new(),
+            Some(Target::ConfigKey {
+                key: QUOTA_TARGET.into(),
+            }),
+        )?)
+    }
+
+    fn stage_legacy_quota(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
+        let (_, doc) = read_config(&cx.roots.data)?.ok_or_else(|| Blocked::StoreSchema {
+            key: item.key.as_str().into(),
+            detail: format!("{CONFIG_FILE} is gone"),
+        })?;
+        // Already moved (an earlier run published it): the current file is the output.
+        let bytes = match moved_quota_config(&doc) {
+            Some(next) => config_bytes(&next),
+            None => durable::read(&cx.roots.data.join(CONFIG_FILE))?,
+        };
+        durable::write_synced(&cx.stage_dir(item.key.as_str()).join(CONFIG_FILE), &bytes)?;
+        Ok(Staged::Output {
+            output_sha256: durable::sha256_hex(&bytes),
+            replaced_surrogates: 0,
+        })
+    }
+
+    fn verify_legacy_quota(&self, cx: &ItemContext<'_>) -> Result<Verdict> {
+        let (bytes, doc) = read_config(&cx.roots.data)?.ok_or_else(|| Blocked::StoreSchema {
+            key: LEGACY_QUOTA_ITEM.into(),
+            detail: format!("{CONFIG_FILE} is gone"),
+        })?;
+        if moved_quota_config(&doc).is_some() {
+            return Ok(Verdict::Quarantine {
+                code: QuarantineCode::DigestMismatch,
+                detail: "quotaResume.autoResume is still in the config".into(),
+            });
+        }
+        Ok(Verdict::Verified {
+            digest: Some(digest(&durable::sha256_hex(&bytes))?),
+        })
+    }
+
     fn stage_legacy_compaction(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
         let (_, doc) = read_config(&cx.roots.data)?.ok_or_else(|| Blocked::StoreSchema {
             key: item.key.as_str().into(),
@@ -636,6 +714,7 @@ impl ItemDriver for StoresDriver {
         self.plan_retired(roots, sink)?;
         self.plan_ledger_inputs(roots, sink)?;
         self.plan_legacy_compaction(roots, sink)?;
+        self.plan_legacy_quota(roots, sink)?;
         connectors::plan(roots, sink)
     }
 
@@ -653,7 +732,7 @@ impl ItemDriver for StoresDriver {
     }
 
     fn wave(&self, item: &ManifestItem) -> Wave {
-        if [LEGACY_COMPACTION_ITEM, connectors::ITEM].contains(&item.key.as_str()) {
+        if [LEGACY_COMPACTION_ITEM, LEGACY_QUOTA_ITEM, connectors::ITEM].contains(&item.key.as_str()) {
             Wave::Late
         } else {
             Wave::Stores
@@ -663,6 +742,9 @@ impl ItemDriver for StoresDriver {
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
         if item.key.as_str() == LEGACY_COMPACTION_ITEM {
             return self.stage_legacy_compaction(cx, item);
+        }
+        if item.key.as_str() == LEGACY_QUOTA_ITEM {
+            return self.stage_legacy_quota(cx, item);
         }
         if item.key.as_str() == connectors::ITEM {
             return connectors::stage(cx, item);
@@ -683,6 +765,10 @@ impl ItemDriver for StoresDriver {
         if item.key.as_str() == LEGACY_COMPACTION_ITEM {
             return self.publish_legacy_compaction(cx, item, staged);
         }
+        if item.key.as_str() == LEGACY_QUOTA_ITEM {
+            // The same whole-file publish as the compaction item: the stage is the config as it stands plus this move.
+            return self.publish_legacy_compaction(cx, item, staged);
+        }
         if item.key.as_str() == connectors::ITEM {
             return connectors::publish(cx, item, staged);
         }
@@ -692,6 +778,9 @@ impl ItemDriver for StoresDriver {
     fn verify(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Verdict> {
         if item.key.as_str() == LEGACY_COMPACTION_ITEM {
             return self.verify_legacy_compaction(cx);
+        }
+        if item.key.as_str() == LEGACY_QUOTA_ITEM {
+            return self.verify_legacy_quota(cx);
         }
         if item.key.as_str() == connectors::ITEM {
             return connectors::verify(cx, item);
@@ -711,7 +800,9 @@ impl ItemDriver for StoresDriver {
     }
 
     fn keeps_sources(&self, item: &ManifestItem) -> bool {
-        item.contract == Contract::Preserve || item.key.as_str() == LEGACY_COMPACTION_ITEM
+        item.contract == Contract::Preserve
+            || item.key.as_str() == LEGACY_COMPACTION_ITEM
+            || item.key.as_str() == LEGACY_QUOTA_ITEM
     }
 }
 
@@ -744,6 +835,38 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(Value::Object(kept), serde_json::json!({"summaryModel": "a"}));
+    }
+
+    #[test]
+    fn a_1_4_5_config_with_the_quota_switch_off_keeps_it_off_under_the_new_key() {
+        // The shape 1.4.5 wrote: the switch in the `quotaResume` section, beside another of its keys.
+        let off = serde_json::json!({"agent": {}, "quotaResume": {"autoResume": false, "note": 1}, "desktop": {"zoom": 1}});
+        assert_eq!(
+            moved_quota_config(&off),
+            Some(serde_json::json!({"agent": {}, "quotaResume": {"note": 1}, "desktop": {"zoom": 1}, "quotaAutoResume": false}))
+        );
+        // Alone in its section, the section goes with it.
+        let only = serde_json::json!({"quotaResume": {"autoResume": false}});
+        assert_eq!(moved_quota_config(&only), Some(serde_json::json!({"quotaAutoResume": false})));
+        // On (or any value but `false`) is the default: nothing is written under the new key.
+        assert_eq!(
+            moved_quota_config(&serde_json::json!({"quotaResume": {"autoResume": true}})),
+            Some(serde_json::json!({}))
+        );
+        assert_eq!(
+            moved_quota_config(&serde_json::json!({"quotaResume": {"autoResume": "no"}})),
+            Some(serde_json::json!({}))
+        );
+        // A key the document already has wins; the legacy one is still removed.
+        assert_eq!(
+            moved_quota_config(&serde_json::json!({"quotaAutoResume": true, "quotaResume": {"autoResume": false}})),
+            Some(serde_json::json!({"quotaAutoResume": true}))
+        );
+        // Nothing to move: no item is planned, and a moved document is not moved again.
+        assert_eq!(moved_quota_config(&serde_json::json!({"agent": {}})), None);
+        assert_eq!(moved_quota_config(&serde_json::json!({"quotaResume": {"note": 1}})), None);
+        let moved = moved_quota_config(&off).unwrap();
+        assert_eq!(moved_quota_config(&moved), None);
     }
 
     #[test]
