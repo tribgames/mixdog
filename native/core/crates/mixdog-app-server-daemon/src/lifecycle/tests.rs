@@ -161,9 +161,9 @@ fn a_lost_owner_lock_names_its_file() {
 
 #[test]
 fn the_causes_without_a_fact_to_carry_read_as_node_has_them() {
-    // `Quit` and `UserStop` have no Node counterpart of their own; the parent's IPC message (`daemon.mjs:1311`) is the nearest.
-    assert_eq!(ReleaseCause::Stop(StopReason::Quit).node_text(), "IPC shutdown");
-    assert_eq!(ReleaseCause::Stop(StopReason::UserStop).node_text(), "IPC shutdown");
+    // The control listener's stop of an idle core is Node's `POST /shutdown`, which calls `onClientsEmpty` (`routes.mjs:189-196`, `daemon.mjs:1245`).
+    assert_eq!(ReleaseCause::Stop(StopReason::Quit).node_text(), "no live session clients");
+    assert_eq!(ReleaseCause::Stop(StopReason::UserStop).node_text(), "no live session clients");
     assert_eq!(ReleaseCause::Fenced(FenceReason::LockLost).node_text(), "lockLost", "a fence Node has no text for keeps its own name");
 }
 

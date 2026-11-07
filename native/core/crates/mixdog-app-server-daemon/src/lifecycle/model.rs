@@ -151,13 +151,16 @@ impl ReleaseCause {
     /// (`:589`, from the stop request's build); the lost owner lock's `owner lock file <path> was deleted or replaced` (`:655`,
     /// `Lifecycle::fence_at`).
     ///
-    /// `Quit` and `UserStop` have no Node counterpart of their own: Node's daemon is stopped by a signal, by the parent's IPC message
-    /// (`:1311`, the only non-signal request from a parent; the desktop sends it as `child.send({ type: 'shutdown' })`) or by itself.
-    /// They read 'IPC shutdown', the text of the parent's request; this is not a claim that Node sends both through that path.
+    /// `Quit` and `UserStop` are the requests to stop an idle core that a client makes over the control listener (`/mgmt/stop`;
+    /// an OS signal notes its own name, which wins). Node's request of that kind is `POST /shutdown` (`session-client.mjs`
+    /// `shutdownDaemon`, what the harness, the dev teardown and the headless CLI send): `session-transport/routes.mjs:189-196`
+    /// answers it and calls `onClientsEmpty()`, which is `maybeSelfShutdown('no live session clients')` (`daemon.mjs:1245`), so the
+    /// stop is recorded with that text (the `detachedReason` of the sessions it detaches). The parent's IPC message (`:1311`,
+    /// `child.send({ type: 'shutdown' })`) is a different event, which only a desktop that parents the daemon sends; the core has no such parent.
     /// The other fences have no Node counterpart: they keep their own name, as do the carrying causes when no fact was noted.
     pub fn node_text(self) -> String {
         match self {
-            ReleaseCause::Stop(StopReason::Quit | StopReason::UserStop) => "IPC shutdown".to_owned(),
+            ReleaseCause::Stop(StopReason::Quit | StopReason::UserStop) => ClientKind::Session.node_text().to_owned(),
             _ => self.text(),
         }
     }
