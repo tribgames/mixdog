@@ -122,6 +122,12 @@ impl ModelsDevSource {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// The Anthropic OAuth route's model cache, in the data directory this source caches in.
+    pub(super) fn oauth_model_cache(&self) -> super::oauth_cache::OauthModelCache {
+        let dir = self.path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+        super::oauth_cache::OauthModelCache::new(dir, self.io)
+    }
+
     /// The resident layer; no I/O.
     pub fn current(&self) -> Option<Arc<ModelsDev>> {
         self.lock().layer.clone()
