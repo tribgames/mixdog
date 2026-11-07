@@ -273,7 +273,7 @@ async fn a_listing_that_wrote_the_cache_is_what_cached_windows_reads_after_the_r
     let listing = Arc::new(Fetch { calls: Arc::new(AtomicUsize::new(0)), answer: Some(listed()) });
     let source = ModelSource::new(ProviderId::from("anthropic-oauth"), listing).with_oauth_cache(cache);
     let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io());
-    let service = CatalogService::cold_start(CatalogSnapshot::default(), vec![source], metadata).await.with_rosters(dir.path().to_path_buf(), io()).await;
+    let service = CatalogService::cold_start(CatalogSnapshot::default(), vec![source], metadata).await.with_rosters(dir.path().to_path_buf());
     assert!(service.cached_windows("anthropic-oauth", "claude-opus-4-8").is_none(), "nothing written yet");
     service.refresh().await;
     assert_node_route_states(&service, &recorded()["cold"]["routeStates"]);

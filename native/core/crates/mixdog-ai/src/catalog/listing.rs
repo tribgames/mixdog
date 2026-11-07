@@ -24,7 +24,7 @@ use super::ModelsDev;
 use super::lookup::Lookup;
 use super::lookup::enrich_model;
 use super::lookup::models_dev_provider_id;
-use super::rosters::RosterSnapshot;
+use super::rosters::Rosters;
 use super::sanitize::Context;
 use super::sanitize::sanitize_model_list;
 use super::sanitize::stale_months;
@@ -34,7 +34,7 @@ use super::sanitize::stale_months;
 struct Layers {
     litellm: Option<Arc<ModelsDev>>,
     models_dev: Option<Arc<ModelsDev>>,
-    rosters: Arc<RosterSnapshot>,
+    rosters: Arc<Rosters>,
 }
 
 /// A handle adapters hold to run the listing steps. The catalog service
@@ -57,7 +57,7 @@ impl ListingLookup {
         lookup
     }
 
-    pub(super) fn publish(&self, litellm: Option<Arc<ModelsDev>>, models_dev: Option<Arc<ModelsDev>>, rosters: Arc<RosterSnapshot>) {
+    pub(super) fn publish(&self, litellm: Option<Arc<ModelsDev>>, models_dev: Option<Arc<ModelsDev>>, rosters: Arc<Rosters>) {
         self.0.store(Arc::new(Layers { litellm, models_dev, rosters }));
     }
 

@@ -445,7 +445,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let service = warm(dir.path()).await;
         let before = service.pricing().unwrap().revision();
-        service.rosters.store(Arc::new(crate::catalog::RosterSnapshot::default()));
+        service.rosters.store(Arc::new(crate::catalog::Rosters::default()));
         // The antigravity aliases are part of the revision.
         assert_ne!(service.pricing().unwrap().revision(), before);
     }

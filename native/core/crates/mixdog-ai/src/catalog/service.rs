@@ -18,8 +18,9 @@ use super::ModelSource;
 use super::ModelsDev;
 use super::lookup::Lookup;
 use super::record::Capability;
-use super::rosters::RosterSnapshot;
+use super::rosters::Rosters;
 use crate::oauth::CredentialIo;
+use crate::transport::http::HttpSend;
 use super::ModelsDevSource;
 use super::ProviderCatalog;
 use super::RefreshOutcome;
@@ -31,9 +32,8 @@ pub struct CatalogService {
     /// The listings a refresh asks: the registered providers' (`set_sources`).
     sources: ArcSwap<Vec<ModelSource>>,
     metadata: Arc<ModelsDevSource>,
-    /// The live-roster files, swapped whole when the catalog refreshes.
-    pub(super) rosters: ArcSwap<RosterSnapshot>,
-    roster_dir: Option<(PathBuf, CredentialIo)>,
+    /// The live-roster files, read from the data directory on every lookup.
+    pub(super) rosters: ArcSwap<Rosters>,
     /// The LiteLLM price table, the metadata lookup's base layer.
     litellm: Option<Arc<ModelsDevSource>>,
     /// The tables adapters run their listing steps against.
@@ -55,8 +55,7 @@ impl CatalogService {
             catalog,
             sources: ArcSwap::from_pointee(sources),
             metadata,
-            rosters: ArcSwap::from_pointee(RosterSnapshot::default()),
-            roster_dir: None,
+            rosters: ArcSwap::from_pointee(Rosters::default()),
             litellm: None,
             listing: ListingLookup::new(),
         };
@@ -64,6 +63,20 @@ impl CatalogService {
         service
     }
 
+    /// The catalog as the daemon composes it, the one place that decides which layers it has: cold-started
+    /// from `initial`, with the models.dev table, the LiteLLM table (`litellm-catalog.json`, fetched and cached
+    /// as models.dev is) and the roster files, all in the plugin data directory `data_dir`.
+    pub async fn composed(
+        initial: CatalogSnapshot,
+        sources: Vec<ModelSource>,
+        http: Arc<dyn HttpSend>,
+        data_dir: PathBuf,
+        io: CredentialIo,
+    ) -> Self {
+        let metadata = ModelsDevSource::new(http.clone(), data_dir.clone(), io);
+        let litellm = ModelsDevSource::litellm(http, data_dir.clone(), io);
+        Self::cold_start(initial, sources, metadata).await.with_litellm(litellm).await.with_rosters(data_dir)
+    }
     /// Shares `handle` (already given to the adapters) as this service's
     /// listing tables, so adapters built before the service see them.
     pub fn with_listing_lookup(mut self, handle: ListingLookup) -> Self {
@@ -93,7 +106,7 @@ impl CatalogService {
         self
     }
 
-    /// Runs `read` over the resident overlay tables and rosters (what
+    /// Runs `read` over the resident overlay tables and the roster files (what
     /// `getModelMetadataSync` reads); no I/O, never waits on a refresh.
     pub(super) fn with_lookup<R>(&self, read: impl FnOnce(&Lookup<'_>) -> R) -> R {
         static EMPTY: std::sync::LazyLock<serde_json::Value> = std::sync::LazyLock::new(|| serde_json::json!({}));
@@ -115,29 +128,13 @@ impl CatalogService {
         Some((litellm.cache_at(), self.metadata.cache_at()))
     }
 
-    /// Reads the providers' live-roster files from `data_dir` now and again
-    /// on every refresh, so `cached_windows` has data without touching disk.
-    pub async fn with_rosters(mut self, data_dir: PathBuf, io: CredentialIo) -> Self {
-        // A roster read that never ran leaves the empty snapshot; the next reload fills it.
-        if let Some(snapshot) = RosterSnapshot::load(&data_dir, &io).await {
-            self.rosters.store(Arc::new(snapshot));
-        }
-        self.roster_dir = Some((data_dir, io));
+    /// Reads the providers' live-roster files from `data_dir` on every lookup (`readModelsFromCacheFile`), so a
+    /// file another process writes is seen by the next one; nothing is held between lookups.
+    pub fn with_rosters(self, data_dir: PathBuf) -> Self {
+        self.rosters.store(Arc::new(Rosters::in_dir(data_dir)));
         self.publish_listing();
         self
     }
-
-    /// Re-reads the roster files (after a provider's listing persisted one).
-    pub async fn reload_rosters(&self) {
-        if let Some((dir, io)) = &self.roster_dir {
-            // A read that never ran keeps the snapshot already held, not an empty one.
-            if let Some(snapshot) = RosterSnapshot::load(dir, io).await {
-                self.rosters.store(Arc::new(snapshot));
-                self.publish_listing();
-            }
-        }
-    }
-
     /// The listing source of a registered adapter, wired to this service's data directory (the Anthropic
     /// OAuth route's model cache lives there); `None` for an adapter that lists no models.
     pub fn model_source(&self, provider: ProviderId, adapter: Arc<dyn ProviderAdapter>) -> Option<ModelSource> {
@@ -167,7 +164,7 @@ impl CatalogService {
     }
 
     /// `providerCachedModelsSync(provider)` (`provider-catalog-cache.mjs:86`): the provider's
-    /// live-roster rows, each id once, from the resident roster snapshot.
+    /// live-roster rows, each id once, read from the data directory.
     pub fn cached_models(&self, provider: &str) -> Vec<serde_json::Value> {
         self.rosters.load().cached_models(provider)
     }
@@ -213,7 +210,6 @@ impl CatalogService {
             sources.iter().filter(|s| names.contains(&s.provider().as_str())).cloned().collect()
         };
         let outcome = self.catalog.refresh_asking(&only, Ask::All).await;
-        self.reload_rosters().await;
         self.publish_listing();
         outcome
     }
@@ -237,7 +233,6 @@ impl CatalogService {
             litellm,
         )
         .await;
-        self.reload_rosters().await;
         self.publish_listing();
         outcome
     }
