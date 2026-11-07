@@ -2280,6 +2280,13 @@ impl SessionActor {
     }
 
     fn run_ended(&mut self, turn: TurnId, outcome: RunOutcome) {
+        // The loop reads the control lane before the producer lane, so the end can overtake output the
+        // run sent before it (a delta has no ack). Node's stream callback arms the warm
+        // (`ask-callbacks.mjs:55`) synchronously, before the turn settles (`turn-settle.mjs`), so what the run
+        // said is applied first.
+        while let Ok(msg) = self.ch.prod_rx.try_recv() {
+            self.on_producer(msg);
+        }
         let Some(mut slot) = self.run.take_if(|run| run.turn == turn) else {
             return;
         };
