@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
+use mixdog_core_api::domain::tool::Tool;
 use mixdog_js::to_number;
 use mixdog_rt::{DurabilityIo, LaneToken, MaintenanceIo, TaskClass};
 use mixdog_statefile::{Opts, write_json};
@@ -36,6 +37,7 @@ use crate::memory::runtime::{MemoryRuntime, RuntimeFlags};
 use crate::memory::schema::ensure_memory_schema;
 use crate::memory::sensitive::SensitiveStore;
 use crate::memory::service::{LocalMemory, MemoryModule, MemoryService, SessionSource};
+use crate::memory::tool::MemoryCallers;
 use crate::memory::session_search::db::SessionSearchDb;
 use crate::memory::session_search::ingest::{SessionSearchIngest, StoredSessions};
 use crate::memory::transcript::watcher::{TranscriptSink, TranscriptWatcher, start_transcript_watcher};
@@ -308,6 +310,11 @@ impl MemoryStack {
     /// `SessionDeps.memory`: the module the close-time ingest and the tool route call.
     pub fn module(&self) -> Arc<dyn MemoryModule> {
         self.memory.clone()
+    }
+
+    /// The `memory` and `recall` tools, in that order (`TOOL_DEFS` of the memory runtime).
+    pub fn tools(&self, callers: Arc<dyn MemoryCallers>) -> Vec<Arc<dyn Tool>> {
+        crate::memory::tool::tools(self.memory.clone(), callers)
     }
 
     /// The memory domain's `memory/*` routes over the session layer.

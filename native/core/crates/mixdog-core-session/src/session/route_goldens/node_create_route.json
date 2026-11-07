@@ -1,0 +1,79 @@
+{
+  "recorded": {
+    "request": "baseline/node/created.json (session.create {provider, model}) and out/compare/stored-header.node.json of the Node real-turn harness run",
+    "held": "heldRoutePick(route) of src/session-runtime/model-route/set-route.mjs (the pick route/set holds on the session as pendingRoute), evaluated on `route`"
+  },
+  "route": {
+    "provider": "custom-harness",
+    "model": "harness-model",
+    "effort": null,
+    "fast": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null
+  },
+  "header": {
+    "provider": "custom-harness",
+    "model": "harness-model",
+    "effort": null,
+    "fast": false,
+    "modelParameters": {},
+    "contextPercent": null,
+    "selectedContextWindow": null,
+    "presetName": null,
+    "codexWireSessionId": null
+  },
+  "absent": [
+    "autoEffort",
+    "contextTokens",
+    "routeFallbacks",
+    "routeFallbackSource"
+  ],
+  "held": {
+    "provider": "custom-harness",
+    "model": "harness-model",
+    "effort": null,
+    "fast": false,
+    "modelParameters": {},
+    "contextPercent": null
+  },
+  "preset_case": {
+    "recorded": "createSession (session-lifecycle.mjs): presetName = preset.name; routeFallbacks = executionFallbacks(normalizeWorkflowRoute({provider, model, fallbacks: preset.fallbacks})); routeFallbackSource = {...preset.fallbackSource}; evaluated by running those functions of src/ on `route`",
+    "route": {
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-1",
+      "preset": {
+        "name": "Lead",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-1",
+        "fallbacks": [
+          {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "effort": "high"
+          },
+          {
+            "provider": "anthropic-oauth",
+            "model": "claude-sonnet-4"
+          }
+        ],
+        "fallbackSource": {
+          "kind": "lead"
+        }
+      }
+    },
+    "header": {
+      "presetName": "Lead",
+      "routeFallbacks": [
+        {
+          "provider": "openai-oauth",
+          "model": "gpt-5",
+          "effort": "high"
+        }
+      ],
+      "routeFallbackSource": {
+        "kind": "lead"
+      }
+    }
+  }
+}

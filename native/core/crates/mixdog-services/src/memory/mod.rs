@@ -23,6 +23,7 @@ pub mod sensitive;
 pub mod service;
 pub mod session_search;
 pub mod thread_search;
+pub mod tool;
 pub mod trace;
 pub mod transcript;
 

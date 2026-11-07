@@ -1,0 +1,109 @@
+{
+  "name": "recall",
+  "title": "Recall",
+  "annotations": {
+    "title": "Recall",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5
+          }
+        ],
+        "description": "Query or independent fan-out array; shared scope/period. Write it in the conversation's language; history is stored in it."
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer",
+            "minimum": 1
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "description": "Exact #id(s) from recall. Do not invent ids."
+      },
+      "period": {
+        "type": "string",
+        "description": "last (recent sessions; +query topic-filter), Nm/Nh/Nd, today/yesterday/this_week/last_week, all, YYYY-MM-DD, date~date, or HH:MM~HH:MM."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "Max entries; default 10, or 5 sessions for period=last."
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 500,
+        "description": "Entries to skip; default 0. For period=last paging, use the returned cursor instead."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque period=last continuation cursor returned by the previous page."
+      },
+      "sort": {
+        "type": "string",
+        "enum": [
+          "importance",
+          "date"
+        ],
+        "description": "importance or date."
+      },
+      "category": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Category filter, string or array: rule|constraint|decision|fact|goal|preference|task|issue."
+      },
+      "includeArchived": {
+        "type": "boolean",
+        "description": "Include archived entries; default true."
+      },
+      "includeMembers": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include chunk members; default false."
+      },
+      "includeRaw": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include raw/episode rows; default false."
+      },
+      "projectScope": {
+        "type": "string",
+        "description": "Pool: inferred from cwd, common, all, or slug."
+      }
+    },
+    "additionalProperties": false
+  }
+}

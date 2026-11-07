@@ -42,6 +42,7 @@ impl mixdog_workspace::service::CodeGraph for WorkspaceCodeGraph {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "the test builds its project folder with a blocking canonicalize")]
 mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;

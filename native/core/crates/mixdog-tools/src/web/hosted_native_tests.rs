@@ -16,6 +16,7 @@ use mixdog_ai::admission::Admission;
 use mixdog_ai::broker::ModelBroker;
 use mixdog_ai::catalog::PricedUsage;
 use mixdog_ai::catalog::UsageArgs;
+use mixdog_ai::registry::accounted::AccountOf;
 use mixdog_ai::registry::accounting::UsagePricing;
 use mixdog_ai::registry::accounting::UsageRow;
 use mixdog_ai::registry::accounting::UsageSink;
@@ -29,6 +30,7 @@ use mixdog_core_api::domain::retry::RetryDecider;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_core_api::domain::retry::RetryState;
 use mixdog_core_api::domain::retry::Verdict;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::ProviderId;
 use serde_json::Map;
 use serde_json::Value;
@@ -215,7 +217,8 @@ impl World {
 
 #[async_trait]
 impl SearchHost for World {
-    fn main_route(&self) -> Value {
+    fn main_route(&self, thread: &ThreadId) -> Value {
+        assert_eq!(thread, &asking_thread(), "the route is the asking thread's");
         self.main.clone()
     }
     fn stored_web_search_route(&self) -> Value {
@@ -248,8 +251,24 @@ impl SearchHost for World {
                 .clone(),
         ))
     }
-    fn session_id(&self) -> Option<String> {
+    fn session_id(&self, thread: &ThreadId) -> Option<String> {
+        assert_eq!(thread, &asking_thread(), "the session is the asking thread's");
         self.session.clone()
+    }
+}
+
+/// The thread every case asks from: a host that is handed another one fails.
+fn asking_thread() -> ThreadId {
+    ThreadId::from("asking-thread")
+}
+
+/// Every account provider is on its default account, as an unread roster says.
+struct DefaultAccounts;
+
+#[async_trait]
+impl AccountOf for DefaultAccounts {
+    async fn of(&self, _provider: &str) -> Result<String, String> {
+        Ok("default".to_owned())
     }
 }
 
@@ -264,28 +283,81 @@ fn candidate_view(candidate: &super::hosted_search::SearchCandidate) -> Value {
     })
 }
 
+/// What the recording says `thread`'s search resolves to for `case`.
+async fn expect_case(routes: &ConfiguredSearchRoutes, thread: &ThreadId, case: &Value) {
+    let got = routes.candidates(thread).await;
+    let name = &case["name"];
+    match (&case["candidates"], &case["error"]) {
+        (Value::Array(want), _) => {
+            let got = got.unwrap_or_else(|error| panic!("{name}: {error}"));
+            let want: Vec<Value> = want
+                .iter()
+                .map(|c| json!({ "provider": c["provider"], "model": c["model"], "effort": c["effort"], "fast": c["fast"], "modelParameters": c["modelParameters"], "toolType": c["toolType"] }))
+                .collect();
+            assert_eq!(got.iter().map(candidate_view).collect::<Vec<_>>(), want, "{name}");
+            if want.is_empty() {
+                assert_eq!(routes.no_candidate_message(thread).await, case["noCandidate"].as_str().unwrap(), "{name}");
+            }
+        }
+        (_, Value::String(error)) => assert_eq!(&got.unwrap_err(), error, "{name}"),
+        _ => panic!("{name}: no expectation"),
+    }
+}
+
 #[tokio::test]
 async fn the_candidates_are_the_ones_node_resolves() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     for case in golden["routes"].as_array().unwrap() {
-        let routes = ConfiguredSearchRoutes::new(World::of(case, 0));
-        let got = routes.candidates().await;
-        let name = &case["name"];
-        match (&case["candidates"], &case["error"]) {
-            (Value::Array(want), _) => {
-                let got = got.unwrap_or_else(|error| panic!("{name}: {error}"));
-                let want: Vec<Value> = want
-                    .iter()
-                    .map(|c| json!({ "provider": c["provider"], "model": c["model"], "effort": c["effort"], "fast": c["fast"], "modelParameters": c["modelParameters"], "toolType": c["toolType"] }))
-                    .collect();
-                assert_eq!(got.iter().map(candidate_view).collect::<Vec<_>>(), want, "{name}");
-                if want.is_empty() {
-                    assert_eq!(routes.no_candidate_message().await, case["noCandidate"].as_str().unwrap(), "{name}");
-                }
-            }
-            (_, Value::String(error)) => assert_eq!(&got.unwrap_err(), error, "{name}"),
-            _ => panic!("{name}: no expectation"),
-        }
+        expect_case(&ConfiguredSearchRoutes::new(World::of(case, 0)), &asking_thread(), case).await;
+    }
+}
+
+/// A daemon's host: the config and the catalog are one, and each thread has its own Main route
+/// and session (Node has one runtime per conversation).
+struct Threads {
+    shared: Arc<World>,
+    mains: HashMap<ThreadId, Value>,
+}
+
+#[async_trait]
+impl SearchHost for Threads {
+    fn main_route(&self, thread: &ThreadId) -> Value {
+        self.mains[thread].clone()
+    }
+    fn stored_web_search_route(&self) -> Value {
+        self.shared.stored_web_search_route()
+    }
+    async fn main_model_row(&self, provider: &str, model: &str) -> Result<Option<Value>, String> {
+        self.shared.main_model_row(provider, model).await
+    }
+    fn catalog_row(&self, provider: &str, model: &str) -> Option<Value> {
+        self.shared.catalog_row(provider, model)
+    }
+    async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+        self.shared.provider(provider).await
+    }
+    fn session_id(&self, thread: &ThreadId) -> Option<String> {
+        Some(thread.as_str().to_owned())
+    }
+}
+
+#[tokio::test]
+async fn one_host_answers_each_thread_with_its_own_main_route() {
+    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    // The recorded cases that differ only in their Main route.
+    let cases: Vec<&Value> = golden["routes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|case| ["webSearchRoute", "cached", "listed", "global"].iter().all(|key| case.get(*key).is_none()))
+        .collect();
+    assert!(cases.len() > 2);
+    let thread_of = |index: usize| ThreadId::from(format!("thread-{index}").as_str());
+    let mains = cases.iter().enumerate().map(|(index, case)| (thread_of(index), case["main"].clone())).collect();
+    let routes = ConfiguredSearchRoutes::new(Arc::new(Threads { shared: World::of(&json!({}), 0), mains }));
+    // Last thread first: no answer depends on which thread asked before.
+    for (index, case) in cases.iter().enumerate().rev() {
+        expect_case(&routes, &thread_of(index), case).await;
     }
 }
 
@@ -370,7 +442,7 @@ async fn every_send_is_asked_answered_accounted_and_reported_like_node() {
             ledger: Some(ledger.clone()),
             sinks: sinks.clone(),
             lane: SenderDeps::default_lane(&broker),
-            account: SenderDeps::default_account(),
+            account: Arc::new(DefaultAccounts),
             now: {
                 let clock = world.clock.clone();
                 Arc::new(move || clock.load(Ordering::SeqCst))
@@ -384,6 +456,7 @@ async fn every_send_is_asked_answered_accounted_and_reported_like_node() {
         });
         let args = &case["args"];
         let request = NativeSearchRequest {
+            thread: asking_thread(),
             query: args["query"].as_str().unwrap().to_owned(),
             site: args.get("site").and_then(Value::as_str).map(str::to_owned),
             locale: None,

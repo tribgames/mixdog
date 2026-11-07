@@ -952,6 +952,95 @@ async fn a_started_thread_begins_with_the_tools_its_seed_wrote() {
     assert_eq!(header["toolSpec"], json!(["tools:readonly"]));
 }
 
+/// A new thread's route is settled under its future id before its tools are composed, and seated on
+/// it once it exists; a draft's route reaches the adoption as `configureDraft` sends it, a start with
+/// no draft adopts the default.
+#[tokio::test(start_paused = true)]
+async fn a_started_thread_adopts_its_route_before_its_tools_and_seats_it_once_created() {
+    use mixdog_store::schema::record::Header;
+    type Steps = Arc<Mutex<Vec<Value>>>;
+    struct Route(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadRoute for Route {
+        async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+            lock(&self.0).push(json!(["adopt", thread, draft]));
+            Ok(json!({ "provider": "custom-harness", "model": "harness-model", "preset": { "name": "Lead" } }).as_object().cloned().expect("route"))
+        }
+        async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
+            lock(&self.0).push(json!(["seat", thread]));
+            Ok(())
+        }
+    }
+    struct Tools(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.0).push(json!(["seed", thread]));
+            // The seat writes `contextTokens: null` for a route with none; a created record omits it.
+            let mut seeded = header.clone();
+            seeded.insert("contextTokens".into(), Value::Null);
+            Ok(seeded)
+        }
+    }
+    let rig = Rig::new();
+    let steps: Steps = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(Route(steps.clone()));
+    deps.new_tools = Arc::new(Tools(steps.clone()));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let started = |reply: Reply| match reply {
+        Reply::Subscribe(started) => ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id")),
+        Reply::Value(_) => panic!("thread/start subscribes"),
+    };
+    let draft = json!({ "route": { "provider": "custom-harness", "model": "harness-model", "fast": false } });
+    let first = started(directory.request(request("thread/start", json!({ "opId": "op-draft", "kind": "task", "draft": draft }), "op-draft")).await.expect("thread/start"));
+    let pick = json!({ "provider": "custom-harness", "model": "harness-model", "fast": false });
+    assert_eq!(*lock(&steps), [json!(["adopt", first, pick]), json!(["seed", first]), json!(["seat", first])]);
+    let header = directory.handle(&first).expect("loaded").cell.header.load_full();
+    assert_eq!((header["presetName"].clone(), header["codexWireSessionId"].clone(), header["contextPercent"].clone()), (json!("Lead"), Value::Null, Value::Null));
+    assert!(!header.contains_key("contextTokens"), "a record without a window omits contextTokens");
+    lock(&steps).clear();
+    let second = started(directory.request(request("thread/start", json!({ "opId": "op-plain", "kind": "task" }), "op-plain")).await.expect("thread/start"));
+    assert_eq!(*lock(&steps), [json!(["adopt", second, Value::Null]), json!(["seed", second]), json!(["seat", second])]);
+}
+
+/// A route the adoption refuses (a default with no model, as Node's `prepareRoute` throws) fails
+/// `thread/start` with that text and no code before anything else runs: no tools are composed and
+/// no thread exists.
+#[tokio::test(start_paused = true)]
+async fn a_start_whose_route_is_refused_creates_no_thread() {
+    use mixdog_store::schema::record::Header;
+    struct Refuses;
+    #[async_trait::async_trait]
+    impl super::NewThreadRoute for Refuses {
+        async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+            Err("No model selected. Choose a model with /model first.".to_owned())
+        }
+        async fn seat(&self, _: &ThreadId) -> Result<(), String> {
+            panic!("a refused route is never seated")
+        }
+    }
+    struct Tools(Arc<Mutex<u32>>);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
+            *lock(&self.0) += 1;
+            Ok(header.clone())
+        }
+    }
+    let rig = Rig::new();
+    let seeds = Arc::new(Mutex::new(0));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(Refuses);
+    deps.new_tools = Arc::new(Tools(seeds.clone()));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let refused = directory.request(request("thread/start", json!({ "opId": "op-none", "kind": "task" }), "op-none")).await.err().expect("refused");
+    assert!(matches!(&refused, CoreError::DomainError { code: None, .. }), "Node throws a plain Error: {refused:?}");
+    assert!(format!("{refused:?}").contains("No model selected. Choose a model with /model first."), "{refused:?}");
+    assert_eq!(*lock(&seeds), 0);
+    assert!(directory.loaded_ids().is_empty());
+}
+
 /// A `thread/start` with no `session` options is a `full` Lead denied the goal tools, as
 /// Node's `sessionOptions` makes it.
 #[tokio::test(start_paused = true)]

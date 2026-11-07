@@ -467,6 +467,27 @@ pub trait NewThreadTools: Send + Sync + 'static {
     async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String>;
 }
 
+/// The route a new Lead thread begins on. Node's session takes it from the runtime's route
+/// (`rt.route`, `session-options.mjs`): the default the config resolves to (`resolveRoute(config, {})`,
+/// `boot/config.mjs`), or the new task's draft pick, which the desktop applies as
+/// `setRoute(pick, { applyToCurrentSession: true, keepMainModel: false })` before the first
+/// prompt (`session-host-lifecycle.ts` `configureDraft`). The route is therefore settled before the
+/// session's first record is composed, and the record then carries it.
+///
+/// `thread/start` adopts the route under the id the thread will have, composes the thread from it
+/// ([`NewThreadTools`]), and seats it on the created thread's header.
+#[async_trait::async_trait]
+pub trait NewThreadRoute: Send + Sync + 'static {
+    /// Makes `draft` (else the default route) the live route of `thread`, which does not exist yet.
+    /// Answers the live route the thread then has (the record's create-only route keys are made
+    /// from it, `new_route::create_keys`). Fails with the text of the refusal; the thread is then
+    /// not created.
+    async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String>;
+
+    /// The created, still empty `thread` takes its live route onto its header.
+    async fn seat(&self, thread: &ThreadId) -> Result<(), String>;
+}
+
 /// What a room member's thread tells the room it sits in. Each call carries the room id and comes
 /// after the thread's view carries the change.
 pub trait RoomMemberEvents: Send + Sync + 'static {

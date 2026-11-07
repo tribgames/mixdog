@@ -36,6 +36,14 @@ use crate::domains::ai_account::collaborators::WebSearchModels;
 use crate::domains::ai_account::failure::Failure;
 use mixdog_core_config::config::Config;
 
+/// The provider's listing row of `model` in the catalog snapshot: what Node reads as the provider's
+/// cached model info (or, for a cold cache, its listing).
+pub fn listed_row(catalog: &CatalogService, provider: &str, model: &str) -> Option<Value> {
+    let snapshot = catalog.snapshot();
+    let (_, records) = snapshot.models.iter().find(|(p, _)| p.as_str() == provider)?;
+    records.iter().map(listing_value).find(|row| row.get("id").and_then(Value::as_str) == Some(model))
+}
+
 /// The live routes the rows follow.
 pub struct WebSearchRoutes {
     /// `getRoute()` = `rt.route`: the route cell of every conversation (`route_cell::SessionRoutes`, the
@@ -121,9 +129,8 @@ impl QuickFacts for Facts {
 
     fn main_model_meta(&self) -> Option<Value> {
         let route = self.route();
-        let info = self
-            .listings(route.get("provider")?.as_str()?)
-            .and_then(|rows| rows.into_iter().find(|row| row.get("id") == route.get("model")));
+        let provider = route.get("provider")?.as_str()?;
+        let info = route.get("model").and_then(Value::as_str).and_then(|model| listed_row(&self.catalog, provider, model));
         main_model_meta(&route, info.as_ref())
     }
 

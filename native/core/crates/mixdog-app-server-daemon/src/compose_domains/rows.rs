@@ -86,8 +86,8 @@ pub(super) async fn build(
 
     services.push(InstructionsService::new(
         InstructionPaths {
-            shipped_orchestration: inputs.paths.package_root.join("orchestration"),
-            shipped_output_styles: inputs.paths.package_root.join("output-styles"),
+            shipped_orchestration: inputs.paths.package_root.join("src").join("orchestration"),
+            shipped_output_styles: inputs.paths.package_root.join("src").join("output-styles"),
             data_dir: inputs.paths.data_dir.clone(),
         },
         tool_modules,

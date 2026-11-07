@@ -472,11 +472,11 @@ pub struct AgentSeams {
 
 /// The agent definitions, built once. `ConfigHosts` (the compaction and workflow hosts of
 /// `compose_domains`) and `mcp_services` both take this `Arc`, so it is built before either; it needs
-/// nothing `compose_domains` produces.
+/// nothing `compose_domains` produces. The shipped `agents/` is `<package_root>/src/agents` (`mixdogRoot()` is the `src` folder).
 pub fn build_agents(tokens: &LaneTokens, config: &Config, package_root: &Path, data_dir: &Path, task_workspace: &Path, seams: AgentSeams) -> Arc<AgentDefinitions> {
     Arc::new(
         AgentDefinitions::new(
-            package_root.to_path_buf(),
+            package_root.join("src"),
             data_dir.to_path_buf(),
             tokens.interactive_io,
             AgentRoutes::new(config.clone(), data_dir.to_path_buf()),
@@ -572,7 +572,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
     let catalog = SkillCatalog::new(
         data_dir.clone(),
         tokens.maintenance_io,
-        McpGlue::skill_roots(admin.clone(), package_root.join("defaults")),
+        McpGlue::skill_roots(admin.clone(), package_root.join("src").join("defaults")),
         settings.clone(),
         &inputs.skills_watch,
     );
@@ -620,7 +620,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
     let automation = Arc::new(AutomationActions::new(inputs.setup.automation.clone(), agents.clone(), callers.clone()));
     let mut setup = SetupService::new(config.clone(), tool_modules.clone(), callers.clone(), inputs.setup.desktop.clone(), inputs.setup.voice.clone())
         .with_settings(Settings::new(config.clone(), inputs.settings_effects.clone(), env.clone()))
-        .with_output_styles(OutputStyles::new(config.clone(), package_root.join("output-styles"), data_dir))
+        .with_output_styles(OutputStyles::new(config.clone(), package_root.join("src").join("output-styles"), data_dir))
         .with_actions(Arc::new(McpSetup::new(runtime)))
         .with_actions(Arc::new(HookRuleSetup::new(hook_rules_path(env, data_dir), tokens.maintenance_io, inputs.hooks.clone(), inputs.hook_observer.clone())))
         .with_actions(automation.clone())

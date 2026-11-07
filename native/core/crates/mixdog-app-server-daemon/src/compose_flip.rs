@@ -840,6 +840,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let voice_manifest: serde_json::Value = {
         let path = b.package_root.join("src").join("runtime").join("channels").join("data").join("voice-runtime-manifest.json");
         let shown = path.display().to_string();
+        #[allow(clippy::disallowed_methods, reason = "the body of an interactive-io lane job")]
         let text = mixdog_core_base::support::on_lane(b.tokens.interactive_io, &mixdog_rt::CancellationToken::new(), move |_lane| std::fs::read_to_string(path))
             .await
             .map_err(|error| ComposeError::VoiceManifest(format!("reading {shown}: {error:?}")))?
@@ -1255,27 +1256,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         code_graph_cache.clone(),
     ));
     tool_pool.push(code_graph.clone());
-    // After `tools(..)` (the pool holds `explore`, which holds the host) and after the last read-only tool is registered: `bind` keeps one snapshot, and Node's
-    // `readOnlyFilesystemTools()` (`tool-resolution.mjs:96`) includes `code_graph`.
-    explorer_host.bind(&tool_pool);
-    // ---- 9. the ready rows --------------------------------------------------------------------
-    let ready = ready_rows(
-        &process,
-        ReadyIn {
-            data_dir: b.data_dir.clone(),
-            env: b.env.clone(),
-            tool_pool: tool_pool.clone(),
-            hub: hub.clone(),
-            skills: mcp.catalog.clone(),
-            heartbeats: heartbeats.clone(),
-            blobs: blobs.clone(),
-        },
-    );
+    // The built-in file, process, git and web tools, the explorer's bind and the ready rows follow the worktrees (below): the `git` tool needs them, and the ready rows and the explorer keep a snapshot of the finished pool.
 
     // ---- 10. memory, session deps, owed parts, the turn path ----------------------------------
     // The one catalog index (`<data>/index/store.sqlite`): `StoreThreads` and `DirectoryImportSessions` hold this handle. Its open
     // (a boot purge, a rebuild from the logs when needed) blocks, so it is a maintenance lane job.
-    let (ready_resolver, ready_allow_all) = (ready.resolver.clone(), ready.allow_all.clone()); // the dispatcher is built from the very values the turn path holds
     let catalog_index = {
         let (data, thread, read) = (b.data_dir.clone(), b.tokens.sqlite_writer_thread, b.tokens.interactive_io);
         b.tokens
@@ -1394,6 +1379,85 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         { let ids = live_ids.clone(); Arc::new(move || ids().into_iter().collect()) },
         snapshot_cleanups.cancel_hook(),
     ));
+    // ---- the built-in file, process, git and web tools (prompt-seed-1 §2) ------------------------------------------------------------------------------
+    // Node's `BUILTIN_TOOLS` in its order (`builtin-tools.mjs:95`: read, edit, shell, git, github, task, grep, glob, find, list), then `PATCH_TOOL_DEFS` (`apply_patch`), then the web defs
+    // (`collectStandaloneToolDefs`: web_search, web_fetch, local_fetch, image_fetch), after `code_graph`; the surfaces sort them into route order (`session_tools::route_rank`).
+    // `read`, `edit` and `apply_patch` share the ONE `ReadState`; `shell` and `task` the ONE `ExecRuntime`; `git` the engine's repository locks and the ONE `Worktrees`.
+    // Not here: `recall` and `memory`, which have no `Tool` implementation anywhere in the tree.
+    let ext_pool: Arc<dyn mixdog_core_api::domain::ext::ExtPool> = b.ext_host.clone();
+    let image_resizer: Arc<dyn mixdog_core_api::domain::ext::ImageResizer> = Arc::new(mixdog_exthost::ExtImageCodec::new(ext_pool.clone()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::ReadTool::new(Some(ext_pool), Some(image_resizer)).with_state(read_state.clone())));
+    tool_pool.push(Arc::new(mixdog_tools::fs::EditTool::new().with_state(read_state.clone())));
+    tool_pool.push(Arc::new(mixdog_tools::exec::ShellTool::new(b.exec.clone())));
+    tool_pool.push(Arc::new(mixdog_tools::git::GitTool::with_locks(scm.locks.clone()).with_worktrees(Arc::new(mixdog_tools::git::WorktreeServices {
+        worktrees: worktrees.clone(),
+        stored: worktree_sessions.clone(),
+        live: { let ids = live_ids.clone(); Arc::new(move || ids().into_iter().collect()) },
+        sessions: late_workspaces.clone(), // bound right after `SessionWorkspaces` is built; in `verify_bound`
+    }))));
+    tool_pool.push(Arc::new(mixdog_tools::github::GithubTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::exec::TaskTool::new(b.exec.clone())));
+    tool_pool.push(Arc::new(mixdog_tools::fs::GrepTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::GlobTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::FindTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::ListTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::ApplyPatchTool::new().with_state(read_state.clone())));
+    // The web tools over one `WebService`: pages render in the shared render browser, and the page and search caches persist in `cache.local.json` of the data directory (`web-search/lib/config.mjs`).
+    // `search` stays unset: the hosted search needs a `SearchHost` (the live Main route and the asking session), which has no implementation in the tree yet, so `web_search` answers Node's
+    // "web search provider unavailable" (`web/search.rs`); `web_fetch`, `local_fetch` and `image_fetch` do not depend on it.
+    let web_lanes = mixdog_tools::web::WebLanes { extract: b.tokens.cpu_interactive, dns: b.tokens.interactive_io };
+    let page_renderer: Arc<dyn mixdog_tools::web::PageRenderer> = mixdog_tools::web::BrowserRenderer::new(Arc::new(b.ext_host.render_browser()), &build_version, web_lanes)
+        .map_err(|e| ComposeError::Config(format!("the web page renderer could not be built: {e}")))?;
+    let mut web_config = mixdog_tools::web::WebConfig::new(build_version.clone(), web_lanes);
+    web_config.renderer = Some(page_renderer);
+    web_config.cache_file = Some(mixdog_tools::web::CacheFile { path: b.data_dir.join("cache.local.json"), lane: b.tokens.maintenance_io });
+    // The hosted web search (`createNativeWebSearch`, `boot/providers.mjs:201-222`): one host for every thread; the asking thread picks the route cell and the session.
+    let search_host = Arc::new(mixdog_core_domains::domains::ai_admin::web_search_host::RegistrySearchHost {
+        cells: routes.clone() as Arc<dyn mixdog_core_ports::ports::route::LiveRoute>, // the route cell of every conversation (the one `routes`)
+        config: config.clone(),
+        catalog: b.catalog.clone(),
+        readiness: readiness.clone(),
+        registry: registry.clone(),
+    });
+    let search_sender = mixdog_tools::web::ProviderSearchSender::new(
+        search_host.clone(),
+        mixdog_tools::web::SenderDeps {
+            broker: broker.clone(), // the one broker (`broker.admission()` lanes, shared with the main sends)
+            pricing: Arc::new(mixdog_ai::catalog::CatalogPricing(b.catalog.clone())),
+            ledger: Some(usage_sink.clone()), // the one ledger source, asked per row
+            sinks: mixdog_tools::web::NativeSearchUsageSinks::new(),
+            lane: mixdog_tools::web::SenderDeps::default_lane(&broker),
+            account: Arc::new(account_store.clone()), // the roster each row's account is read from
+            now: mixdog_tools::web::SenderDeps::system_clock(),
+        },
+    );
+    let hosted_search: Arc<dyn mixdog_tools::web::NativeWebSearch> =
+        mixdog_tools::web::HostedWebSearch::new(mixdog_tools::web::ConfiguredSearchRoutes::new(search_host), search_sender);
+    web_config.search = Some(hosted_search);
+    let web = mixdog_tools::web::WebService::new(web_config).map_err(|e| ComposeError::Config(format!("the web tools could not be built: {e}")))?;
+    tool_pool.extend(web.tools());
+    // After `tools(..)` (the pool holds `explore`, which holds the host) and after the last read-only tool is registered: `bind` keeps one snapshot, and Node's
+    // `readOnlyFilesystemTools()` (`tool-resolution.mjs:96`) is `code_graph, find, glob, list, grep, read`.
+    explorer_host.bind(&tool_pool);
+    tool_pool.extend(memory.tools(Arc::new(crate::memory_callers::ThreadMemoryCallers::new(
+        Arc::new(crate::late_session::LateCallerSessions(late.clone())),
+        mcp.callers.clone(),
+        held_home.clone(),
+    ))));
+    // ---- 9. the ready rows --------------------------------------------------------------------
+    let ready = ready_rows(
+        &process,
+        ReadyIn {
+            data_dir: b.data_dir.clone(),
+            env: b.env.clone(),
+            tool_pool: tool_pool.clone(),
+            hub: hub.clone(),
+            skills: mcp.catalog.clone(),
+            heartbeats: heartbeats.clone(),
+            blobs: blobs.clone(),
+        },
+    );
+    let (ready_resolver, ready_allow_all) = (ready.resolver.clone(), ready.allow_all.clone()); // the dispatcher is built from the very values the turn path holds
     let approval_ids = Arc::new(mixdog_core_base::approvals::StoreApprovalIds::open(b.core_state.clone()).await.map_err(ComposeError::State)?);
     // The one side-question store and what a capture reads; `SideWiring` hands out the request source, the next-request source and the questions service.
     let sections = b.sections.clone(); // the composed one (`ComposedCore::sections()`), the same `serving::start` takes
@@ -1468,6 +1532,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let compactors = Arc::new(mixdog_core::run_host::compactors::SessionCompactors::new(compaction_world.clone(), clock_agent.clone()));
     let config_seams = Arc::new(mixdog_core::run_host::run_seams::ConfigRunSeams::new(config.clone(), agents.clone(), b.package_root.join("src"), b.data_dir.clone(), b.env.clone())); // run-host-28
     let late_route_session = Arc::new(crate::late_session::LateRouteSession::default());
+    // The route service is built after the directory and reads it: the route a `thread/start` thread begins on and the pick held for a turn start are late cells, bound where it is built.
+    let late_new_route = Arc::new(mixdog_core::run_host::route_start::LateNewRoute::default());
+    let late_pending_route = Arc::new(mixdog_core::run_host::route_start::LatePendingRoute::default());
     // flip-surface: the one production `SurfaceHost`. It is built BEFORE the directory (it goes into `SessionDeps.new_tools` and the compaction world), so the
     // directory-side reads are the late forms (`LateThreads`: `ThreadState` + `ThreadMessages`; `LateLiveSessions`), not `directory`/`SessionThreads` as the wiring row writes.
     // The same `core_memory` value feeds the prompt rebuild and the host runtime.
@@ -1489,7 +1556,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let prompt_facts = Arc::new(mixdog_core::run_host::prewarm::PromptFacts::from_process(b.package_root.join("src"), b.data_dir.clone(), config.stored_instruction_files()));
     let run_workflow_surface = Arc::new(mixdog_core::run_host::workflow_surface::RunWorkflowSurface::new(mixdog_core::run_host::workflow_surface::SurfaceParts {
         lane: b.tokens.interactive_io,
-        paths: mixdog_core_config::workflow::WorkflowPaths { root: b.package_root.clone(), data: b.data_dir.clone() },
+        paths: mixdog_core_config::workflow::WorkflowPaths { root: b.package_root.join("src"), data: b.data_dir.clone() },
         config: config.clone(),
         agents: agents.clone(),
         probes: Arc::new(crate::feature_probes::HostFeatureProbes::new(bridges.clone(), b.tokens.interactive_io, b.env.clone(), clock_agent.clone())),
@@ -1694,6 +1761,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             // `deps` is a `move` closure: it takes its own clones, so the composition below still holds every one of these.
             let (config, gateway_routes, exclusions, registry, worktree_maintenance, surface_host, worktrees, owned_shells, job_board, blobs) = (config.clone(), gateway_routes.clone(), exclusions.clone(), registry.clone(), worktree_maintenance.clone(), surface_host.clone(), worktrees.clone(), owned_shells.clone(), job_board.clone(), blobs.clone());
             let (late_agent_status, late_turn_admission, late_room_members, handoff_hub, activity, turn_review, computer_pool) = (late_agent_status.clone(), late_turn_admission.clone(), late_room_members.clone(), handoff_hub.clone(), activity.clone(), turn_review.clone(), computer_pool.clone());
+            let late_new_route = late_new_route.clone();
             let (early_todos, early_work) = (early.todos.clone(), early.work.clone());
             let (process_unsupported, early_cycles, early_goals, hop_codex_declared, hop_source, mcp_catalog, memory_module, memory_search) = (process.unsupported.clone(), early.cycles.clone(), early.goals.clone(), ready.hop.codex_declared.clone(), ready.hop.source.clone(), mcp.catalog.clone(), memory.module(), memory.search());
             // `SessionQuota::over_config(goals, config)` is exactly `{ goals, auto_resume: over_config }`; the closure is the one hoisted above.
@@ -1761,6 +1829,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 resumed_tools: route_facts_ai.clone(), // `AiRouteFacts` is the `ResumedTools` too
                 room_members: late_room_members.clone(),
                 new_tools: surface_host.clone(), // `thread/start` composes its tools and prompt through it (flip-surface-2, -6)
+                new_route: late_new_route.clone(), // `thread/start` settles its route first (the draft's pick, else the default) and seats it once created
         snapshots: { let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
                 lanes: mixdog_core_session::session::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io },
                 limits: Default::default(),
@@ -1908,7 +1977,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(Arc::new(mixdog_core::run_host::session_reactions::SessionReactions::new(directory.clone(), path.reaction_targets.clone())))
         .map_err(|_| ComposeError::AlreadyBound("reactions"))?;
     // `late_agent_port.bind(assembled.port())` belongs right after `assemble(AgentParts{..})` (flip-agent-worlds-15), below.    // flip-surface-11: every turn start reconciles through the late `TurnSettings`; an unbound cell is a typed failure and is in `verify_bound` below.
-    path.turn_settings.bind(surface_host.clone()).map_err(|_| ComposeError::AlreadyBound("turn settings"))?;
+    // Node's turn preparation applies the route pick held for the turn (`applyPendingRoute`) before it reconciles the settings.
+    path.turn_settings
+        .bind(Arc::new(mixdog_core::run_host::route_start::TurnStart { route: late_pending_route.clone(), settings: surface_host.clone() }))
+        .map_err(|_| ComposeError::AlreadyBound("turn settings"))?;
     // The tool status the `tools/*` service and the MCP surface read (flip-ce-2): `preview` is async/fallible and `mode` takes the thread's header, no wiring change.
     tool_surface
         .bind(Arc::new(mixdog_core_ports::ports::tools_status::SessionToolStatus::new(Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone())), surface_host.clone())))
@@ -2322,7 +2394,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         usage: usage_sources.clone(),
     });
     let route_follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads.clone(), late_route_session.clone(), routes.clone()));
-    let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config: config.clone(), facts: facts.clone(), writer: route_writer, session: route_follow });
+    let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config: config.clone(), facts: facts.clone(), writer: route_writer, session: route_follow.clone(), models: model_list.clone() });
+    // The route a `thread/start` thread begins on is the route service's; the pick a turn start applies is the follow's (`SessionRoutes::apply_pending`).
+    late_new_route.bind(route_service.clone()).map_err(|_| ComposeError::AlreadyBound("new thread route"))?;
+    late_pending_route.bind(route_follow).map_err(|_| ComposeError::AlreadyBound("pending route"))?;
     chat_routes.bind(Arc::new(mixdog_core_domains::domains::ai_admin::chat_routes::ChatRoutes::new(route_service.clone()))).map_err(|_| ComposeError::AlreadyBound("agent chat routes"))?;
     builder.register(Arc::new(mixdog_core_session::session::thread_settings::ThreadSettings::new(
         mixdog_core_session::session::thread_settings::ThreadSettingsParts {
@@ -2468,7 +2543,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     connection_owners
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone()))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
-    crate::compose::verify_bound(&[&connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
+    crate::compose::verify_bound(&[&connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
     Ok(Real { late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), directory, agent_dispatch, agent_host, code_graph_cache, maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default() })
 }
 

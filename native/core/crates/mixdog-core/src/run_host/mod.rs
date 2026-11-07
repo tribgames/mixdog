@@ -89,6 +89,7 @@ pub mod surface_host;
 pub mod tool_availability;
 pub mod skill_session;
 pub mod turn_settings;
+pub mod route_start;
 pub mod agent_variants;
 pub mod graph_cache;
 pub mod native_tools;

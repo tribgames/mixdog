@@ -55,6 +55,16 @@ impl ServiceTool {
     pub fn tidy(service: Arc<dyn ToolService>) -> Self {
         Self { spec: spec_from_def(include_str!("defs/tidy.json"), false, &["tidy"]), service }
     }
+
+    /// Standing user memory; it writes, so it runs apart from other calls.
+    pub fn memory(service: Arc<dyn ToolService>) -> Self {
+        Self { spec: spec_from_def(include_str!("defs/memory.json"), false, &[]), service }
+    }
+
+    /// Stored session history; read-only, so calls may overlap (`readOnlyHint`).
+    pub fn recall(service: Arc<dyn ToolService>) -> Self {
+        Self { spec: spec_from_def(include_str!("defs/recall.json"), true, &[]), service }
+    }
 }
 
 #[async_trait]

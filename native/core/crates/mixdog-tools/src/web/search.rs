@@ -12,6 +12,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use mixdog_core_api::ids::ThreadId;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -27,6 +28,9 @@ pub const PROVIDER_UNAVAILABLE: &str =
 
 #[derive(Clone, Debug)]
 pub struct NativeSearchRequest {
+    /// The thread whose call started the search: its runtime's route and session answer it
+    /// (Node's `runNativeWebSearch` reads the asking runtime's `rt.route` / `rt.session`).
+    pub thread: ThreadId,
     pub query: String,
     pub site: Option<String>,
     pub locale: Option<String>,
@@ -309,9 +313,10 @@ impl SearchService {
         }
     }
 
-    /// One query. Identical in-flight searches share one provider call; the
-    /// provider call is cancelled once every caller waiting on it has left.
-    pub async fn search(&self, args: &SearchArgs, cancel: &CancellationToken) -> Result<Arc<SearchPayload>, String> {
+    /// One query. Identical in-flight searches share one provider call (the first caller's thread
+    /// asks it, as the cache key names no thread either); the provider call is cancelled once every
+    /// caller waiting on it has left.
+    pub async fn search(&self, args: &SearchArgs, thread: &ThreadId, cancel: &CancellationToken) -> Result<Arc<SearchPayload>, String> {
         let key = cache_key(args);
         if let Some(stored) = self.core.cache.get(&key).await
             && let Some(hit) = SearchPayload::from_node(&stored)
@@ -322,7 +327,7 @@ impl SearchService {
             let mut flights = self.core.flights.lock().unwrap_or_else(|p| p.into_inner());
             let flight = flights
                 .entry(key.clone())
-                .or_insert_with(|| self.start(&key, args))
+                .or_insert_with(|| self.start(&key, args, thread))
                 .clone();
             flight.waiters.fetch_add(1, Ordering::SeqCst);
             flight
@@ -349,10 +354,11 @@ impl SearchService {
         }
     }
 
-    fn start(&self, key: &str, args: &SearchArgs) -> Arc<Flight> {
+    fn start(&self, key: &str, args: &SearchArgs, thread: &ThreadId) -> Arc<Flight> {
         let cancel = CancellationToken::new();
         let core = self.core.clone();
         let request = NativeSearchRequest {
+            thread: thread.clone(),
             query: args.query.clone(),
             site: args.site.clone(),
             locale: locale_label(args),

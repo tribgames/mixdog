@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_js::is_js_space;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_js::js_trim;
 use serde_json::Map;
 use serde_json::Value;
@@ -48,17 +49,20 @@ pub struct SearchCandidate {
 }
 
 /// The web-search route chain (Node `nativeWebSearchRoutes`), already
-/// resolved to candidates: de-duplicated by provider, in route order.
+/// resolved to candidates: de-duplicated by provider, in route order. Both
+/// reads are the asking thread's runtime's.
 #[async_trait]
 pub trait SearchRoutes: Send + Sync {
-    async fn candidates(&self) -> Result<Vec<SearchCandidate>, String>;
+    async fn candidates(&self, thread: &ThreadId) -> Result<Vec<SearchCandidate>, String>;
     /// Why the chain produced no candidate (Node `noCandidateError`).
-    async fn no_candidate_message(&self) -> String;
+    async fn no_candidate_message(&self, thread: &ThreadId) -> String;
 }
 
 /// One request to a provider with the hosted search tool attached.
 #[derive(Clone, Debug)]
 pub struct HostedSearchCall {
+    /// The thread whose turn asked: its session owns the send.
+    pub thread: ThreadId,
     pub candidate: SearchCandidate,
     pub system: String,
     pub user: String,
@@ -289,14 +293,15 @@ fn search_call(call: &Value) -> SearchCall {
 #[async_trait]
 impl NativeWebSearch for HostedWebSearch {
     async fn search(&self, request: NativeSearchRequest, cancel: CancellationToken) -> Result<NativeSearchResult, String> {
-        let candidates = self.routes.candidates().await?;
+        let candidates = self.routes.candidates(&request.thread).await?;
         if candidates.is_empty() {
-            return Err(self.routes.no_candidate_message().await);
+            return Err(self.routes.no_candidate_message(&request.thread).await);
         }
         let mut errors: Vec<String> = Vec::new();
         for candidate in candidates {
             let tool_type = tool_types(&candidate).remove(0);
             let call = HostedSearchCall {
+                thread: request.thread.clone(),
                 tool: hosted_tool(&request, &tool_type, candidate.family),
                 include: if candidate.family == SearchFamily::Openai {
                     vec!["web_search_call.action.sources".to_string()]

@@ -1,0 +1,5 @@
+{
+  "recorded": "src/session-runtime/route-resolution.mjs resolveMissingRouteModelForFirstTurn (prepareRoute, session-create/route-prep.mjs): the errors a model-less route throws before a session is created; extracted from the Node source",
+  "noProviderModels": "No provider models available. Open /providers to sign in, then /model to choose a model.",
+  "noModelSelected": "No model selected. Choose a model with /model first."
+}
