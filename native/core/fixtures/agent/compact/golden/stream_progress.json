@@ -516,7 +516,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "Hello there. ",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle carrying everything",
@@ -583,7 +588,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "Hello there. ",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle without items",
@@ -617,7 +627,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle without an output",
@@ -650,7 +665,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle with a refusal",
@@ -696,7 +716,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": "refusal"
+        }
       },
       {
         "name": "a bundle of calls",
@@ -755,7 +780,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a truncated call",
@@ -842,7 +872,18 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "compat SSE stream truncated: no response.completed",
+            "incompleteReason": null,
+            "pendingToolUse": false,
+            "partialUsage": false,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
       },
       {
         "name": "the in-flight latch",
@@ -991,7 +1032,516 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "compat SSE stream truncated: no response.completed",
+            "incompleteReason": null,
+            "pendingToolUse": false,
+            "partialUsage": false,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a cutoff with nothing pending",
+        "framing": "compat",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_text.delta",
+              "item_id": "m1",
+              "delta": "Hello "
+            },
+            "kinds": [
+              "text"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "Hello ",
+        "outcome": {
+          "error": null,
+          "stopReason": "length"
+        }
+      },
+      {
+        "name": "a cutoff with a truncated call in the bundle",
+        "framing": "compat",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [
+                  {
+                    "type": "function_call",
+                    "id": "fc1",
+                    "call_id": "c1",
+                    "name": "read",
+                    "arguments": "{\"pa",
+                    "status": "incomplete"
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": "length"
+        }
+      },
+      {
+        "name": "a cutoff in the middle of a tool input",
+        "framing": "compat",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.function_call_arguments.delta",
+              "item_id": "fc1",
+              "delta": "{\"pa"
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "compat SSE stream truncated: incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": null,
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "an incomplete response that is not a cutoff",
+        "framing": "compat",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "content_filter"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "compat stream response.incomplete: content_filter",
+            "incompleteReason": null,
+            "pendingToolUse": false,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "an incomplete done frame with a call in flight",
+        "framing": "compat",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.done",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "compat SSE stream truncated: incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": null,
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "an item done and a bundle, no deltas",
+        "framing": "compat",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": []
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 0,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Hello there. "
+                  }
+                ]
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.completed",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 1,
+                  "output_tokens": 1
+                }
+              }
+            },
+            "kinds": [
+              "text"
+            ]
+          }
+        ],
+        "text": "Hello there. ",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a delta shorter than the bundle",
+        "framing": "compat",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_text.delta",
+              "item_id": "m1",
+              "delta": "Hello "
+            },
+            "kinds": [
+              "text"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.completed",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 1,
+                  "output_tokens": 1
+                }
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          }
+        ],
+        "text": "Hello ",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "two messages in a bundle",
+        "framing": "compat",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.completed",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  },
+                  {
+                    "type": "message",
+                    "id": "m2",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Again."
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 1,
+                  "output_tokens": 1
+                }
+              }
+            },
+            "kinds": [
+              "text"
+            ]
+          }
+        ],
+        "text": "Hello there. Again.",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "an argument delta for an unknown item",
@@ -1062,7 +1612,18 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "compat SSE stream truncated: no response.completed",
+            "incompleteReason": null,
+            "pendingToolUse": true,
+            "partialUsage": false,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
       },
       {
         "name": "a streamed response, then its bundle",
@@ -1277,7 +1838,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "Hello there. ",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle carrying everything",
@@ -1344,7 +1910,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle without items",
@@ -1378,7 +1949,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle without an output",
@@ -1411,7 +1987,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle with a refusal",
@@ -1457,7 +2038,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": "refusal"
+        }
       },
       {
         "name": "a bundle of calls",
@@ -1516,7 +2102,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a truncated call",
@@ -1603,7 +2194,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "the in-flight latch",
@@ -1752,7 +2348,516 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a cutoff with nothing pending",
+        "framing": "ws",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_text.delta",
+              "item_id": "m1",
+              "delta": "Hello "
+            },
+            "kinds": [
+              "text"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "Hello ",
+        "outcome": {
+          "error": null,
+          "stopReason": "length"
+        }
+      },
+      {
+        "name": "a cutoff with a truncated call in the bundle",
+        "framing": "ws",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [
+                  {
+                    "type": "function_call",
+                    "id": "fc1",
+                    "call_id": "c1",
+                    "name": "read",
+                    "arguments": "{\"pa",
+                    "status": "incomplete"
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "ws response.incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": "max_output_tokens",
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a cutoff in the middle of a tool input",
+        "framing": "ws",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.function_call_arguments.delta",
+              "item_id": "fc1",
+              "delta": "{\"pa"
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "ws response.incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": "max_output_tokens",
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "an incomplete response that is not a cutoff",
+        "framing": "ws",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "content_filter"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "ws response.incomplete: content_filter",
+            "incompleteReason": "content_filter",
+            "pendingToolUse": false,
+            "partialUsage": true,
+            "partialModel": null
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "an incomplete done frame with a call in flight",
+        "framing": "ws",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.done",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "ws response.done incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": "max_output_tokens",
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "an item done and a bundle, no deltas",
+        "framing": "ws",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": []
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 0,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Hello there. "
+                  }
+                ]
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.completed",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 1,
+                  "output_tokens": 1
+                }
+              }
+            },
+            "kinds": [
+              "text"
+            ]
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a delta shorter than the bundle",
+        "framing": "ws",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_text.delta",
+              "item_id": "m1",
+              "delta": "Hello "
+            },
+            "kinds": [
+              "text"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.completed",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 1,
+                  "output_tokens": 1
+                }
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          }
+        ],
+        "text": "Hello ",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "two messages in a bundle",
+        "framing": "ws",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.completed",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  },
+                  {
+                    "type": "message",
+                    "id": "m2",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Again."
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 1,
+                  "output_tokens": 1
+                }
+              }
+            },
+            "kinds": [
+              "text"
+            ]
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "an argument delta for an unknown item",
@@ -1823,7 +2928,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a streamed response, then its bundle",
@@ -2039,7 +3149,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "Hello there. ",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle carrying everything",
@@ -2106,7 +3221,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle without items",
@@ -2140,7 +3260,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle without an output",
@@ -2173,7 +3298,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a bundle with a refusal",
@@ -2219,7 +3349,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": "refusal"
+        }
       },
       {
         "name": "a bundle of calls",
@@ -2278,7 +3413,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "a truncated call",
@@ -2365,7 +3505,12 @@
               "tool"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "the in-flight latch",
@@ -2514,7 +3659,516 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a cutoff with nothing pending",
+        "framing": "sse",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_text.delta",
+              "item_id": "m1",
+              "delta": "Hello "
+            },
+            "kinds": [
+              "text"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "Hello ",
+        "outcome": {
+          "error": null,
+          "stopReason": "length"
+        }
+      },
+      {
+        "name": "a cutoff with a truncated call in the bundle",
+        "framing": "sse",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [
+                  {
+                    "type": "function_call",
+                    "id": "fc1",
+                    "call_id": "c1",
+                    "name": "read",
+                    "arguments": "{\"pa",
+                    "status": "incomplete"
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "sse response.incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": "max_output_tokens",
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a cutoff in the middle of a tool input",
+        "framing": "sse",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.function_call_arguments.delta",
+              "item_id": "fc1",
+              "delta": "{\"pa"
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "sse response.incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": "max_output_tokens",
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "an incomplete response that is not a cutoff",
+        "framing": "sse",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "content_filter"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "sse response.incomplete: content_filter",
+            "incompleteReason": null,
+            "pendingToolUse": false,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "an incomplete done frame with a call in flight",
+        "framing": "sse",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.done",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": {
+            "message": "sse response.done incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": "max_output_tokens",
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m"
+          },
+          "stopReason": null
+        }
+      },
+      {
+        "name": "an item done and a bundle, no deltas",
+        "framing": "sse",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": []
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 0,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Hello there. "
+                  }
+                ]
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.completed",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 1,
+                  "output_tokens": 1
+                }
+              }
+            },
+            "kinds": [
+              "text"
+            ]
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a delta shorter than the bundle",
+        "framing": "sse",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_text.delta",
+              "item_id": "m1",
+              "delta": "Hello "
+            },
+            "kinds": [
+              "text"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.completed",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 1,
+                  "output_tokens": 1
+                }
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          }
+        ],
+        "text": "Hello ",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "two messages in a bundle",
+        "framing": "sse",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.completed",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Hello there. "
+                      }
+                    ]
+                  },
+                  {
+                    "type": "message",
+                    "id": "m2",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Again."
+                      }
+                    ]
+                  }
+                ],
+                "usage": {
+                  "input_tokens": 1,
+                  "output_tokens": 1
+                }
+              }
+            },
+            "kinds": [
+              "text"
+            ]
+          }
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       },
       {
         "name": "an argument delta for an unknown item",
@@ -2585,7 +4239,12 @@
               "semantic"
             ]
           }
-        ]
+        ],
+        "text": "",
+        "outcome": {
+          "error": null,
+          "stopReason": null
+        }
       }
     ],
     "chat": [
