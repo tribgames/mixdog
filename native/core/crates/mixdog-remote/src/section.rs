@@ -37,6 +37,9 @@ pub struct RemoteSectionValue {
     pub controller_keys: Vec<ControllerKeyRecord>,
     pub owed_keys: OwedAccess,
     pub pair_code: Option<RemotePairCode>,
+    /// Ids of the paired clients holding a native push registration (what Node's
+    /// `pushRegistrations()` listed): the notification settings' "can be notified", sorted.
+    pub push_registered: Vec<String>,
 }
 
 impl Default for RemoteSectionValue {
@@ -49,6 +52,7 @@ impl Default for RemoteSectionValue {
             controller_keys: Vec::new(),
             owed_keys: OwedAccess { keys: Vec::new(), unknown: 0 },
             pair_code: None,
+            push_registered: Vec::new(),
         }
     }
 }

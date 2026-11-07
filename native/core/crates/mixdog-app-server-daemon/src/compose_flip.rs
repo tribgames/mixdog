@@ -904,6 +904,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         remote: built_remote.runtime.clone(),
         local_target: late_dialer.clone(), // bound by `serving::start` once the connection hub exists (true cycle: hub is built after compose)
         notification_clicks: Arc::new(crate::domain_seams::notification_clicks::LoggedClicks),
+        browser_surfaces: Arc::new(crate::domain_seams::browser_surfaces::FeedSurfaces::new(
+            mixdog_core_session::session::terminal_host::AppFeedOpen::new(b.sections.clone(), b.presence.clone()),
+        )),
         instructions_changed: crate::domain_seams::profile_changes::InstructionsAnnounce::new(gauge.clone(), Arc::default()),
         plugins: PluginSeams {
             host: extension_host.clone(),

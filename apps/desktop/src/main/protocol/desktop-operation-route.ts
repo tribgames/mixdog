@@ -8,6 +8,16 @@ import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import type { ProtocolConnection } from './connection';
 import { coreErrorForWindow } from './core-error';
+import {
+  DEFAULT_OPERATION_HOST,
+  listConversationNotifications,
+  notificationPreferencesState,
+  type OperationHost,
+  readActivityRailPins,
+  readMarkdownDefaultView,
+  readSettings,
+  readZoom,
+} from './section-reads';
 
 export interface OperationRoute {
   method: string;
@@ -262,6 +272,18 @@ const NOTIFICATION_ROUTES: Readonly<Record<string, { route: Mapper; result: null
     route: (args) => ({ method: 'host/update/report', params: { state: args[0] } }),
     result: undefined,
   },
+  // An agent's explicit reveal or hide of a browser surface, reported by the window process's browser host; the core
+  // publishes it as `ui/openRequested { kind: 'browser' }` to the attached clients (paired phones included).
+  browserRemoteOpen: {
+    route: ([request]) => {
+      const fields = record(request);
+      if (typeof fields.sessionId !== 'string' || !fields.sessionId) {
+        throw new TypeError('browserRemoteOpen needs a request with a sessionId.');
+      }
+      return { method: 'host/browser/surface', params: fields };
+    },
+    result: null,
+  },
   remoteAccessResume: { route: () => ({ method: 'host/power', params: { event: 'resume' } }), result: null },
   remoteAccessSuspend: { route: () => ({ method: 'host/power', params: { event: 'suspend' } }), result: null },
 };
@@ -367,6 +389,42 @@ const REPLIES: Readonly<Record<string, Reply>> = {
 
 export const REPLY_DESKTOP_OPERATIONS: readonly string[] = Object.keys(REPLIES);
 
+type SectionRead = (snapshot: ReturnType<ProtocolConnection['snapshot']>, args: readonly unknown[], host: Partial<OperationHost>) => unknown;
+
+/** Operations answered from the sections the connection holds (desktop-services.md §2.4, §3). */
+const SECTION_READS: Readonly<Record<string, SectionRead>> = {
+  readSettings: (snapshot) => readSettings(snapshot),
+  readActivityRailPins: (snapshot) => readActivityRailPins(snapshot),
+  readZoom: (snapshot) => readZoom(snapshot),
+  readMarkdownDefaultView: (snapshot) => readMarkdownDefaultView(snapshot),
+  listConversationNotifications: (snapshot) => listConversationNotifications(snapshot, Date.now()),
+  notificationPreferencesState: (snapshot, args, host) => notificationPreferencesState(snapshot, args, host),
+};
+export const SECTION_READ_DESKTOP_OPERATIONS: readonly string[] = Object.keys(SECTION_READS);
+
+/** Deleted by the spec, with a caller that still runs on a core connection (it shares code with the Node host):
+ *  the core publishes these changes itself (config/modelCatalog sections; browser approvals are core state, DS §12.3),
+ *  so the call is answered as Node answered it, `undefined`, and sends nothing. */
+export const IGNORED_DESKTOP_OPERATIONS: readonly string[] = [
+  'notifyProviderModelsChanged',
+  'notifySettingsChanged',
+  'publishBrowserApprovalSessions',
+];
+
+/** Deleted or core-internal; no caller exists on a core connection. Calling one is a bug and is refused. */
+export const DELETED_DESKTOP_OPERATIONS: Readonly<Record<string, string>> = {
+  browserRemoteFrame: 'paint frames are X17 media frames on the host connection (host/browser-view.ts)',
+  browserRemoteResolve: 'the host role answers the core\'s host/* requests itself (host/connection.ts)',
+  browserRemoteWebrtcSignal: 'WebRTC runs in mixdog-remote (SPEC R36)',
+  gitPathspecChanges: 'no caller (DS 17.2)',
+  lspDisposeUnder: 'project/delete and worktree removal dispose the servers inside the core (DS 4.1)',
+  modelProxyClaim: 'replaced by server request model/proxy/execute (protocol/model-proxy-relay.ts)',
+  modelProxyEvent: 'replaced by server request model/proxy/execute (protocol/model-proxy-relay.ts)',
+  modelProxyHeartbeat: 'replaced by connection liveness (protocol/model-proxy-relay.ts)',
+  modelProxyResolve: 'replaced by server request model/proxy/execute (protocol/model-proxy-relay.ts)',
+  readBrowserApprovalSessions: 'browser approvals are core state (DS 12.3)',
+};
+
 export const ROUTED_DESKTOP_OPERATIONS: readonly string[] = Object.keys(OPERATION_ROUTES);
 export const UNROUTED_DESKTOP_OPERATIONS: readonly string[] = Object.keys(NEEDS_RULING);
 
@@ -377,7 +435,8 @@ export function routeDesktopOperation(name: string, args: readonly unknown[] = [
   if (route) return route(args);
   const reason = Object.hasOwn(NEEDS_RULING, name) ? NEEDS_RULING[name] : undefined;
   if (reason) throw Object.assign(new Error(`desktop operation ${name} is not mapped: ${reason}`), { code: 'unmappedOperation' });
-  throw Object.assign(new Error(`desktop operation ${name} has no protocol method`), { code: 'unknownMethod' });
+  const deleted = Object.hasOwn(DELETED_DESKTOP_OPERATIONS, name) ? `: ${DELETED_DESKTOP_OPERATIONS[name]}` : '';
+  throw Object.assign(new Error(`desktop operation ${name} has no protocol method${deleted}`), { code: 'unknownMethod' });
 }
 
 export interface OperationLane {
@@ -386,8 +445,10 @@ export interface OperationLane {
 
 export function createOperationLane({
   protocol,
+  host = DEFAULT_OPERATION_HOST,
 }: {
-  protocol: Pick<ProtocolConnection, 'call' | 'notify'>;
+  protocol: Pick<ProtocolConnection, 'call' | 'notify'> & Partial<Pick<ProtocolConnection, 'snapshot'>>;
+  host?: Partial<OperationHost>;
 }): OperationLane {
   const call = (method: string, params: unknown): Promise<unknown> =>
     protocol.call(method, params).catch((error: unknown) => {
@@ -400,6 +461,11 @@ export function createOperationLane({
         protocol.notify(notification.method, notification.params);
         return NOTIFICATION_ROUTES[name].result;
       }
+      if (Object.hasOwn(SECTION_READS, name)) {
+        if (!protocol.snapshot) throw new Error(`desktop operation ${name} needs the connection's held sections.`);
+        return SECTION_READS[name](protocol.snapshot(), args, host);
+      }
+      if (IGNORED_DESKTOP_OPERATIONS.includes(name)) return undefined;
       const { method, params } = routeDesktopOperation(name, args);
       return REPLIES[name](await call(method, params), { args, params, call });
     },

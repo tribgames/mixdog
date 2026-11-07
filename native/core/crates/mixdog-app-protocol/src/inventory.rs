@@ -750,7 +750,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Operations,
         "browserRemoteOpen",
-        Target::Notification("ui/openRequested"),
+        Target::ClientNotification("host/browser/surface"),
     ),
     (
         InventoryList::Operations,

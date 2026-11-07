@@ -4,7 +4,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import type { DesktopWorkspace, DesktopWorkspaceFolder } from '../shared/contract';
 import type { DesktopEditorSettings } from '../shared/contract';
 import { editorLanguageIdForPath } from '../shared/editor-languages';
-import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../shared/editor-settings';
+import { DEFAULT_DESKTOP_EDITOR_SETTINGS, markdownDefaultViewSetting } from '../shared/editor-settings';
 import { applyEdits, modify } from 'jsonc-parser';
 import { holdsNoData } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { writeUserFile } from './user-file-write';
@@ -155,9 +155,6 @@ function inlayHintsSetting(value: unknown): DesktopEditorSettings['inlayHintsEna
   return 'on';
 }
 
-function markdownDefaultViewSetting(value: unknown): DesktopEditorSettings['markdownDefaultView'] {
-  return value === 'rich' || value === 'source' ? value : 'preview';
-}
 
 function editorSettingsFromScopes(scopes: readonly unknown[], languageId = 'plaintext'): DesktopEditorSettings {
   const merged = scopes.flatMap((scope) => {

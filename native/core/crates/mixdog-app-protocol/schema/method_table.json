@@ -10315,6 +10315,11 @@
     },
     {
       "delivery": null,
+      "method": "host/browser/surface",
+      "params": "HostBrowserSurfaceParams"
+    },
+    {
+      "delivery": null,
       "method": "host/notification/clicked",
       "params": "HostNotificationClickedParams"
     },

@@ -7,6 +7,7 @@ pub mod channel_stack;
 pub mod doctor;
 pub mod feature_effects;
 pub mod git;
+pub mod browser_surfaces;
 pub mod hook_status;
 pub mod media_status;
 pub mod notification_clicks;
