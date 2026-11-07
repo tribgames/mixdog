@@ -97,7 +97,10 @@ writeFileSync(join(dataDir, 'plugins', 'registry.json'), json({ version: 1, plug
 
 // A fake connection registry, as plugin-mcp-live.test.mjs has it: a server the glue connects is live.
 const live = new Map();
+// The sign-in state of a remote server is the real client's: stored tokens for its URL, none here.
+const { getMcpServerOAuthState } = await load('runtime/agent/orchestrator/mcp/client.mjs');
 const mcpClient = {
+  getMcpServerOAuthState,
   resolveMcpTransportKind: (cfg) => (cfg.url ? 'http' : 'stdio'),
   getMcpServerStatus: () => [...live.keys()].map((name) => ({ name, connected: true, toolCount: 1, tools: [] })),
   async connectMcpServers(servers) {
