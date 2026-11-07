@@ -74,7 +74,7 @@ pub struct ResumeTools {
 
 /// `reactionDisabled(source, ownerIsAgent)` (`session-tool-surface.mjs:33-36`): the react tool
 /// belongs to a bot's home chat or its seat in a room, decided by the session's id.
-fn reaction_disabled(session: &Value, owner_is_agent: bool) -> bool {
+pub(super) fn reaction_disabled(session: &Value, owner_is_agent: bool) -> bool {
     let id = session.get("id").map(value_to_string).unwrap_or_default();
     owner_is_agent || !(agent_id_of_home_session(&id).is_some() || room_member_of_session(&id).is_some())
 }
