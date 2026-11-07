@@ -310,6 +310,7 @@
       ],
       "ended": {
         "kind": "threw",
+        "message": "Connection error.",
         "chain": [
           {
             "name": "Error",
@@ -327,7 +328,9 @@
             "message": "connect ECONNREFUSED 127.0.0.1:<port>"
           }
         ],
-        "providerRecoveryExhausted": true
+        "providerRecoveryExhausted": true,
+        "providerRecoveryTerminal": false,
+        "connectFailure": true
       }
     },
     "dns": {
@@ -555,6 +558,7 @@
       ],
       "ended": {
         "kind": "threw",
+        "message": "Connection error.",
         "chain": [
           {
             "name": "Error",
@@ -572,7 +576,9 @@
             "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
           }
         ],
-        "providerRecoveryExhausted": true
+        "providerRecoveryExhausted": true,
+        "providerRecoveryTerminal": false,
+        "connectFailure": true
       }
     },
     "reset": {
@@ -592,6 +598,7 @@
       ],
       "ended": {
         "kind": "threw",
+        "message": "Connection error.",
         "chain": [
           {
             "name": "Error",
@@ -609,7 +616,9 @@
             "message": "read ECONNRESET"
           }
         ],
-        "providerRecoveryExhausted": true
+        "providerRecoveryExhausted": true,
+        "providerRecoveryTerminal": false,
+        "connectFailure": false
       },
       "connections": 6
     },
@@ -630,6 +639,7 @@
       ],
       "ended": {
         "kind": "threw",
+        "message": "Connection error.",
         "chain": [
           {
             "name": "Error",
@@ -647,8 +657,152 @@
             "message": "bad port"
           }
         ],
-        "providerRecoveryExhausted": true
+        "providerRecoveryExhausted": true,
+        "providerRecoveryTerminal": false,
+        "connectFailure": false
       }
+    },
+    "cut": {
+      "laps": [
+        {
+          "providerWaitsMs": [
+            1000,
+            2000,
+            4000,
+            8000
+          ],
+          "loopWaitMs": 15000,
+          "verdict": "retry_transport",
+          "transportRetryMax": 5,
+          "shown": {
+            "attempt": 1,
+            "max": 5,
+            "waitingForNetwork": false
+          }
+        },
+        {
+          "providerWaitsMs": [
+            1000,
+            2000,
+            4000,
+            8000
+          ],
+          "loopWaitMs": 30000,
+          "verdict": "retry_transport",
+          "transportRetryMax": 5,
+          "shown": {
+            "attempt": 2,
+            "max": 5,
+            "waitingForNetwork": false
+          }
+        },
+        {
+          "providerWaitsMs": [
+            1000,
+            2000,
+            4000,
+            8000
+          ],
+          "loopWaitMs": 60000,
+          "verdict": "retry_transport",
+          "transportRetryMax": 5,
+          "shown": {
+            "attempt": 3,
+            "max": 5,
+            "waitingForNetwork": false
+          }
+        },
+        {
+          "providerWaitsMs": [
+            1000,
+            2000,
+            4000,
+            8000
+          ],
+          "loopWaitMs": 60000,
+          "verdict": "retry_transport",
+          "transportRetryMax": 5,
+          "shown": {
+            "attempt": 4,
+            "max": 5,
+            "waitingForNetwork": false
+          }
+        },
+        {
+          "providerWaitsMs": [
+            1000,
+            2000,
+            4000,
+            8000
+          ],
+          "loopWaitMs": 60000,
+          "verdict": "retry_transport",
+          "transportRetryMax": 5,
+          "shown": {
+            "attempt": 5,
+            "max": 5,
+            "waitingForNetwork": false
+          }
+        },
+        {
+          "providerWaitsMs": [
+            1000,
+            2000,
+            4000,
+            8000
+          ],
+          "loopWaitMs": null,
+          "verdict": "threw",
+          "transportRetryMax": null,
+          "shown": null
+        }
+      ],
+      "ended": {
+        "kind": "threw",
+        "message": "custom-harness first byte timed out after 60000ms",
+        "chain": [
+          {
+            "name": "ProviderTimeoutError",
+            "code": "EPROVIDERTIMEOUT",
+            "message": "custom-harness first byte timed out after 60000ms"
+          }
+        ],
+        "providerRecoveryExhausted": true,
+        "providerRecoveryTerminal": false,
+        "connectFailure": false
+      },
+      "connections": 36
+    },
+    "cutRole": {
+      "laps": [
+        {
+          "providerWaitsMs": [
+            1000,
+            2000,
+            4000,
+            8000
+          ],
+          "loopWaitMs": null,
+          "verdict": "threw",
+          "transportRetryMax": null,
+          "shown": null
+        }
+      ],
+      "ended": {
+        "kind": "threw",
+        "message": "custom-harness SSE stream truncated: no finish_reason",
+        "chain": [
+          {
+            "name": "TruncatedStreamError",
+            "code": "TRUNCATED_STREAM",
+            "message": "custom-harness SSE stream truncated: no finish_reason"
+          }
+        ],
+        "providerRecoveryExhausted": true,
+        "providerRecoveryTerminal": false,
+        "connectFailure": false
+      },
+      "connections": 6
     }
   }
 }
