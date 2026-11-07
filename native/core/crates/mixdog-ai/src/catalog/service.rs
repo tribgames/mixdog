@@ -40,6 +40,9 @@ pub struct CatalogService {
     listing: ListingLookup,
     /// The revision the price audit last judged (lastAuditedRevision).
     pub(super) audited: std::sync::Mutex<Option<String>>,
+    /// Told after every provider catalog refresh has settled, failed or not (`rt.wakeDeferredWarmups()` in
+    /// `provider-readiness.mjs`'s `settle`).
+    settled: std::sync::Mutex<Vec<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl CatalogService {
@@ -61,6 +64,7 @@ impl CatalogService {
             litellm: None,
             listing: ListingLookup::new(),
             audited: std::sync::Mutex::new(None),
+            settled: std::sync::Mutex::new(Vec::new()),
         };
         service.publish_listing();
         service
@@ -138,6 +142,20 @@ impl CatalogService {
         self.publish_listing();
         self
     }
+    /// Registers `notify` to run each time a provider catalog refresh settles. Node wakes every parked background
+    /// warm-up then (`settle` of the startup catalog refresh, `provider-readiness.mjs`), a failed refresh included.
+    pub fn on_refresh_settled(&self, notify: Arc<dyn Fn() + Send + Sync>) {
+        self.settled.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(notify);
+    }
+
+    fn refresh_settled(&self) {
+        // The callbacks run outside the lock: one of them may register another.
+        let notify: Vec<_> = self.settled.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        for callback in notify {
+            callback();
+        }
+    }
+
     /// The listing source of a registered adapter, wired to this service's data directory (the Anthropic
     /// OAuth route's model cache lives there); `None` for an adapter that lists no models.
     pub fn model_source(&self, provider: ProviderId, adapter: Arc<dyn ProviderAdapter>) -> Option<ModelSource> {
@@ -214,6 +232,7 @@ impl CatalogService {
         };
         let outcome = self.catalog.refresh_asking(&only, Ask::All).await;
         self.publish_listing();
+        self.refresh_settled();
         outcome
     }
 
@@ -237,6 +256,7 @@ impl CatalogService {
         )
         .await;
         self.publish_listing();
+        self.refresh_settled();
         outcome
     }
 }
