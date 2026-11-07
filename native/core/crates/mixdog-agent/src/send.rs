@@ -161,12 +161,13 @@ fn first_class(midstream: bool) -> RetryClass {
     }
 }
 
-/// Session-level replay once the provider rows are spent: after a stream cut, a
-/// connect failure, or while the server stays unavailable. A transport failure
-/// before any response byte is not replayed by the loop: `sendWithRecovery`
+/// Session-level replay once the provider rows are spent: after a connect failure,
+/// or while the server stays unavailable. A transport fault is not replayed by
+/// the loop, before the first byte or after the headers alike: `sendWithRecovery`
 /// reads the provider's spent ladder (`providerRecoveryExhausted`) as final for
 /// everything but a connect failure and an unavailable server
-/// (`providerRecoveryEnded`, `send-with-recovery.mjs:190`).
+/// (`providerRecoveryEnded`, `send-with-recovery.mjs:190`), and a reset or a cut
+/// stream is neither (`golden/connect_errors.json`: `reset`, `cutRole`, `cutText`).
 fn escalate(class: RetryClass, error: &ProviderError) -> Option<RetryClass> {
     if !matches!(class, RetryClass::Request | RetryClass::Midstream) {
         return None;
@@ -174,7 +175,7 @@ fn escalate(class: RetryClass, error: &ProviderError) -> Option<RetryClass> {
     if is_connect_fault(error) {
         Some(RetryClass::Connection)
     } else if error.transport.is_some() {
-        (class == RetryClass::Midstream).then_some(RetryClass::Transport)
+        None
     } else if matches!(error.kind, ErrorKind::Overloaded | ErrorKind::Transient) {
         Some(RetryClass::Recovery)
     } else {
@@ -612,9 +613,11 @@ impl Run {
             self.retry.store(state);
         }
         self.retry.store(next.clone());
-        // A loop-level replay is a new send, so the provider's own rows start afresh
-        // (each `sendWithRecovery` call runs a whole `withRetry`).
-        if !matches!(next.class(), RetryClass::Request | RetryClass::Midstream) {
+        // The loop's connection and recovery replays call `sendWithRecovery` again, and each call
+        // runs the provider's whole `withRetry` (`send-with-recovery.mjs:229`; recorded: every lap
+        // of `refused`, `dns` and `cut` repeats the provider ladder). The request and stream
+        // rows are the provider's own ladder, so only these replays refill them.
+        if matches!(next.class(), RetryClass::Connection | RetryClass::Recovery) {
             self.retry.restart_provider_rows(next.model());
         }
         if let Some(model) = fallback {

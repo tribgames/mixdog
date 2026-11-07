@@ -10,6 +10,11 @@
 //   dns        a name that does not resolve (`.invalid`, ENOTFOUND)
 //   reset      a server that accepts, reads the request and resets the socket before any header (ECONNRESET)
 //   badPort    `127.0.0.1:9`: fetch refuses the port itself ("bad port", no errno), so nothing connects
+//   cut        a server that answers 200 with an event stream (one comment, nothing reaches the user) and resets the
+//              socket after the headers, every time: repeated post-header cuts, the stream-retry budget across replays
+//   cutRole    the same with a first chunk that carries only the assistant role (a model event, nothing shown)
+//
+// `--only cut` records the two cut cases alone into the existing golden (the port scan of `badPorts` is slow).
 //
 // The loop is driven the way `send-phase.mjs` drives it: a `retry_transport` verdict adds one to `transportRetriesUsed`
 // and carries `transportRetryMax` into the next call; a thrown error ends the turn. Waits are recorded, not served
@@ -19,7 +24,7 @@
 // `golden/connect_errors.json`: per case, the error's chain as the provider throws it, and per loop lap (one
 // `sendWithRecovery` call) the provider-level waits (attempts = waits + 1), the loop's own wait, and the verdict.
 import { createServer } from 'node:net';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -55,6 +60,8 @@ const orchestrator = 'src/runtime/agent/orchestrator';
 const { sendWithRecovery, TRANSPORT_RETRY_MAX } = await load(`${orchestrator}/session/send-with-recovery.mjs`);
 const { applyRetryAction } = await load(`${orchestrator}/session/loop/send-phase.mjs`);
 const { OpenAICompatProvider } = await load(`${orchestrator}/providers/openai-compat.mjs`);
+const { isProviderRecoveryExhausted, isProviderRecoveryTerminal } = await load(`${orchestrator}/providers/retry-executor.mjs`);
+const { isConnectFailure } = await load(`${orchestrator}/providers/retry-classification.mjs`);
 
 const MAX_LAPS = 30;
 
@@ -94,7 +101,16 @@ async function record(baseURL) {
       else ended = { kind: 'result', action: result.action };
     } catch (error) {
       entry.verdict = 'threw';
-      ended = { kind: 'threw', chain: chainOf(error), providerRecoveryExhausted: error.providerRecoveryExhausted === true };
+      // What `providerRecoveryEnded` (`send-with-recovery.mjs:190`) tells apart: a terminal verdict, an exhausted
+      // ladder, and a connect failure (which the loop keeps waiting out).
+      ended = {
+        kind: 'threw',
+        message: String(error.message).replace(/127\.0\.0\.1:\d+/, '127.0.0.1:<port>'),
+        chain: chainOf(error),
+        providerRecoveryExhausted: isProviderRecoveryExhausted(error),
+        providerRecoveryTerminal: isProviderRecoveryTerminal(error),
+        connectFailure: isConnectFailure(error),
+      };
     }
     entry.providerWaitsMs = waits.filter((wait) => wait.by === 'provider').map((wait) => wait.ms);
     const loop = waits.filter((wait) => wait.by === 'loop');
@@ -131,6 +147,20 @@ const resetServer = () =>
     }).listen(0, '127.0.0.1', () => done({ server, port: server.address().port, count: () => connections }));
   });
 
+// Answers every request with a 200 event stream and resets the socket 50 ms after the headers.
+const cutServer = (first) =>
+  new Promise((done) => {
+    let connections = 0;
+    const server = createServer((socket) => {
+      connections += 1;
+      socket.on('error', () => {});
+      socket.once('data', () => {
+        socket.write(`HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\n\r\n${first}`);
+        setTimeout(() => socket.resetAndDestroy(), 50);
+      });
+    }).listen(0, '127.0.0.1', () => done({ server, port: server.address().port, count: () => connections }));
+  });
+
 // The ports `fetch` refuses itself, found by asking it for every port of loopback: the refusal is a plain "bad port" at the
 // end of the error chain, where a port nobody listens on ends in ECONNREFUSED.
 async function badPorts() {
@@ -152,16 +182,29 @@ async function badPorts() {
   return found.sort((a, b) => a - b);
 }
 
-const golden = { transportRetryMax: TRANSPORT_RETRY_MAX, badPorts: await badPorts(), cases: {} };
-golden.cases.refused = await record(`http://127.0.0.1:${await closedPort()}/v1`);
-golden.cases.dns = await record('https://connect-errors-no-such-host.invalid/v1');
-const reset = await resetServer();
-golden.cases.reset = await record(`http://127.0.0.1:${reset.port}/v1`);
-golden.cases.reset.connections = reset.count();
-reset.server.close();
-golden.cases.badPort = await record('http://127.0.0.1:9/v1');
+const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null;
+const goldenFile = join(here, 'golden', 'connect_errors.json');
+const golden = only ? JSON.parse(readFileSync(goldenFile, 'utf8')) : { transportRetryMax: TRANSPORT_RETRY_MAX, badPorts: await badPorts(), cases: {} };
+if (!only) {
+  golden.cases.refused = await record(`http://127.0.0.1:${await closedPort()}/v1`);
+  golden.cases.dns = await record('https://connect-errors-no-such-host.invalid/v1');
+  const reset = await resetServer();
+  golden.cases.reset = await record(`http://127.0.0.1:${reset.port}/v1`);
+  golden.cases.reset.connections = reset.count();
+  reset.server.close();
+  golden.cases.badPort = await record('http://127.0.0.1:9/v1');
+}
+for (const [name, first] of [
+  ['cut', ': open\n\n'],
+  ['cutRole', `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', model: 'm', choices: [{ index: 0, delta: { role: 'assistant' } }] })}\n\n`],
+]) {
+  const cut = await cutServer(first);
+  golden.cases[name] = await record(`http://127.0.0.1:${cut.port}/v1`);
+  golden.cases[name].connections = cut.count();
+  cut.server.close();
+}
 
-writeFileSync(join(here, 'golden', 'connect_errors.json'), `${JSON.stringify(golden, null, 2)}\n`);
+writeFileSync(goldenFile,`${JSON.stringify(golden, null, 2)}\n`);
 console.log(
   Object.entries(golden.cases)
     .map(([name, item]) => `${name}: ${item.laps.length} laps, ends ${item.ended.kind}`)

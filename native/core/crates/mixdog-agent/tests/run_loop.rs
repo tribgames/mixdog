@@ -972,19 +972,44 @@ async fn a_transient_failure_is_retried_through_the_decider_and_the_host_wait() 
     assert_eq!(h.provider.requests().len(), 2);
 }
 
-/// Replays one case of `golden/connect_errors.json`: a send that fails before any response byte, through Node's real
-/// `OpenAICompatProvider.send` and `sendWithRecovery` (`connect-errors/record.mjs`). The provider answers `fault` every
-/// time; the run must make as many attempts as Node did, wait as long between them (provider ladder, then the loop's own
-/// wait, each lap), show the same reconnect stages, and end the way Node's loop did.
-async fn replay_connect_case(name: &str, fault: ProviderError) -> (Harness, Vec<(u32, u32)>) {
+/// The transport fault Node's provider error ended in: the last link of the recorded cause chain
+/// (`connect_errors.json`, `ended.chain`), which is what the provider's classifier reads.
+fn recorded_fault(ended: &JsonValue) -> TransportFault {
+    let last = ended["chain"].as_array().unwrap().last().unwrap();
+    match (last["code"].as_str(), last["message"].as_str().unwrap()) {
+        (Some("ECONNREFUSED"), _) => TransportFault::Connect { os_code: None },
+        (Some("ENOTFOUND"), _) => TransportFault::Dns,
+        (Some("ECONNRESET"), _) => TransportFault::Reset,
+        (Some("TRUNCATED_STREAM"), _) => TransportFault::TruncatedStream,
+        (None, "bad port") => TransportFault::Io { os_code: None },
+        other => panic!("an unrecorded terminal error {other:?}"),
+    }
+}
+
+/// Replays one case of `golden/connect_errors.json`: a send Node's real `OpenAICompatProvider.send` and `sendWithRecovery`
+/// (`connect-errors/record.mjs`) failed every time, before the first byte or after the headers (`after_headers`: the stream
+/// starts and is cut). The provider answers the recorded terminal error each time; the run must make as many attempts as
+/// Node did, wait as long between them (provider ladder, then the loop's own wait, each lap), show the same reconnect
+/// stages, replay as often as Node's loop did, and end with the error Node's loop ended with: its text, its fault, and
+/// whether it is a connect failure (the class `providerRecoveryEnded`, `send-with-recovery.mjs:190`, keeps waiting out).
+/// Returns the reconnect stages and the replays the recording shows.
+async fn replay_connect_case(name: &str, after_headers: bool) -> (Vec<(u32, u32)>, usize) {
     let golden: JsonValue =
         serde_json::from_str(&std::fs::read_to_string(golden_dir().join("connect-errors/golden/connect_errors.json")).unwrap()).unwrap();
     let case = &golden["cases"][name];
-    assert_eq!(case["ended"]["kind"], "threw", "{name}");
+    let ended = &case["ended"];
+    assert_eq!(ended["kind"], "threw", "{name}");
+    let fault = recorded_fault(ended);
+    let mut error = ProviderError::transport(
+        fault.clone(),
+        if after_headers { DeliveryState::Accepted } else { DeliveryState::NotSent },
+    );
+    error.message = ended["message"].as_str().unwrap().to_owned();
     let laps = case["laps"].as_array().unwrap();
     let attempts: usize = laps.iter().map(|lap| lap["providerWaitsMs"].as_array().unwrap().len() + 1).sum();
+    let script = |error: &ProviderError| if after_headers { turn(vec![Step::Fail(error.clone())]) } else { Attempt::Reject(error.clone()) };
     let h = Harness::with_policy(
-        (0..attempts).map(|_| Attempt::Reject(fault.clone())).collect(),
+        (0..attempts).map(|_| script(&error)).collect(),
         mixdog_ai::providers::compat::retry::unprofiled(),
     );
     let failure = h
@@ -992,7 +1017,10 @@ async fn replay_connect_case(name: &str, fault: ProviderError) -> (Harness, Vec<
         .run()
         .await
         .expect_err("the send fails as Node's did");
-    assert!(matches!(failure.error, AgentError::Provider(_)), "{name}");
+    let AgentError::Provider(ended_with) = &failure.error else { panic!("{name}: not a provider error: {:?}", failure.error) };
+    assert_eq!(ended_with.message, error.message, "{name}: message");
+    assert_eq!(ended_with.transport, Some(fault.clone()), "{name}: fault");
+    assert_eq!(ended["connectFailure"], matches!(fault, TransportFault::Connect { .. } | TransportFault::Dns), "{name}: connect failure");
     assert_eq!(h.provider.requests().len(), attempts, "{name}: attempts");
     let mut waits = Vec::new();
     let mut shown = Vec::new();
@@ -1014,25 +1042,34 @@ async fn replay_connect_case(name: &str, fault: ProviderError) -> (Harness, Vec<
         })
         .collect::<Vec<_>>();
     assert_eq!(loop_stages, shown, "{name}: reconnect stages");
-    (h, loop_stages)
+    let replays = laps.iter().filter(|lap| lap["verdict"] == "retry_transport").count();
+    assert_eq!(loop_stages.len(), replays, "{name}: replays");
+    (loop_stages, replays)
 }
 
 #[tokio::test]
 async fn an_unreachable_network_is_retried_on_the_outage_ladder_then_fails_as_nodes_loop_does() {
-    for (name, fault) in [("refused", TransportFault::Connect { os_code: None }), ("dns", TransportFault::Dns)] {
-        let (_, stages) = replay_connect_case(name, ProviderError::transport(fault, DeliveryState::NotSent)).await;
-        assert_eq!(stages.len(), 13, "{name}");
+    for name in ["refused", "dns"] {
+        let (stages, replays) = replay_connect_case(name, false).await;
+        assert!(replays > 0 && stages.len() == replays, "{name}: the outage ladder replays");
     }
 }
 
 #[tokio::test]
 async fn a_reset_or_a_refused_port_before_any_header_is_not_replayed_by_the_loop() {
-    for (name, fault) in [("reset", TransportFault::Reset), ("badPort", TransportFault::Io { os_code: None })] {
-        let (_, stages) = replay_connect_case(name, ProviderError::transport(fault, DeliveryState::NotSent)).await;
-        assert!(stages.is_empty(), "{name}");
+    for name in ["reset", "badPort"] {
+        let (stages, replays) = replay_connect_case(name, false).await;
+        assert_eq!((stages.len(), replays), (0, 0), "{name}");
     }
 }
 
+/// Repeated post-header cuts spend what Node's did: the provider's one ladder (five attempts), and no loop replay, since
+/// the exhausted ladder of a cut stream is final (`providerRecoveryEnded`: not a connect failure, not an unavailable server).
+#[tokio::test]
+async fn repeated_cuts_after_the_headers_spend_one_provider_ladder_and_are_not_replayed() {
+    let (stages, replays) = replay_connect_case("cutRole", true).await;
+    assert_eq!((stages.len(), replays), (0, 0));
+}
 #[tokio::test]
 async fn a_deterministic_refusal_surfaces_without_a_wait() {
     let h = Harness::new(vec![Attempt::Reject(ProviderError::new(
