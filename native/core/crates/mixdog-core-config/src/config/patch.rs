@@ -365,7 +365,7 @@ pub(super) fn disabled_delta_of(wanted: &[String]) -> (Vec<String>, Vec<String>)
 }
 
 /// `stripAgentSectionDefaults`.
-fn strip_agent_section_defaults(next: &mut Doc) {
+pub(super) fn strip_agent_section_defaults(next: &mut Doc) {
     if next.get("orchestrationMode").and_then(Value::as_str) == Some(DEFAULT_ORCHESTRATION_MODE) {
         next.shift_remove("orchestrationMode");
     }
@@ -407,7 +407,7 @@ fn strip_agent_section_defaults(next: &mut Doc) {
 }
 
 /// The copy of `value` without the keys equal to their default; `None` when nothing is left.
-fn without_defaults(value: &Value, defaults: &Value) -> Option<Value> {
+pub(super) fn without_defaults(value: &Value, defaults: &Value) -> Option<Value> {
     let (Value::Object(map), Value::Object(defaults)) = (value, defaults) else { return Some(value.clone()) };
     let kept: Doc = map
         .iter()

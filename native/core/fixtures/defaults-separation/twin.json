@@ -1,0 +1,718 @@
+{
+  "cases": [
+    {
+      "name": "harness-config",
+      "files": {},
+      "input": {
+        "agent": {
+          "providers": {
+            "custom-harness": {
+              "type": "custom",
+              "schemaVersion": 2,
+              "name": "harness",
+              "protocol": "openai-chat",
+              "baseURL": "http://127.0.0.1:1/v1",
+              "auth": "none",
+              "enabled": true
+            }
+          }
+        }
+      },
+      "inputText": "{\n  \"agent\": {\n    \"providers\": {\n      \"custom-harness\": {\n        \"type\": \"custom\",\n        \"schemaVersion\": 2,\n        \"name\": \"harness\",\n        \"protocol\": \"openai-chat\",\n        \"baseURL\": \"http://127.0.0.1:1/v1\",\n        \"auth\": \"none\",\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "output": {
+        "agent": {
+          "providers": {
+            "custom-harness": {
+              "type": "custom",
+              "schemaVersion": 2,
+              "name": "harness",
+              "protocol": "openai-chat",
+              "baseURL": "http://127.0.0.1:1/v1",
+              "auth": "none",
+              "enabled": true
+            }
+          },
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "reviewer",
+            "security",
+            "worker",
+            "writer"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": {
+              "installed": true
+            },
+            "office": {
+              "installed": true
+            }
+          }
+        },
+        "defaultsVersion": 2
+      },
+      "backups": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"providers\": {\n      \"custom-harness\": {\n        \"type\": \"custom\",\n        \"schemaVersion\": 2,\n        \"name\": \"harness\",\n        \"protocol\": \"openai-chat\",\n        \"baseURL\": \"http://127.0.0.1:1/v1\",\n        \"auth\": \"none\",\n        \"enabled\": true\n      }\n    }\n  }\n}"
+        }
+      ],
+      "disabledAgents": [
+        "advisor",
+        "explore"
+      ]
+    },
+    {
+      "name": "full-list-and-defaults",
+      "files": {},
+      "input": {
+        "agent": {
+          "disabledAgents": [
+            "worker",
+            "reviewer",
+            "custom"
+          ],
+          "presets": [
+            {
+              "id": "haiku",
+              "name": "HAIKU",
+              "type": "agent",
+              "provider": "anthropic-oauth",
+              "model": "claude-haiku-4-5-20251001",
+              "tools": "full"
+            },
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "effort": "high",
+              "tools": "full"
+            }
+          ],
+          "maintenance": {
+            "webhook": {
+              "provider": "anthropic-oauth",
+              "model": "claude-haiku-4-5-20251001"
+            },
+            "memory": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          },
+          "default": 1,
+          "autoClear": {
+            "enabled": true,
+            "minContextPercent": 10,
+            "idleMs": 120000.4,
+            "providers": {
+              "OpenAI": "never",
+              "Slow": "30000",
+              "Bad": -1
+            }
+          },
+          "compaction": {
+            "auto": true,
+            "enabled": false,
+            "semanticModel": "m",
+            "recallLimit": 3
+          },
+          "modules": {
+            "memory": {
+              "enabled": true
+            },
+            "webSearch": false,
+            "extra": {
+              "enabled": true
+            }
+          },
+          "update": {
+            "auto": true
+          },
+          "recap": {
+            "enabled": true
+          },
+          "memoryTools": {
+            "enabled": true
+          },
+          "workflow": {
+            "active": "default"
+          },
+          "orchestrationMode": "balanced",
+          "agents": {
+            "worker": {
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            "explore": {
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            "mine": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          },
+          "builtins": {
+            "git": {
+              "installed": true,
+              "firstUseApproval": true
+            },
+            "memory": "odd"
+          }
+        },
+        "channels": {
+          "webhook": {
+            "enabled": true,
+            "port": 3333
+          }
+        },
+        "outputStyle": " simple ",
+        "desktop": {
+          "zoom": 1
+        }
+      },
+      "inputText": "{\n  \"agent\": {\n    \"disabledAgents\": [\n      \"worker\",\n      \"reviewer\",\n      \"custom\"\n    ],\n    \"presets\": [\n      {\n        \"id\": \"haiku\",\n        \"name\": \"HAIKU\",\n        \"type\": \"agent\",\n        \"provider\": \"anthropic-oauth\",\n        \"model\": \"claude-haiku-4-5-20251001\",\n        \"tools\": \"full\"\n      },\n      {\n        \"id\": \"mine\",\n        \"name\": \"Mine\",\n        \"type\": \"agent\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\",\n        \"effort\": \"high\",\n        \"tools\": \"full\"\n      }\n    ],\n    \"maintenance\": {\n      \"webhook\": {\n        \"provider\": \"anthropic-oauth\",\n        \"model\": \"claude-haiku-4-5-20251001\"\n      },\n      \"memory\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"default\": 1,\n    \"autoClear\": {\n      \"enabled\": true,\n      \"minContextPercent\": 10,\n      \"idleMs\": 120000.4,\n      \"providers\": {\n        \"OpenAI\": \"never\",\n        \"Slow\": \"30000\",\n        \"Bad\": -1\n      }\n    },\n    \"compaction\": {\n      \"auto\": true,\n      \"enabled\": false,\n      \"semanticModel\": \"m\",\n      \"recallLimit\": 3\n    },\n    \"modules\": {\n      \"memory\": {\n        \"enabled\": true\n      },\n      \"webSearch\": false,\n      \"extra\": {\n        \"enabled\": true\n      }\n    },\n    \"update\": {\n      \"auto\": true\n    },\n    \"recap\": {\n      \"enabled\": true\n    },\n    \"memoryTools\": {\n      \"enabled\": true\n    },\n    \"workflow\": {\n      \"active\": \"default\"\n    },\n    \"orchestrationMode\": \"balanced\",\n    \"agents\": {\n      \"worker\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"explore\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true,\n        \"firstUseApproval\": true\n      },\n      \"memory\": \"odd\"\n    }\n  },\n  \"channels\": {\n    \"webhook\": {\n      \"enabled\": true,\n      \"port\": 3333\n    }\n  },\n  \"outputStyle\": \" simple \",\n  \"desktop\": {\n    \"zoom\": 1\n  }\n}",
+      "output": {
+        "agent": {
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "effort": "high",
+              "tools": "full"
+            }
+          ],
+          "maintenance": {
+            "memory": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          },
+          "default": "mine",
+          "autoClear": {
+            "idleMs": 120000,
+            "providerIdleMs": {
+              "openai": 0,
+              "slow": 60000
+            }
+          },
+          "compaction": {
+            "summaryModel": "m",
+            "auto": false
+          },
+          "modules": {
+            "webSearch": {
+              "enabled": false
+            }
+          },
+          "agents": {
+            "worker": {
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            "mine": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          },
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": "odd"
+          },
+          "disabledAgents": [
+            "custom"
+          ],
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "security",
+            "writer"
+          ]
+        },
+        "desktop": {
+          "zoom": 1
+        },
+        "defaultsVersion": 2
+      },
+      "backups": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"disabledAgents\": [\n      \"worker\",\n      \"reviewer\",\n      \"custom\"\n    ],\n    \"presets\": [\n      {\n        \"id\": \"haiku\",\n        \"name\": \"HAIKU\",\n        \"type\": \"agent\",\n        \"provider\": \"anthropic-oauth\",\n        \"model\": \"claude-haiku-4-5-20251001\",\n        \"tools\": \"full\"\n      },\n      {\n        \"id\": \"mine\",\n        \"name\": \"Mine\",\n        \"type\": \"agent\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\",\n        \"effort\": \"high\",\n        \"tools\": \"full\"\n      }\n    ],\n    \"maintenance\": {\n      \"webhook\": {\n        \"provider\": \"anthropic-oauth\",\n        \"model\": \"claude-haiku-4-5-20251001\"\n      },\n      \"memory\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"default\": 1,\n    \"autoClear\": {\n      \"enabled\": true,\n      \"minContextPercent\": 10,\n      \"idleMs\": 120000.4,\n      \"providers\": {\n        \"OpenAI\": \"never\",\n        \"Slow\": \"30000\",\n        \"Bad\": -1\n      }\n    },\n    \"compaction\": {\n      \"auto\": true,\n      \"enabled\": false,\n      \"semanticModel\": \"m\",\n      \"recallLimit\": 3\n    },\n    \"modules\": {\n      \"memory\": {\n        \"enabled\": true\n      },\n      \"webSearch\": false,\n      \"extra\": {\n        \"enabled\": true\n      }\n    },\n    \"update\": {\n      \"auto\": true\n    },\n    \"recap\": {\n      \"enabled\": true\n    },\n    \"memoryTools\": {\n      \"enabled\": true\n    },\n    \"workflow\": {\n      \"active\": \"default\"\n    },\n    \"orchestrationMode\": \"balanced\",\n    \"agents\": {\n      \"worker\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"explore\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true,\n        \"firstUseApproval\": true\n      },\n      \"memory\": \"odd\"\n    }\n  },\n  \"channels\": {\n    \"webhook\": {\n      \"enabled\": true,\n      \"port\": 3333\n    }\n  },\n  \"outputStyle\": \" simple \",\n  \"desktop\": {\n    \"zoom\": 1\n  }\n}"
+        }
+      ],
+      "disabledAgents": [
+        "advisor",
+        "custom",
+        "explore",
+        "reviewer",
+        "worker"
+      ]
+    },
+    {
+      "name": "swarm-workflow-and-grandfathered-builtins",
+      "files": {},
+      "input": {
+        "agent": {
+          "workflow": {
+            "active": "review"
+          },
+          "orchestrationMode": "none",
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "channels": {
+          "webhook": {
+            "enabled": false,
+            "port": 3333
+          },
+          "other": 1
+        }
+      },
+      "inputText": "{\n  \"agent\": {\n    \"workflow\": {\n      \"active\": \"review\"\n    },\n    \"orchestrationMode\": \"none\",\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"channels\": {\n    \"webhook\": {\n      \"enabled\": false,\n      \"port\": 3333\n    },\n    \"other\": 1\n  }\n}",
+      "output": {
+        "agent": {
+          "workflow": {
+            "active": "review"
+          },
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          },
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "reviewer",
+            "security",
+            "worker",
+            "writer"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": {
+              "installed": true
+            },
+            "office": {
+              "installed": true
+            }
+          }
+        },
+        "channels": {
+          "webhook": {
+            "enabled": false
+          },
+          "other": 1
+        },
+        "defaultsVersion": 2
+      },
+      "backups": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"workflow\": {\n      \"active\": \"review\"\n    },\n    \"orchestrationMode\": \"none\",\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"channels\": {\n    \"webhook\": {\n      \"enabled\": false,\n      \"port\": 3333\n    },\n    \"other\": 1\n  }\n}"
+        }
+      ],
+      "disabledAgents": [
+        "advisor",
+        "explore"
+      ]
+    },
+    {
+      "name": "numeric-default",
+      "files": {},
+      "input": {
+        "agent": {
+          "default": "0",
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "effort": "high",
+              "tools": "full"
+            }
+          ]
+        }
+      },
+      "inputText": "{\n  \"agent\": {\n    \"default\": \"0\",\n    \"presets\": [\n      {\n        \"id\": \"mine\",\n        \"name\": \"Mine\",\n        \"type\": \"agent\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\",\n        \"effort\": \"high\",\n        \"tools\": \"full\"\n      }\n    ]\n  }\n}",
+      "output": {
+        "agent": {
+          "default": "mine",
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "effort": "high",
+              "tools": "full"
+            }
+          ],
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "reviewer",
+            "security",
+            "worker",
+            "writer"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": {
+              "installed": true
+            },
+            "office": {
+              "installed": true
+            }
+          }
+        },
+        "defaultsVersion": 2
+      },
+      "backups": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"default\": \"0\",\n    \"presets\": [\n      {\n        \"id\": \"mine\",\n        \"name\": \"Mine\",\n        \"type\": \"agent\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\",\n        \"effort\": \"high\",\n        \"tools\": \"full\"\n      }\n    ]\n  }\n}"
+        }
+      ],
+      "disabledAgents": [
+        "advisor",
+        "explore"
+      ]
+    },
+    {
+      "name": "numeric-default-out-of-range",
+      "files": {},
+      "input": {
+        "agent": {
+          "default": 99,
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "effort": "high",
+              "tools": "full"
+            }
+          ]
+        }
+      },
+      "inputText": "{\n  \"agent\": {\n    \"default\": 99,\n    \"presets\": [\n      {\n        \"id\": \"mine\",\n        \"name\": \"Mine\",\n        \"type\": \"agent\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\",\n        \"effort\": \"high\",\n        \"tools\": \"full\"\n      }\n    ]\n  }\n}",
+      "output": {
+        "agent": {
+          "default": 99,
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "effort": "high",
+              "tools": "full"
+            }
+          ],
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "reviewer",
+            "security",
+            "worker",
+            "writer"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": {
+              "installed": true
+            },
+            "office": {
+              "installed": true
+            }
+          }
+        },
+        "defaultsVersion": 2
+      },
+      "backups": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"default\": 99,\n    \"presets\": [\n      {\n        \"id\": \"mine\",\n        \"name\": \"Mine\",\n        \"type\": \"agent\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\",\n        \"effort\": \"high\",\n        \"tools\": \"full\"\n      }\n    ]\n  }\n}"
+        }
+      ],
+      "disabledAgents": [
+        "advisor",
+        "explore"
+      ]
+    },
+    {
+      "name": "version-one",
+      "files": {},
+      "input": {
+        "defaultsVersion": 1,
+        "agent": {
+          "enabledAgents": [
+            "worker"
+          ],
+          "disabledAgents": [
+            "custom"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true,
+              "firstUseApproval": true
+            }
+          },
+          "agents": {
+            "debugger": {
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            "mine": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          },
+          "presets": [
+            {
+              "id": "haiku",
+              "name": "HAIKU",
+              "type": "agent",
+              "provider": "anthropic-oauth",
+              "model": "claude-haiku-4-5-20251001",
+              "tools": "full"
+            }
+          ],
+          "maintenance": {
+            "webhook": {
+              "provider": "anthropic-oauth",
+              "model": "claude-haiku-4-5-20251001"
+            }
+          }
+        }
+      },
+      "inputText": "{\n  \"defaultsVersion\": 1,\n  \"agent\": {\n    \"enabledAgents\": [\n      \"worker\"\n    ],\n    \"disabledAgents\": [\n      \"custom\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true,\n        \"firstUseApproval\": true\n      }\n    },\n    \"agents\": {\n      \"debugger\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"presets\": [\n      {\n        \"id\": \"haiku\",\n        \"name\": \"HAIKU\",\n        \"type\": \"agent\",\n        \"provider\": \"anthropic-oauth\",\n        \"model\": \"claude-haiku-4-5-20251001\",\n        \"tools\": \"full\"\n      }\n    ],\n    \"maintenance\": {\n      \"webhook\": {\n        \"provider\": \"anthropic-oauth\",\n        \"model\": \"claude-haiku-4-5-20251001\"\n      }\n    }\n  }\n}",
+      "output": {
+        "defaultsVersion": 2,
+        "agent": {
+          "enabledAgents": [
+            "worker"
+          ],
+          "disabledAgents": [
+            "custom"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            }
+          },
+          "agents": {
+            "mine": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          }
+        }
+      },
+      "backups": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"defaultsVersion\": 1,\n  \"agent\": {\n    \"enabledAgents\": [\n      \"worker\"\n    ],\n    \"disabledAgents\": [\n      \"custom\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true,\n        \"firstUseApproval\": true\n      }\n    },\n    \"agents\": {\n      \"debugger\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"presets\": [\n      {\n        \"id\": \"haiku\",\n        \"name\": \"HAIKU\",\n        \"type\": \"agent\",\n        \"provider\": \"anthropic-oauth\",\n        \"model\": \"claude-haiku-4-5-20251001\",\n        \"tools\": \"full\"\n      }\n    ],\n    \"maintenance\": {\n      \"webhook\": {\n        \"provider\": \"anthropic-oauth\",\n        \"model\": \"claude-haiku-4-5-20251001\"\n      }\n    }\n  }\n}"
+        }
+      ],
+      "disabledAgents": [
+        "advisor",
+        "custom",
+        "explore",
+        "front-worker",
+        "heavy-worker",
+        "maintainer",
+        "reviewer",
+        "security",
+        "writer"
+      ]
+    },
+    {
+      "name": "retired-route-with-own-definition",
+      "files": {
+        "agents/explore/AGENT.md": "# Explore\n\nMine.\n"
+      },
+      "input": {
+        "defaultsVersion": 1,
+        "agent": {
+          "agents": {
+            "explore": {
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            "web-researcher": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          }
+        }
+      },
+      "inputText": "{\n  \"defaultsVersion\": 1,\n  \"agent\": {\n    \"agents\": {\n      \"explore\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"web-researcher\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  }\n}",
+      "output": {
+        "defaultsVersion": 2,
+        "agent": {
+          "agents": {
+            "explore": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          }
+        }
+      },
+      "backups": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"defaultsVersion\": 1,\n  \"agent\": {\n    \"agents\": {\n      \"explore\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"web-researcher\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  }\n}"
+        }
+      ],
+      "disabledAgents": [
+        "advisor",
+        "explore",
+        "front-worker",
+        "heavy-worker",
+        "maintainer",
+        "reviewer",
+        "security",
+        "worker",
+        "writer"
+      ]
+    },
+    {
+      "name": "version-one-nothing-to-change",
+      "files": {},
+      "input": {
+        "defaultsVersion": 1,
+        "agent": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        }
+      },
+      "inputText": "{\n  \"defaultsVersion\": 1,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "output": {
+        "defaultsVersion": 2,
+        "agent": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        }
+      },
+      "backups": [],
+      "disabledAgents": [
+        "advisor",
+        "explore",
+        "front-worker",
+        "heavy-worker",
+        "maintainer",
+        "reviewer",
+        "security",
+        "worker",
+        "writer"
+      ]
+    },
+    {
+      "name": "current-version",
+      "files": {},
+      "input": {
+        "defaultsVersion": 2,
+        "agent": {
+          "enabledAgents": [
+            "worker"
+          ],
+          "autoClear": {
+            "enabled": true
+          }
+        }
+      },
+      "inputText": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"enabledAgents\": [\n      \"worker\"\n    ],\n    \"autoClear\": {\n      \"enabled\": true\n    }\n  }\n}",
+      "output": {
+        "defaultsVersion": 2,
+        "agent": {
+          "enabledAgents": [
+            "worker"
+          ],
+          "autoClear": {
+            "enabled": true
+          }
+        }
+      },
+      "backups": [],
+      "disabledAgents": [
+        "advisor",
+        "explore",
+        "front-worker",
+        "heavy-worker",
+        "maintainer",
+        "reviewer",
+        "security",
+        "writer"
+      ]
+    },
+    {
+      "name": "empty-file",
+      "files": {},
+      "input": {},
+      "inputText": "{}",
+      "output": {},
+      "backups": [],
+      "disabledAgents": [
+        "worker",
+        "heavy-worker",
+        "reviewer",
+        "advisor",
+        "security",
+        "front-worker",
+        "writer",
+        "maintainer",
+        "explore"
+      ]
+    }
+  ],
+  "born": {
+    "written": {
+      "agent": {
+        "recap": {
+          "enabled": false
+        }
+      },
+      "defaultsVersion": 2
+    },
+    "empty": {
+      "defaultsVersion": 2
+    }
+  }
+}

@@ -15,6 +15,7 @@
 pub mod agent_routes;
 mod agent_store;
 mod canonical;
+mod separation;
 mod browser_permissions;
 mod network_proxy_store;
 pub mod patch;
@@ -454,10 +455,15 @@ impl Shared {
     ) -> Result<Applied, ConfigError> {
         let mut raised = lock(&self.writer);
         let current = self.doc.load_full();
+        let fresh = current.is_empty();
         let mut next = (*current).clone();
         change(&mut next)?;
         // `writeAll`: a save writes the canonical document, whatever the edit put back.
-        let next = canonical::canonicalize(next);
+        let mut next = canonical::canonicalize(next);
+        // A file created by this code is born separated: the first write into an empty config stamps the current version.
+        if fresh && !next.contains_key(separation::DEFAULTS_VERSION_KEY) {
+            next.insert(separation::DEFAULTS_VERSION_KEY.into(), Value::from(2));
+        }
         if next == *current {
             return Ok(Applied::default());
         }

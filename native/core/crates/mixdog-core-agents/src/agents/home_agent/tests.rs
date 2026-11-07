@@ -83,7 +83,7 @@ async fn answers_what_the_node_function_answered_over_each_recorded_world() {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let config_path = dir.path().join("mixdog-config.json");
-        write(&config_path, &serde_json::to_vec(&json!({ "agent": {} })).unwrap());
+        write(&config_path, &serde_json::to_vec(&mixdog_core_config::config::agent_routes::stored_file_of(&json!({}))).unwrap());
         let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         let greeted = world["greeted"].as_object().unwrap().iter().map(|(id, v)| (id.clone(), v.as_bool().unwrap())).collect();
         let agents = AgentDefinitions::new(

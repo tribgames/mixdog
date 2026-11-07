@@ -191,6 +191,24 @@ pub struct SurfaceSources {
     /// How many documents the config has installed so far (`Config::revision`): Node's `availabilityKey`
     /// counts the config objects, replaced on every adopt and every reload.
     pub config_revision: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// `surfaceGeneration`: moved by every `invalidatePreSessionToolSurface()` (a skill, plugin or MCP change, a built-in toggled).
+    pub surface_generation: SurfaceGeneration,
+}
+
+/// Node's `surfaceGeneration` counter of `session-runtime/tool-surface.mjs`: the owners of the extension and feature seams
+/// move it, and an empty thread's surface that was brought to an older one is rebuilt at its next turn.
+#[derive(Clone, Default)]
+pub struct SurfaceGeneration(Arc<std::sync::atomic::AtomicU64>);
+
+impl SurfaceGeneration {
+    /// `surfaceGeneration += 1`.
+    pub fn bump(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
+
+    pub fn get(&self) -> u64 {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
 }
 
 /// What an empty thread's surface was last brought to (`appliedKeys` of `tool-policy-refresh.mjs`): the
@@ -270,9 +288,9 @@ impl LeadSurfaceHost {
         Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs, applied: std::sync::Mutex::default() })
     }
 
-    /// `availabilityKey()` less the skill and plugin generation: the config installed, and the gate list.
+    /// `availabilityKey()`: the config installed, the surface generation and the gate list.
     fn gates(&self, feature_denied: &[String]) -> String {
-        format!("{}|{}", (self.sources.config_revision)(), feature_denied.join(","))
+        format!("{}|{}|{}", (self.sources.config_revision)(), self.sources.surface_generation.get(), feature_denied.join(","))
     }
 
     /// `appliedKeys.get(session)`.

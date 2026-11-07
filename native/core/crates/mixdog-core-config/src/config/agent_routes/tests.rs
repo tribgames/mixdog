@@ -15,7 +15,7 @@ async fn routes(dir: &tempfile::TempDir, agent: Value, split: bool) -> AgentRout
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let path = dir.path().join("mixdog-config.json");
-    std::fs::write(&path, serde_json::to_vec(&json!({ "agent": agent, "desktop": { "zoom": 1 } })).unwrap()).unwrap();
+    std::fs::write(&path, serde_json::to_vec(&json!({ "defaultsVersion": 2, "agent": agent, "desktop": { "zoom": 1 } })).unwrap()).unwrap();
     if split {
         let bots = dir.path().join("bots");
         std::fs::create_dir_all(bots.join("ada")).unwrap();
@@ -56,7 +56,8 @@ async fn a_config_agent_keeps_its_route_and_off_state_apart() {
     // The incomplete route and the other sections of the file are handled as Node does.
     let agent = routes.config.agent();
     assert_eq!(agent["agents"], json!({ "worker": route("a") }));
-    assert_eq!(agent["disabledAgents"], json!(["worker"]));
+    // `worker` is off by default, so a file that keeps it off stores nothing for it.
+    assert!(agent.get("disabledAgents").is_none() && agent.get("enabledAgents").is_none());
     assert_eq!(routes.config.get("desktop").unwrap(), json!({ "zoom": 1 }));
     routes.set_disabled("worker", false).await.unwrap();
     assert!(!routes.is_disabled("worker"));
@@ -115,31 +116,6 @@ fn ids(value: &Value) -> Vec<&str> {
     value.as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect()
 }
 
-/// A file from before the defaults separation is read at boot as `ensureDefaultsSeparated` reads it: the
-/// stored full list against the roster shipped back then, so `advisor` and `explore` (default-off since)
-/// start off and every other agent keeps the choice the file made (here: on).
-#[tokio::test]
-async fn the_boot_separates_the_roster_of_an_older_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let routes = routes_of(&dir, json!({ "agent": { "providers": { "p": { "enabled": true } } } })).await;
-    assert!(!routes.is_disabled("advisor"), "before the separation the file's list is the whole roster");
-    separate_agent_roster(&routes.config).await.unwrap();
-    let agent = routes.config.agent();
-    assert_eq!(ids(&agent["enabledAgents"]), ["front-worker", "heavy-worker", "maintainer", "reviewer", "security", "worker", "writer"]);
-    assert!(agent.get("disabledAgents").is_none());
-    assert_eq!(routes.config.full().get("defaultsVersion"), Some(&json!(2)));
-    assert!(routes.is_disabled("Advisor") && routes.is_disabled("explore"));
-    assert!(!routes.is_disabled("worker") && !routes.is_disabled("custom"));
-    // A file at the current version is left as it is, and so is an empty one.
-    let before = routes.config.full();
-    separate_agent_roster(&routes.config).await.unwrap();
-    assert_eq!(routes.config.full(), before);
-    let empty = tempfile::tempdir().unwrap();
-    let unwritten = routes_of(&empty, json!({})).await;
-    separate_agent_roster(&unwritten.config).await.unwrap();
-    assert!(unwritten.config.full().is_empty());
-}
-
 /// A separated file stores the roster as the user's delta against the defaults: `disabledAgents` lists what
 /// the user turned off beyond them, `enabledAgents` the default-off agents they turned on.
 #[tokio::test]
@@ -156,6 +132,17 @@ async fn a_separated_file_holds_the_roster_as_a_delta() {
     routes.set_disabled("reviewer", true).await.unwrap();
     let agent = routes.config.agent();
     assert!(agent.get("enabledAgents").is_none() && agent.get("disabledAgents").is_none(), "the defaults alone are stored as nothing");
+}
+
+/// The explorer, maintainer and title hosts ask `agent_disabled` of the agent section they are
+/// handed; it is the stored section, read as `effectiveDisabledAgents` reads it.
+#[test]
+fn a_stored_section_reads_as_the_effective_roster() {
+    let section = json!({ "enabledAgents": ["maintainer"], "disabledAgents": ["Custom"] });
+    let agent = section.as_object().unwrap();
+    assert!(!agent_disabled(agent, " Maintainer ") && !agent_disabled(agent, "other"));
+    assert!(agent_disabled(agent, "explore") && agent_disabled(agent, "worker") && agent_disabled(agent, "custom"));
+    assert!(agent_disabled(&Map::new(), "maintainer"), "a section that says nothing keeps the default roster off");
 }
 
 #[test]

@@ -276,9 +276,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     )
     .await
     .map_err(|e| ComposeError::Config(format!("{e:?}")))?;
-    // Node's boot runs `ensureDefaultsSeparated` before any session reads the config: a file from before the separation holds the agent
-    // roster as a full list, and the sessions below read it as the delta against the defaults (advisor starts off).
-    mixdog_core_config::config::agent_routes::separate_agent_roster(&config).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
+    // Node's boot runs `ensureDefaultsSeparated` before any session reads the config: a file from before the separation is backed up and
+    // rewritten with only what differs from the defaults (the agent roster as a delta: advisor starts off) and takes the marker.
+    let boot_ms = mixdog_core_session::session::Clock::now_ms(&mixdog_core_session::session::SystemClock);
+    config.separate_defaults(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
+    // Node's `surfaceGeneration`: the extension and feature seams move it, the Lead's surface host checks an empty thread against it.
+    let surface_generation = mixdog_core::run_host::surface_host::SurfaceGeneration::default();
 
     // ---- 2. policy, hub, hook bus; the late views and the one secret input ---------------------
     let PolicyParts { policy, connectors, grants, connector_policy } = build_policy(&b.tokens, &b.data_dir);
@@ -880,6 +883,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             readiness.clone(),
             registry.clone(),
             gauge.clone(),
+            surface_generation.clone(),
         ),
         local: crate::compose_domains::LocalSeams {
             media_generator,
@@ -1034,6 +1038,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             pre.extensions.clone(),
             plugins_announce.clone(), // cloned before it is moved to `announce:` below
             crate::mcp_surface::UrlOpener::new(b.tokens.spawn_io, (b.env)("SystemRoot").or_else(|| (b.env)("WINDIR")), crate::mcp_surface::UrlOpener::is_wsl(&b.env)),
+            surface_generation.clone(),
         ),
         bridges: bridges.clone(),
         hooks: hook_status.clone(),
@@ -1100,10 +1105,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let scm = mixdog_scm::engine::Scm::new(b.process_manager.clone(), b.tokens.maintenance_io, b.data_dir.join("scm-scratch"));
     let review_bases = Arc::new(mixdog_scm::worktree::review_bases::CapturedBases::new());
     let turn_review = Arc::new(mixdog_core_review::turn_review::TurnReview::over_scm(scm.clone(), b.tokens.clone(), &b.data_dir, |name| (b.env)(name), review_bases.clone()));
-    // `getConfigSnapshot({ secrets: false })` (the route hop's `HopDeps.config`, the summary host's `SummaryDeps.config`): the live config document.
+    // `getConfigSnapshot({ secrets: false })` (the route hop's `HopDeps.config`, the summary, explorer, maintainer and title hosts): the live agent config. The hosts read its
+    // `providers`, `agents`, `default` and the agent roster (`agent_disabled`), all of which are keys of the `agent` section, not of the file's root.
     let config_snapshot: mixdog_core_run::run_host::hop_host::ConfigSnapshot = {
         let config = config.clone();
-        Arc::new(move || (*config.full()).clone())
+        Arc::new(move || config.agent())
     };
     // The ONE secret fill (`approval/provideSecret`'s slots, the takeover gates, Computer Use commands on the session's helper, the claimed desktop channel): the redactor of each session's computer backend and the
     // handoff env's `fill` (`compose-seams.md`, "secret redaction in tool replies"). TRUE CYCLE: the fill types on the helper pool and the pool wraps its backends with the fill's redaction: the pool is bound into `late_computer_hosts` right after it is built.
@@ -1603,6 +1609,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             live: Arc::new(mixdog_core::run_host::agent_inputs::LateLiveSessions(late.clone())),
             workflow: run_workflow_surface.clone(),
             config_revision: Arc::new({ let config = config.clone(); move || config.revision() }),
+            surface_generation: surface_generation.clone(),
         })
         .map_err(ComposeError::SurfaceVariant)?, // fallible: a `git`/`task` tool without the Lead text is refused (`VariantError`)
     );

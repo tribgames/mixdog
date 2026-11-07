@@ -141,7 +141,8 @@ mod tests {
     fn the_route_is_the_saved_explore_route_as_node_resolves_it() {
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/tool-pool/explore-route.json")).expect("fixture");
         for case in golden["routes"].as_array().expect("routes") {
-            let config = case["config"].as_object().expect("config");
+            let stored = mixdog_core_config::config::agent_routes::stored_file_of(&case["config"]);
+            let config = stored["agent"].as_object().expect("config");
             let route = &case["route"];
             let want = match route {
                 Value::Null | Value::String(_) => Chosen::NoModel,

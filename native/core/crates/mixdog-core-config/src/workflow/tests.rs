@@ -145,7 +145,7 @@ async fn methods_match_node() {
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let config_path = dir.path().join("cfg").join("mixdog-config.json");
         std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        std::fs::write(&config_path, serde_json::to_vec(&json!({ "agent": scenario["config"] })).unwrap()).unwrap();
+        std::fs::write(&config_path, serde_json::to_vec(&crate::config::agent_routes::stored_file_of(&scenario["config"])).unwrap()).unwrap();
         let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         let host = Arc::new(Host {
             main: Mutex::new(scenario["main"].as_object().map_or(json!({ "provider": "openai", "model": "main-model" }), |m| Value::Object(m.clone()))),
@@ -205,7 +205,7 @@ async fn the_catalog_lists_the_packs_as_node_does() {
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let config_path = dir.path().join("cfg").join("mixdog-config.json");
         std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        std::fs::write(&config_path, serde_json::to_vec(&json!({ "agent": case["config"] })).unwrap()).unwrap();
+        std::fs::write(&config_path, serde_json::to_vec(&crate::config::agent_routes::stored_file_of(&case["config"])).unwrap()).unwrap();
         let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         let host = Arc::new(Host { main: Mutex::new(json!({})), custom_agents: Vec::new(), capable: false, adopted: Mutex::default() });
         let service = WorkflowConfig::new(config, WorkflowPaths { root, data }, host, scopes(dir.path(), "config").await, &tokens);

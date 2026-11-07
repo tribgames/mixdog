@@ -67,7 +67,7 @@ pub(super) async fn open_world(root_files: &Value, data_files: &Value, agent_con
     lay(&root, root_files);
     lay(&data, data_files);
     let config_path = dir.path().join("mixdog-config.json");
-    fixture_fs::write(&config_path, serde_json::to_vec(&json!({ "agent": agent_config })).expect("config"));
+    fixture_fs::write(&config_path, serde_json::to_vec(&mixdog_core_config::config::agent_routes::stored_file_of(&agent_config)).expect("config"));
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.expect("config opens");
     let agents = Arc::new(AgentDefinitions::new(
