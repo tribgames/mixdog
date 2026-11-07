@@ -1106,10 +1106,10 @@ mod tests {
         assert_eq!(status["servers"][0]["status"], "failed", "a read with no session reads the runtime scope");
     }
     /// A read with no session that arrives before the boot's spawn has run (or in a composition that never
-    /// spawns it) connects the runtime scope itself instead of failing, and the boot's start that follows
-    /// waits for that connect and opens no second connection set.
+    /// spawns it) starts the runtime scope itself and answers; the boot's start that follows waits for
+    /// that connect and opens no second connection set.
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_thread_less_read_before_the_boot_spawn_connects_the_runtime_scope() {
+    async fn a_thread_less_read_before_the_boot_spawn_starts_the_runtime_scope() {
         let Composed { composed, extensions, .. } = compose_over(Arc::new(Quiet)).await;
         let mut agent = extensions.agent();
         agent.insert("mcpServers".to_owned(), serde_json::json!({"ghost": {"command": "mixdog-no-such-server-binary"}}));
@@ -1117,11 +1117,49 @@ mod tests {
         let hub = composed.glue.hub();
         assert!(hub.servers_in(hub.runtime_scope()).is_empty(), "nothing started the runtime scope");
         let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
-        assert_eq!(status["servers"][0]["status"], "failed", "the read connected the runtime scope and read it");
+        assert!(status["servers"].is_array(), "the read answered: {status}");
         composed.glue.start_runtime_scope().await.unwrap();
-        assert_eq!(hub.servers_in(hub.runtime_scope()).len(), 1, "the boot's start after the read opens no second connection set");
+        assert_eq!(hub.servers_in(hub.runtime_scope()).len(), 1, "the read started the connect and the boot's start opened no second set");
+        let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
+        assert_eq!(status["servers"][0]["status"], "failed", "once settled, the read sees the failure");
     }
-    /// The control thread (`thread/start{kind:"control"}`) is seeded in the runtime scope, so a call
+    /// While the runtime scope's first connect is still pending, a thread-less status read answers at once
+    /// with the status of the moment (Node's `mcpStatus()` does not wait for the boot's background
+    /// `connectConfiguredMcp()`), and so do the config reads; a write (`reconnectMcp`) queues behind the connect and
+    /// finishes only after it. The connect is held by a server that accepted the connection and never answers.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_read_during_a_pending_first_connect_answers_at_once_and_a_write_waits_for_it() {
+        let Composed { composed, extensions, .. } = compose_over(Arc::new(Quiet)).await;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let mut agent = extensions.agent();
+        agent.insert("mcpServers".to_owned(), serde_json::json!({"held": {"type": "http", "url": url}}));
+        extensions.save_agent(&extensions.agent(), &agent).await.unwrap();
+        let hub = composed.glue.hub();
+        let boot = composed.glue.start_runtime_scope();
+        // The connect reached the server: it is pending now, and nothing answers it.
+        let accepted = tokio::task::spawn_blocking(move || (listener.accept().unwrap().0, listener));
+        let (held, listener) = accepted.await.unwrap();
+        assert!(hub.servers_in(hub.runtime_scope()).is_empty() && !boot.is_finished(), "the first connect is pending");
+
+        let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
+        assert_eq!(status["servers"][0]["name"], "held", "the status read answered during the connect: {status}");
+        assert_eq!(status["servers"][0]["connected"], false);
+        let config = call(&composed.mcp_domain, "mcp/getMcpServerConfig", serde_json::json!({"name": "held"})).await;
+        assert_eq!(config["name"], "held", "the config read answered during the connect");
+
+        let write = tokio::spawn({
+            let service = composed.mcp_domain.clone();
+            async move { call(&service, "mcp/reconnectMcp", serde_json::json!({})).await }
+        });
+        assert!(!write.is_finished() && !boot.is_finished(), "the write queues behind the pending connect");
+        // The server goes away: the pending connect fails, and the write that queued behind it runs and finishes.
+        drop(held);
+        drop(listener);
+        let reconnected = write.await.unwrap();
+        assert!(reconnected["servers"].is_array(), "{reconnected}");
+        boot.await.unwrap();
+    }    /// The control thread (`thread/start{kind:"control"}`) is seeded in the runtime scope, so a call
     /// naming it and a call naming no thread read the same servers of the same scope, and no second
     /// connection set exists besides the runtime scope and the sessions' own.
     #[tokio::test(flavor = "multi_thread")]
