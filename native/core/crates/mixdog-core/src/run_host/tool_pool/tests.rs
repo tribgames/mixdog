@@ -50,7 +50,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::callers::ThreadCallers;
 use super::model_surface::SurfaceInputs;
-use super::model_surface::model_standalone_tools;
+use super::model_surface::model_internal_tools;
 use super::session_port::AiTitleSetting;
 use super::session_port::BotIds;
 use super::session_port::DirectorySessionPort;
@@ -247,7 +247,7 @@ fn the_tool_list_a_turn_sees_follows_node() {
         let profile = case["allowedByProfile"].as_array().map(|_| strings(&case["allowedByProfile"]));
         let allowed: Option<Vec<&str>> = profile.as_ref().map(|names| names.iter().map(String::as_str).collect());
         let delegatable = case["delegatable"].as_u64().expect("count") as usize;
-        let got = model_standalone_tools(
+        let got = model_internal_tools(
             &standalone,
             &agent_set,
             &SurfaceInputs { session: session.as_ref(), profile_allowed: allowed.as_deref(), feature_denied: &features, delegatable_agents: &|| delegatable },

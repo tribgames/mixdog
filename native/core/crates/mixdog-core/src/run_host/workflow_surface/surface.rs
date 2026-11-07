@@ -37,7 +37,7 @@ use super::denials::feature_disallowed_tools;
 use super::denials::live_denied_tools;
 use super::instructions::OrchestrationTexts;
 use crate::run_host::tool_pool::model_surface::SurfaceInputs;
-use crate::run_host::tool_pool::model_surface::model_standalone_tools;
+use crate::run_host::tool_pool::model_surface::model_internal_tools;
 
 /// `MIXDOG_FEATURE_*` lookups; the process environment in production.
 pub type FeatureEnv = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -137,7 +137,7 @@ impl RunWorkflowSurface {
             feature_denied: features,
             delegatable_agents: &|| delegatable,
         };
-        Ok(model_standalone_tools(&self.standalone, &agent_tools, &inputs))
+        Ok(model_internal_tools(&self.standalone, &agent_tools, &inputs))
     }
 }
 
@@ -162,7 +162,7 @@ impl WorkflowSurface for RunWorkflowSurface {
         live_denied_tools(session, summary, &self.feature_denied().await?)
     }
 
-    async fn standalone_tools(&self, session: &Header) -> Result<Vec<Value>, SurfaceFailure> {
+    async fn internal_tools(&self, session: &Header) -> Result<Vec<Value>, SurfaceFailure> {
         let features = self.feature_denied().await?;
         Ok(self.gated_tools(session, &features).await?.iter().map(|tool| tool.spec().definition()).collect())
     }

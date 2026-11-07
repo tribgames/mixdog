@@ -79,6 +79,7 @@ use super::tool_availability::missing_definitions;
 use super::tool_availability::stage_tool_availability;
 use super::tool_pool::model_surface::workflow_disallows_agent_tool;
 use super::workflow_surface::RunWorkflowSurface;
+use super::workflow_surface::denials::reaction_disabled;
 use super::reactions::REACTION_TOOL_NAME;
 use super::route_surface::header_diff;
 use super::route_surface::is_agent_owner;
@@ -95,7 +96,7 @@ use super::session_tools::resolve;
 use super::session_tools::route_rank;
 use super::session_tools::session_doc;
 use super::tool_pool::model_surface::SurfaceInputs;
-use super::tool_pool::model_surface::model_standalone_tools;
+use super::tool_pool::model_surface::model_internal_tools;
 use super::tool_pool::model_surface::workflow_allows_agents;
 use super::tool_surface::ApplyOptions;
 use super::tool_surface::ToolSurface;
@@ -392,7 +393,7 @@ impl LeadSurfaceHost {
                 session[key] = Value::Array(kept);
             }
         }
-        let standalone = finalize_docs(s.workflow.standalone_tools(header).await.map_err(String::from)?, allowed.as_deref(), &denied, owner_is_agent.then_some(&self.agent_defs));
+        let standalone = finalize_docs(s.workflow.internal_tools(header).await.map_err(String::from)?, allowed.as_deref(), &denied, owner_is_agent.then_some(&self.agent_defs));
         if let Some(items) = session.get("tools").and_then(Value::as_array) {
             let kept = finalize_docs(items.clone(), allowed.as_deref(), &denied, owner_is_agent.then_some(&self.agent_defs));
             session["tools"] = Value::Array(kept);
@@ -450,7 +451,7 @@ impl LeadSurfaceHost {
         let mut seen = HashSet::new();
         let docs: Vec<Value> = s
             .workflow
-            .standalone_tools(header)
+            .internal_tools(header)
             .await
             .map_err(String::from)?
             .into_iter()
