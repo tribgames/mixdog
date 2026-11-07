@@ -1,0 +1,1467 @@
+{
+  "stubBody": {
+    "data": [
+      {
+        "id": "claude-opus-4-8",
+        "type": "model",
+        "display_name": "Claude Opus 4.8",
+        "created_at": "2093-06-01T00:00:00Z",
+        "max_input_tokens": 1000000,
+        "max_tokens": 128000,
+        "capabilities": {
+          "effort": {
+            "supported": true,
+            "low": {
+              "supported": true
+            },
+            "medium": {
+              "supported": true
+            },
+            "high": {
+              "supported": true
+            },
+            "xhigh": {
+              "supported": true
+            },
+            "max": {
+              "supported": true
+            }
+          },
+          "thinking": {
+            "supported": true,
+            "types": {
+              "adaptive": {
+                "supported": true
+              },
+              "enabled": {
+                "supported": false
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "type": "model",
+        "display_name": "Claude Sonnet 4.6",
+        "created_at": "2090-06-01T00:00:00Z",
+        "max_input_tokens": 1000000,
+        "max_tokens": 64000,
+        "capabilities": {
+          "effort": {
+            "supported": true,
+            "low": {
+              "supported": true
+            },
+            "medium": {
+              "supported": true
+            },
+            "high": {
+              "supported": true
+            }
+          },
+          "thinking": {
+            "supported": true,
+            "types": {
+              "adaptive": {
+                "supported": true
+              },
+              "enabled": {
+                "supported": true
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "type": "model",
+        "display_name": "Claude Haiku 4.5",
+        "created_at": "2091-06-01T00:00:00Z",
+        "max_input_tokens": 200000,
+        "max_tokens": 64000,
+        "capabilities": {
+          "thinking": {
+            "supported": true,
+            "types": {
+              "enabled": {
+                "supported": true
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "claude-mystery-4-9",
+        "type": "model",
+        "display_name": "Claude Mystery 4.9",
+        "created_at": "2094-06-01T00:00:00Z"
+      }
+    ],
+    "has_more": false
+  },
+  "cold": {
+    "first": [
+      {
+        "id": "claude-opus-4-8",
+        "display": "Claude Opus 4.8",
+        "family": "opus",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 128000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": false
+        },
+        "inputCostPerM": 15,
+        "outputCostPerM": 75,
+        "cacheReadCostPerM": 1.5,
+        "cacheWriteCostPerM": 18.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-opus-4-8",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "display": "Claude Sonnet 4.6",
+        "family": "sonnet",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 64000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": true
+        },
+        "inputCostPerM": 3,
+        "outputCostPerM": 15,
+        "cacheReadCostPerM": 0.3,
+        "cacheWriteCostPerM": 3.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-sonnet-4-6",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": 64000,
+        "tier": "dated",
+        "latest": false,
+        "releaseDate": "2025-10-01",
+        "supportsReasoning": true,
+        "reasoningOptions": [],
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "inputCostPerM": 1,
+        "outputCostPerM": 5,
+        "cacheReadCostPerM": 0.1,
+        "cacheWriteCostPerM": 1.25,
+        "pricingTiers": [],
+        "pricingModel": "claude-haiku-4-5-20251001",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-mystery-4-9",
+        "display": "Claude Mystery 4.9",
+        "family": "mystery",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": null,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "reasoningOptions": []
+      }
+    ],
+    "second": [
+      {
+        "id": "claude-opus-4-8",
+        "display": "Claude Opus 4.8",
+        "family": "opus",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 128000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": false
+        },
+        "inputCostPerM": 15,
+        "outputCostPerM": 75,
+        "cacheReadCostPerM": 1.5,
+        "cacheWriteCostPerM": 18.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-opus-4-8",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "display": "Claude Sonnet 4.6",
+        "family": "sonnet",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 64000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": true
+        },
+        "inputCostPerM": 3,
+        "outputCostPerM": 15,
+        "cacheReadCostPerM": 0.3,
+        "cacheWriteCostPerM": 3.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-sonnet-4-6",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": 64000,
+        "tier": "dated",
+        "latest": false,
+        "releaseDate": "2025-10-01",
+        "supportsReasoning": true,
+        "reasoningOptions": [],
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "inputCostPerM": 1,
+        "outputCostPerM": 5,
+        "cacheReadCostPerM": 0.1,
+        "cacheWriteCostPerM": 1.25,
+        "pricingTiers": [],
+        "pricingModel": "claude-haiku-4-5-20251001",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-mystery-4-9",
+        "display": "Claude Mystery 4.9",
+        "family": "mystery",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": null,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "reasoningOptions": []
+      }
+    ],
+    "cacheFile": {
+      "version": 2,
+      "fetchedAt": 1794072364988,
+      "models": [
+        {
+          "id": "claude-opus-4-8",
+          "display": "Claude Opus 4.8",
+          "family": "opus",
+          "provider": "anthropic-oauth",
+          "contextWindow": 1000000,
+          "outputTokens": 128000,
+          "tier": "version",
+          "latest": true,
+          "releaseDate": null,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "thinkingTypes": {
+            "adaptive": true,
+            "enabled": false
+          },
+          "inputCostPerM": 15,
+          "outputCostPerM": 75,
+          "cacheReadCostPerM": 1.5,
+          "cacheWriteCostPerM": 18.75,
+          "pricingTiers": [],
+          "pricingModel": "claude-opus-4-8",
+          "pricingProvider": "anthropic",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "display": "Claude Sonnet 4.6",
+          "family": "sonnet",
+          "provider": "anthropic-oauth",
+          "contextWindow": 1000000,
+          "outputTokens": 64000,
+          "tier": "version",
+          "latest": true,
+          "releaseDate": null,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          ],
+          "thinkingTypes": {
+            "adaptive": true,
+            "enabled": true
+          },
+          "inputCostPerM": 3,
+          "outputCostPerM": 15,
+          "cacheReadCostPerM": 0.3,
+          "cacheWriteCostPerM": 3.75,
+          "pricingTiers": [],
+          "pricingModel": "claude-sonnet-4-6",
+          "pricingProvider": "anthropic",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-haiku-4-5-20251001",
+          "display": "Claude Haiku 4.5",
+          "family": "haiku",
+          "provider": "anthropic-oauth",
+          "contextWindow": 200000,
+          "outputTokens": 64000,
+          "tier": "dated",
+          "latest": false,
+          "releaseDate": "2025-10-01",
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "thinkingTypes": {
+            "enabled": true
+          },
+          "inputCostPerM": 1,
+          "outputCostPerM": 5,
+          "cacheReadCostPerM": 0.1,
+          "cacheWriteCostPerM": 1.25,
+          "pricingTiers": [],
+          "pricingModel": "claude-haiku-4-5-20251001",
+          "pricingProvider": "anthropic",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-mystery-4-9",
+          "display": "Claude Mystery 4.9",
+          "family": "mystery",
+          "provider": "anthropic-oauth",
+          "contextWindow": 200000,
+          "outputTokens": null,
+          "tier": "version",
+          "latest": true,
+          "releaseDate": null,
+          "supportsReasoning": false,
+          "reasoningOptions": []
+        }
+      ]
+    },
+    "routeStates": [
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8"
+        },
+        "state": {
+          "contextPercent": 50,
+          "contextDefaultPercent": 50,
+          "selectedContextWindow": 500000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6"
+        },
+        "state": {
+          "contextPercent": 50,
+          "contextDefaultPercent": 50,
+          "selectedContextWindow": 500000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-haiku-4-5-20251001"
+        },
+        "state": {
+          "contextPercent": 100,
+          "contextDefaultPercent": 100,
+          "selectedContextWindow": 200000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-sonnet-4-6-20260101"
+        },
+        "state": {
+          "contextPercent": 50,
+          "contextDefaultPercent": 50,
+          "selectedContextWindow": 500000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-mystery-4-9"
+        },
+        "state": {
+          "contextPercent": 100,
+          "contextDefaultPercent": 100,
+          "selectedContextWindow": 200000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-missing"
+        },
+        "state": {}
+      },
+      {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5.5"
+        },
+        "state": {}
+      }
+    ],
+    "hits": 1
+  },
+  "fresh": {
+    "seededHoursAgo": 1,
+    "first": [
+      {
+        "id": "claude-opus-4-8",
+        "display": "Claude Opus 4.8",
+        "family": "opus",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 128000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": false
+        },
+        "inputCostPerM": 15,
+        "outputCostPerM": 75,
+        "cacheReadCostPerM": 1.5,
+        "cacheWriteCostPerM": 18.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-opus-4-8",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "display": "Claude Sonnet 4.6",
+        "family": "sonnet",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 64000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": true
+        },
+        "inputCostPerM": 3,
+        "outputCostPerM": 15,
+        "cacheReadCostPerM": 0.3,
+        "cacheWriteCostPerM": 3.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-sonnet-4-6",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": 64000,
+        "tier": "dated",
+        "latest": false,
+        "releaseDate": "2025-10-01",
+        "supportsReasoning": true,
+        "reasoningOptions": [],
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "inputCostPerM": 1,
+        "outputCostPerM": 5,
+        "cacheReadCostPerM": 0.1,
+        "cacheWriteCostPerM": 1.25,
+        "pricingTiers": [],
+        "pricingModel": "claude-haiku-4-5-20251001",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-mystery-4-9",
+        "display": "Claude Mystery 4.9",
+        "family": "mystery",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": null,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "reasoningOptions": []
+      }
+    ],
+    "second": [
+      {
+        "id": "claude-opus-4-8",
+        "display": "Claude Opus 4.8",
+        "family": "opus",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 128000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": false
+        },
+        "inputCostPerM": 15,
+        "outputCostPerM": 75,
+        "cacheReadCostPerM": 1.5,
+        "cacheWriteCostPerM": 18.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-opus-4-8",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "display": "Claude Sonnet 4.6",
+        "family": "sonnet",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 64000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": true
+        },
+        "inputCostPerM": 3,
+        "outputCostPerM": 15,
+        "cacheReadCostPerM": 0.3,
+        "cacheWriteCostPerM": 3.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-sonnet-4-6",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": 64000,
+        "tier": "dated",
+        "latest": false,
+        "releaseDate": "2025-10-01",
+        "supportsReasoning": true,
+        "reasoningOptions": [],
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "inputCostPerM": 1,
+        "outputCostPerM": 5,
+        "cacheReadCostPerM": 0.1,
+        "cacheWriteCostPerM": 1.25,
+        "pricingTiers": [],
+        "pricingModel": "claude-haiku-4-5-20251001",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-mystery-4-9",
+        "display": "Claude Mystery 4.9",
+        "family": "mystery",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": null,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "reasoningOptions": []
+      }
+    ],
+    "cacheFile": {
+      "version": 2,
+      "fetchedAt": 1794068765113,
+      "models": [
+        {
+          "id": "claude-opus-4-8",
+          "display": "Claude Opus 4.8",
+          "family": "opus",
+          "provider": "anthropic-oauth",
+          "contextWindow": 1000000,
+          "outputTokens": 128000,
+          "tier": "version",
+          "latest": true,
+          "releaseDate": null,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "thinkingTypes": {
+            "adaptive": true,
+            "enabled": false
+          },
+          "inputCostPerM": 15,
+          "outputCostPerM": 75,
+          "cacheReadCostPerM": 1.5,
+          "cacheWriteCostPerM": 18.75,
+          "pricingTiers": [],
+          "pricingModel": "claude-opus-4-8",
+          "pricingProvider": "anthropic",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "display": "Claude Sonnet 4.6",
+          "family": "sonnet",
+          "provider": "anthropic-oauth",
+          "contextWindow": 1000000,
+          "outputTokens": 64000,
+          "tier": "version",
+          "latest": true,
+          "releaseDate": null,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          ],
+          "thinkingTypes": {
+            "adaptive": true,
+            "enabled": true
+          },
+          "inputCostPerM": 3,
+          "outputCostPerM": 15,
+          "cacheReadCostPerM": 0.3,
+          "cacheWriteCostPerM": 3.75,
+          "pricingTiers": [],
+          "pricingModel": "claude-sonnet-4-6",
+          "pricingProvider": "anthropic",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-haiku-4-5-20251001",
+          "display": "Claude Haiku 4.5",
+          "family": "haiku",
+          "provider": "anthropic-oauth",
+          "contextWindow": 200000,
+          "outputTokens": 64000,
+          "tier": "dated",
+          "latest": false,
+          "releaseDate": "2025-10-01",
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "thinkingTypes": {
+            "enabled": true
+          },
+          "inputCostPerM": 1,
+          "outputCostPerM": 5,
+          "cacheReadCostPerM": 0.1,
+          "cacheWriteCostPerM": 1.25,
+          "pricingTiers": [],
+          "pricingModel": "claude-haiku-4-5-20251001",
+          "pricingProvider": "anthropic",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-mystery-4-9",
+          "display": "Claude Mystery 4.9",
+          "family": "mystery",
+          "provider": "anthropic-oauth",
+          "contextWindow": 200000,
+          "outputTokens": null,
+          "tier": "version",
+          "latest": true,
+          "releaseDate": null,
+          "supportsReasoning": false,
+          "reasoningOptions": []
+        }
+      ]
+    },
+    "routeStates": [
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8"
+        },
+        "state": {
+          "contextPercent": 50,
+          "contextDefaultPercent": 50,
+          "selectedContextWindow": 500000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6"
+        },
+        "state": {
+          "contextPercent": 50,
+          "contextDefaultPercent": 50,
+          "selectedContextWindow": 500000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-haiku-4-5-20251001"
+        },
+        "state": {
+          "contextPercent": 100,
+          "contextDefaultPercent": 100,
+          "selectedContextWindow": 200000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-sonnet-4-6-20260101"
+        },
+        "state": {
+          "contextPercent": 50,
+          "contextDefaultPercent": 50,
+          "selectedContextWindow": 500000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-mystery-4-9"
+        },
+        "state": {
+          "contextPercent": 100,
+          "contextDefaultPercent": 100,
+          "selectedContextWindow": 200000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-missing"
+        },
+        "state": {}
+      },
+      {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5.5"
+        },
+        "state": {}
+      }
+    ],
+    "hits": 0
+  },
+  "stale": {
+    "seededHoursAgo": 25,
+    "first": [
+      {
+        "id": "claude-opus-4-8",
+        "display": "Claude Opus 4.8",
+        "family": "opus",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 128000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": false
+        },
+        "inputCostPerM": 15,
+        "outputCostPerM": 75,
+        "cacheReadCostPerM": 1.5,
+        "cacheWriteCostPerM": 18.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-opus-4-8",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "display": "Claude Sonnet 4.6",
+        "family": "sonnet",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 64000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": true
+        },
+        "inputCostPerM": 3,
+        "outputCostPerM": 15,
+        "cacheReadCostPerM": 0.3,
+        "cacheWriteCostPerM": 3.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-sonnet-4-6",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": 64000,
+        "tier": "dated",
+        "latest": false,
+        "releaseDate": "2025-10-01",
+        "supportsReasoning": true,
+        "reasoningOptions": [],
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "inputCostPerM": 1,
+        "outputCostPerM": 5,
+        "cacheReadCostPerM": 0.1,
+        "cacheWriteCostPerM": 1.25,
+        "pricingTiers": [],
+        "pricingModel": "claude-haiku-4-5-20251001",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-mystery-4-9",
+        "display": "Claude Mystery 4.9",
+        "family": "mystery",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": null,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "reasoningOptions": [],
+        "pricingTiers": [],
+        "pricingModel": "claude-mystery-4-9",
+        "pricingProvider": "anthropic",
+        "reasoningContentField": null,
+        "mode": null
+      }
+    ],
+    "second": [
+      {
+        "id": "claude-opus-4-8",
+        "display": "Claude Opus 4.8",
+        "family": "opus",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 128000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": false
+        },
+        "inputCostPerM": 15,
+        "outputCostPerM": 75,
+        "cacheReadCostPerM": 1.5,
+        "cacheWriteCostPerM": 18.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-opus-4-8",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "display": "Claude Sonnet 4.6",
+        "family": "sonnet",
+        "provider": "anthropic-oauth",
+        "contextWindow": 1000000,
+        "outputTokens": 64000,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": true
+        },
+        "inputCostPerM": 3,
+        "outputCostPerM": 15,
+        "cacheReadCostPerM": 0.3,
+        "cacheWriteCostPerM": 3.75,
+        "pricingTiers": [],
+        "pricingModel": "claude-sonnet-4-6",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": 64000,
+        "tier": "dated",
+        "latest": false,
+        "releaseDate": "2025-10-01",
+        "supportsReasoning": true,
+        "reasoningOptions": [],
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "inputCostPerM": 1,
+        "outputCostPerM": 5,
+        "cacheReadCostPerM": 0.1,
+        "cacheWriteCostPerM": 1.25,
+        "pricingTiers": [],
+        "pricingModel": "claude-haiku-4-5-20251001",
+        "pricingProvider": "anthropic",
+        "pricingSource": "models.dev",
+        "supportsVision": true,
+        "supportsFunctionCalling": true,
+        "supportsPromptCaching": true,
+        "reasoningContentField": null,
+        "mode": null
+      },
+      {
+        "id": "claude-mystery-4-9",
+        "display": "Claude Mystery 4.9",
+        "family": "mystery",
+        "provider": "anthropic-oauth",
+        "contextWindow": 200000,
+        "outputTokens": null,
+        "tier": "version",
+        "latest": true,
+        "releaseDate": null,
+        "reasoningOptions": [],
+        "pricingTiers": [],
+        "pricingModel": "claude-mystery-4-9",
+        "pricingProvider": "anthropic",
+        "reasoningContentField": null,
+        "mode": null
+      }
+    ],
+    "cacheFile": {
+      "version": 2,
+      "fetchedAt": 1794072365764,
+      "models": [
+        {
+          "id": "claude-opus-4-8",
+          "display": "Claude Opus 4.8",
+          "family": "opus",
+          "provider": "anthropic-oauth",
+          "contextWindow": 1000000,
+          "outputTokens": 128000,
+          "tier": "version",
+          "latest": true,
+          "releaseDate": null,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "thinkingTypes": {
+            "adaptive": true,
+            "enabled": false
+          },
+          "inputCostPerM": 15,
+          "outputCostPerM": 75,
+          "cacheReadCostPerM": 1.5,
+          "cacheWriteCostPerM": 18.75,
+          "pricingTiers": [],
+          "pricingModel": "claude-opus-4-8",
+          "pricingProvider": "anthropic",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "display": "Claude Sonnet 4.6",
+          "family": "sonnet",
+          "provider": "anthropic-oauth",
+          "contextWindow": 1000000,
+          "outputTokens": 64000,
+          "tier": "version",
+          "latest": true,
+          "releaseDate": null,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          ],
+          "thinkingTypes": {
+            "adaptive": true,
+            "enabled": true
+          },
+          "inputCostPerM": 3,
+          "outputCostPerM": 15,
+          "cacheReadCostPerM": 0.3,
+          "cacheWriteCostPerM": 3.75,
+          "pricingTiers": [],
+          "pricingModel": "claude-sonnet-4-6",
+          "pricingProvider": "anthropic",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-haiku-4-5-20251001",
+          "display": "Claude Haiku 4.5",
+          "family": "haiku",
+          "provider": "anthropic-oauth",
+          "contextWindow": 200000,
+          "outputTokens": 64000,
+          "tier": "dated",
+          "latest": false,
+          "releaseDate": "2025-10-01",
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "thinkingTypes": {
+            "enabled": true
+          },
+          "inputCostPerM": 1,
+          "outputCostPerM": 5,
+          "cacheReadCostPerM": 0.1,
+          "cacheWriteCostPerM": 1.25,
+          "pricingTiers": [],
+          "pricingModel": "claude-haiku-4-5-20251001",
+          "pricingProvider": "anthropic",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-mystery-4-9",
+          "display": "Claude Mystery 4.9",
+          "family": "mystery",
+          "provider": "anthropic-oauth",
+          "contextWindow": 200000,
+          "outputTokens": null,
+          "tier": "version",
+          "latest": true,
+          "releaseDate": null,
+          "reasoningOptions": [],
+          "pricingTiers": [],
+          "pricingModel": "claude-mystery-4-9",
+          "pricingProvider": "anthropic",
+          "reasoningContentField": null,
+          "mode": null
+        }
+      ]
+    },
+    "routeStates": [
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8"
+        },
+        "state": {
+          "contextPercent": 50,
+          "contextDefaultPercent": 50,
+          "selectedContextWindow": 500000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6"
+        },
+        "state": {
+          "contextPercent": 50,
+          "contextDefaultPercent": 50,
+          "selectedContextWindow": 500000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-haiku-4-5-20251001"
+        },
+        "state": {
+          "contextPercent": 100,
+          "contextDefaultPercent": 100,
+          "selectedContextWindow": 200000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-sonnet-4-6-20260101"
+        },
+        "state": {
+          "contextPercent": 50,
+          "contextDefaultPercent": 50,
+          "selectedContextWindow": 500000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-mystery-4-9"
+        },
+        "state": {
+          "contextPercent": 100,
+          "contextDefaultPercent": 100,
+          "selectedContextWindow": 200000
+        }
+      },
+      {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-missing"
+        },
+        "state": {}
+      },
+      {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5.5"
+        },
+        "state": {}
+      }
+    ],
+    "hits": 1
+  }
+}

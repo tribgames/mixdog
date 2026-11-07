@@ -1248,6 +1248,20 @@ pub struct ModelRecord {
     pub wire: Option<WireIds>,
     /// The provider's record verbatim (service tiers, upgrade notes, …).
     pub raw: Option<JsonValue>,
+    /// What the catalog lookup made of this row (`enrichModels`), for the roster row a provider persists.
+    pub enriched: EnrichedRow,
+}
+
+/// The catalog lookup's output row for a listed model, kept so a persisted roster row carries the keys no typed field
+/// holds (the pricing provenance, the function-calling flag, an explicit `null` where the catalog knows the model).
+/// It is derived from the record, so it takes no part in comparing records.
+#[derive(Clone, Default, Debug)]
+pub struct EnrichedRow(pub Option<serde_json::Map<String, JsonValue>>);
+
+impl PartialEq for EnrichedRow {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
 }
 
 impl ModelRecord {
@@ -1284,6 +1298,7 @@ impl ModelRecord {
             reasoning_content_field: None,
             wire: None,
             raw: None,
+            enriched: EnrichedRow::default(),
         }
     }
 }

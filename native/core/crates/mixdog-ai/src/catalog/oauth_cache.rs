@@ -11,14 +11,15 @@
 //! - Not ported: `_refreshModelCache` (an internal forced refetch that skips the read; nothing in Rust asks for it)
 //!   and the in-memory mirror (`_setInMemoryCatalog`), which the resident catalog replaces.
 //!
-//! The rows are Node's cache rows (the normalizer's fields beside the enrichment's), so the typed listing
-//! record is written as such a row and read back from one; fields the record cannot hold (the pricing
-//! provenance, guessed flags) are the catalog layers' to supply when the rows are read.
+//! The rows are Node's cache rows (the normalizer's fields beside the enrichment's), so the typed listing record is
+//! written as such a row and read back from one. What no typed field holds (the pricing provenance, the
+//! function-calling flag) travels in `ModelRecord::enriched`, the catalog lookup's output row. The recorded Node file
+//! (`native/core/fixtures/oauth-model-cache`) is read and written back unchanged by the tests.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mixdog_core_api::domain::provider::{ModelRecord, ReasoningOption};
+use mixdog_core_api::domain::provider::{EnrichedRow, ModelRecord, ReasoningOption};
 use mixdog_rt::LaneToken;
 use serde_json::{Map, Value, json};
 
@@ -96,37 +97,31 @@ fn family_of(id: &str) -> String {
     if letters.is_empty() { "other".to_owned() } else { letters.to_lowercase() }
 }
 
-/// The Node cache row of a listed record (`provider` is `anthropic`: `normalizeAndSaveCatalog` normalizes with
-/// the default provider for both routes).
+/// The keys of Node's cache row that no typed field of the record holds: the catalog lookup's output carries them
+/// (`ModelRecord::enriched`), present for a model the catalog knows and absent for one it does not.
+const ENRICHED_KEYS: [&str; 7] = ["pricingTiers", "pricingModel", "pricingProvider", "pricingSource", "supportsFunctionCalling", "reasoningContentField", "mode"];
+
+/// A number as JavaScript writes it: an integral value has no fraction.
+fn number(value: f64) -> Value {
+    if value.fract() == 0.0 && value.abs() < 1e15 { json!(value as i64) } else { json!(value) }
+}
+
+/// The Node cache row of a listed record, keys in the order `_normalizeAnthropicModel` and `enrichModels` leave them
+/// (the provider is `anthropic-oauth`: this is the OAuth route's file).
 fn row_of_record(record: &ModelRecord) -> Value {
+    let extra = |key: &str| record.enriched.0.as_ref().and_then(|row| row.get(key)).cloned();
     let mut row = Map::new();
     row.insert("id".into(), json!(record.id));
     row.insert("display".into(), json!(record.display_name.clone().or_else(|| record.name.clone()).unwrap_or_else(|| record.id.clone())));
     row.insert("family".into(), json!(family_of(&record.id)));
-    row.insert("provider".into(), json!("anthropic"));
-    if let Some(v) = record.context_window {
-        row.insert("contextWindow".into(), json!(v));
-    }
-    if let Some(v) = record.max_context_window {
-        row.insert("maxContextWindow".into(), json!(v));
-    }
-    if let Some(v) = record.runtime_context_window {
-        row.insert("runtimeContextWindow".into(), json!(v));
-    }
+    row.insert("provider".into(), json!("anthropic-oauth"));
+    row.insert("contextWindow".into(), json!(record.context_window));
     row.insert("outputTokens".into(), json!(record.max_output_tokens));
-    if let Some(tier) = &record.picker.tier {
-        row.insert("tier".into(), json!(tier));
-    }
+    row.insert("tier".into(), json!(record.picker.tier));
     row.insert("latest".into(), json!(record.picker.latest));
-    if let Some(date) = &record.picker.release_date {
-        row.insert("releaseDate".into(), json!(date));
-    }
-    if let Some(v) = record.supports_reasoning {
-        row.insert("supportsReasoning".into(), json!(v));
-    }
-    if record.efforts_stated || !record.picker.reasoning_options.is_empty() {
-        row.insert("reasoningOptions".into(), json!(record.picker.reasoning_options));
-    }
+    row.insert("releaseDate".into(), json!(record.picker.release_date));
+    row.insert("supportsReasoning".into(), json!(record.supports_reasoning.unwrap_or(false)));
+    row.insert("reasoningOptions".into(), json!(record.picker.reasoning_options));
     let mut thinking = Map::new();
     if let Some(v) = record.thinking_adaptive {
         thinking.insert("adaptive".into(), json!(v));
@@ -144,23 +139,28 @@ fn row_of_record(record: &ModelRecord) -> Value {
         ("cacheWriteCostPerM", record.cache_write_cost_per_m),
     ] {
         if let Some(v) = value.filter(|v| v.is_finite()) {
-            row.insert(key.into(), json!(v));
+            row.insert(key.into(), number(v));
+        }
+    }
+    for key in ["pricingTiers", "pricingModel", "pricingProvider", "pricingSource"] {
+        if let Some(v) = extra(key) {
+            row.insert(key.into(), v);
         }
     }
     if let Some(v) = record.supports_images {
         row.insert("supportsVision".into(), json!(v));
     }
+    if let Some(v) = extra("supportsFunctionCalling") {
+        row.insert("supportsFunctionCalling".into(), v);
+    }
     if let Some(v) = record.supports_prompt_caching {
         row.insert("supportsPromptCaching".into(), json!(v));
     }
-    if let Some(v) = &record.mode {
-        row.insert("mode".into(), json!(v));
+    if let Some(v) = record.reasoning_content_field.as_ref().map(|v| json!(v)).or_else(|| extra("reasoningContentField")) {
+        row.insert("reasoningContentField".into(), v);
     }
-    if let Some(v) = record.created {
-        row.insert("created".into(), json!(v));
-    }
-    if let Some(v) = &record.reasoning_content_field {
-        row.insert("reasoningContentField".into(), json!(v));
+    if let Some(v) = record.mode.as_ref().map(|v| json!(v)).or_else(|| extra("mode")) {
+        row.insert("mode".into(), v);
     }
     Value::Object(row)
 }
@@ -178,10 +178,7 @@ fn record_of_row(row: &Value) -> Option<ModelRecord> {
     let id = row.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())?;
     let mut record = ModelRecord::new(id);
     record.display_name = row.get("display").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
-    record.name = row.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
     record.context_window = positive(row.get("contextWindow"));
-    record.max_context_window = positive(row.get("maxContextWindow"));
-    record.runtime_context_window = positive(row.get("runtimeContextWindow"));
     record.max_output_tokens = positive(row.get("outputTokens"));
     record.input_cost_per_m = finite(row.get("inputCostPerM"));
     record.output_cost_per_m = finite(row.get("outputCostPerM"));
@@ -202,11 +199,11 @@ fn record_of_row(row: &Value) -> Option<ModelRecord> {
     record.thinking_adaptive = thinking.and_then(|t| t.get("adaptive")).and_then(Value::as_bool);
     record.thinking_enabled = thinking.and_then(|t| t.get("enabled")).and_then(Value::as_bool);
     record.mode = row.get("mode").and_then(Value::as_str).map(str::to_owned);
-    record.created = row.get("created").and_then(Value::as_i64);
     record.reasoning_content_field = row.get("reasoningContentField").and_then(Value::as_str).map(str::to_owned);
+    let extra: Map<String, Value> = ENRICHED_KEYS.iter().filter_map(|key| row.get(*key).map(|v| ((*key).to_owned(), v.clone()))).collect();
+    record.enriched = EnrichedRow(Some(extra));
     Some(record)
 }
-
 #[cfg(test)]
 #[path = "oauth_cache_tests.rs"]
 mod tests;

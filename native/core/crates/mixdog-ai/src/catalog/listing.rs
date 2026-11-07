@@ -14,6 +14,7 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use mixdog_core_api::domain::provider::EnrichedRow;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ReasoningOption;
 use serde_json::Value;
@@ -217,6 +218,7 @@ pub fn enrich_listed(lookup: &Lookup<'_>, provider: &str, rows: Vec<ModelRecord>
             if let Some(mode) = out.get("mode").and_then(Value::as_str).filter(|s| !s.is_empty()) {
                 record.mode = Some(mode.to_owned());
             }
+            record.enriched = EnrichedRow(out.as_object().cloned());
             record
         })
         .collect()
