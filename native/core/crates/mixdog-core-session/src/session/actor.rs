@@ -147,6 +147,11 @@ mod turn_ops;
 const PROVIDER_STATE: &str = "providerState";
 /// What the desktop host throws when the runtime refuses a rename (`session-host-lifecycle.ts:228`).
 const SESSION_NOT_AVAILABLE: &str = "Session is not available.";
+/// What the desktop host throws for a title that is empty once normalized (`session-host-lifecycle.ts:226`).
+const SESSION_TITLE_INVALID: &str = "Session title is invalid.";
+/// What Node's IPC and remote methods threw for a title `sessionDisplayName` refuses (`ipc-validation.ts:1043`); with the
+/// Node host gone the core is the first place a phone's rename is checked.
+const TITLE_INVALID: &str = "title is invalid.";
 
 /// How long a thread nobody ever watched may sit quiet before it unloads (`idleEvictMs` of
 /// `session-service.mjs`: `MIXDOG_SESSION_IDLE_EVICT_MS`, default 5 minutes).
@@ -3905,13 +3910,22 @@ impl SessionActor {
         // `updateSessionManualTitle` (`session-crud.mjs:103-115`) writes nothing and answers `false` for a closed session, a
         // title that is empty once normalized, and the title the user already gave; the desktop host turns that `false` into
         // `Session is not available.` (`session-host-lifecycle.ts:228`), the text the window shows.
+        let refuse = |text: &str| CoreError::DomainError { domain: "thread".into(), code: None, message: Some(text.into()), detail: None };
+        // The checks in the order Node ran them: `sessionDisplayName` (IPC / remote method), then the host's, then the runtime's.
+        let shown = mixdog_js::js_trim(&params.title);
+        if shown.is_empty() || shown.encode_utf16().count() > 1_024 || shown.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}') {
+            return Err(refuse(TITLE_INVALID));
+        }
         let title = super::session_title::normalize_title(&params.title);
+        if title.is_empty() {
+            return Err(refuse(SESSION_TITLE_INVALID));
+        }
         let header = &self.projected.header;
         let user_titled = header.get("title").and_then(Value::as_str) == Some(title.as_str())
             && header.get("titleLocked") == Some(&Value::Bool(true))
             && header.get("titleSource").and_then(Value::as_str) == Some("user");
-        if header.get("closed") == Some(&Value::Bool(true)) || title.is_empty() || user_titled {
-            return Err(CoreError::DomainError { domain: "thread".into(), code: None, message: Some(SESSION_NOT_AVAILABLE.into()), detail: None });
+        if header.get("closed") == Some(&Value::Bool(true)) || user_titled {
+            return Err(refuse(SESSION_NOT_AVAILABLE));
         }
         let value = json!({});
         let mut set = serde_json::Map::new();

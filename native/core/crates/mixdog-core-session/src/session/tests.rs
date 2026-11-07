@@ -3567,6 +3567,17 @@ async fn a_rename_is_refused_and_leaves_the_session_as_nodes_runtime_does() {
         let op = format!("op-rename-{index}");
         let answer = handle.request(request("thread/name/set", json!({ "threadId": handle.id, "opId": op, "title": case["title"] }), &op)).await;
         let after = handle.live_header().header();
+        // The IPC and remote edge of Node (`sessionDisplayName`) is the core's now: a title it refuses never reaches the host's
+        // or the runtime's rule, and the twin's `runtime`/`desktop` answers for it (recorded without that edge) do not apply.
+        let title = case["title"].as_str().unwrap();
+        let shown = title.trim();
+        if shown.is_empty() || shown.encode_utf16().count() > 1_024 || shown.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}') {
+            refused += 1;
+            let Err(CoreError::DomainError { message: Some(message), code: None, .. }) = &answer else { panic!("{label}: got {answer:?}") };
+            assert_eq!(message.as_str(), "title is invalid.", "{label}");
+            assert_eq!(after, before, "{label}: a refused rename writes nothing");
+            continue;
+        }
         let node = &case["runtime"];
         match (answer, node["returned"].as_bool().unwrap()) {
             (Ok(_), true) => {

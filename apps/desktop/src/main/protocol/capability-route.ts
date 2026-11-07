@@ -19,9 +19,17 @@ import type {
   SessionSnapshot,
 } from '../../shared/contract';
 import { normalizeSessionTitle } from '../../shared/session-title.mjs';
-import { sessionIdOf } from '../session-host-transport';
+import { isSessionId } from '../desktop-state';
 import type { ProtocolConnection } from './connection';
 import { coreErrorForWindow } from './core-error';
+
+/** `sessionIdOf` of the Node transport (`session-host-transport.ts`), which this file cannot import: that module has a
+ *  TypeScript parameter property, and the harness loads this one with Node's strip-only mode. */
+const sessionIdOf = (value: unknown): string => {
+  const id = String(value || '');
+  if (!isSessionId(id)) throw new TypeError('session id is invalid.');
+  return id;
+};
 
 export interface CapabilityRoute {
   method: string;
@@ -98,54 +106,29 @@ export interface CapabilityLane {
   read(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
   /** `SessionHostLifecycle.renameSession` on a core connection: the host's own checks, then `thread/name/set`. */
   renameSession(sessionId: string, title: string): Promise<void>;
-  /** The session metadata the core keeps on the thread (spec-v2 SPEC.md R-meta, protocol.md §12.3):
-   *  `thread/metadata/update {threadId, favorite | projectPath}`, today's `setSessionFavorite`/`setSessionProject`. */
-  updateThreadMetadata(sessionId: string, patch: { favorite?: boolean; projectPath?: string }): Promise<void>;
-  /** `thread/archive` / `thread/unarchive` of one thread (today's `setSessionArchived`). */
-  setThreadArchived(sessionId: string, archived: boolean): Promise<void>;
-  /** The request of a capability alone (no state read for a reply): what the host's own actions need. */
-  perform(capability: string, args: readonly unknown[], sessionId: string | undefined): Promise<unknown>;
+  /** The DesktopService session methods a core connection serves itself (there is no Node host: protocol.md §12.3).
+   *  `setSessionFavorite`/`setSessionProject` are `thread/metadata/update` (the metadata lives on the thread, SPEC.md metadata
+   *  row), `setSessionArchived` is `thread/archive`/`thread/unarchive` (the core cascades over sub-agent sessions). */
+  setSessionFavorite(sessionId: string, favorite: boolean): Promise<void>;
+  setSessionProject(sessionId: string, projectPath: string): Promise<void>;
+  setSessionArchived(sessionId: string, archived: boolean): Promise<void>;
+  /** `thread/delete`. A session the core does not have is a no-op, as in Node (`deleteSessionLocked`: deleting a missing session is
+   *  never an error surfaced to the UI); the harness case `deleteSession-missing` records Node ok / Rust `threadNotFound`. */
+  deleteSession(sessionId: string): Promise<void>;
+  /** `thread/backgroundTerminals/terminate` | `release`, answered as the host did: a failed call is `{stopped|released: false, error}`. */
+  stopShellJob(sessionId: string, taskId: string): Promise<ShellJobResult>;
+  releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }>;
+  /** The config key `quotaAutoResume` (desktop-services.md A2/D1): read from the `config` section, written with
+   *  `config/value/write`; on unless it is `false`. */
+  getQuotaAutoResume(): Promise<boolean>;
+  setQuotaAutoResume(enabled: boolean): Promise<boolean>;
 }
 
-/** The actions `SessionHost` composes itself (`invokeSession`/`invokeControl`) that a core connection serves through the
- *  lane: the same action names and positional arguments as the renderer's capabilities, whose Rust op exists and whose
- *  reply no host caller reads in a way the core's reply cannot serve (`session-host-lifecycle.ts`): the unread ones
- *  (`setWorkflow`, `setOrchestrationMode`, `setArchivedSessionWorktrees`, `purgeAgentDefinition`) and the ones whose Rust
- *  reply has Node's shape (`deleteSession`: boolean; `stopShellJob`/`releaseShellJob`: `{stopped|released, error?, ...}`;
- *  `setFast`: only the state read after it). The others stay on the Node transport, with the reply their callers read. */
-export const CORE_HOST_ACTIONS: ReadonlySet<string> = new Set([
-  'deleteSession',
-  'stopShellJob',
-  'releaseShellJob',
-  'setFast',
-  'setWorkflow',
-  'setOrchestrationMode',
-  'setArchivedSessionWorktrees',
-  'purgeAgentDefinition',
-]);
-
-/** `SessionHost`'s `invokeSession` on a connection with a lane: a converted action goes to the core and answers as the Node
- *  transport does (`value`, `snapshot` of the session); anything else is `node()`. */
-export async function hostSessionAction<R extends { value: unknown; snapshot: SessionSnapshot; result: Record<string, unknown> }>(
-  lane: CapabilityLane | undefined,
-  sessionId: string,
-  method: string,
-  args: unknown[],
-  node: () => Promise<R>
-): Promise<R | { value: unknown; snapshot: SessionSnapshot; result: Record<string, unknown> }> {
-  if (!lane || !CORE_HOST_ACTIONS.has(method)) return node();
-  const { value, snapshot } = await lane.invoke(method as DesktopCapability, args, sessionId);
-  return { value, snapshot, result: {} };
-}
-
-/** `SessionHost`'s `invokeControl` on a connection with a lane: a converted action goes to the core and answers its value. */
-export function hostControlAction(
-  lane: CapabilityLane | undefined,
-  method: string,
-  args: unknown[],
-  node: () => Promise<unknown>
-): Promise<unknown> {
-  return lane && CORE_HOST_ACTIONS.has(method) ? lane.perform(method, args, undefined) : node();
+export interface ShellJobResult {
+  stopped: boolean;
+  unconfirmed?: boolean;
+  finished?: boolean;
+  error?: string;
 }
 
 /** The converted capabilities whose op needs a `threadId`. Node serves them from its control session when the call has
@@ -258,12 +241,66 @@ export function createCapabilityLane({
       const value = (await send(capability, args, sessionId)) as T;
       return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
     },
-    perform: (capability, args, sessionId) => send(capability, args, sessionId),
-    async updateThreadMetadata(sessionId, patch) {
-      await request('thread/metadata/update', { threadId: sessionId, ...patch });
+    async setSessionFavorite(sessionId, favorite) {
+      await request('thread/metadata/update', { threadId: sessionIdOf(sessionId), favorite });
     },
-    async setThreadArchived(sessionId, archived) {
-      await request(archived ? 'thread/archive' : 'thread/unarchive', { threadId: sessionId });
+    async setSessionProject(sessionId, projectPath) {
+      await request('thread/metadata/update', { threadId: sessionIdOf(sessionId), projectPath });
+    },
+    async setSessionArchived(sessionId, archived) {
+      await request(archived ? 'thread/archive' : 'thread/unarchive', { threadId: sessionIdOf(sessionId) });
+    },
+    async deleteSession(sessionId) {
+      try {
+        await request('thread/delete', { threadId: sessionIdOf(sessionId) });
+      } catch (error) {
+        const detail = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
+        if (detail?.kind === 'rpc' && detail.data?.reason === 'threadNotFound') return;
+        throw error;
+      }
+    },
+    async stopShellJob(sessionId, taskId) {
+      const id = sessionIdOf(sessionId);
+      try {
+        const result = ((await send('stopShellJob', [taskId], id)) ?? {}) as {
+          stopped?: unknown;
+          unconfirmed?: unknown;
+          finished?: unknown;
+          error?: unknown;
+        };
+        if (result.stopped === true) return { stopped: true };
+        return {
+          stopped: false,
+          ...(result.unconfirmed === true ? { unconfirmed: true } : {}),
+          ...(result.finished === true ? { finished: true } : {}),
+          error: typeof result.error === 'string' && result.error ? result.error : 'The job was not stopped.',
+        };
+      } catch (error) {
+        return { stopped: false, error: failureMessage(error) };
+      }
+    },
+    async releaseShellJob(sessionId, taskId) {
+      const id = sessionIdOf(sessionId);
+      try {
+        const result = ((await send('releaseShellJob', [taskId], id)) ?? {}) as { released?: unknown; error?: unknown };
+        if (result.released === true) return { released: true };
+        return {
+          released: false,
+          error: typeof result.error === 'string' && result.error ? result.error : 'The job was not released.',
+        };
+      } catch (error) {
+        return { released: false, error: failureMessage(error) };
+      }
+    },
+    async getQuotaAutoResume() {
+      const config = protocol.snapshot().entries.find((entry) => entry.section === 'config')?.value as
+        | { quotaAutoResume?: unknown }
+        | undefined;
+      return config?.quotaAutoResume !== false;
+    },
+    async setQuotaAutoResume(enabled) {
+      await request('config/value/write', { path: 'quotaAutoResume', value: enabled });
+      return enabled;
     },
     // Node's host throws `TypeError('Session title is invalid.')` for a title that is empty once normalized, before the
     // runtime is reached; the core cannot tell that case from a refusal ("Session is not available.", the runtime's `false`,

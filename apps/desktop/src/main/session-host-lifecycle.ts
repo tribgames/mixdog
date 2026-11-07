@@ -41,7 +41,6 @@ import { isSessionMissingError } from './session-final-answer';
 import { reportTranscriptRead, transcriptReadTraceId } from '../shared/transcript-read-diagnostics';
 import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
-import type { CapabilityLane } from './protocol/capability-route';
 import { copyCapabilityValue, normalizedProviderModels } from './desktop-support';
 import type { DesktopSessionMetadata } from './desktop-session-metadata';
 import type { SessionRetentionState } from './session-auto-retention';
@@ -67,8 +66,6 @@ export interface SessionHostLifecycleOwner {
   /** Take a deleted agent out of every room's members. */
   forgetRoomMember(agentId: string): Promise<void>;
   readonly client: SessionClient;
-  /** Set on a core connection: renames go to the core (`thread/name/set`) instead of the Node runtime. */
-  readonly coreLane?: Pick<CapabilityLane, 'renameSession' | 'updateThreadMetadata' | 'setThreadArchived'>;
   readonly publication: SessionHostPublication;
   readonly sessionViews: SessionViewRegistry;
   readonly visibleSessionIds: Set<string>;
@@ -227,10 +224,7 @@ export class SessionHostLifecycle {
     const id = sessionIdOf(sessionId);
     const normalized = normalizeSessionTitle(title, '');
     if (!normalized) throw new TypeError('Session title is invalid.');
-    if (this.owner.coreLane) {
-      // The core refuses with the same text ("Session is not available.") as a code-less `domainError`.
-      await this.owner.coreLane.renameSession(id, normalized);
-    } else if ((await this.owner.invokeControl('renameSessionTitle', [id, normalized])) !== true) {
+    if ((await this.owner.invokeControl('renameSessionTitle', [id, normalized])) !== true) {
       throw new Error('Session is not available.');
     }
     await this.owner.sessionMetadata.setName(id, normalized);
@@ -311,13 +305,6 @@ export class SessionHostLifecycle {
 
   async setSessionFavorite(sessionId: string, favorite: boolean): Promise<void> {
     const id = sessionIdOf(sessionId);
-    const lane = this.owner.coreLane;
-    if (lane) {
-      // Session metadata lives on the thread in the core (spec-v2 SPEC.md "desktop-session-metadata.json" row,
-      // protocol.md §12.3 `setSessionFavorite` → `thread/metadata/update{favorite}`); the host keeps no copy.
-      await this.sessionLocks.run(id, () => lane.updateThreadMetadata(id, { favorite }));
-      return;
-    }
     await this.sessionLocks.run(id, async () => {
       await this.owner.sessionMetadata.load();
       if (!(await this.owner.sessionMetadata.setFavorite(id, favorite))) return;
@@ -345,11 +332,6 @@ export class SessionHostLifecycle {
       );
     }
     const cwd = target ? await this.owner.canonicalDirectory(target) : await this.owner.taskWorkspace();
-    if (this.owner.coreLane) {
-      // protocol.md §12.3: `setSessionProject` → `thread/metadata/update{project}`; the core pushes the summary.
-      await this.owner.coreLane.updateThreadMetadata(id, { projectPath: cwd });
-      return;
-    }
     await this.owner.invokeSession(id, 'setCwd', [cwd]);
     await this.owner.publishCatalogs();
   }
@@ -489,12 +471,6 @@ export class SessionHostLifecycle {
   }
 
   private async setSessionArchivedLocked(id: string, archived: boolean, cascade: boolean): Promise<void> {
-    if (!cascade && this.owner.coreLane) {
-      // `thread/archive` / `thread/unarchive` (protocol.md §12.3 `setSessionArchived`) of this one thread: what
-      // `archiveSessionAlone` asks. The cascade over sub-agent sessions is not confirmed in the core (still Node's).
-      await this.owner.coreLane.setThreadArchived(id, archived);
-      return;
-    }
     await this.owner.sessionMetadata.load();
     if (cascade && !this.owner.sessionCatalogLoaded()) await this.owner.listSessions();
     const descendants = cascade ? agentDescendantIds(this.owner.storedSessionRows(), id) : [];
@@ -520,11 +496,7 @@ export class SessionHostLifecycle {
   /** A session the daemon's store deleted on its own (sub-agent retention):
    *  its sidebar records go, as an explicit delete's do. */
   async forgetSessionMetadata(sessionId: string): Promise<void> {
-    const id = sessionIdOf(sessionId);
-    // Nothing to forget on a core connection: the metadata is part of the thread's own log (SPEC.md metadata row:
-    // per-session `meta{...}` records), which the core's `thread/delete` removes with the thread.
-    if (this.owner.coreLane) return;
-    await this.owner.sessionMetadata.forget(id);
+    await this.owner.sessionMetadata.forget(sessionIdOf(sessionId));
     await this.republishSessionCatalog();
   }
 

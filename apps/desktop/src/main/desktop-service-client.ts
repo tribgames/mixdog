@@ -907,18 +907,26 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('cancelQuotaResume', [sessionId]);
   }
   stopShellJob(sessionId: string, taskId: string): Promise<DesktopShellStopResult> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.stopShellJob(sessionId, taskId);
     return this.invoke('stopShellJob', [sessionId, taskId]);
   }
   releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.releaseShellJob(sessionId, taskId);
     return this.invoke('releaseShellJob', [sessionId, taskId]);
   }
   getQuotaAutoResume(): Promise<boolean> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.getQuotaAutoResume();
     return this.invoke('getQuotaAutoResume', []);
   }
   getTaskWorkspace(): Promise<string> {
     return this.invoke('getTaskWorkspace', []);
   }
   setQuotaAutoResume(enabled: boolean): Promise<boolean> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.setQuotaAutoResume(enabled);
     return this.invoke('setQuotaAutoResume', [enabled]);
   }
   readAttachmentImage(attachmentRef: string, maxBytes?: number): Promise<string | null> {
@@ -942,14 +950,20 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt], signal);
   }
   setSessionFavorite(sessionId: string, favorite: boolean): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.setSessionFavorite(sessionId, favorite);
     return this.invoke('setSessionFavorite', [sessionId, favorite]);
   }
 
   setSessionProject(sessionId: string, projectPath: string): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.setSessionProject(sessionId, projectPath);
     return this.invoke('setSessionProject', [sessionId, projectPath]);
   }
 
   setSessionArchived(sessionId: string, archived: boolean): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.setSessionArchived(sessionId, archived);
     return this.invoke('setSessionArchived', [sessionId, archived]);
   }
   openAgentHome(agentId: string): Promise<{ sessionId: string }> {
@@ -968,6 +982,8 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('agentRoomAction', [action, args]);
   }
   deleteSession(sessionId: string): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.deleteSession(sessionId);
     return this.invoke('deleteSession', [sessionId]);
   }
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
