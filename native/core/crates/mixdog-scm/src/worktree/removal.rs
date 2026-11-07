@@ -649,15 +649,22 @@ impl Worktrees {
     /// stamp, the folder's own stamp, the branch tip and the merge target's tip.
     pub(crate) async fn checkout_token(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<String, ScmFailure> {
         let (cwd, path) = (repo_cwd(record), PathBuf::from(&record.path));
-        let (code, paths, _) = self.git_try(cancel, &path, &["rev-parse", "HEAD", "--git-path", "index"]).await?;
-        let tip = match &record.branch {
-            Some(branch) => self.branch_commit(&cwd, branch, cancel).await?,
-            None => None,
-        };
-        let target = match &record.merge_target {
-            Some(branch) => self.branch_commit(&cwd, branch, cancel).await?,
-            None => None,
-        };
+        // The three reads run together (Node `checkoutToken`).
+        let ((code, paths, _), tip, target) = tokio::try_join!(
+            self.git_try(cancel, &path, &["rev-parse", "HEAD", "--git-path", "index"]),
+            async {
+                match &record.branch {
+                    Some(branch) => self.branch_commit(&cwd, branch, cancel).await,
+                    None => Ok(None),
+                }
+            },
+            async {
+                match &record.merge_target {
+                    Some(branch) => self.branch_commit(&cwd, branch, cancel).await,
+                    None => Ok(None),
+                }
+            },
+        )?;
         let mut lines = paths.lines();
         let head = lines.next().unwrap_or("").trim().to_owned();
         let index = lines.next().unwrap_or("").trim().to_owned();
