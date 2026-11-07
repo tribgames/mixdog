@@ -271,6 +271,7 @@ async fn one_transcription_starts_the_children_node_recorded_with_the_same_argum
         let manifest = RuntimeManifest {
             version: version.to_owned(),
             variants: vec![("vulkan".into(), format!("Release/whisper-cli{ext}"))],
+            model_key: "standard".into(),
             model_id: "standard".into(),
             model_filename: model.to_owned(),
             model_size: 5,

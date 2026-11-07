@@ -449,6 +449,7 @@ pub(crate) mod tests {
         RuntimeManifest {
             version: "1.10.1".into(),
             variants: vec![("vulkan".into(), "Release/whisper-cli".into())],
+            model_key: "standard".into(),
             model_id: "standard".into(),
             model_filename: "ggml.bin".into(),
             model_size: 5,

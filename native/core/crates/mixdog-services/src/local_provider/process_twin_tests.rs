@@ -93,25 +93,16 @@ fn without_checked_at(mut hardware: Value) -> Value {
     hardware
 }
 
-/// Node's expected status with the platform and architecture spelled as Rust spells them.
-fn spelled(mut status: Value) -> Value {
-    for (key, map) in [("platform", rust_os as fn(&str) -> &str), ("arch", rust_arch)] {
-        let spelled = map(status[key].as_str().unwrap()).to_owned();
-        status[key] = json!(spelled);
-    }
-    status
-}
-
 #[tokio::test]
 async fn the_probe_reports_what_node_reports() {
     let mut differences = Differences::default();
     for case in twin()["probe"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let probe = HardwareProbe::new(rust_os(case["platform"].as_str().unwrap()), rust_arch(case["arch"].as_str().unwrap()), None, Processes::for_tests());
-        differences.check(&format!("{name} (before)"), &without_checked_at(probe.status().to_json()), &spelled(case["initial"].clone()));
+        differences.check(&format!("{name} (before)"), &without_checked_at(probe.status().to_json()), &case["initial"]);
         let answer = query_of(case);
         let status = probe.refresh(!name.starts_with("first unforced"), || async move { answer }).await;
-        differences.check(name, &without_checked_at(status.to_json()), &spelled(case["status"].clone()));
+        differences.check(name, &without_checked_at(status.to_json()), &case["status"]);
     }
     differences.none();
 }

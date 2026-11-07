@@ -176,6 +176,8 @@ impl LocalProvider {
 
     /// Catalog, server and resumable installations: what the settings dialog polls.
     pub async fn status(&self) -> Result<Value, ProviderError> {
+        // Node's `localProviderHardwareStatus()` answers the last probe and starts the next one.
+        self.catalog.hardware.start_refresh();
         let mut status = self.catalog.status(Some(&self.platform_key)).await?;
         let installations = resumable_installations(&self.catalog, &status, self.installs.status()).await?;
         if let (Some(m), Value::Object(s)) = (status.as_object_mut(), self.server_status()) {

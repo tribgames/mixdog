@@ -290,7 +290,12 @@ async fn call(service: &LeadService, name: &str, step: &Value, n: u64) -> Result
     let method = method_of(name);
     let params = params_of(name, step);
     let req = if name.starts_with("get") { request(method, params, None) } else { request(method, with_op(params, n), Some(n)) };
-    value(service, req).await
+    let answer = value(service, req).await?;
+    // The twin records the editor's `getLeadStatus`; `exists` is added by the session route.
+    Ok(match (name, answer) {
+        ("getLeadStatus", Value::Object(status)) => Value::Object(status.into_iter().filter(|(key, _)| key != "exists").collect()),
+        (_, answer) => answer,
+    })
 }
 
 fn check_answer(at: &str, answer: &Result<Value, CoreError>, step: &Value, failures: &mut Vec<String>) {
@@ -426,4 +431,10 @@ async fn the_service_hands_node_the_arguments_as_sent() {
     send("agent/setLeadCreated", json!({ "created": true, "description": 7 }), 6).await.unwrap();
     let manifest: Value = serde_json::from_slice(&read(&lead.join("agent.json")).unwrap()).unwrap();
     assert_eq!(manifest, json!({ "created": true, "description": "7" }));
+
+    // The read adds `exists` (`created: false` is no); the mutation answers the bare status.
+    let created = send("agent/setLeadCreated", json!({ "created": false }), 7).await.unwrap();
+    assert_eq!(created.get("exists"), None);
+    let status = value(&service, request("agent/getLeadStatus", json!({}), None)).await.unwrap();
+    assert_eq!(status["exists"], json!(false));
 }
