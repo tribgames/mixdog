@@ -8598,5 +8598,201 @@
       },
       "message": "agent task stale (60000ms without stream/tool progress)"
     }
+  ],
+  "reaps": [
+    {
+      "name": "a_confirmed_kill_is_stopped",
+      "kill": "confirmed",
+      "askOffset": -5000,
+      "session": "sess_turn",
+      "jobs": [
+        {
+          "id": "old",
+          "startedOffset": -20000
+        },
+        {
+          "id": "mine-a",
+          "startedOffset": -3000
+        },
+        {
+          "id": "mine-b",
+          "startedOffset": -1000
+        },
+        {
+          "id": "mine-c",
+          "startedOffset": 0
+        },
+        {
+          "id": "theirs",
+          "startedOffset": -1000,
+          "session": "sess_other"
+        }
+      ],
+      "stopped": [
+        "mine-a",
+        "mine-b",
+        "mine-c"
+      ],
+      "stopping": [],
+      "cancelled": [
+        "mine-a",
+        "mine-b",
+        "mine-c"
+      ]
+    },
+    {
+      "name": "an_unconfirmed_kill_is_still_stopping",
+      "kill": "unconfirmed",
+      "askOffset": -5000,
+      "session": "sess_turn",
+      "jobs": [
+        {
+          "id": "old",
+          "startedOffset": -20000
+        },
+        {
+          "id": "mine-a",
+          "startedOffset": -3000
+        },
+        {
+          "id": "mine-b",
+          "startedOffset": -1000
+        },
+        {
+          "id": "mine-c",
+          "startedOffset": 0
+        },
+        {
+          "id": "theirs",
+          "startedOffset": -1000,
+          "session": "sess_other"
+        }
+      ],
+      "stopped": [],
+      "stopping": [
+        "mine-a",
+        "mine-b",
+        "mine-c"
+      ],
+      "cancelled": [
+        "mine-a",
+        "mine-b",
+        "mine-c"
+      ]
+    },
+    {
+      "name": "a_promoted_job_without_a_kill_outcome_is_stopped_once_gone",
+      "kill": "none",
+      "askOffset": -5000,
+      "session": "sess_turn",
+      "jobs": [
+        {
+          "id": "old",
+          "startedOffset": -20000
+        },
+        {
+          "id": "mine-a",
+          "startedOffset": -3000
+        },
+        {
+          "id": "mine-b",
+          "startedOffset": -1000
+        },
+        {
+          "id": "mine-c",
+          "startedOffset": 0
+        },
+        {
+          "id": "theirs",
+          "startedOffset": -1000,
+          "session": "sess_other"
+        }
+      ],
+      "stopped": [
+        "mine-a",
+        "mine-b",
+        "mine-c"
+      ],
+      "stopping": [],
+      "cancelled": [
+        "mine-a",
+        "mine-b",
+        "mine-c"
+      ]
+    },
+    {
+      "name": "a_turn_that_started_after_every_job_stops_none",
+      "kill": "confirmed",
+      "askOffset": 1000,
+      "session": "sess_turn",
+      "jobs": [
+        {
+          "id": "old",
+          "startedOffset": -20000
+        },
+        {
+          "id": "mine-a",
+          "startedOffset": -3000
+        },
+        {
+          "id": "mine-b",
+          "startedOffset": -1000
+        },
+        {
+          "id": "mine-c",
+          "startedOffset": 0
+        },
+        {
+          "id": "theirs",
+          "startedOffset": -1000,
+          "session": "sess_other"
+        }
+      ],
+      "stopped": [],
+      "stopping": [],
+      "cancelled": []
+    },
+    {
+      "name": "a_turn_that_started_before_every_job_stops_all_of_its_sessions",
+      "kill": "confirmed",
+      "askOffset": -100000,
+      "session": "sess_turn",
+      "jobs": [
+        {
+          "id": "old",
+          "startedOffset": -20000
+        },
+        {
+          "id": "mine-a",
+          "startedOffset": -3000
+        },
+        {
+          "id": "mine-b",
+          "startedOffset": -1000
+        },
+        {
+          "id": "mine-c",
+          "startedOffset": 0
+        },
+        {
+          "id": "theirs",
+          "startedOffset": -1000,
+          "session": "sess_other"
+        }
+      ],
+      "stopped": [
+        "old",
+        "mine-a",
+        "mine-b",
+        "mine-c"
+      ],
+      "stopping": [],
+      "cancelled": [
+        "old",
+        "mine-a",
+        "mine-b",
+        "mine-c"
+      ]
+    }
   ]
 }

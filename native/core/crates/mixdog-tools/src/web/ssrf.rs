@@ -21,6 +21,7 @@ use url::Host;
 use url::Url;
 
 use super::error::FetchError;
+use super::error::LookupFailure;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AddressPolicy {
@@ -56,21 +57,39 @@ fn v4_not_public(ip: Ipv4Addr) -> bool {
         || a >= 240
 }
 
-fn v6_not_public(ip: Ipv6Addr) -> bool {
+/// What Node's message calls a refused address: the address itself, or the IPv4 destination it
+/// carries (Node hands that one to the IPv4 rule, which names it).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Named {
+    Itself,
+    Embedded(Ipv4Addr),
+}
+
+/// `_validateIpv6` (`ssrf-guard.mjs`), in its order. The first rule reads the address's text, as
+/// Node does: a first group written `ff..`, `fc..`/`fd..` or `fe8..`-`feb..` matches whatever its
+/// leading zeros, so `fc::1` and `fe8::1` are refused as well as `fc00::1` and `fe80::1`.
+fn v6_refusal(ip: Ipv6Addr) -> Option<Named> {
     let h = ip.segments();
     let quad = |hi: u16, lo: u16| Ipv4Addr::new((hi >> 8) as u8, hi as u8, (lo >> 8) as u8, lo as u8);
+    let embedded = |hi: u16, lo: u16| {
+        let v4 = quad(hi, lo);
+        v4_not_public(v4).then_some(Named::Embedded(v4))
+    };
+    let first = format!("{:x}", h[0]);
+    let by_text = first.starts_with("ff")
+        || first.starts_with("fc")
+        || first.starts_with("fd")
+        || (first.starts_with("fe") && matches!(first.as_bytes().get(2), Some(b'8' | b'9' | b'a' | b'b')));
     // ::1, ::, multicast, unique-local, link-local.
-    if ip == Ipv6Addr::LOCALHOST
-        || ip == Ipv6Addr::UNSPECIFIED
-        || h[0] >> 8 == 0xff
-        || h[0] & 0xfe00 == 0xfc00
-        || h[0] & 0xffc0 == 0xfe80
-    {
-        return true;
+    if ip == Ipv6Addr::LOCALHOST || ip == Ipv6Addr::UNSPECIFIED || by_text {
+        return Some(Named::Itself);
     }
     // IPv4-mapped (::ffff:a.b.c.d) in either textual form.
-    if h[..5] == [0; 5] && h[5] == 0xffff {
-        return v4_not_public(quad(h[6], h[7]));
+    if h[..5] == [0; 5]
+        && h[5] == 0xffff
+        && let refused @ Some(_) = embedded(h[6], h[7])
+    {
+        return refused;
     }
     // Site-local, documentation, discard-only and local-use NAT64.
     if h[0] & 0xffc0 == 0xfec0
@@ -79,19 +98,37 @@ fn v6_not_public(ip: Ipv6Addr) -> bool {
         || (h[0] == 0x0100 && h[1] == 0 && h[2] == 0 && h[3] == 0)
         || (h[0] == 0x64 && h[1] == 0xff9b && h[2] == 1)
     {
-        return true;
+        return Some(Named::Itself);
     }
     // Forms that carry an IPv4 destination: IPv4-compatible, NAT64, 6to4.
-    if h[..6] == [0; 6] {
-        return v4_not_public(quad(h[6], h[7]));
+    if h[..6] == [0; 6]
+        && let refused @ Some(_) = embedded(h[6], h[7])
+    {
+        return refused;
     }
-    if h[0] == 0x64 && h[1] == 0xff9b && h[2..6] == [0; 4] {
-        return v4_not_public(quad(h[6], h[7]));
+    if h[0] == 0x64
+        && h[1] == 0xff9b
+        && h[2..6] == [0; 4]
+        && let refused @ Some(_) = embedded(h[6], h[7])
+    {
+        return refused;
     }
     if h[0] == 0x2002 {
-        return v4_not_public(quad(h[1], h[2]));
+        return embedded(h[1], h[2]);
     }
-    false
+    None
+}
+
+/// Whether the public-only rules refuse `ip`, and the address Node's message names (`itself` is
+/// how the caller writes the address).
+fn public_refusal(ip: IpAddr, itself: &str) -> Option<String> {
+    match ip {
+        IpAddr::V4(v4) => v4_not_public(v4).then(|| itself.to_owned()),
+        IpAddr::V6(v6) => v6_refusal(v6).map(|named| match named {
+            Named::Itself => itself.to_owned(),
+            Named::Embedded(v4) => v4.to_string(),
+        }),
+    }
 }
 
 impl AddressPolicy {
@@ -99,7 +136,7 @@ impl AddressPolicy {
         match self {
             Self::PublicOnly => match ip {
                 IpAddr::V4(v4) => !v4_not_public(v4),
-                IpAddr::V6(v6) => !v6_not_public(v6),
+                IpAddr::V6(v6) => v6_refusal(v6).is_none(),
             },
             Self::LoopbackOnly => ip.is_loopback(),
             #[cfg(test)]
@@ -125,12 +162,51 @@ impl AddressPolicy {
             return Err(FetchError::policy(message));
         }
         match url.host() {
-            Some(Host::Ipv4(ip)) if !self.allows(IpAddr::V4(ip)) => Err(self.blocked(&host_text)),
-            Some(Host::Ipv6(ip)) if !self.allows(IpAddr::V6(ip)) => Err(self.blocked(&host_text)),
+            Some(Host::Ipv4(ip)) => self.refuse_literal(IpAddr::V4(ip), &host_text),
+            Some(Host::Ipv6(ip)) => self.refuse_literal(IpAddr::V6(ip), &host_text),
             Some(Host::Domain(name)) if self.domain_blocked(name) => Err(self.blocked(&host_text)),
             Some(_) => Ok(()),
             None => Err(FetchError::policy("Blocked URL without host")),
         }
+    }
+
+    /// An address written in the URL. Under the public rules Node names the address an IPv6 form
+    /// carries inside it, not the form.
+    fn refuse_literal(self, ip: IpAddr, host_text: &str) -> Result<(), FetchError> {
+        match self {
+            Self::PublicOnly => match public_refusal(ip, host_text) {
+                Some(named) => Err(blocked_private(&named)),
+                None => Ok(()),
+            },
+            _ if self.allows(ip) => Ok(()),
+            _ => Err(self.blocked(host_text)),
+        }
+    }
+
+    /// An address a name resolved to (`resolveAndValidate`): Node names the address itself.
+    fn refuse_resolved(self, ip: IpAddr, host: &str) -> Result<(), FetchError> {
+        match self {
+            Self::PublicOnly => match public_refusal(ip, &ip.to_string()) {
+                Some(named) => Err(blocked_private(&named)),
+                None => Ok(()),
+            },
+            Self::LoopbackOnly if !ip.is_loopback() => {
+                Err(FetchError::policy(format!("Blocked non-loopback local_fetch resolution: {host}")))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Every address a name resolved to must pass, in the order given, so a DNS answer cannot
+    /// smuggle a private address behind a public one; an empty answer is a block of its own.
+    pub(super) fn validate_resolved(self, host: &str, ips: &[IpAddr]) -> Result<Vec<SocketAddr>, FetchError> {
+        if ips.is_empty() {
+            return Err(FetchError::policy(format!("DNS returned no addresses for {host}")));
+        }
+        for ip in ips {
+            self.refuse_resolved(*ip, host)?;
+        }
+        Ok(ips.iter().map(|ip| SocketAddr::new(*ip, 0)).collect())
     }
 
     fn domain_blocked(self, name: &str) -> bool {
@@ -163,7 +239,10 @@ pub(super) fn lookup_failure(host: &str, error: LookupError) -> FetchError {
         LookupKind::Other => format!("error {}", error.code),
     };
     let kind = if error.kind == LookupKind::TryAgain { FetchKind::NetworkTransient } else { FetchKind::Network };
-    FetchError::new(kind, format!("fetch failed: getaddrinfo {name} {host}"))
+    // The web tools' wording; the media fetch words the same failure from `lookup` itself.
+    let mut failure = FetchError::new(kind, format!("fetch failed: getaddrinfo {name} {host}"));
+    failure.lookup = Some(LookupFailure { code: name, host: host.to_owned() });
+    failure
 }
 
 /// Resolver handed to the HTTP client: every returned address must satisfy the
@@ -178,8 +257,8 @@ impl Resolve for PolicyResolver {
             let host = name.as_str().to_string();
             let name = host.clone();
             let looked_up = lanes::run(dns, move |_| gai::lookup(&name)).await;
-            let found: Vec<SocketAddr> = match looked_up {
-                Ok(Ok(ips)) => ips.into_iter().map(|ip| SocketAddr::new(ip, 0)).collect(),
+            let ips = match looked_up {
+                Ok(Ok(ips)) => ips,
                 Ok(Err(error)) => {
                     return Err(Box::new(lookup_failure(&host, error)) as Box<dyn std::error::Error + Send + Sync>);
                 }
@@ -188,22 +267,9 @@ impl Resolve for PolicyResolver {
                         as Box<dyn std::error::Error + Send + Sync>);
                 }
             };
-            if found.is_empty() {
-                return Err(Box::new(FetchError::policy(format!(
-                    "DNS returned no addresses for {host}"
-                ))) as Box<dyn std::error::Error + Send + Sync>);
-            }
-            for addr in &found {
-                if !policy.allows(addr.ip()) {
-                    let error = match policy {
-                        AddressPolicy::LoopbackOnly => FetchError::policy(format!(
-                            "Blocked non-loopback local_fetch resolution: {host}"
-                        )),
-                        _ => blocked_private(&host),
-                    };
-                    return Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>);
-                }
-            }
+            let found = policy
+                .validate_resolved(&host, &ips)
+                .map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>)?;
             Ok(Box::new(found.into_iter()) as Addrs)
         })
     }

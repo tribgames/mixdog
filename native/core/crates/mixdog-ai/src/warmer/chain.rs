@@ -49,6 +49,10 @@ pub trait WarmRequest: Send + Sync {
     fn effort_levels_empty(&self) -> bool;
     /// The provider exposes a cache-warm mode (`sendCacheWarm`).
     fn has_warm_mode(&self) -> bool;
+    /// `opts.session.ownerSessionId || opts.session.parentSessionId`, for the warm's ledger row.
+    fn owner_session_id(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// `cacheCapabilityForProvider(name) === 'explicit-breakpoint'`.

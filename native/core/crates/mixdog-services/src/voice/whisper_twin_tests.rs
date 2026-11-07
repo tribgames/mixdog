@@ -4,7 +4,7 @@
 //! query on every platform and the Windows tree-kill command.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -13,7 +13,7 @@ use mixdog_core_api::domain::process::{CommandSpec, ExitStatus, KillReason, Outp
 use mixdog_protocol::ProcessHandle;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use super::pipeline::VoicePipeline;
@@ -94,6 +94,12 @@ pub(super) struct Scripted {
     listener_pid: Mutex<Option<u32>>,
     listener_os: Mutex<Option<Os>>,
     listener_port: AtomicU32,
+    /// While set, the server reads an `/inference` request and never answers it.
+    pub(super) hang_inference: Arc<AtomicBool>,
+    /// Notified when a hung `/inference` request has been read.
+    pub(super) inference_seen: Arc<Notify>,
+    /// Notified when a child is killed.
+    pub(super) killed: Notify,
 }
 
 impl Scripted {
@@ -102,7 +108,7 @@ impl Scripted {
     }
 }
 
-async fn serve(listener: tokio::net::TcpListener, requests: Arc<Mutex<Vec<Value>>>) {
+async fn serve(listener: tokio::net::TcpListener, requests: Arc<Mutex<Vec<Value>>>, hang: Arc<AtomicBool>, seen: Arc<Notify>) {
     loop {
         let Ok((mut stream, _)) = listener.accept().await else { return };
         let mut raw = Vec::new();
@@ -141,6 +147,10 @@ async fn serve(listener: tokio::net::TcpListener, requests: Arc<Mutex<Vec<Value>
             .map(|m| json!({"name": &m[1], "filename": m.get(2).map(|f| f.as_str()), "type": m.get(3).map(|t| t.as_str()), "value": if m.get(2).is_some() { Value::Null } else { json!(&m[4]) }}))
             .collect();
         requests.lock().unwrap().push(json!({"method": method, "url": url, "multipart": multipart, "fields": fields}));
+        if hang.load(Ordering::SeqCst) {
+            seen.notify_one();
+            std::future::pending::<()>().await;
+        }
         let reply = r#"{"text":" hello world "}"#;
         let _ = stream.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len()).as_bytes()).await;
         let _ = stream.shutdown().await;
@@ -177,7 +187,7 @@ impl ProcessManager for Scripted {
             let host = args[args.iter().position(|a| a == "--host").unwrap() + 1].clone();
             self.listener_port.store(u32::from(port), Ordering::SeqCst);
             let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await.map_err(|_| ProcessError::Io { os_code: None })?;
-            let task = tokio::spawn(serve(listener, self.requests_shared.clone()));
+            let task = tokio::spawn(serve(listener, self.requests_shared.clone(), self.hang_inference.clone(), self.inference_seen.clone()));
             self.servers.lock().unwrap().insert(request.handle.0.clone(), (tx, task));
         } else if name == "ffmpeg" {
             #[allow(clippy::disallowed_methods)]
@@ -221,6 +231,7 @@ impl ProcessManager for Scripted {
     fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
         let (tx, task) = self.servers.lock().unwrap().remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
         task.abort();
+        self.killed.notify_one();
         let _ = tx.send(ProcessEvent::Exited { seq: 0, exit: ProcessExit { status: ExitStatus::Signal(15), killed: Some(KillReason::Requested) } });
         Ok(())
     }
@@ -268,8 +279,8 @@ async fn one_transcription_starts_the_children_node_recorded_with_the_same_argum
         let manager = Scripted::new();
         let processes = Processes::new(manager.clone(), mixdog_rt::testing::tokens().durability_io);
         let server = Arc::new(WhisperServer::new(0, None, &processes));
-        let pipeline = VoicePipeline::new(dir.path().to_owned(), manifest, Arc::new(Fixed(json!({"enabled": true, "transcription": scenario["voice"]["transcription"], "language": scenario["voice"]["language"]}))), server.clone(), Arc::new(ProcessAudioTools(processes.clone())), mixdog_rt::testing::tokens().durability_io);
-        let text = pipeline.transcribe(&dir.path().join("in").join("clip.ogg"), Some("att-1")).await.unwrap();
+        let pipeline = Arc::new(VoicePipeline::new(dir.path().to_owned(), manifest, Arc::new(Fixed(json!({"enabled": true, "transcription": scenario["voice"]["transcription"], "language": scenario["voice"]["language"]}))), server.clone(), Arc::new(ProcessAudioTools(processes.clone())), mixdog_rt::testing::tokens().durability_io));
+        let text = pipeline.transcribe(&dir.path().join("in").join("clip.ogg"), Some("att-1"), &CancellationToken::new()).await.unwrap();
         assert_eq!(text.as_deref(), scenario["text"].as_str(), "{}", scenario["name"]);
         // The pid file records the child while it runs and goes with it when it dies on its own.
         let pid_path = dir.path().join("voice-runtime").join("whisper-server.pid.json");

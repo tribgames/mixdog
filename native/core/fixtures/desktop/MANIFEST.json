@@ -79,6 +79,11 @@
       "sha256": "22e0cfab0ebb928d7c65a619c3a769be35b82187b0cb780118c2f9d5b80c63a0"
     },
     {
+      "bytes": 23734,
+      "path": "settings/lead-worker-cwd-twin.json",
+      "sha256": "d152ccfe6961d396d0d7f7e885266c0d937dc3a6e75f35bd3a7ea8750381c119"
+    },
+    {
       "bytes": 1287921,
       "path": "settings/agent-definitions-twin.json",
       "sha256": "2cb05c6b3ca683eaf7fbdd869235eb7abe16aefd152a9ff252c736db437be8d6"

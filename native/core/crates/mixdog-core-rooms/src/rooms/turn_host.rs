@@ -124,6 +124,14 @@ impl TurnState {
         inner.approval = None;
     }
 
+    /// Nobody is typing: `Object.assign(state, { speaking: '', speakingName: '', memberSession: '' })`.
+    pub fn stop_speaking(&self) {
+        let mut inner = self.inner();
+        inner.speaking.clear();
+        inner.speaking_name.clear();
+        inner.member_session.clear();
+    }
+
     pub fn speaking(&self) -> (String, String, String) {
         let inner = self.inner();
         (inner.speaking.clone(), inner.speaking_name.clone(), inner.typing_id.clone())

@@ -72,7 +72,7 @@ fn queue_reads(rig: &Rig, directory: &Arc<SessionDirectory>) -> PendingQueue {
     PendingQueue::new(directory.clone(), Arc::new(DeliveredCompletions::new(rig.clock.clone())))
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_queue_reads_answer_as_nodes_in_memory_queue_does() {
     let rig = Rig::new();
     let (directory, handle) = busy_thread(&rig).await;
@@ -171,7 +171,7 @@ async fn the_delivered_registry_answers_as_nodes_does() {
     assert_eq!(threw, 2);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_steering_read_returns_the_queued_submission_ids_as_nodes_persist_does() {
     let rig = Rig::new();
     let (directory, handle) = busy_thread(&rig).await;

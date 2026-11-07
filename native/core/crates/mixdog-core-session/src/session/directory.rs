@@ -102,6 +102,8 @@ impl DeleteHold {
         let mut shard = lock(directory.shard(id));
         if matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
             shard.remove(id);
+            #[cfg(any(test, feature = "test-support"))]
+            directory.left.notify_waiters();
         }
         applied
     }
@@ -118,6 +120,9 @@ pub(crate) struct DirInner {
     goal_events: Mutex<Option<mixdog_core_goal::goal::Subscription>>,
     /// Cancels the staged-originals deadline timer when the directory goes.
     _prune: tokio_util::sync::DropGuard,
+    /// Woken whenever a thread leaves the directory (a test waits on `handle(..)` turning `None`).
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) left: tokio::sync::Notify,
 }
 
 /// A thread to create (`thread/start`, `thread/fork`).
@@ -154,6 +159,8 @@ impl SessionDirectory {
             opens: Default::default(),
             goal_events: Mutex::new(None),
             _prune: prune.drop_guard(),
+            #[cfg(any(test, feature = "test-support"))]
+            left: Default::default(),
         });
         let me = Arc::downgrade(&inner);
         let subscription = inner.deps.goals.on_goal_change(Box::new(move |event| {
@@ -164,6 +171,12 @@ impl SessionDirectory {
         }));
         *lock(&inner.goal_events) = Some(subscription);
         Self { inner }
+    }
+
+    /// Woken whenever a thread leaves the directory.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn left(&self) -> &tokio::sync::Notify {
+        &self.inner.left
     }
 
     /// The concrete handle of a loaded thread.
@@ -489,6 +502,8 @@ impl DirInner {
             return false;
         }
         shard.remove(id);
+        #[cfg(any(test, feature = "test-support"))]
+        self.left.notify_waiters();
         true
     }
 
@@ -770,6 +785,8 @@ impl DirInner {
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),
             closed: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            stepped: Default::default(),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),

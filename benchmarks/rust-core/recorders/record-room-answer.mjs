@@ -128,15 +128,25 @@ for (const status of ['done', 'failed', 'cancelled']) {
   }
 }
 
+// A result cut at 400 UTF-16 units can end on half an emoji: Node holds a lone surrogate, which a
+// JSON file written through an UTF-8 encoder (and the Rust side) carries as U+FFFD, so the golden
+// records the answer the way Node's own UTF-8 encoder writes it (`toWellFormed`).
+const wellFormed = (value) => {
+  if (typeof value === 'string') return value.toWellFormed();
+  if (Array.isArray(value)) return value.map(wellFormed);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, each]) => [key, wellFormed(each)]));
+  return value;
+};
+
 const finalOut = join(FIXTURES_ROOT, 'room-answer');
 const out = stageSet(finalOut);
-writeJson(join(out, 'golden.json'), {
+writeJson(join(out, 'golden.json'), wellFormed({
   note: 'what the real 1.4.5 desktop agent-room-turn.ts / session-final-answer.ts answer; `answer: null` is a turn not finished yet',
   finalAnswers: finalCases,
   emptyTurns: emptyCases,
   toolSummaries: toolCases,
   spokenText: spokenCases,
-});
+}));
 writeSetManifest(out, {
   set: 'room-answer',
   recorder: 'benchmarks/rust-core/recorders/record-room-answer.mjs',

@@ -105,7 +105,6 @@ struct State {
     catalog_revision: u64,
     /// name -> signature whose catalog was fetched (or is being fetched).
     catalog_refreshed: HashMap<String, Option<String>>,
-    initialized: bool,
 }
 
 /// What an apply does with the config it is given.
@@ -124,6 +123,8 @@ pub struct ProviderRegistry {
     state: Mutex<State>,
     /// Every mutation runs under this lock, so two applies never interleave.
     apply: tokio::sync::Semaphore,
+    /// Latches `true` at the first initialization that applied a config (`providersInitialized`).
+    ready: tokio::sync::watch::Sender<bool>,
 }
 
 fn sort_keys_deep(v: &Value) -> Value {
@@ -154,7 +155,13 @@ fn canonical(name: &str) -> &str {
 
 impl ProviderRegistry {
     pub fn new(builder: Arc<dyn ProviderBuilder>) -> Self {
-        Self { builder, accounting: None, state: Mutex::new(State::default()), apply: tokio::sync::Semaphore::new(1) }
+        Self {
+            builder,
+            accounting: None,
+            state: Mutex::new(State::default()),
+            apply: tokio::sync::Semaphore::new(1),
+            ready: tokio::sync::watch::channel(false).0,
+        }
     }
 
     /// Makes every provider built from here on an accounted one (`accountProviderSend`).
@@ -176,7 +183,14 @@ impl ProviderRegistry {
 
     /// Whether a provider set has first applied.
     pub fn initialized(&self) -> bool {
-        self.state().initialized
+        *self.ready.borrow()
+    }
+
+    /// Resolves once an initialization by the owning runtime has first applied a config, at once
+    /// when one already has; never starts one (`providersInitialized`).
+    pub async fn wait_initialized(&self) {
+        // The sender lives as long as `self`, so the wait ends only by the latch.
+        let _ = self.ready.subscribe().wait_for(|ready| *ready).await;
     }
 
     /// Adds a custom provider's additional key ids to its entry (and so its
@@ -208,9 +222,14 @@ impl ProviderRegistry {
     pub async fn init_providers(&self, config: &Map<String, Value>) -> Result<(), RegistryError> {
         let plan = Plan { config: self.with_custom_key_ids(config).await?, rebuild: false, add: true, is_off: None };
         if !self.state().providers.is_empty() && self.pending(&plan).is_empty() {
+            self.ready.send_replace(true);
             return Ok(());
         }
-        self.apply_plan(plan).await
+        self.apply_plan(plan).await?;
+        // Only an initialization latches readiness (`initProviders`' tracked promise); the sync
+        // of the record (`sync_providers`) does not.
+        self.ready.send_replace(true);
+        Ok(())
     }
 
     /// Applies the config of record: rebuilds every registered provider whose
@@ -312,9 +331,6 @@ impl ProviderRegistry {
                 code: Some(NO_ENABLED_PROVIDERS),
             });
         }
-        if !state.providers.is_empty() {
-            state.initialized = true;
-        }
         Ok(())
     }
 
@@ -339,6 +355,12 @@ impl ProviderRegistry {
     /// registration (`registeredProvider`).
     pub fn registered(&self, name: &str) -> Option<Arc<dyn ProviderAdapter>> {
         self.state().providers.get(name).map(|e| Arc::clone(&e.adapter))
+    }
+
+    /// `typeof registeredProvider(name)?.sendCacheWarm === 'function'`: the registered provider
+    /// (through its accounting wrapper) has a cache-warm mode (`WarmRequest::has_warm_mode`).
+    pub fn has_warm_mode(&self, name: &str) -> bool {
+        self.registered(name).is_some_and(|adapter| adapter.cache_warm().is_some())
     }
 
     /// The provider for `requested` (`getProvider`): a retired id maps to its
@@ -666,6 +688,158 @@ mod tests {
         let mut seen = released.lock().unwrap().clone();
         seen.sort();
         assert_eq!(seen, ["anthropic:sess_gone", "openai:sess_gone"]);
+    }
+
+    /// Builds every name but the invalid custom one the golden's `invalid_custom` config names.
+    struct Scripted;
+
+    #[async_trait]
+    impl ProviderBuilder for Scripted {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            if name == "custom-bad" {
+                return Err("unsupported protocol".into());
+            }
+            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+
+    /// Whether `wait_initialized` has resolved, with no waiting: the task gets event-loop turns,
+    /// not wall time.
+    async fn resolved(task: &tokio::task::JoinHandle<()>) -> bool {
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        task.is_finished()
+    }
+
+    /// Node's `providersInitialized()` (`fixtures/provider-ready/golden.json`): the wait resolves at
+    /// the first initialization that applied a config, a refused one leaves it pending, and a later
+    /// refusal never unsettles it.
+    #[tokio::test]
+    async fn the_wait_resolves_at_the_first_applied_config_as_node_does() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/provider-ready/golden.json")).expect("fixture");
+        for scenario in golden["scenarios"].as_array().expect("scenarios") {
+            let name = scenario["name"].as_str().expect("name");
+            let registry = Arc::new(ProviderRegistry::new(Arc::new(Scripted)));
+            let probe = |registry: &Arc<ProviderRegistry>| {
+                let registry = Arc::clone(registry);
+                tokio::spawn(async move { registry.wait_initialized().await })
+            };
+            assert_eq!(resolved(&probe(&registry)).await, scenario["initial"], "{name}: before any step");
+            let mut waiter = None;
+            for step in scenario["steps"].as_array().expect("steps") {
+                match step["op"].as_str().expect("op") {
+                    "wait" => waiter = Some(probe(&registry)),
+                    _ => {
+                        let config = golden["configs"][step["config"].as_str().expect("config")].as_object().expect("config").clone();
+                        let outcome = if registry.init_providers(&config).await.is_ok() { "ok" } else { "refused" };
+                        assert_eq!(outcome, step["outcome"], "{name}: {step}");
+                    }
+                }
+                assert_eq!(resolved(&probe(&registry)).await, step["ready"], "{name}: {step}");
+                if let Some(waiter) = &waiter {
+                    assert_eq!(resolved(waiter).await, step["waiter"], "{name}: {step}");
+                }
+            }
+        }
+    }
+
+    /// Node latches only in `initProviders`: applying the record (which has no Node counterpart
+    /// that latches) leaves the wait pending, and the first init after it resolves it.
+    #[tokio::test]
+    async fn applying_the_record_does_not_latch_readiness() {
+        let r = Arc::new(ProviderRegistry::new(Arc::new(Scripted)));
+        let cfg = json!({"custom-ok": {"enabled": true}});
+        r.sync_providers(cfg.as_object().unwrap(), None).await.unwrap();
+        let waiting = {
+            let r = Arc::clone(&r);
+            tokio::spawn(async move { r.wait_initialized().await })
+        };
+        assert!(!resolved(&waiting).await);
+        r.init_providers(cfg.as_object().unwrap()).await.unwrap();
+        assert!(resolved(&waiting).await);
+    }
+
+    /// A provider with a cache-warm mode: it never sends.
+    struct Warming(Arc<dyn ProviderAdapter>);
+
+    #[async_trait]
+    impl mixdog_core_api::domain::cache_warm::CacheWarmSend for Warming {
+        async fn send_cache_warm(
+            &self,
+            _: &mixdog_core_api::domain::provider::ModelRequest,
+            _: &mixdog_core_api::domain::cache_warm::WarmContext<'_>,
+            _: &tokio_util::sync::CancellationToken,
+            _: &mut (dyn for<'u> FnMut(&'u mixdog_core_api::domain::cache_warm::WarmUsage) + Send),
+        ) -> Result<mixdog_core_api::domain::cache_warm::WarmUsage, mixdog_core_api::domain::cache_warm::WarmFailure> {
+            unreachable!("nothing is sent")
+        }
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for Warming {
+        fn id(&self) -> &mixdog_protocol::ProviderId {
+            self.0.id()
+        }
+        fn codec(&self) -> &dyn mixdog_core_api::domain::provider::WireCodec {
+            self.0.codec()
+        }
+        fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
+            self.0.retry_policy()
+        }
+        fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
+            self.0.keepalive()
+        }
+        fn cache_warm(&self) -> Option<&dyn mixdog_core_api::domain::cache_warm::CacheWarmSend> {
+            Some(self)
+        }
+        async fn attempt(
+            &self,
+            request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, mixdog_core_api::domain::provider::ProviderError> {
+            self.0.attempt(request).await
+        }
+    }
+
+    struct Warmers;
+
+    #[async_trait]
+    impl ProviderBuilder for Warmers {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            let inner = crate::registry::multiwire::tests::refusing(name, 400, "x");
+            Ok(if name == "anthropic" { Arc::new(Warming(inner)) } else { inner })
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+
+    /// Only a provider with a cache-warm mode warms, behind the accounting wrapper too; an
+    /// unregistered name does not.
+    #[tokio::test]
+    async fn only_a_provider_with_a_warm_mode_warms_through_the_wrapper() {
+        let deps = crate::registry::accounted::AccountingDeps::new(Arc::new(NoPrice), Arc::new(|| None));
+        let r = ProviderRegistry::new(Arc::new(Warmers)).with_accounting(deps);
+        let cfg = json!({"anthropic": {"enabled": true}, "openai": {"enabled": true}});
+        r.init_providers(cfg.as_object().unwrap()).await.unwrap();
+        assert!(r.has_warm_mode("anthropic"));
+        assert!(!r.has_warm_mode("openai"));
+        assert!(!r.has_warm_mode("gemini"));
     }
 
     #[tokio::test]

@@ -336,6 +336,7 @@ async fn the_anthropic_caps_are_nodes_floor_live_and_declared_catalog_answers() 
             assert_eq!(got.as_ref().is_some_and(|c| !c.manual_thinking), want("adaptiveOnly"), "{ctx} adaptive only");
             assert_eq!(supports && adaptive, want("betaHeader"), "{ctx} beta header");
             assert_eq!(caps.effort_levels_for(model), strings(&row["levels"]), "{ctx} levels");
+            assert_eq!(caps.effort_levels_empty(model), row["levels"].as_array().unwrap().is_empty(), "{ctx} no levels");
         }
     }
 }
@@ -618,4 +619,36 @@ async fn the_hop_wires_a_route_as_the_turn_start_does() {
     let (_, text_only) = bindings.wiring.wiring(&json!({"provider": "mixdog-local", "model": "qwen", "messages": []}), &openai);
     let model = text_only.expect("the local runtime is text-only").model;
     assert_eq!((model.name.as_str(), model.supports_tools), ("Qwen", Some(false)));
+}
+
+/// The cache-warm gate's `providerAvailable(name)` (`fixtures/warm-gate-seams/golden.json`, from
+/// the real Node `providerAvailable`): the builder's own `gated_off` switch, for every stored
+/// Developer value and `MIXDOG_MODEL_PROXY` mode, answers as Node does.
+#[tokio::test]
+async fn the_gate_asks_the_builders_switch_and_gets_nodes_answer() {
+    use mixdog_ai::warmer::gate::{GatedOff, ProviderSwitch};
+
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/warm-gate-seams/golden.json")).unwrap();
+    for case in golden["providerSwitch"].as_array().unwrap() {
+        let proxy: &[(&str, &str)] = if case["proxyClient"] == true { &[("MIXDOG_MODEL_PROXY", "client")] } else { &[] };
+        let w = world(proxy, json!({}), Vec::new()).await;
+        let developer = case["developer"]["value"].clone();
+        let absent = case["developer"]["absent"] == true;
+        w.services
+            .config
+            .update_agent(move |doc| {
+                if absent {
+                    doc.shift_remove("developer");
+                } else {
+                    doc.insert("developer".into(), developer);
+                }
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let switch = GatedOff(builder_env(&w.services).gated_off);
+        for (name, available) in case["available"].as_object().unwrap() {
+            assert_eq!(switch.available(name), *available, "{} proxy={} {name:?}", case["developer"], case["proxyClient"]);
+        }
+    }
 }

@@ -13,10 +13,10 @@ use super::quota::GoalQuotaResume;
 use super::runtime::{Admission, GoalConfig, GoalEnv, GoalRuntime};
 use mixdog_core_base::quota_resume::QuotaResumeStore;
 
-async fn rig(dir: &std::path::Path) -> (GoalQuotaResume, Arc<QuotaResumeStore>, GoalRuntime) {
+async fn rig(dir: &std::path::Path) -> (GoalQuotaResume, Arc<QuotaResumeStore>, Arc<GoalRuntime>) {
     let lane = mixdog_rt::testing::tokens().durability_io;
     let store = Arc::new(QuotaResumeStore::open(dir, lane, CancellationToken::new()).await.unwrap());
-    let goals = GoalRuntime::new(GoalConfig::new(dir.to_string_lossy().into_owned()), GoalEnv::system(lane));
+    let goals = Arc::new(GoalRuntime::new(GoalConfig::new(dir.to_string_lossy().into_owned()), GoalEnv::system(lane)));
     (GoalQuotaResume::new(store.clone(), goals.clone()), store, goals)
 }
 

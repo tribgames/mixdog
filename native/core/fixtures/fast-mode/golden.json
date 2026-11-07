@@ -1,0 +1,793 @@
+{
+  "policy": {
+    "shortRetryThresholdMs": 20000,
+    "minCooldownMs": 600000,
+    "defaultCooldownMs": 1800000
+  },
+  "scenarios": [
+    {
+      "name": "fresh",
+      "steps": [
+        {
+          "op": "probe",
+          "now": 1000,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "not_a_fast_request",
+      "steps": [
+        {
+          "op": "note",
+          "now": 1000,
+          "fast": false,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "3600"
+            }
+          },
+          "decision": "ignored",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "not_a_capacity_status",
+      "steps": [
+        {
+          "op": "note",
+          "now": 1000,
+          "fast": true,
+          "error": {
+            "status": 500,
+            "message": "",
+            "headers": {}
+          },
+          "decision": "ignored",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 1000,
+          "fast": true,
+          "error": {
+            "status": 400,
+            "message": "bad request",
+            "headers": {}
+          },
+          "decision": "ignored",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 1000,
+          "fast": true,
+          "error": {
+            "status": 503,
+            "message": "",
+            "headers": {}
+          },
+          "decision": "ignored",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "short_window_keeps_fast",
+      "steps": [
+        {
+          "op": "note",
+          "now": 1000,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "5"
+            }
+          },
+          "decision": "retry-fast",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 1000,
+          "fast": true,
+          "error": {
+            "status": 529,
+            "message": "",
+            "headers": {
+              "retry-after": "19.999"
+            }
+          },
+          "decision": "retry-fast",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 1000,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after-ms": "1500"
+            }
+          },
+          "decision": "retry-fast",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 1000,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after-ms": "19999.5"
+            }
+          },
+          "decision": "retry-fast",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "window_at_the_threshold_downgrades_to_the_floor",
+      "steps": [
+        {
+          "op": "note",
+          "now": 1000,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "20"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 600000,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 600999,
+          "available": false,
+          "cooldownRemainingMs": 1,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 601000,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "no_window_uses_the_default_cooldown",
+      "steps": [
+        {
+          "op": "note",
+          "now": 5000,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {}
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 1800000,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 1804999,
+          "available": false,
+          "cooldownRemainingMs": 1,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 1805000,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "long_window_is_taken_whole",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 529,
+            "message": "",
+            "headers": {
+              "retry-after": "3600"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 3600000,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 3599999,
+          "available": false,
+          "cooldownRemainingMs": 1,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 3600000,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "a_shorter_cooldown_never_shortens",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "3600"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 3600000,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 10000,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {}
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 3590000,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 3600000,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "a_later_cooldown_extends",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {}
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 1800000,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 1000000,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "3600"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 3600000,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 4599999,
+          "available": false,
+          "cooldownRemainingMs": 1,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 4600000,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "a_retry_after_ms_header_wins_over_retry_after",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after-ms": "25000",
+              "retry-after": "5"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 600000,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "a_zero_or_empty_header_falls_through",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after-ms": "0",
+              "retry-after": "10"
+            }
+          },
+          "decision": "retry-fast",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after-ms": "",
+              "retry-after": "10"
+            }
+          },
+          "decision": "retry-fast",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "0"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 1800000,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 1800000,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "an_unreadable_header_is_no_window",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "soon"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 1800000,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 1800000,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "an_explicit_window_wins_over_the_headers",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "3600"
+            },
+            "retryAfterMs": 0
+          },
+          "decision": "retry-fast",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "5"
+            },
+            "retryAfterMs": 30000
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 600000,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 600000,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "a_negative_explicit_window_is_ignored",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "retry-after": "5"
+            },
+            "retryAfterMs": -5
+          },
+          "decision": "retry-fast",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "a_transient_overage_reason_downgrades_without_a_cooldown",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "anthropic-ratelimit-unified-overage-disabled-reason": "out_of_credits"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 529,
+            "message": "",
+            "headers": {
+              "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled_until"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 0,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "any_other_overage_reason_disables",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled"
+            }
+          },
+          "decision": "disabled",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": "Infinity",
+          "disabledReason": "org_level_disabled"
+        },
+        {
+          "op": "probe",
+          "now": 99999999999,
+          "available": false,
+          "cooldownRemainingMs": "Infinity",
+          "disabledReason": "org_level_disabled"
+        }
+      ]
+    },
+    {
+      "name": "an_empty_overage_reason_disables",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 529,
+            "message": "",
+            "headers": {
+              "anthropic-ratelimit-unified-overage-disabled-reason": ""
+            }
+          },
+          "decision": "disabled",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": "Infinity",
+          "disabledReason": "overage_unavailable"
+        }
+      ]
+    },
+    {
+      "name": "the_overage_header_beats_the_window",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {
+              "anthropic-ratelimit-unified-overage-disabled-reason": "out_of_credits",
+              "retry-after": "3600"
+            }
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "probe",
+          "now": 1,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "fast_mode_not_enabled_disables",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 400,
+            "message": "Fast mode is not enabled for this account",
+            "headers": {}
+          },
+          "decision": "disabled",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": "Infinity",
+          "disabledReason": "fast_mode_not_enabled"
+        },
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 400,
+            "message": "FAST MODE IS NOT ENABLED",
+            "headers": {}
+          },
+          "decision": "disabled",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": "Infinity",
+          "disabledReason": "fast_mode_not_enabled"
+        },
+        {
+          "op": "probe",
+          "now": 5,
+          "available": false,
+          "cooldownRemainingMs": "Infinity",
+          "disabledReason": "fast_mode_not_enabled"
+        }
+      ]
+    },
+    {
+      "name": "a_400_with_another_message_is_ignored",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 400,
+            "message": "fast mode is enabled",
+            "headers": {}
+          },
+          "decision": "ignored",
+          "downgraded": false,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    },
+    {
+      "name": "clear_re_enables",
+      "steps": [
+        {
+          "op": "note",
+          "now": 0,
+          "fast": true,
+          "error": {
+            "status": 400,
+            "message": "fast mode is not enabled",
+            "headers": {}
+          },
+          "decision": "disabled",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": "Infinity",
+          "disabledReason": "fast_mode_not_enabled"
+        },
+        {
+          "op": "clear",
+          "now": 10,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        },
+        {
+          "op": "note",
+          "now": 10,
+          "fast": true,
+          "error": {
+            "status": 429,
+            "message": "",
+            "headers": {}
+          },
+          "decision": "downgrade",
+          "downgraded": true,
+          "available": false,
+          "cooldownRemainingMs": 1800000,
+          "disabledReason": null
+        },
+        {
+          "op": "clear",
+          "now": 20,
+          "available": true,
+          "cooldownRemainingMs": 0,
+          "disabledReason": null
+        }
+      ]
+    }
+  ]
+}

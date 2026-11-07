@@ -2,6 +2,8 @@
 //! decoder and the single failure classification. Credentials and gzip are the
 //! adapter's.
 
+use std::sync::Arc;
+
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
 use mixdog_core_api::domain::provider::ModelRequest;
@@ -19,6 +21,8 @@ use super::body::CacheStrategy;
 use super::body::build_body;
 use super::caps::CapsLookup;
 use super::decoder::AnthropicDecoder;
+use super::fast_mode;
+use super::fast_mode::FastMode;
 use super::errors::classify_response;
 
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -63,6 +67,8 @@ pub struct AnthropicConfig {
     /// The catalog tables the listing's enrichment and sanitizer read: the
     /// handle the composition hands to `CatalogService::with_listing_lookup`.
     pub listing: ListingLookup,
+    /// The fast-mode cooldown and disabled reason: the process-wide one.
+    pub fast_mode: Arc<FastMode>,
 }
 
 /// Layers `extra` over `headers`: a same-named header (any case) is replaced,
@@ -89,6 +95,7 @@ impl AnthropicConfig {
             disable_beta_headers: false,
             extra_headers: Vec::new(),
             listing: ListingLookup::new(),
+            fast_mode: Arc::clone(fast_mode::process()),
         }
     }
 
@@ -155,6 +162,7 @@ impl WireCodec for AnthropicCodec {
             first_party: self.config.first_party(self.flavor),
             official_url: self.config.official_origin(),
             beta_headers: !self.config.disable_beta_headers,
+            fast_mode: &self.config.fast_mode,
         };
         let built = build_body(&cfg, request)?;
         let beta = beta_header(self.flavor, built.betas);

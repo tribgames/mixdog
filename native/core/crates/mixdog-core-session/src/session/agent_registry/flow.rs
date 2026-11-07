@@ -359,6 +359,31 @@ impl TurnSessions for SessionTurns {
     /// `handoffContent(prompt, attachments)` and the submission), then waits for the run's
     /// outcome: the final result, or the failure's message.
     async fn run_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
+        self.turn(request, false).await
+    }
+
+    /// `unloadSessionRuntime`: vetoed while the session still owns work (a running turn, or a
+    /// closing thread); else the process-local state a settled turn left is released.
+    fn unload_runtime(&self, session_id: &str, reason: &str) {
+        let thread = ThreadId::from(clean_str(session_id).as_str());
+        if let Some(handle) = self.directory.handle(&thread)
+            && (handle.cell.run.load().is_some() || handle.cell.closed.load(Ordering::SeqCst))
+        {
+            return;
+        }
+        self.directory.deps().side.forget(&thread, true);
+        self.release.release(&thread, reason);
+    }
+}
+
+impl SessionTurns {
+    /// [`TurnSessions::run_turn`] for a caller that runs the turn's progress watchdog itself (an
+    /// agent dispatch): the run arms none of its own.
+    pub async fn run_watched_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
+        self.turn(request, true).await
+    }
+
+    async fn turn(&self, request: TurnRequest, caller_watchdog: bool) -> Result<TurnResult, TurnError> {
         let thread = ThreadId::from(clean_str(&request.session_id).as_str());
         let ctx = CallContext::internal("agent-turn");
         let handle = self
@@ -381,6 +406,7 @@ impl TurnSessions for SessionTurns {
                 slot: request.slot,
                 context: request.context,
                 skill_selection: request.skill_selection,
+                caller_watchdog,
             },
             done,
         });
@@ -410,19 +436,6 @@ impl TurnSessions for SessionTurns {
             Ok(RunOutcome::Interrupted) => Err(TurnError::new("The turn was interrupted")),
             Err(_) => Err(TurnError::new(format!("agent session {} closed during its turn", request.session_id))),
         }
-    }
-
-    /// `unloadSessionRuntime`: vetoed while the session still owns work (a running turn, or a
-    /// closing thread); else the process-local state a settled turn left is released.
-    fn unload_runtime(&self, session_id: &str, reason: &str) {
-        let thread = ThreadId::from(clean_str(session_id).as_str());
-        if let Some(handle) = self.directory.handle(&thread)
-            && (handle.cell.run.load().is_some() || handle.cell.closed.load(Ordering::SeqCst))
-        {
-            return;
-        }
-        self.directory.deps().side.forget(&thread, true);
-        self.release.release(&thread, reason);
     }
 }
 
@@ -612,7 +625,7 @@ mod tests {
 
     /// `observeSessionTurns`: the observer hears each turn start and the run host's final
     /// result unchanged, until it stops observing; a session not hosted here reports nothing.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn an_observer_hears_each_turn_and_its_final_result() {
         use crate::session::tests::eventually;
         use crate::session::tests::idle;
@@ -646,7 +659,7 @@ mod tests {
     }
 
     /// A completion handed to a worker reaches its queue; a closed owner takes none.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn a_completion_reaches_the_session_queue() {
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
@@ -673,7 +686,7 @@ mod tests {
 
     /// `suppressDisplay`: the completion the live session showed wakes a turn whose input row is
     /// durable but adds no row; one queued without a listener shows its row when taken in.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn a_shown_completions_turn_row_adds_no_second_row() {
         use crate::session::tests::eventually;
         use crate::session::tests::idle;
@@ -704,7 +717,7 @@ mod tests {
 
     /// The live owner's cards (`execution-delivery.mjs`): a failed bodyless preview shows a card,
     /// a successful one does not, and the body that follows shows its own card.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn the_live_owner_shows_the_cards_node_shows() {
         use crate::session::tests::eventually;
         use crate::session::tests::start_thread;

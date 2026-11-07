@@ -64,18 +64,37 @@ async fn open_with_os(processes: &Processes, path: &Path, reveal: bool) -> bool 
     processes.run(program, &args, options).await.error_code.is_empty()
 }
 
+/// The object a method's Node implementation receives, from the wire params. Five methods carry it
+/// in one field (`setMediaDefault`/`setMediaPin`/`startMediaJob`: `input`, `deleteMediaAssets`:
+/// `filter`, `listMediaAssets`: `options`); a missing or empty one is `{}` (`input || {}`). Every
+/// other method reads its few fields flat from the params.
+fn wire_args(method: &str, params: &Value) -> Value {
+    let field = match method {
+        "media/setMediaDefault" | "media/setMediaPin" | "media/startMediaJob" => "input",
+        "media/deleteMediaAssets" => "filter",
+        "media/listMediaAssets" => "options",
+        _ => return params.clone(),
+    };
+    match params.get(field) {
+        Some(value) if !matches!(value, Value::Null | Value::Bool(false)) && value != "" && value.as_f64() != Some(0.0) => value.clone(),
+        _ => json!({}),
+    }
+}
+
 impl MediaService {
     pub fn new(store: Arc<MediaStore>, jobs: Arc<MediaJobs>, processes: Processes, renditions: StillRenditions) -> Self {
         Self { store, jobs, processes, renditions }
     }
 
     async fn dispatch(&self, method: &str, request: &Value) -> Result<Value, CoreError> {
-        let args = request.get("params").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({}));
-        let text = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("");
+        let params = request.get("params").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({}));
+        // What the store and the jobs take: the object Node's method receives (`setMediaPin(input)`).
+        let args = wire_args(method, &params);
+        let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
         let id = text("id");
         let thread = ThreadId(if text("threadId").is_empty() { "media".to_owned() } else { text("threadId").to_owned() });
-        let options = args.get("options").cloned().unwrap_or_else(|| json!({}));
-        let input = args.get("input").cloned().unwrap_or(Value::Null);
+        let options = params.get("options").cloned().unwrap_or_else(|| json!({}));
+        let input = params.get("input").cloned().unwrap_or(Value::Null);
         // Every store call reads or writes files: it runs as one job on the store's lane.
         let store = &self.store;
         let owned = args.clone();
@@ -182,4 +201,61 @@ mod tests {
         assert_eq!(open_command(p, true, "macos"), ("open", vec!["-R".to_owned(), "/a/b & c/x.png".to_owned()]));
         assert_eq!(open_command(p, true, "linux").1, vec!["/a/b & c".to_owned()]);
     }
-}
+
+    const METHOD_TABLE: &str = include_str!("../../../mixdog-app-protocol/schema/method_table.json");
+    const CLIENT_REQUEST: &str = include_str!("../../../mixdog-app-protocol/schema/client_request.json");
+
+    /// The property names the protocol schema gives `method`'s params.
+    fn schema_fields(method: &str) -> Vec<String> {
+        let table: Value = serde_json::from_str(METHOD_TABLE).unwrap();
+        let name = table["clientMethods"].as_array().unwrap().iter().find(|m| m["method"] == method).unwrap_or_else(|| panic!("{method} is not in the protocol"))["params"].as_str().unwrap().to_owned();
+        let requests: Value = serde_json::from_str(CLIENT_REQUEST).unwrap();
+        requests["definitions"][&name]["properties"].as_object().unwrap_or_else(|| panic!("no schema for {name}")).keys().cloned().collect()
+    }
+
+    fn object(entries: &[(&str, Value)]) -> Value {
+        Value::Object(entries.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect())
+    }
+
+    #[test]
+    fn the_object_methods_read_the_field_the_wire_carries_it_in() {
+        // The wire shapes of the schema: `{ opId, threadId?, <field>: <the object Node's method takes> }`.
+        let pin = json!({"kind": "image", "lane": "xai", "model": "grok-imagine-image"});
+        for (method, field) in [("media/setMediaPin", "input"), ("media/setMediaDefault", "input"), ("media/startMediaJob", "input"), ("media/deleteMediaAssets", "filter"), ("media/listMediaAssets", "options")] {
+            assert!(schema_fields(method).contains(&field.to_owned()), "{method}: the schema has no `{field}`");
+            let wire = object(&[("opId", json!("op-1")), ("threadId", Value::Null), (field, pin.clone())]);
+            assert_eq!(wire_args(method, &wire), pin, "{method}");
+            assert_eq!(wire_args(method, &json!({"opId": "op-1"})), json!({}), "{method}: a missing object is `{{}}`");
+            assert_eq!(wire_args(method, &object(&[(field, Value::Null)])), json!({}), "{method}: a null object is `{{}}`");
+        }
+        // A start carries the account, session and source type inside `input`.
+        let start = json!({"opId": "op-2", "input": {"lane": "gemini", "kind": "image", "prompt": "p", "account": "work", "sessionId": "s", "sourceType": "lead"}});
+        assert_eq!(wire_args("media/startMediaJob", &start)["account"], "work");
+        assert_eq!(wire_args("media/listMediaAssets", &json!({"options": {"limit": 5, "offset": 10, "kind": "video", "boardId": "b"}}))["limit"], 5);
+    }
+
+    #[test]
+    fn every_other_method_reads_flat_fields_the_schema_has() {
+        for (method, fields) in [
+            ("media/getMediaDefault", &["kind"][..]),
+            ("media/getMediaJob", &["id"]),
+            ("media/cancelMediaJob", &["id"]),
+            ("media/readMediaAsset", &["id", "options"]),
+            ("media/resolveMediaFile", &["id", "options"]),
+            ("media/deleteMediaAsset", &["id"]),
+            ("media/createMediaBoard", &["name"]),
+            ("media/renameMediaBoard", &["id", "name"]),
+            ("media/deleteMediaBoard", &["id"]),
+            ("media/setMediaAssetBoard", &["ids", "boardId"]),
+            ("media/cacheMediaThumbnail", &["id", "input"]),
+            ("media/openMediaAsset", &["id"]),
+            ("media/openMediaFolder", &["id"]),
+        ] {
+            let schema = schema_fields(method);
+            for field in fields {
+                assert!(schema.contains(&(*field).to_owned()), "{method}: the schema has no `{field}`");
+            }
+            let params = json!({"id": "a", "name": "n"});
+            assert_eq!(wire_args(method, &params), params, "{method}: params are read as they come");
+        }
+    }}

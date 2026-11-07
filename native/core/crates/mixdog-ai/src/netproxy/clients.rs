@@ -51,6 +51,7 @@ pub struct RoutedClients {
     policy: Arc<NetworkProxy>,
     build: Build,
     legs: Legs,
+    flavours: Mutex<HashMap<&'static str, reqwest::Client>>,
     _retire: Subscription,
 }
 
@@ -70,7 +71,26 @@ impl RoutedClients {
             }
         }));
         let build = move |proxy: Option<&str>| build(proxy.map(reqwest_proxy_uri).as_deref());
-        Self { policy, build: Box::new(build), legs, _retire: retire }
+        Self { policy, build: Box::new(build), legs, flavours: Mutex::default(), _retire: retire }
+    }
+
+    /// The direct client of a flavour the routed builder does not make, built by `build` on first
+    /// use and kept here. For a caller whose connections need a check of their own that a pooled
+    /// routed client cannot carry (the public-address guard's name resolver). It never rides a
+    /// proxy, so no route is asked and a change of the setting leaves it alone: Node's
+    /// `pinnedFetch` connects through an agent of its own, bypassing the routed dispatcher.
+    pub fn direct_flavour(
+        &self,
+        flavour: &'static str,
+        build: impl FnOnce() -> Result<reqwest::Client, reqwest::Error>,
+    ) -> Result<reqwest::Client, ClientError> {
+        let mut kept = self.flavours.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(client) = kept.get(flavour) {
+            return Ok(client.clone());
+        }
+        let client = build().map_err(ClientError::Build)?;
+        kept.insert(flavour, client.clone());
+        Ok(client)
     }
 
     pub fn policy(&self) -> &Arc<NetworkProxy> {
@@ -99,5 +119,37 @@ impl RoutedClients {
         let client = (self.build)(route.proxy.as_deref()).map_err(ClientError::Build)?;
         legs.insert(route.proxy, client.clone());
         Ok(client)
+    }
+}
+
+#[cfg(test)]
+mod flavour_tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use super::*;
+    use crate::netproxy::ProcessEnv;
+    use crate::netproxy::SystemProxy;
+
+    #[test]
+    fn a_flavour_is_built_once_and_kept_apart_from_the_routed_clients() {
+        let policy = NetworkProxy::new(Arc::new(ProcessEnv), SystemProxy::default());
+        let routed_builds = Arc::new(AtomicUsize::new(0));
+        let counted = routed_builds.clone();
+        let clients = RoutedClients::new(policy, move |_| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            reqwest::Client::builder().build()
+        });
+        let built = AtomicUsize::new(0);
+        let build = || {
+            built.fetch_add(1, Ordering::SeqCst);
+            reqwest::Client::builder().build()
+        };
+        clients.direct_flavour("guarded", build).unwrap();
+        clients.direct_flavour("guarded", build).unwrap();
+        assert_eq!(built.load(Ordering::SeqCst), 1, "the second ask reuses the first client");
+        clients.direct_flavour("other", build).unwrap();
+        assert_eq!(built.load(Ordering::SeqCst), 2, "another flavour is another client");
+        assert_eq!(routed_builds.load(Ordering::SeqCst), 0, "the routed builder is not asked");
     }
 }

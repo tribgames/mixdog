@@ -241,6 +241,12 @@ impl CatalogCaps {
         }
         levels
     }
+
+    /// `anthropicEffortLevelsFor(model).length === 0`: the fact the cache warmer reads of a
+    /// request (`WarmRequest::effort_levels_empty`).
+    pub fn effort_levels_empty(&self, model: &str) -> bool {
+        self.effort_levels_for(model).is_empty()
+    }
 }
 
 /// `openAiCatalogMeta` / `openAiDirectSupports*` / the `openAiPublicSupports*` rules over the
@@ -336,6 +342,19 @@ impl ModelFactsSource for CatalogOpenAiFacts {
 
 /// The single constructor: every input of `DefaultProviderBuilder` from the process services.
 pub fn builder_env(p: &ProcessServices) -> BuilderEnv {
+    builder_env_shared(p).0
+}
+
+/// What the builder inputs hold that other layers use as the same object (the media layer's provider login and
+/// Codex session): the routed link, the client versions, and the client identity the dialects send.
+pub struct BuilderShared {
+    pub http: Arc<dyn mixdog_ai::transport::HttpSend>,
+    pub versions: Arc<ClientVersions>,
+    pub identity: ClientIdentity,
+}
+
+/// [`builder_env`] with the objects it shares, for the caller that hands them on.
+pub fn builder_env_shared(p: &ProcessServices) -> (BuilderEnv, BuilderShared) {
     let schedule = KeepaliveSchedule::SPEC;
     let link = Arc::new(ReqwestLink::routed(&schedule, false, p.network.clone()));
     let io = CredentialIo { read: p.lanes.interactive_io, write: p.lanes.durability_io };
@@ -343,7 +362,8 @@ pub fn builder_env(p: &ProcessServices) -> BuilderEnv {
     let versions = ClientVersions::new(link.clone(), p.plugin_data.clone(), io, p.env.clone());
     let identity = client_identity(&p.env, &p.host, &p.installation_id, &versions);
     let (config, env) = (p.config.clone(), p.env.clone());
-    BuilderEnv {
+    let shared = BuilderShared { http: link.clone(), versions: versions.clone(), identity: identity.clone() };
+    let built = BuilderEnv {
         http: link.clone(),
         bidi: link,
         dial: Arc::new(KeepaliveDialer::routed(schedule, p.network.clone())),
@@ -369,5 +389,6 @@ pub fn builder_env(p: &ProcessServices) -> BuilderEnv {
             let developer = config.agent().get("developer").cloned().unwrap_or(Value::Null);
             !provider_available(name, remote_client(&*env), &developer)
         }),
-    }
+    };
+    (built, shared)
 }

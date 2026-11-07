@@ -52,11 +52,11 @@ struct FakeHost {
 
 #[async_trait]
 impl WorkspaceHost for FakeHost {
-    fn is_lead(&self, session_id: &str) -> bool {
+    async fn is_lead(&self, session_id: &str) -> bool {
         session_id == "lead"
     }
 
-    fn attended(&self, session_id: &str) -> bool {
+    async fn attended(&self, session_id: &str) -> bool {
         session_id == "lead" && !self.state.lock().unwrap().unattended
     }
 

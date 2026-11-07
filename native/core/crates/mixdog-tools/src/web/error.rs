@@ -24,12 +24,22 @@ pub enum FetchKind {
     EmptyContent,
 }
 
+/// A name lookup that failed for a reason other than "no addresses": the resolver's code
+/// (`EAI_AGAIN`) and the name. Each caller words it; this layer keeps no text of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LookupFailure {
+    pub code: String,
+    pub host: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct FetchError {
     pub kind: FetchKind,
     pub message: String,
     pub status: Option<u16>,
     pub retry_after: Duration,
+    /// Set when the error is a failed name lookup.
+    pub lookup: Option<LookupFailure>,
 }
 
 impl FetchError {
@@ -39,6 +49,7 @@ impl FetchError {
             message: message.into(),
             status: None,
             retry_after: Duration::ZERO,
+            lookup: None,
         }
     }
 

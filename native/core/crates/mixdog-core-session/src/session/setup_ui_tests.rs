@@ -52,7 +52,7 @@ async fn threads(directory: &SessionDirectory, golden: &Value, scenario: &Value)
     threads
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn every_scenario_answers_and_publishes_as_node() {
     let golden = golden();
     let rig = Rig::new();

@@ -9,6 +9,7 @@ use base64::Engine as _;
 use mixdog_core_api::{CoreError, CoreRequest, DomainService, Reply, service::Admit};
 use mixdog_core_api::ids::{ConnectionId, Method};
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use super::pipeline::VoicePipeline;
 use super::setup::VoiceSetup;
@@ -26,7 +27,7 @@ impl VoiceService {
         Self { pipeline, setup }
     }
 
-    async fn transcribe_audio(&self, input: &Value) -> Result<Value, CoreError> {
+    async fn transcribe_audio(&self, input: &Value, cancel: &CancellationToken) -> Result<Value, CoreError> {
         let data = input.get("data").and_then(Value::as_str).unwrap_or("");
         if data.is_empty() {
             return Err(voice_error("transcribeAudio: audio payload is required"));
@@ -48,7 +49,7 @@ impl VoiceService {
         let target = path.clone();
         io_on_lane(lane, move || write_recording(&target, &bytes)).await.map_err(|e| voice_error(e.to_string()))?;
         let attachment = format!("dictation-{}", uuid::Uuid::new_v4());
-        let result = self.pipeline.transcribe(&path, Some(&attachment)).await;
+        let result = self.pipeline.transcribe(&path, Some(&attachment), cancel).await;
         let _ = on_lane(lane, move || remove_recording(&path)).await;
         let text = result.map_err(|e| voice_error(e.0))?;
         Ok(Value::String(text.unwrap_or_default()))
@@ -106,7 +107,7 @@ impl DomainService for VoiceService {
                 status["result"] = result.to_json();
                 status
             }
-            "voice/transcribeAudio" => self.transcribe_audio(req.params.get("input").unwrap_or(&Value::Null)).await?,
+            "voice/transcribeAudio" => self.transcribe_audio(req.params.get("input").unwrap_or(&Value::Null), &req.ctx.cancel).await?,
             "voice/prepareTranscription" => self.pipeline.prepare_transcription().await,
             _ => return Err(invalid("method", "voice/*")),
         };

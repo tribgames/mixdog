@@ -1,0 +1,986 @@
+{
+  "providerSwitch": [
+    {
+      "developer": {
+        "absent": true
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "absent": true
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {}
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {}
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "antigravityOAuth": true,
+          "cursorOAuth": true,
+          "devinOAuth": true,
+          "mimoOAuth": true
+        }
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "antigravityOAuth": true,
+          "cursorOAuth": true,
+          "devinOAuth": true,
+          "mimoOAuth": true
+        }
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "antigravityOAuth": true
+        }
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "antigravityOAuth": true
+        }
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "cursorOAuth": true
+        }
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": true,
+        "devin-oauth": false,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "cursorOAuth": true
+        }
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "devinOAuth": true
+        }
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": true,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "devinOAuth": true
+        }
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "mimoOAuth": true
+        }
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "mimoOAuth": true
+        }
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "cursorOAuth": false,
+          "mimoOAuth": true
+        }
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "cursorOAuth": false,
+          "mimoOAuth": true
+        }
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "cursorOAuth": "true"
+        }
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "cursorOAuth": "true"
+        }
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "cursorOAuth": 1,
+          "devinOAuth": null
+        }
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "cursorOAuth": 1,
+          "devinOAuth": null
+        }
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": [
+          "cursorOAuth"
+        ]
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": [
+          "cursorOAuth"
+        ]
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": "x"
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": "x"
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "allowAllActions": true
+        }
+      },
+      "proxyClient": false,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": false,
+        "cursor-oauth": false,
+        "devin-oauth": false,
+        "mimo-oauth": false,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    },
+    {
+      "developer": {
+        "value": {
+          "allowAllActions": true
+        }
+      },
+      "proxyClient": true,
+      "available": {
+        "anthropic": true,
+        "anthropic-oauth": true,
+        "openai": true,
+        "openai-oauth": true,
+        "gemini": true,
+        "grok-oauth": true,
+        "antigravity-oauth": true,
+        "cursor-oauth": true,
+        "devin-oauth": true,
+        "mimo-oauth": true,
+        "opencode-go-oauth": true,
+        "muse-code-oauth": true,
+        "command-code-oauth": true,
+        "custom-x": true,
+        "": true
+      }
+    }
+  ],
+  "usageSnapshot": [
+    {
+      "name": "no_file",
+      "provider": "anthropic-oauth",
+      "routes": null,
+      "served": null
+    },
+    {
+      "name": "empty_file",
+      "provider": "anthropic-oauth",
+      "routes": {},
+      "served": null
+    },
+    {
+      "name": "fresh_provider_snapshot",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 11,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 1000
+        }
+      },
+      "served": {
+        "usedPct": 11,
+        "windows": [
+          {
+            "label": "5H",
+            "usedPct": 11,
+            "resetAt": 4000000000000
+          }
+        ],
+        "ageMs": 1000
+      }
+    },
+    {
+      "name": "older_than_the_disk_ttl",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 12,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 660000
+        }
+      },
+      "served": null
+    },
+    {
+      "name": "just_inside_the_disk_ttl",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 13,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 540000
+        }
+      },
+      "served": {
+        "usedPct": 13,
+        "windows": [
+          {
+            "label": "5H",
+            "usedPct": 13,
+            "resetAt": 4000000000000
+          }
+        ],
+        "ageMs": 540000
+      }
+    },
+    {
+      "name": "the_route_key_for_an_empty_model",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth\u0001": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 14,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 2000
+        }
+      },
+      "served": {
+        "usedPct": 14,
+        "windows": [
+          {
+            "label": "5H",
+            "usedPct": 14,
+            "resetAt": 4000000000000
+          }
+        ],
+        "ageMs": 2000
+      }
+    },
+    {
+      "name": "the_newest_of_the_providers_account_snapshots",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth\u0002acct-a": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 15,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 5000
+        },
+        "anthropic-oauth\u0002acct-b": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 16,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 2000
+        },
+        "anthropic-oauth\u0002acct-c": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 17,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 9000
+        }
+      },
+      "served": null
+    },
+    {
+      "name": "a_model_route_of_the_provider_counts",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth\u0001claude-x": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 18,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 3000
+        }
+      },
+      "served": {
+        "usedPct": 18,
+        "windows": [
+          {
+            "label": "5H",
+            "usedPct": 18,
+            "resetAt": 4000000000000
+          }
+        ],
+        "ageMs": 3000
+      }
+    },
+    {
+      "name": "the_provider_key_wins_over_the_newest",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 19,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 8000
+        },
+        "anthropic-oauth\u0002acct-b": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 20,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 1000
+        }
+      },
+      "served": {
+        "usedPct": 19,
+        "windows": [
+          {
+            "label": "5H",
+            "usedPct": 19,
+            "resetAt": 4000000000000
+          }
+        ],
+        "ageMs": 8000
+      }
+    },
+    {
+      "name": "another_providers_snapshot_is_not_served",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "openai-oauth": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 21,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 1000
+        }
+      },
+      "served": null
+    },
+    {
+      "name": "every_window_already_reset",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 22,
+              "resetAt": 1000
+            }
+          ],
+          "ageMs": 1000
+        }
+      },
+      "served": null
+    },
+    {
+      "name": "a_snapshot_with_no_windows",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [],
+          "ageMs": 1000
+        }
+      },
+      "served": null
+    },
+    {
+      "name": "a_balance_only_snapshot",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth": {
+          "provider": "anthropic-oauth",
+          "balance": {
+            "remainingUsd": 5
+          },
+          "ageMs": 1000
+        }
+      },
+      "served": {
+        "usedPct": null,
+        "windows": null,
+        "ageMs": 1000
+      }
+    },
+    {
+      "name": "no_cachedAt",
+      "provider": "anthropic-oauth",
+      "routes": {
+        "anthropic-oauth": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 23,
+              "resetAt": 4000000000000
+            }
+          ]
+        }
+      },
+      "served": null
+    },
+    {
+      "name": "the_provider_name_is_lower_cased",
+      "provider": "Anthropic-OAuth",
+      "routes": {
+        "anthropic-oauth": {
+          "provider": "anthropic-oauth",
+          "quotaWindows": [
+            {
+              "label": "5H",
+              "usedPct": 24,
+              "resetAt": 4000000000000
+            }
+          ],
+          "ageMs": 1000
+        }
+      },
+      "served": {
+        "usedPct": 24,
+        "windows": [
+          {
+            "label": "5H",
+            "usedPct": 24,
+            "resetAt": 4000000000000
+          }
+        ],
+        "ageMs": 1000
+      }
+    }
+  ]
+}

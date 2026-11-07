@@ -14,6 +14,7 @@ mod codec;
 mod decoder;
 mod effort_updates;
 pub(crate) mod errors;
+pub mod fast_mode;
 mod lowering;
 mod models;
 pub mod oauth;
@@ -21,6 +22,8 @@ mod policy;
 
 #[cfg(test)]
 mod effort_tests;
+#[cfg(test)]
+mod fast_mode_tests;
 #[cfg(test)]
 mod models_tests;
 #[cfg(test)]

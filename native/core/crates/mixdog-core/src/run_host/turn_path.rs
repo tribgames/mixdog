@@ -91,7 +91,7 @@ pub struct TurnPathParts {
     pub hook_bus: Arc<HookBus>,
     pub hook_common: CommonOf,
     // The session side.
-    pub goals: GoalRuntime,
+    pub goals: Arc<GoalRuntime>,
     pub todos: Arc<dyn TodoStore>,
     pub work: Arc<dyn RunningWork>,
     pub cycles: Arc<UserCycles>,
@@ -124,6 +124,8 @@ pub struct TurnPath {
     pub directory: Arc<SessionDirectory>,
     /// The table `ports::reactions::SessionReactions` records into.
     pub reaction_targets: Arc<ReactionTargets>,
+    /// Clear a session's live result caches on a workspace change (`HostRuntime::workspace_context`).
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
     pub registry: Arc<ProviderRegistry>,
     /// `markUnattendedRun`: schedule and webhook runs mark themselves here for the length of a run.
     pub unattended: Arc<UnattendedRunRegistry>,
@@ -140,6 +142,7 @@ impl TurnPath {
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
         let reaction_targets: Arc<ReactionTargets> = Arc::default();
+        let reuses: Arc<super::result_reuse::LiveReuses> = Arc::default();
         let unattended = UnattendedRunRegistry::new(run_stamps);
         let contacts = Arc::new(ContactIds::new(agents));
         let gate_env = Arc::new(HostGateEnv::new(unattended.clone(), contacts.clone(), allow_all, hub));
@@ -155,13 +158,14 @@ impl TurnPath {
             gate_env,
             blobs,
             reaction_targets: reaction_targets.clone(),
+            reuses: reuses.clone(),
             effort_judge: Some(effort_judge),
             side,
             next,
             settings,
             seams: SeamParts {
                 tools: SessionToolBuilder::new(tool_pool, mcp, skills_listed),
-                todos: TodoViews::new(todos, Arc::new(goals), work, cycles),
+                todos: TodoViews::new(todos, goals, work, cycles),
                 post_tool: Arc::new(BusPostToolDispatch::new(hook_bus, hook_common)),
                 skills: Some(SkillParts { names: skill_names, tool: skill_tool }),
                 config,
@@ -175,6 +179,6 @@ impl TurnPath {
         };
         let compactors = Arc::new(SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(compaction)), host.clock.clone()));
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
-        Ok(Self { directory, reaction_targets, registry, unattended, contacts })
+        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts })
     }
 }

@@ -7,7 +7,8 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
-use mixdog_core_api::domain::provider::{ModelRequest, WireRequest};
+use mixdog_core_api::domain::cache_warm::CacheWarmSend;
+use mixdog_core_api::domain::provider::{ModelRequest, ProviderAdapter, WireRequest};
 use tokio_util::sync::CancellationToken;
 
 use super::*;
@@ -380,6 +381,43 @@ async fn a_warm_posts_the_request_attempt_builds_once_and_plain() {
     let built = adapter.codec().encode(&request).unwrap();
     assert_eq!(sent[0].body, built.body, "the body attempt builds");
     assert!(!sent[0].headers.iter().any(|h| h.0.eq_ignore_ascii_case("content-encoding")), "plain body");
+    assert_eq!(serde_json::from_slice::<Value>(&sent[0].body).unwrap()["max_tokens"], 1);
+}
+
+struct NoPrice;
+
+impl crate::registry::accounting::UsagePricing for NoPrice {
+    fn price_usage(&self, _: &crate::catalog::UsageArgs) -> crate::catalog::PricedUsage {
+        unreachable!("a warm is not priced by the wrapper")
+    }
+}
+
+/// The warmer reaches the warm through the registered (accounting-wrapped) adapter, and the
+/// request it sends is capped at one token whatever the caller built.
+#[tokio::test]
+async fn a_wrapped_provider_warms_with_the_output_capped_at_one_token() {
+    let http = Arc::new(WarmHttp::default());
+    http.script.lock().unwrap().push_back(Reply::Sse(vec![
+        b"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1,\"cache_read_input_tokens\":9}}}\n\n".to_vec(),
+        b"data: {\"type\":\"content_block_start\"}\n\n".to_vec(),
+    ]));
+    let store = MemoryStore::signed_in();
+    let adapter = AnthropicAdapter::oauth(
+        config("https://api.anthropic.com"),
+        http.clone(),
+        Arc::new(OAuthSession::new(store.file.clone(), http.clone())),
+        false,
+        cpu_bulk(),
+    );
+    let deps = Arc::new(crate::registry::accounted::AccountingDeps::new(Arc::new(NoPrice), Arc::new(|| None)));
+    let registered = crate::registry::accounted::AccountedAdapter::wrap(Arc::new(adapter), "anthropic-oauth", deps);
+    let (gate, _dir) = gate();
+    let real = request(base_messages(), RequestOptions::default());
+    assert_eq!(real.options.max_output_tokens_override, None);
+    let warm = registered.cache_warm().expect("the wrapper forwards the cache-warm mode");
+    let ctx = WarmContext { gate: &gate, target: &target("anthropic-oauth", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} };
+    warm.send_cache_warm(&real, &ctx, &CancellationToken::new(), &mut |_| {}).await.unwrap();
+    let sent = http.sent.lock().unwrap();
     assert_eq!(serde_json::from_slice::<Value>(&sent[0].body).unwrap()["max_tokens"], 1);
 }
 

@@ -209,8 +209,7 @@ mod tests {
 
     /// What real Node answered (`benchmarks/rust-core/recorders/record-agent-watchdog.mjs`).
     fn golden() -> Value {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-watchdog/golden.json");
-        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+        serde_json::from_str(include_str!("../../../../fixtures/agent-watchdog/golden.json")).unwrap()
     }
 
     fn overrides_of(recorded: &Value) -> Overrides {

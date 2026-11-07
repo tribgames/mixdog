@@ -95,6 +95,16 @@ pub struct LateExtensionHost {
     inner: OnceLock<Arc<dyn ExtensionHost>>,
 }
 
+impl mixdog_core::run_host::late::Bound for LateExtensionHost {
+    fn cell(&self) -> &'static str {
+        "extension host"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.inner.get().is_some()
+    }
+}
+
 impl LateExtensionHost {
     pub fn new() -> Arc<Self> {
         Arc::default()

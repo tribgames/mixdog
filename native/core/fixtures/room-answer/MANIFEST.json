@@ -4,9 +4,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 38539,
+      "bytes": 38536,
       "path": "golden.json",
-      "sha256": "446f130dfa4f2df2b09f83574d0e30db551a05f98751c10f61a93e1b1de47f14"
+      "sha256": "16a2da8418d26b4754acd6074475963cb42a123ee41a4b7592f0b6715642cd92"
     }
   ],
   "finalAnswers": 30,
@@ -30,5 +30,5 @@
   "set": "room-answer",
   "spokenText": 48,
   "toolSummaries": 10,
-  "totalBytes": 38539
+  "totalBytes": 38536
 }

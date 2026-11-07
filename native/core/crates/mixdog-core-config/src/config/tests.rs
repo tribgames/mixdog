@@ -546,6 +546,47 @@ fn the_stored_instruction_files_setting_is_read_as_written() {
     assert_eq!(config.stored_instruction_files(), Some(json!("claude")));
 }
 
+/// Node's saves write `canonicalizeUnifiedConfig` of the whole document
+/// (`benchmarks/rust-core/recorders/record-config-canonical.mjs`), whatever the edit put back.
+#[test]
+fn a_save_leaves_the_canonical_document_on_disk_as_node_does() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/config/canonical/golden.json")).unwrap();
+    for case in golden["cases"].as_array().unwrap().iter().filter(|case| case.get("write").is_some()) {
+        let dir = tempfile::tempdir().unwrap();
+        let (config, _) = open(&dir, Some(case["config"].clone()));
+        let write = case["write"].clone();
+        config
+            .update(move |doc| {
+                if write["kind"] == "section" {
+                    doc.insert(write["section"].as_str().unwrap().to_owned(), write["value"].clone());
+                } else {
+                    doc.extend(write["patch"].as_object().unwrap().clone());
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(on_disk(&dir), case["written"], "{}", case["name"]);
+        assert_eq!(Value::Object((*config.full()).clone()), case["written"], "{}: the installed document", case["name"]);
+    }
+}
+
+#[test]
+fn the_agent_section_never_shows_a_retired_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(
+        &dir,
+        Some(json!({ "agent": { "outputStyle": "terse", "search": {}, "capabilities": {}, "recap": { "enabled": false }, "modules": { "memory": {}, "git": {} } } })),
+    );
+    assert_eq!(Value::Object(config.agent()), json!({ "recap": { "enabled": false }, "modules": { "git": {} } }));
+    std::fs::write(
+        dir.path().join("mixdog-config.json"),
+        br#"{"agent":{"search":{"timeout":1},"recap":{"enabled":true}}}"#,
+    )
+    .unwrap();
+    config.reload().unwrap();
+    assert_eq!(Value::Object(config.agent()), json!({ "recap": { "enabled": true } }));
+}
+
 #[test]
 fn reads_do_not_wait_for_a_writer() {
     let dir = tempfile::tempdir().unwrap();

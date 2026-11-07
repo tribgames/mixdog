@@ -12,6 +12,7 @@ use mixdog_agent::compact::summary_run::{SummaryFailure, SummaryResponse, Summar
 use mixdog_agent::env::{Clock, SendTap, SendTicket};
 use mixdog_agent::fork::{forked_request, prompt_tokens, send_forked};
 use mixdog_agent::response::ModelResponse;
+use mixdog_agent::without_tail_reminder;
 use mixdog_ai::service::model_proxy_inline::AttachmentReader;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::domain::provider::{ModelRequest, ProviderAdapter, Usage};
@@ -64,6 +65,10 @@ fn messages_tier(request: &ModelRequest) -> Option<String> {
 
 impl SendTap for RunTap {
     fn begin(&self, request: &ModelRequest) -> Box<dyn SendTicket> {
+        // The store keeps the request without its tail reminder (Node captures the messages before
+        // `sendWithRecovery` adds it): a fork or a warm adds the reminder of its own moment, and the
+        // shared prefix counts the messages the reminder is not part of.
+        let request = &without_tail_reminder(request);
         let side = &self.side;
         let reply = Arc::new(Mutex::new(None));
         let sender = Arc::new(RequestFork {
@@ -184,6 +189,21 @@ mod tests {
             tools: Vec::new(),
             options: RequestOptions::default(),
         }
+    }
+
+    /// The loop sends the request with its tail reminder (`wire_request`); the store keeps the
+    /// messages before it (Node `captureSideQuestionRequest`), so the saved prefix counts them only.
+    #[tokio::test]
+    async fn the_saved_request_is_kept_without_the_tail_reminder() {
+        let dir = tempfile::tempdir().unwrap();
+        let side = side(dir.path()).await;
+        let provider = Arc::new(MockProvider::new([]));
+        let tap = side.tap(run(provider, false));
+        let sent = mixdog_agent::wire_request("mock-model", RequestOptions::default(), request("hi").messages, Some("remember"), Vec::new());
+        assert_eq!(sent.messages.len(), 2);
+        tap.begin(&sent).settle(&reply("ok"));
+        let saved = side.store.saved_request(&ThreadId::from("t")).unwrap();
+        assert_eq!(saved.shared_prefix_messages, 1, "the reminder is not part of the shared prefix");
     }
 
     fn reply(content: &str) -> ModelResponse {

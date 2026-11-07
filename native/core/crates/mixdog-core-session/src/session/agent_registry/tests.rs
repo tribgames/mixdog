@@ -348,7 +348,7 @@ impl AgentStatusline for Statusline {
 /// `ask-turn-settle.mjs:137-139` stamps every completed turn; a turn start lifts the owner's
 /// release (`worker-index.mjs:59`); an owner close (`bumpSessionGenerationAttempt` with
 /// `ownerClose`) stamps the session durably, then cancels its running turn, leaving it open.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     use std::sync::atomic::AtomicUsize;
 
@@ -419,7 +419,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
 /// The job board's cancel (`close_session(id, "agent-task-cancel", {tombstone: false,
 /// owner_close: false})`) ends the worker's turn with Node's `closeSession` abort text, and the
 /// session stays open without an owner-close stamp.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     use mixdog_agent::agent_tool::host::Sessions;
 
@@ -538,4 +538,44 @@ async fn a_deleted_sessions_settled_row_becomes_a_tombstone() {
     }
     assert!(rig.store.map("s-busy").unwrap().contains_key("sessionId"));
     assert!(rig.store.map("s-lead").unwrap().contains_key("sessionId"));
+}
+
+/// `lead-worker-index.mjs` `updateLeadWorkerCwd` against the real Node index
+/// (`fixtures/desktop/settings/lead-worker-cwd-twin.json`): every call answers what Node's did and
+/// leaves, for each Lead row of its scenario, the row text Node left (key order included).
+#[tokio::test]
+async fn the_lead_row_follows_the_cwd_as_the_recorded_node_index_moved_it() {
+    let twin: Value = serde_json::from_str(include_str!("../../../../../fixtures/desktop/settings/lead-worker-cwd-twin.json")).unwrap();
+    for scenario in twin["scenarios"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let rig = Rig::new();
+        let mut seeded = HashMap::new();
+        for text in scenario["seed"].as_array().unwrap() {
+            let row = obj(serde_json::from_str(text.as_str().unwrap()).unwrap());
+            let id = clean_str(row["sessionId"].as_str().unwrap());
+            rig.store.headers.lock().unwrap().insert(id.clone(), obj(json!({ "worker": row.clone() })));
+            seeded.insert(id, row);
+        }
+        let registry = rig.registry();
+        for step in scenario["steps"].as_array().unwrap() {
+            let (id, cwd) = (step["args"][0].as_str().unwrap(), step["args"][1].as_str().unwrap());
+            let label = format!("{name}: {id:?} {cwd:?}");
+            assert_eq!(registry.update_lead_worker_cwd(id, cwd).await, step["returns"], "{label}: answer");
+            for (key, want) in step["rows"].as_object().unwrap() {
+                let have = rig.store.map(key).or_else(|| seeded.get(key).cloned()).unwrap();
+                assert_eq!(Value::Object(have).to_string(), want.as_str().unwrap(), "{label}: row {key}");
+            }
+        }
+    }
+}
+
+/// A session the store does not hold has no row to move, and an agent row is not a Lead row.
+#[tokio::test]
+async fn only_an_existing_lead_row_moves() {
+    let rig = Rig::new();
+    rig.store.headers.lock().unwrap().insert("s-agent".into(), obj(json!({ "worker": worker_row("s-agent", "tag-a", json!({ "cwd": "/old" })) })));
+    let registry = rig.registry();
+    assert!(registry.update_lead_worker_cwd("s-agent", "/new").await);
+    assert!(registry.update_lead_worker_cwd("s-absent", "/new").await);
+    assert!(rig.store.map("s-agent").is_none() && rig.store.map("s-absent").is_none());
 }

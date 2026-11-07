@@ -79,6 +79,12 @@ fn window_of(window: &ResumeWindow) -> Window {
 }
 
 impl SessionHandle {
+    /// Woken after every step of this thread's actor: what a test waits on instead of the clock.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn stepped(&self) -> &tokio::sync::Notify {
+        &self.cell.stepped
+    }
+
     fn closing(&self) -> CoreError {
         CoreError::ThreadClosing {
             thread_id: self.id.clone(),

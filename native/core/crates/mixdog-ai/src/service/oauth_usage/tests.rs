@@ -285,3 +285,50 @@ fn a_damaged_cache_is_replaced_by_its_valid_backup() {
     assert!(read_json_file(&path).unwrap()["routes"].as_object().unwrap().is_empty());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// The reading the cache-warm gate takes of a provider without a roster
+/// (`readCachedOAuthUsageSnapshot({ provider, model: '' })`), against the usage cache files of
+/// `fixtures/warm-gate-seams/golden.json` (recorded from the real Node reader): the same snapshot
+/// is served (by its first window), at the same age, and a reading with no windows is none.
+#[tokio::test]
+async fn the_gate_reads_the_usage_cache_as_node_does() {
+    use crate::warmer::gate::UsageSnapshots;
+
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/warm-gate-seams/golden.json")).expect("fixture");
+    let r = rig().await;
+    let data = r.dir.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let file = data.join("gateway-oauth-usage-cache.json");
+    for case in golden["usageSnapshot"].as_array().expect("cases") {
+        let name = case["name"].as_str().expect("name");
+        let written = now_ms();
+        match case["routes"].as_object() {
+            None => std::fs::write(&file, "").unwrap(),
+            Some(routes) => {
+                let routes: serde_json::Map<String, Value> = routes
+                    .iter()
+                    .map(|(key, snapshot)| {
+                        let mut snapshot = snapshot.as_object().expect("snapshot").clone();
+                        if let Some(age) = snapshot.shift_remove("ageMs").and_then(|a| a.as_i64()) {
+                            snapshot.insert("cachedAt".into(), Value::from(written - age));
+                        }
+                        (key.clone(), Value::Object(snapshot))
+                    })
+                    .collect();
+                std::fs::write(&file, serde_json::to_vec(&serde_json::json!({ "routes": routes })).unwrap()).unwrap();
+            }
+        }
+        let got = UsageSnapshots::cached(&*r.usage, case["provider"].as_str().expect("provider")).await;
+        let served = &case["served"];
+        // Node serves a snapshot that has no windows; the gate reads that as no reading.
+        if served.is_null() || served["windows"].is_null() {
+            assert!(got.is_none(), "{name}: no reading");
+            continue;
+        }
+        let (windows, cached_at) = got.unwrap_or_else(|| panic!("{name}: Node serves a snapshot"));
+        assert_eq!(windows.len(), served["windows"].as_array().unwrap().len(), "{name}: windows");
+        assert_eq!(windows[0].used_pct, served["usedPct"].as_f64(), "{name}: the snapshot served");
+        let age = (written - cached_at) as f64 / 1000.0;
+        assert_eq!(age.round() * 1000.0, served["ageMs"].as_f64().unwrap(), "{name}: age");
+    }
+}

@@ -1,0 +1,1338 @@
+{
+  "node": "v22.20.0",
+  "cases": [
+    {
+      "name": "empty config",
+      "config": {},
+      "expected": {}
+    },
+    {
+      "name": "nothing retired",
+      "config": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          }
+        },
+        "memory": {
+          "cycle1": {
+            "interval": "1h"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      },
+      "expected": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          }
+        },
+        "memory": {
+          "cycle1": {
+            "interval": "1h"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      }
+    },
+    {
+      "name": "every retired root key",
+      "config": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "autoClear": {
+          "enabled": true
+        },
+        "compaction": {
+          "auto": true
+        },
+        "shell": {
+          "name": "bash"
+        },
+        "mcpServers": {
+          "a": {
+            "command": "x"
+          }
+        },
+        "search": {
+          "timeout": 5
+        },
+        "capabilities": {
+          "homeAccess": true
+        }
+      },
+      "expected": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        }
+      }
+    },
+    {
+      "name": "lookalike root keys stay",
+      "config": {
+        "Shell": 1,
+        "autoclear": 1,
+        "mcp_servers": 1,
+        "Search": 1,
+        "capability": 1
+      },
+      "expected": {
+        "Shell": 1,
+        "autoclear": 1,
+        "mcp_servers": 1,
+        "Search": 1,
+        "capability": 1
+      }
+    },
+    {
+      "name": "retired root keys that are scalars",
+      "config": {
+        "shell": "x",
+        "search": 7,
+        "capabilities": null,
+        "mcpServers": []
+      },
+      "expected": {}
+    },
+    {
+      "name": "agent retired keys",
+      "config": {
+        "agent": {
+          "outputStyle": "terse",
+          "search": {
+            "a": 1
+          },
+          "capabilities": {
+            "b": 2
+          },
+          "recap": {
+            "enabled": false
+          }
+        }
+      },
+      "expected": {
+        "agent": {
+          "recap": {
+            "enabled": false
+          }
+        }
+      }
+    },
+    {
+      "name": "agent holding only retired keys stays an empty object",
+      "config": {
+        "agent": {
+          "outputStyle": "x",
+          "search": {},
+          "capabilities": {}
+        }
+      },
+      "expected": {
+        "agent": {}
+      }
+    },
+    {
+      "name": "agent empty object",
+      "config": {
+        "agent": {}
+      },
+      "expected": {
+        "agent": {}
+      }
+    },
+    {
+      "name": "agent null",
+      "config": {
+        "agent": null
+      },
+      "expected": {
+        "agent": null
+      }
+    },
+    {
+      "name": "agent string",
+      "config": {
+        "agent": "x",
+        "search": {}
+      },
+      "expected": {
+        "agent": "x"
+      }
+    },
+    {
+      "name": "agent array",
+      "config": {
+        "agent": [
+          {
+            "search": 1
+          }
+        ]
+      },
+      "expected": {
+        "agent": [
+          {
+            "search": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "agent keys that look retired but are not",
+      "config": {
+        "agent": {
+          "OutputStyle": "x",
+          "searchTimeout": 1,
+          "capability": 2
+        }
+      },
+      "expected": {
+        "agent": {
+          "OutputStyle": "x",
+          "searchTimeout": 1,
+          "capability": 2
+        }
+      }
+    },
+    {
+      "name": "agent nested autoClear, compaction and shell stay",
+      "config": {
+        "agent": {
+          "autoClear": {
+            "enabled": false
+          },
+          "compaction": {
+            "auto": false
+          },
+          "shell": {
+            "name": "zsh"
+          },
+          "mcpServers": {
+            "s": {}
+          }
+        }
+      },
+      "expected": {
+        "agent": {
+          "autoClear": {
+            "enabled": false
+          },
+          "compaction": {
+            "auto": false
+          },
+          "shell": {
+            "name": "zsh"
+          },
+          "mcpServers": {
+            "s": {}
+          }
+        }
+      }
+    },
+    {
+      "name": "agent.modules.memory dropped, others kept",
+      "config": {
+        "agent": {
+          "modules": {
+            "memory": {
+              "enabled": false
+            },
+            "git": {
+              "enabled": true
+            }
+          }
+        }
+      },
+      "expected": {
+        "agent": {
+          "modules": {
+            "git": {
+              "enabled": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "agent.modules holding only memory",
+      "config": {
+        "agent": {
+          "modules": {
+            "memory": false
+          }
+        }
+      },
+      "expected": {
+        "agent": {
+          "modules": {}
+        }
+      }
+    },
+    {
+      "name": "agent.modules.memory null",
+      "config": {
+        "agent": {
+          "modules": {
+            "memory": null,
+            "office": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      "expected": {
+        "agent": {
+          "modules": {
+            "office": {
+              "enabled": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "agent.modules without memory",
+      "config": {
+        "agent": {
+          "modules": {
+            "git": {
+              "enabled": true
+            }
+          }
+        }
+      },
+      "expected": {
+        "agent": {
+          "modules": {
+            "git": {
+              "enabled": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "agent.modules empty",
+      "config": {
+        "agent": {
+          "modules": {}
+        }
+      },
+      "expected": {
+        "agent": {
+          "modules": {}
+        }
+      }
+    },
+    {
+      "name": "agent.modules is a string",
+      "config": {
+        "agent": {
+          "modules": "memory"
+        }
+      },
+      "expected": {
+        "agent": {
+          "modules": "memory"
+        }
+      }
+    },
+    {
+      "name": "agent.modules is an array",
+      "config": {
+        "agent": {
+          "modules": [
+            {
+              "memory": 1
+            }
+          ]
+        }
+      },
+      "expected": {
+        "agent": {
+          "modules": [
+            {
+              "memory": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "root modules.memory is not agent.modules",
+      "config": {
+        "modules": {
+          "memory": {
+            "enabled": false
+          }
+        },
+        "agent": {}
+      },
+      "expected": {
+        "modules": {
+          "memory": {
+            "enabled": false
+          }
+        },
+        "agent": {}
+      }
+    },
+    {
+      "name": "memory enabled dropped",
+      "config": {
+        "memory": {
+          "enabled": true,
+          "cycle1": {
+            "interval": "1h"
+          }
+        }
+      },
+      "expected": {
+        "memory": {
+          "cycle1": {
+            "interval": "1h"
+          }
+        }
+      }
+    },
+    {
+      "name": "memory holding only enabled",
+      "config": {
+        "memory": {
+          "enabled": false
+        }
+      },
+      "expected": {}
+    },
+    {
+      "name": "memory empty",
+      "config": {
+        "memory": {}
+      },
+      "expected": {}
+    },
+    {
+      "name": "memory generated marker kept by the read",
+      "config": {
+        "memory": {
+          "_generated": true
+        }
+      },
+      "expected": {
+        "memory": {
+          "_generated": true
+        }
+      }
+    },
+    {
+      "name": "memory enabled beside the generated marker",
+      "config": {
+        "memory": {
+          "_generated": true,
+          "enabled": true
+        }
+      },
+      "expected": {
+        "memory": {
+          "_generated": true
+        }
+      }
+    },
+    {
+      "name": "memory user title only",
+      "config": {
+        "memory": {
+          "user": {
+            "title": "Dr"
+          }
+        }
+      },
+      "expected": {}
+    },
+    {
+      "name": "memory user keeps other keys",
+      "config": {
+        "memory": {
+          "user": {
+            "title": "Dr",
+            "name": "Kim"
+          },
+          "cycle1": {}
+        }
+      },
+      "expected": {
+        "memory": {
+          "user": {
+            "name": "Kim"
+          },
+          "cycle1": {}
+        }
+      }
+    },
+    {
+      "name": "memory user empty",
+      "config": {
+        "memory": {
+          "user": {},
+          "cycle1": {}
+        }
+      },
+      "expected": {
+        "memory": {
+          "cycle1": {}
+        }
+      }
+    },
+    {
+      "name": "memory user string",
+      "config": {
+        "memory": {
+          "user": "Kim",
+          "cycle1": {}
+        }
+      },
+      "expected": {
+        "memory": {
+          "cycle1": {}
+        }
+      }
+    },
+    {
+      "name": "memory user array",
+      "config": {
+        "memory": {
+          "user": [
+            "a"
+          ],
+          "cycle1": {}
+        }
+      },
+      "expected": {
+        "memory": {
+          "cycle1": {}
+        }
+      }
+    },
+    {
+      "name": "memory user null",
+      "config": {
+        "memory": {
+          "user": null,
+          "cycle1": {}
+        }
+      },
+      "expected": {
+        "memory": {
+          "cycle1": {}
+        }
+      }
+    },
+    {
+      "name": "memory lookalike keys stay",
+      "config": {
+        "memory": {
+          "Enabled": true,
+          "title": "x",
+          "user": {
+            "Title": "y"
+          }
+        }
+      },
+      "expected": {
+        "memory": {
+          "Enabled": true,
+          "title": "x",
+          "user": {
+            "Title": "y"
+          }
+        }
+      }
+    },
+    {
+      "name": "memory null",
+      "config": {
+        "memory": null
+      },
+      "expected": {
+        "memory": null
+      }
+    },
+    {
+      "name": "memory string",
+      "config": {
+        "memory": "x"
+      },
+      "expected": {
+        "memory": "x"
+      }
+    },
+    {
+      "name": "memory array",
+      "config": {
+        "memory": [
+          1
+        ]
+      },
+      "expected": {
+        "memory": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "channels retired keys",
+      "config": {
+        "channels": {
+          "promptInjection": {
+            "a": 1
+          },
+          "schedules": [
+            {
+              "id": 1
+            }
+          ],
+          "access": {
+            "allow": []
+          },
+          "token": "t"
+        }
+      },
+      "expected": {
+        "channels": {
+          "access": {
+            "allow": []
+          },
+          "token": "t"
+        }
+      }
+    },
+    {
+      "name": "channels empty",
+      "config": {
+        "channels": {}
+      },
+      "expected": {
+        "channels": {}
+      }
+    },
+    {
+      "name": "channels null",
+      "config": {
+        "channels": null
+      },
+      "expected": {
+        "channels": null
+      }
+    },
+    {
+      "name": "channels array",
+      "config": {
+        "channels": [
+          {
+            "schedules": 1
+          }
+        ]
+      },
+      "expected": {
+        "channels": [
+          {
+            "schedules": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "channels string",
+      "config": {
+        "channels": "x"
+      },
+      "expected": {
+        "channels": "x"
+      }
+    },
+    {
+      "name": "root generated marker is stripped by readConfig",
+      "config": {
+        "_generated": true,
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "shell": {}
+      },
+      "expected": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        }
+      }
+    },
+    {
+      "name": "agent generated marker stays",
+      "config": {
+        "agent": {
+          "_generated": true,
+          "search": {}
+        }
+      },
+      "expected": {
+        "agent": {
+          "_generated": true
+        }
+      }
+    },
+    {
+      "name": "everything at once",
+      "config": {
+        "_generated": true,
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "autoClear": {
+          "enabled": true
+        },
+        "compaction": {
+          "auto": true
+        },
+        "shell": {
+          "name": "bash"
+        },
+        "mcpServers": {
+          "a": {
+            "command": "x"
+          }
+        },
+        "search": {
+          "timeout": 5
+        },
+        "capabilities": {
+          "homeAccess": true
+        },
+        "agent": {
+          "outputStyle": "x",
+          "search": {},
+          "capabilities": {},
+          "modules": {
+            "memory": {},
+            "git": {
+              "enabled": false
+            }
+          },
+          "recap": {
+            "enabled": true
+          }
+        },
+        "memory": {
+          "enabled": true,
+          "user": {
+            "title": "t",
+            "name": "n"
+          }
+        },
+        "channels": {
+          "promptInjection": {},
+          "schedules": [],
+          "token": "t"
+        }
+      },
+      "expected": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "modules": {
+            "git": {
+              "enabled": false
+            }
+          },
+          "recap": {
+            "enabled": true
+          }
+        },
+        "memory": {
+          "user": {
+            "name": "n"
+          }
+        },
+        "channels": {
+          "token": "t"
+        }
+      }
+    },
+    {
+      "name": "a section save writes the canonical document",
+      "config": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "shell": {
+          "name": "bash"
+        },
+        "agent": {
+          "search": {
+            "timeout": 1
+          },
+          "recap": {
+            "enabled": true
+          },
+          "modules": {
+            "memory": {
+              "enabled": false
+            }
+          }
+        },
+        "memory": {
+          "enabled": true,
+          "user": {
+            "title": "x",
+            "name": "y"
+          }
+        },
+        "channels": {
+          "promptInjection": {},
+          "schedules": [],
+          "access": {}
+        }
+      },
+      "write": {
+        "kind": "section",
+        "section": "desktop",
+        "value": {
+          "keepAwake": true
+        }
+      },
+      "expected": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          },
+          "modules": {}
+        },
+        "memory": {
+          "user": {
+            "name": "y"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      },
+      "written": {
+        "desktop": {
+          "keepAwake": true
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          },
+          "modules": {}
+        },
+        "memory": {
+          "user": {
+            "name": "y"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      }
+    },
+    {
+      "name": "a saved agent section loses its retired keys",
+      "config": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "shell": {
+          "name": "bash"
+        },
+        "agent": {
+          "search": {
+            "timeout": 1
+          },
+          "recap": {
+            "enabled": true
+          },
+          "modules": {
+            "memory": {
+              "enabled": false
+            }
+          }
+        },
+        "memory": {
+          "enabled": true,
+          "user": {
+            "title": "x",
+            "name": "y"
+          }
+        },
+        "channels": {
+          "promptInjection": {},
+          "schedules": [],
+          "access": {}
+        }
+      },
+      "write": {
+        "kind": "section",
+        "section": "agent",
+        "value": {
+          "recap": {
+            "enabled": false
+          },
+          "outputStyle": "terse",
+          "search": {},
+          "capabilities": {
+            "homeAccess": true
+          },
+          "modules": {
+            "memory": {
+              "enabled": true
+            },
+            "git": {
+              "enabled": true
+            }
+          }
+        }
+      },
+      "expected": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          },
+          "modules": {}
+        },
+        "memory": {
+          "user": {
+            "name": "y"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      },
+      "written": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": false
+          },
+          "modules": {
+            "git": {
+              "enabled": true
+            }
+          }
+        },
+        "memory": {
+          "user": {
+            "name": "y"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      }
+    },
+    {
+      "name": "a saved memory section loses its retired keys",
+      "config": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "shell": {
+          "name": "bash"
+        },
+        "agent": {
+          "search": {
+            "timeout": 1
+          },
+          "recap": {
+            "enabled": true
+          },
+          "modules": {
+            "memory": {
+              "enabled": false
+            }
+          }
+        },
+        "memory": {
+          "enabled": true,
+          "user": {
+            "title": "x",
+            "name": "y"
+          }
+        },
+        "channels": {
+          "promptInjection": {},
+          "schedules": [],
+          "access": {}
+        }
+      },
+      "write": {
+        "kind": "section",
+        "section": "memory",
+        "value": {
+          "enabled": false,
+          "user": {
+            "title": "Dr",
+            "language": "ko"
+          },
+          "cycle1": {
+            "interval": "2h"
+          }
+        }
+      },
+      "expected": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          },
+          "modules": {}
+        },
+        "memory": {
+          "user": {
+            "name": "y"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      },
+      "written": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          },
+          "modules": {}
+        },
+        "memory": {
+          "user": {
+            "language": "ko"
+          },
+          "cycle1": {
+            "interval": "2h"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      }
+    },
+    {
+      "name": "a saved channels section loses its retired keys",
+      "config": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "shell": {
+          "name": "bash"
+        },
+        "agent": {
+          "search": {
+            "timeout": 1
+          },
+          "recap": {
+            "enabled": true
+          },
+          "modules": {
+            "memory": {
+              "enabled": false
+            }
+          }
+        },
+        "memory": {
+          "enabled": true,
+          "user": {
+            "title": "x",
+            "name": "y"
+          }
+        },
+        "channels": {
+          "promptInjection": {},
+          "schedules": [],
+          "access": {}
+        }
+      },
+      "write": {
+        "kind": "section",
+        "section": "channels",
+        "value": {
+          "promptInjection": {
+            "a": 1
+          },
+          "schedules": [
+            {
+              "id": 1
+            }
+          ],
+          "token": "t"
+        }
+      },
+      "expected": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          },
+          "modules": {}
+        },
+        "memory": {
+          "user": {
+            "name": "y"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      },
+      "written": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          },
+          "modules": {}
+        },
+        "memory": {
+          "user": {
+            "name": "y"
+          }
+        },
+        "channels": {
+          "token": "t"
+        }
+      }
+    },
+    {
+      "name": "a whole-config save drops retired root keys",
+      "config": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "shell": {
+          "name": "bash"
+        },
+        "agent": {
+          "search": {
+            "timeout": 1
+          },
+          "recap": {
+            "enabled": true
+          },
+          "modules": {
+            "memory": {
+              "enabled": false
+            }
+          }
+        },
+        "memory": {
+          "enabled": true,
+          "user": {
+            "title": "x",
+            "name": "y"
+          }
+        },
+        "channels": {
+          "promptInjection": {},
+          "schedules": [],
+          "access": {}
+        }
+      },
+      "write": {
+        "kind": "config",
+        "patch": {
+          "autoClear": {
+            "x": 1
+          },
+          "compaction": {},
+          "mcpServers": {
+            "a": {}
+          },
+          "search": {},
+          "capabilities": {},
+          "desktop": {
+            "keepAwake": true
+          }
+        }
+      },
+      "expected": {
+        "desktop": {
+          "keepAwake": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          },
+          "modules": {}
+        },
+        "memory": {
+          "user": {
+            "name": "y"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      },
+      "written": {
+        "desktop": {
+          "keepAwake": true
+        },
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "agent": {
+          "recap": {
+            "enabled": true
+          },
+          "modules": {}
+        },
+        "memory": {
+          "user": {
+            "name": "y"
+          }
+        },
+        "channels": {
+          "access": {}
+        }
+      }
+    }
+  ]
+}

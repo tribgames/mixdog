@@ -712,7 +712,7 @@ impl Worktrees {
         if others.is_empty() {
             Ok(())
         } else {
-            Err(errors::busy_with("workspace-shared", Some(others), None, None))
+            Err(errors::shared_by_others(others))
         }
     }
 

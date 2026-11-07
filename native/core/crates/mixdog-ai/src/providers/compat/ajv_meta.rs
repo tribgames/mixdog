@@ -372,16 +372,125 @@ fn bad_pattern(node: &Value) -> Option<String> {
     None
 }
 
+/// Where a reference the validator could not resolve is written, found as Node finds it
+/// (`refPointer`): the first `$ref` that is the address or whose text the address ends with, in
+/// the same walk. Nothing matches when the address was rewritten, and the pointer is then empty.
+fn ref_pointer(node: &Value, address: &str, pointer: &str) -> Option<String> {
+    match node {
+        Value::Array(list) => list.iter().enumerate().find_map(|(i, child)| ref_pointer(child, address, &format!("{pointer}/{i}"))),
+        Value::Object(map) => {
+            if map.get("$ref").and_then(Value::as_str).is_some_and(|reference| address.ends_with(reference)) {
+                return Some(format!("{pointer}/$ref"));
+            }
+            js_ordered(map)
+                .into_iter()
+                .find_map(|(key, child)| ref_pointer(child, address, &format!("{pointer}/{}", escape_pointer(key))))
+        }
+        _ => None,
+    }
+}
+
+/// fast-uri's encoding of one URI component (what Ajv's `resolve` serializes a reference with):
+/// a character the component does not allow becomes its UTF-8 percent bytes, a valid `%XX` is
+/// upper-cased and decoded when it is unreserved (a `.` stays encoded in a path, where it could
+/// be a dot segment). `None` for a malformed `%` (Ajv then fails with a message of its own).
+fn encode_component(text: &str, query_or_fragment: bool) -> Option<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        i += 1;
+        if c == '%' {
+            let hex: String = chars.get(i..i + 2)?.iter().collect();
+            if !hex.chars().all(|h| h.is_ascii_hexdigit()) {
+                return None;
+            }
+            let value = u8::from_str_radix(&hex, 16).ok()?;
+            i += 2;
+            let decoded = char::from(value);
+            if decoded.is_ascii_alphanumeric() || matches!(decoded, '-' | '_' | '~') || (decoded == '.' && query_or_fragment) {
+                out.push(decoded);
+            } else {
+                out.push_str(&format!("%{value:02X}"));
+            }
+            continue;
+        }
+        let allowed = c.is_ascii_alphanumeric()
+            || matches!(c, '-' | '.' | '_' | '~' | '!' | '$' | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '=' | ':' | '@' | '/')
+            || (query_or_fragment && c == '?');
+        if allowed {
+            out.push(c);
+        } else {
+            for byte in c.encode_utf8(&mut [0; 4]).bytes() {
+                out.push_str(&format!("%{byte:02X}"));
+            }
+        }
+    }
+    Some(out)
+}
+
+/// A relative path without its `.` and `..` segments; a leading `..` that has nothing to remove
+/// stays (fast-uri's `removeDotSegmentsRelative`).
+fn without_dot_segments(path: &str) -> String {
+    let mut kept: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "." => {}
+            ".." if kept.last().is_some_and(|last| *last != "..") => {
+                kept.pop();
+            }
+            other => kept.push(other),
+        }
+    }
+    kept.join("/")
+}
+
+/// The address Ajv resolves a local or relative reference to: the reference as fast-uri
+/// serializes it. Only a reference with no scheme and no authority is rewritten (an absolute one
+/// is left as written), and resolving a relative path against a root `$id` is not modeled.
+fn serialized(reference: &str) -> String {
+    let (before, fragment) = match reference.split_once('#') {
+        Some((before, fragment)) => (before, Some(fragment)),
+        None => (reference, None),
+    };
+    let (path, query) = match before.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (before, None),
+    };
+    let first_segment = path.split('/').next().unwrap_or("");
+    if path.starts_with("//") || (first_segment.contains(':') && !first_segment.starts_with(':')) {
+        return reference.to_owned();
+    }
+    let build = || -> Option<String> {
+        let encoded = encode_component(path, false)?;
+        let mut out = if encoded.starts_with(':') { format!("./{encoded}") } else { without_dot_segments(&encoded) };
+        if let Some(query) = query {
+            out.push('?');
+            out.push_str(&encode_component(query, true)?);
+        }
+        if let Some(fragment) = fragment {
+            out.push('#');
+            out.push_str(&encode_component(fragment, true)?);
+        }
+        Some(out)
+    };
+    build().unwrap_or_else(|| reference.to_owned())
+}
+
 /// Why a schema that passed the meta-schema does not compile. Ajv names a reference by its
-/// resolved address, so a root `$id` prefixes a local one; a `pattern` that is not a regular
-/// expression is V8's `SyntaxError` text.
+/// resolved address, so a root `$id` prefixes a local one and a reference is written as fast-uri
+/// serializes it (`^a$` is `%5Ea$`); the pointer is where a `$ref` equal to the address, or one
+/// it ends with, is written. A `pattern` that is not a regular expression is V8's `SyntaxError`
+/// text.
 pub(crate) fn compile_problem(root: &Value, fallback: &str) -> Problem {
-    if let Some((pointer, reference)) = unresolved(root, root, "") {
+    if let Some((_, reference)) = unresolved(root, root, "") {
         let base = root.get("$id").and_then(Value::as_str).map(|id| id.split('#').next().unwrap_or(""));
         let address = match base {
-            Some(base) if reference.starts_with('#') => format!("{base}{reference}"),
-            _ => reference,
+            Some(base) if reference.starts_with('#') => format!("{base}{}", serialized(&reference)),
+            _ => serialized(&reference),
         };
+        let pointer = ref_pointer(root, &address, "").unwrap_or_default();
         return Problem { pointer, reason: format!("unresolvable $ref \"{address}\"") };
     }
     Problem { pointer: String::new(), reason: bad_pattern(root).unwrap_or_else(|| fallback.to_owned()) }

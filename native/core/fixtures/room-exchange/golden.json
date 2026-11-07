@@ -1,0 +1,5145 @@
+{
+  "note": "what the real 1.4.5 desktop agent-room-exchange.ts runRoomExchangeIn does with a scripted room host; a newer request chains inside the same call; `now` counts up from 1000, ids are n1, n2, ...",
+  "scenarios": [
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "the user is answered by the named member and the supervisor finishes",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 4,
+              "steps": 11
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a free exchange: the supervisor picks, then finishes",
+      "request": {},
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "speak",
+            "instruction": "check it",
+            "member": "alpha",
+            "scene": "work"
+          },
+          {
+            "action": "finish",
+            "scene": "work"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1834,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "alpha"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "submit",
+          "sess_alpha",
+          1937,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_alpha"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_alpha",
+                "since": 1004
+              },
+              "at": 1005,
+              "id": "row_n4",
+              "kind": "speech",
+              "name": "Alpha",
+              "speaker": "alpha",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "alpha",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 4,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              },
+              {
+                "id": "alpha",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "named members speak first, the supervisor adds one",
+      "request": {
+        "to": [
+          "bench",
+          "alpha"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "alpha": "r1",
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "speak",
+            "member": "gh",
+            "scene": "casual"
+          },
+          {
+            "action": "finish"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a whole-room request after the named members",
+      "request": {
+        "everyone": true,
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "finish"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1834,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "alpha"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "submit",
+          "sess_alpha",
+          1937,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_alpha"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_alpha",
+                "since": 1004
+              },
+              "at": 1005,
+              "id": "row_n4",
+              "kind": "speech",
+              "name": "Alpha",
+              "speaker": "alpha",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "gh"
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "submit",
+          "sess_gh",
+          1937,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_gh"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_gh",
+                "since": 1006
+              },
+              "at": 1007,
+              "id": "row_n6",
+              "kind": "speech",
+              "name": "Git Hub",
+              "speaker": "gh",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "no model to moderate: everyone speaks once",
+      "request": {},
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "alpha": "r1",
+          "bench": "r1",
+          "gh": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "unmanaged"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "log",
+          "room room01 supervisor failed: model down"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 4,
+              "steps": 11
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "log",
+          "room room01 supervisor failed: model down"
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a supervisor that fails falls back",
+      "request": {},
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          "throws"
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "log",
+          "room room01 supervisor gave no usable decision; falling back"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 4,
+              "steps": 11
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "log",
+          "room room01 supervisor gave no usable decision; falling back"
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a supervisor with no usable answer falls back",
+      "request": {},
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          null
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "not waiting: the exchange may end with nobody speaking",
+      "request": {
+        "waiting": false
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {},
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "finish"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "speech",
+            "name": "alpha",
+            "speaker": "alpha",
+            "text": "done"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 2,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 1,
+              "steps": 11
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "the message cap posts a cap row and owes the rest",
+      "request": {},
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "speak",
+            "member": "alpha"
+          },
+          {
+            "action": "speak",
+            "member": "gh"
+          },
+          {
+            "action": "speak",
+            "member": "bench"
+          }
+        ],
+        "maxMessages": 2,
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 5,
+              "steps": 3
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 4,
+              "steps": 2
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "the round cap",
+      "request": {},
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "speak",
+            "member": "alpha"
+          },
+          {
+            "action": "speak",
+            "member": "gh"
+          },
+          {
+            "action": "speak",
+            "member": "bench"
+          }
+        ],
+        "maxRounds": 1,
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "cap",
+              "limit": "usage",
+              "name": "Bench",
+              "text": "",
+              "usage": {
+                "kind": "quota_exhausted",
+                "model": "gpt-5",
+                "provider": "openai",
+                "resetAt": 1700000000000
+              }
+            }
+          ]
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a usage limit posts one notice instead of a failure",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "answers": {
+          "bench": [
+            {
+              "usage": true
+            }
+          ]
+        },
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 5,
+              "steps": 11
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "failed": true,
+                "id": "bench",
+                "result": "pass"
+              }
+            ]
+          }
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "alpha"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "submit",
+          "sess_alpha",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_alpha"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "alpha",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 5,
+              "steps": 10
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "failed": true,
+                "id": "bench",
+                "result": "pass"
+              },
+              {
+                "failed": true,
+                "id": "alpha",
+                "result": "pass"
+              }
+            ]
+          }
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "gh"
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "submit",
+          "sess_gh",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_gh"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "at": 1005,
+              "failed": true,
+              "id": "row_n4",
+              "kind": "pass",
+              "name": "Bench",
+              "names": [
+                "Bench",
+                "Alpha",
+                "Git Hub"
+              ],
+              "reason": [
+                "overloaded",
+                "boom"
+              ],
+              "speaker": "bench",
+              "text": ""
+            }
+          ]
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a failed turn is posted as one failed pass",
+      "request": {},
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "alpha": "r1",
+          "bench": "r1",
+          "gh": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "answers": {
+          "alpha": [
+            {
+              "fail": "overloaded"
+            }
+          ],
+          "bench": [
+            {
+              "fail": "overloaded"
+            }
+          ],
+          "gh": [
+            {
+              "fail": "boom"
+            }
+          ]
+        },
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "abort",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "stopped",
+              "text": ""
+            }
+          ]
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a stop posts the stopped row",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "hooks": [
+          {
+            "do": "stop",
+            "on": "submit"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "abort",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "alpha"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "submit",
+          "sess_alpha",
+          1888,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_alpha"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_alpha",
+                "since": 1004
+              },
+              "at": 1005,
+              "id": "row_n3",
+              "kind": "speech",
+              "name": "Alpha",
+              "speaker": "alpha",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a newer request runs the next exchange straight away",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "alpha": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "finish"
+          }
+        ],
+        "hooks": [
+          {
+            "do": "pending",
+            "on": "submit",
+            "request": {
+              "only": true,
+              "to": [
+                "alpha"
+              ],
+              "waiting": false
+            }
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "alpha"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "submit",
+          "sess_alpha",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_alpha"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "abort",
+          "sess_alpha"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "gh"
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "submit",
+          "sess_gh",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_gh"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_gh",
+                "since": 1004
+              },
+              "at": 1005,
+              "id": "row_n3",
+              "kind": "speech",
+              "name": "Git Hub",
+              "speaker": "gh",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "gh",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "gh",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a newer request keeps the room busy across the hand-off",
+      "request": {
+        "to": [
+          "alpha"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "gh": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "hooks": [
+          {
+            "do": "pending",
+            "on": "readSnapshot",
+            "request": {
+              "to": [
+                "gh"
+              ],
+              "waiting": true
+            }
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a stop while the room is saved at the end releases it",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "hooks": [
+          {
+            "do": "pending",
+            "on": "post",
+            "request": {
+              "to": [
+                "alpha"
+              ],
+              "waiting": false
+            }
+          },
+          {
+            "do": "stop",
+            "n": 3,
+            "on": "persist"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "abort",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "the room deleted at the end is not chained",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {},
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": {
+          "startedAt": 1001
+        }
+      },
+      "script": {
+        "hooks": [
+          {
+            "do": "pending",
+            "on": "readSnapshot",
+            "request": {
+              "to": [
+                "alpha"
+              ],
+              "waiting": false
+            }
+          },
+          {
+            "do": "deleteRoom",
+            "on": "readSnapshot"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [
+        {
+          "agentId": "bench",
+          "call": {
+            "id": "c1"
+          }
+        }
+      ],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "log",
+          "room room01 exchange stopped: disk full"
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "settled",
+          "c1",
+          {
+            "error": "disk full",
+            "status": "failed"
+          }
+        ],
+        [
+          "failRelays",
+          "disk full"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a save that fails at the start abandons the exchange",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": {
+        "threw": "disk full"
+      },
+      "room": {
+        "cursors": {},
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "persistFails": [
+          1
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [
+        {
+          "agentId": "alpha",
+          "call": {
+            "id": "c1"
+          }
+        }
+      ],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 5,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "settled",
+          "c1",
+          {
+            "status": "cancelled"
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "log",
+          "room room01 exchange stopped: disk full"
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "failRelays",
+          "disk full"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a save that fails at the end abandons it and fails the held calls",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": {
+        "threw": "disk full"
+      },
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "persistFails": [
+          3
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "log",
+          "room room01 exchange failed: disk full"
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a post that fails is logged and the exchange ends",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "postFails": "disk full",
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "log",
+          "bench could not speak in room room01: daemon down"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 6,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "failed": true,
+                "id": "bench",
+                "result": "pass"
+              }
+            ]
+          }
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "alpha"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "submit",
+          "sess_alpha",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "log",
+          "alpha could not speak in room room01: daemon down"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "alpha",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 6,
+              "steps": 11
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "failed": true,
+                "id": "bench",
+                "result": "pass"
+              },
+              {
+                "failed": true,
+                "id": "alpha",
+                "result": "pass"
+              }
+            ]
+          }
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "gh"
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "submit",
+          "sess_gh",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "log",
+          "gh could not speak in room room01: daemon down"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "at": 1005,
+              "failed": true,
+              "id": "row_n4",
+              "kind": "pass",
+              "name": "Bench",
+              "names": [
+                "Bench",
+                "Alpha",
+                "Git Hub"
+              ],
+              "reason": [
+                "daemon down"
+              ],
+              "speaker": "bench",
+              "text": ""
+            }
+          ]
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a speak that throws ends the exchange",
+      "request": {
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "alpha": "r1",
+          "bench": "r1",
+          "gh": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ],
+        "submitThrows": "daemon down"
+      }
+    },
+    {
+      "callSpecs": [
+        {
+          "agentId": "gh",
+          "call": {
+            "id": "c1"
+          }
+        }
+      ],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1834,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "log",
+          "room room01 exchange failed: room gone"
+        ],
+        [
+          "settled",
+          "c1",
+          {
+            "status": "cancelled"
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a turn that throws ends the exchange: no failures, no notice, calls handed on",
+      "request": {
+        "only": true,
+        "to": [
+          "bench",
+          "alpha"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": {
+          "startedAt": 1001
+        }
+      },
+      "script": {
+        "hooks": [
+          {
+            "do": "deleteRoom",
+            "on": "post"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ],
+        "throwWhenGone": true
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 5,
+              "steps": 8
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 4,
+              "steps": 7
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a switched-off bot never speaks",
+      "request": {},
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "speak",
+            "member": "alpha"
+          },
+          {
+            "action": "finish"
+          }
+        ],
+        "disabled": [
+          "alpha"
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [
+        {
+          "agentId": "bench",
+          "call": {
+            "id": "c1",
+            "relay": "task output"
+          }
+        }
+      ],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1940,
+          {
+            "id": "c1",
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "settled",
+          "c1",
+          {
+            "result": {
+              "content": "Fine."
+            },
+            "status": "done"
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "calls ride the member turn and end done",
+      "request": {
+        "only": true,
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [
+        {
+          "agentId": "bench",
+          "call": {
+            "id": "c1"
+          }
+        },
+        {
+          "agentId": "gh",
+          "call": {
+            "id": "c2"
+          }
+        }
+      ],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "id": "c1",
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "settled",
+          "c1",
+          {
+            "result": {
+              "content": "Fine."
+            },
+            "status": "done"
+          }
+        ],
+        [
+          "settled",
+          "c2",
+          {
+            "status": "cancelled"
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a call no turn took is cancelled when no exchange follows",
+      "request": {
+        "only": true,
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "finish"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [
+        {
+          "agentId": "gh",
+          "call": {
+            "id": "c1"
+          }
+        }
+      ],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "abort",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "alpha"
+        ],
+        [
+          "switchedOff",
+          "alpha"
+        ],
+        [
+          "submit",
+          "sess_alpha",
+          1937,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_alpha"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_alpha",
+                "since": 1004
+              },
+              "at": 1005,
+              "id": "row_n3",
+              "kind": "speech",
+              "name": "Alpha",
+              "speaker": "alpha",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "gh"
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "submit",
+          "sess_gh",
+          1937,
+          {
+            "id": "c1",
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_gh"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_gh",
+                "since": 1006
+              },
+              "at": 1007,
+              "id": "row_n5",
+              "kind": "speech",
+              "name": "Git Hub",
+              "speaker": "gh",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "settled",
+          "c1",
+          {
+            "result": {
+              "content": "Fine."
+            },
+            "status": "done"
+          }
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "gh",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 4,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "alpha",
+                "result": "speech"
+              },
+              {
+                "id": "gh",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a call no turn took is handed to the next exchange",
+      "request": {
+        "only": true,
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "alpha": "r1",
+          "gh": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "hooks": [
+          {
+            "do": "pending",
+            "on": "submit",
+            "request": {
+              "to": [
+                "alpha"
+              ],
+              "waiting": false
+            }
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [
+        {
+          "agentId": "gh",
+          "call": {
+            "id": "c1"
+          }
+        }
+      ],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1785,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "abort",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "stopped",
+              "text": ""
+            }
+          ]
+        ],
+        [
+          "settled",
+          "c1",
+          {
+            "status": "cancelled"
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "a stopped exchange cancels its calls",
+      "request": {
+        "only": true,
+        "to": [
+          "bench"
+        ]
+      },
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "hooks": [
+          {
+            "do": "stop",
+            "on": "submit"
+          }
+        ],
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    },
+    {
+      "callSpecs": [],
+      "calls": [
+        [
+          "track"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "labels"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": true,
+            "remaining": {
+              "messages": 6,
+              "steps": 12
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": []
+          }
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1602,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1002
+              },
+              "at": 1003,
+              "id": "row_n2",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "bench",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 5,
+              "steps": 11
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "untrack"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "republishCatalog"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "name": "the budget of a free exchange is drawn",
+      "request": {},
+      "result": "ok",
+      "room": {
+        "cursors": {
+          "bench": "r1"
+        },
+        "members": [
+          "bench",
+          "alpha",
+          "gh"
+        ],
+        "owed": null,
+        "running": null
+      },
+      "script": {
+        "decisions": [
+          {
+            "action": "speak",
+            "member": "alpha"
+          },
+          {
+            "action": "finish"
+          }
+        ],
+        "random": 0.99,
+        "rows": [
+          {
+            "at": 1,
+            "id": "r1",
+            "kind": "user",
+            "text": "Ship it?"
+          }
+        ]
+      }
+    }
+  ]
+}

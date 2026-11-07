@@ -53,9 +53,9 @@
       "sha256": "bb3647ebaac848aa095a8b05bb955f2286c1f6dd2ec2fd426945cae4c3c1329a"
     },
     {
-      "bytes": 131210,
+      "bytes": 132646,
       "path": "usage-ledger-source-twin.json",
-      "sha256": "564f9e7bbf4ccfeb405b59af6b4ce37a30d08a3d4450bc5ff4cff76f86c994b1"
+      "sha256": "ca7e398a751ba15ccc1a8fc606706446ebbc5b5e04f3b886afb21a0c6485d85f"
     }
   ],
   "product": {
@@ -76,5 +76,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-quota-settlement.mjs",
   "set": "ai-admin",
-  "totalBytes": 31425753
+  "totalBytes": 31427189
 }

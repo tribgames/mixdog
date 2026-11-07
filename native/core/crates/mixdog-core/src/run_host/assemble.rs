@@ -156,6 +156,8 @@ pub struct HostServices {
     /// The process-wide react targets: the same value the react tool (`ports::reactions::SessionReactions`)
     /// records into.
     pub reaction_targets: Arc<ReactionTargets>,
+    /// The live runs' result caches, so a workspace change can clear a session's (`clearReadDedupSession`).
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
     /// The session directory: each session's live header, grants and thread window. Boot builds it with
     /// `Arc::new_cyclic` since the directory owns the run factory that owns these services.
     pub directory: std::sync::Weak<mixdog_core_session::session::SessionDirectory>,
@@ -460,7 +462,11 @@ impl RunParts for HostRunParts {
                 }) as SkillsBuilder
             }),
             hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
-            reuse: Some(Arc::new(ToolResultReuse::new(s.io, session_id, &cwd, read_body, s.clock.clone()))),
+            reuse: Some({
+                let reuse = Arc::new(ToolResultReuse::new(s.io, session_id, &cwd, read_body, s.clock.clone()));
+                s.reuses.track(&reuse);
+                reuse
+            }),
             reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
             reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
             tail: Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context: seams.tail_context(header) })),

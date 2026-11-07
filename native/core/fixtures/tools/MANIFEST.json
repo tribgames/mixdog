@@ -48,7 +48,7 @@
     "memory/error-bad-op"
   ],
   "extraImpossible": [],
-  "fileCount": 160,
+  "fileCount": 161,
   "files": [
     {
       "bytes": 702,
@@ -531,9 +531,14 @@
       "sha256": "777f08ff118c768fc3e0353cbdbe4195d2ac20929b872264ac60f200ba600614"
     },
     {
-      "bytes": 12195,
+      "bytes": 1439727,
+      "path": "memory/core-memory-context/golden.json",
+      "sha256": "dd026d4e1a338a9a1d702b427bf899afb85541782b7e57fae60b3bf06afe77a6"
+    },
+    {
+      "bytes": 15861,
       "path": "memory/cycle-config/golden.json",
-      "sha256": "77d013211a1d867ee05a99801d55e243bf0c00d7c00dff102c185b8274bd7a15"
+      "sha256": "2924a71920928807cda798c95b577d6e47b5bf33d236137484741cffddc6edcb"
     },
     {
       "bytes": 125958,
@@ -853,11 +858,11 @@
   ],
   "product": {
     "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
-    "commit": "c397510597b76f4ee67778650a58a1570d923480",
+    "commit": "dcbdc55a33af5229ea9a8c050220305d64c4cf06",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9248,
     "refComparison": {
-      "closestCommit": "c397510597b76f4ee67778650a58a1570d923480",
+      "closestCommit": "dcbdc55a33af5229ea9a8c050220305d64c4cf06",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -869,5 +874,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs + record-media-text.mjs",
   "set": "tools",
-  "totalBytes": 922013
+  "totalBytes": 2365406
 }

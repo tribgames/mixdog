@@ -28,11 +28,11 @@ pub fn suspended_goal_id(before: Option<&Goal>, settled: Option<&Goal>) -> Strin
 #[derive(Clone)]
 pub struct GoalQuotaResume {
     store: Arc<QuotaResumeStore>,
-    goals: GoalRuntime,
+    goals: Arc<GoalRuntime>,
 }
 
 impl GoalQuotaResume {
-    pub fn new(store: Arc<QuotaResumeStore>, goals: GoalRuntime) -> Self {
+    pub fn new(store: Arc<QuotaResumeStore>, goals: Arc<GoalRuntime>) -> Self {
         Self { store, goals }
     }
 

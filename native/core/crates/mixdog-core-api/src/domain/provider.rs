@@ -903,6 +903,11 @@ pub trait ProviderAdapter: Send + Sync {
     fn first_response_budget(&self, _model: &str, _parameters: Option<&JsonValue>) -> Option<FirstResponseBudget> {
         None
     }
+    /// `typeof provider.sendCacheWarm === 'function'`: the provider's cache-warm mode, or `None`
+    /// for one that has none. A wrapper forwards its inner provider's.
+    fn cache_warm(&self) -> Option<&dyn super::cache_warm::CacheWarmSend> {
+        None
+    }
 }
 
 /// How a logical send ended when it did not succeed.

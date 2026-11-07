@@ -3,7 +3,9 @@
 //! and `resolveMaintenancePreset('memory')` (`maintenance-preset.mjs`), all over the one
 //! configuration document (`mixdog-config.json`). [`DocCycleConfig`] is the production
 //! [`CycleConfig`]; the composition builds it over the core's `Config`:
-//! `DocCycleConfig::new(Arc::new(move || config.full()), env)`.
+//! `DocCycleConfig::new(Arc::new(move || config.full()), env)`. That document is already the
+//! canonical one (`mixdog-core-config`: retired `memory.enabled` and the like are gone), as
+//! Node's `readSection` serves it.
 
 use std::sync::Arc;
 
@@ -96,8 +98,6 @@ impl CycleConfig for DocCycleConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
 
     const GOLDEN: &str = include_str!("../../../../../fixtures/tools/memory/cycle-config/golden.json");
@@ -106,25 +106,8 @@ mod tests {
         Arc::new(config.as_object().cloned().unwrap_or_default())
     }
 
-    fn env_of(vars: &Value) -> EnvReader {
-        let vars: HashMap<String, String> = vars.as_object().into_iter().flatten().map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_owned())).collect();
-        Arc::new(move |name| vars.get(name).cloned())
-    }
-
-    /// Node's answers for config files of every shape: the memory section, the cycle switch
-    /// (recap and the two environment switches) and the maintenance route.
-    #[test]
-    fn the_cycle_config_matches_node() {
-        let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
-        for case in golden["cases"].as_array().expect("cases") {
-            let doc = doc_of(&case["config"]);
-            let config = DocCycleConfig::new(Arc::new(move || doc.clone()), env_of(&case["env"]));
-            let name = &case["name"];
-            assert_eq!(config.memory_section(), case["memory"], "{name}: memory section");
-            assert_eq!(config.cycles_enabled(), case["cyclesEnabled"].as_bool().expect("flag"), "{name}: cycles enabled");
-            assert_eq!(config.maintenance_preset().unwrap_or(Value::Null), case["preset"], "{name}: maintenance preset");
-        }
-    }
+    // The golden's config shapes are replayed over the canonical document in `mixdog-core-config`
+    // (`config/canonical_tests.rs`), which owns the canonicalisation Node applies to every read.
 
     #[test]
     fn env_flag_matches_node_on_every_spelling() {

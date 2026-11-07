@@ -632,7 +632,10 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         artifacts,
         images,
     };
+    // Node's `_api_call_with_interrupt` spans `agentLoop`: an abort inside reads "during call".
+    progress.model_loop(true);
     let result = Run::new(env, cancel.clone(), provider, tools, tool_env, config, messages, carry).run().await;
+    progress.model_loop(false);
     // The model work is over: the watchdog, which judges only that, stops here.
     drop(watchdog);
     closing.end_reasoning();
@@ -958,11 +961,24 @@ mod tests {
             async move {
                 let started = handle.request(request("turn/start", json!({ "threadId": thread, "opId": op, "input": input }), &op)).await.expect("turn/start");
                 let Reply::Value(started) = started else { panic!("turn/start answers a value") };
-                assert_eq!(started["kind"], "started");
-                let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-                while ended() < want {
-                    assert!(tokio::time::Instant::now() < deadline, "turn {op} did not end");
-                    tokio::time::sleep(Duration::from_millis(10)).await;
+                // The previous turn's run is over once its record is written, but its settlement
+                // (the Goal runtime's `turn_settled`) is not: a prompt arriving in between is
+                // queued behind it and starts when it is done, with the options it was sent with.
+                // Node queues the same way (`drain.mjs` runs the queue only after `runTurn` returns),
+                // so both answers are right; the first turn, on an idle thread, can only start.
+                let kind = started["kind"].as_str().expect("turn/start names its answer");
+                assert!(kind == "queued" && want > 1 || kind == "started", "turn {op}: {started}");
+                // Woken by each step of the thread's actor, which is where a run's end is acknowledged
+                // after its record is stored; registered before the check so a step in between is not
+                // missed. The wait is not judged by the clock.
+                loop {
+                    let stepped = handle.stepped().notified();
+                    tokio::pin!(stepped);
+                    stepped.as_mut().enable();
+                    if ended() >= want {
+                        break;
+                    }
+                    stepped.await;
                 }
             }
         };
@@ -1385,7 +1401,7 @@ mod tests {
             ext_pool: Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(4)),
             hook_bus,
             hook_common: Arc::new(|_| mixdog_mcp::hook_bus::HookCommon::default()),
-            goals: rig.goals.clone(),
+            goals: Arc::new(rig.goals.clone()),
             todos: rig.todos.clone(),
             work: rig.work.clone(),
             cycles: Arc::default(),

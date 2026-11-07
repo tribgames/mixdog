@@ -177,6 +177,10 @@ pub(crate) struct ControlCell {
     pub subscribers: std::sync::atomic::AtomicUsize,
     /// Set (under the directory's shard lock) when the thread unloads; attaches then fail.
     pub closed: std::sync::atomic::AtomicBool,
+    /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
+    /// change (`tests::eventually_on`, and `SessionHandle::stepped` for the tests of other crates).
+    #[cfg(any(test, feature = "test-support"))]
+    pub stepped: tokio::sync::Notify,
 }
 
 impl ControlCell {

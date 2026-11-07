@@ -17,6 +17,7 @@
 //! run in their own tests.
 
 pub mod approval;
+pub mod cache_warm;
 pub mod command;
 pub mod common;
 pub mod computer;

@@ -4619,6 +4619,410 @@
    ]
   },
   {
+   "name": "switch-rereads-in-full",
+   "steps": [
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[file unchanged: a.txt]"
+     }
+    },
+    {
+     "sleepMs": 700
+    },
+    {
+     "switch": "s1",
+     "watch": [],
+     "persistedBefore": {
+      "s1": true
+     },
+     "persistedAfter": {
+      "s1": false
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[file unchanged: a.txt]"
+     }
+    }
+   ]
+  },
+  {
+   "name": "switch-before-the-flush",
+   "steps": [
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "switch": "s1",
+     "watch": [],
+     "persistedBefore": {
+      "s1": false
+     },
+     "persistedAfter": {
+      "s1": false
+     }
+    },
+    {
+     "sleepMs": 700
+    },
+    {
+     "files": [
+      "s1"
+     ],
+     "persisted": {
+      "s1": false
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[file unchanged: a.txt]"
+     }
+    }
+   ]
+  },
+  {
+   "name": "switch-keeps-other-sessions",
+   "steps": [
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s2",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "sleepMs": 700
+    },
+    {
+     "switch": "s1",
+     "watch": [
+      "s2"
+     ],
+     "persistedBefore": {
+      "s1": true,
+      "s2": true
+     },
+     "persistedAfter": {
+      "s1": false,
+      "s2": true
+     }
+    },
+    {
+     "files": [
+      "s1",
+      "s2"
+     ],
+     "persisted": {
+      "s1": false,
+      "s2": true
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s2",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[file unchanged: a.txt]"
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    }
+   ]
+  },
+  {
+   "name": "switch-after-a-ranged-read",
+   "steps": [
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "long.txt",
+      "offset": 1,
+      "limit": 10
+     },
+     "result": {
+      "text": "[lines 1-10]\nrow-1\nrow-2\nrow-3\nrow-4\nrow-5\nrow-6\nrow-7\nrow-8\nrow-9\nrow-10\n[lines 1-10 of 1000; offset:11 for more]"
+     }
+    },
+    {
+     "sleepMs": 700
+    },
+    {
+     "switch": "s1",
+     "watch": [],
+     "persistedBefore": {
+      "s1": true
+     },
+     "persistedAfter": {
+      "s1": false
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "long.txt",
+      "offset": 1,
+      "limit": 10
+     },
+     "result": {
+      "text": "[lines 1-10]\nrow-1\nrow-2\nrow-3\nrow-4\nrow-5\nrow-6\nrow-7\nrow-8\nrow-9\nrow-10\n[lines 1-10 of 1000; offset:11 for more]"
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "long.txt",
+      "offset": 1,
+      "limit": 10
+     },
+     "result": {
+      "text": "[lines 1-10]\nrow-1\nrow-2\nrow-3\nrow-4\nrow-5\nrow-6\nrow-7\nrow-8\nrow-9\nrow-10\n[lines 1-10 of 1000; offset:11 for more]"
+     }
+    }
+   ]
+  },
+  {
+   "name": "switch-with-nothing-read",
+   "steps": [
+    {
+     "switch": "s1",
+     "watch": [],
+     "persistedBefore": {
+      "s1": false
+     },
+     "persistedAfter": {
+      "s1": false
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[file unchanged: a.txt]"
+     }
+    }
+   ]
+  },
+  {
+   "name": "switch-twice",
+   "steps": [
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "sleepMs": 700
+    },
+    {
+     "switch": "s1",
+     "watch": [],
+     "persistedBefore": {
+      "s1": true
+     },
+     "persistedAfter": {
+      "s1": false
+     }
+    },
+    {
+     "switch": "s1",
+     "watch": [],
+     "persistedBefore": {
+      "s1": false
+     },
+     "persistedAfter": {
+      "s1": false
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "sleepMs": 700
+    },
+    {
+     "switch": "s1",
+     "watch": [],
+     "persistedBefore": {
+      "s1": true
+     },
+     "persistedAfter": {
+      "s1": false
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    }
+   ]
+  },
+  {
+   "name": "switch-after-a-patch",
+   "steps": [
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nalpha\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "tool": "apply_patch",
+     "session": "s1",
+     "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-alpha\n+ALPHA\n*** End Patch\n"
+     },
+     "result": {
+      "text": "  OK Modify a.txt — +1/-1"
+     }
+    },
+    {
+     "sleepMs": 700
+    },
+    {
+     "switch": "s1",
+     "watch": [],
+     "persistedBefore": {
+      "s1": true
+     },
+     "persistedAfter": {
+      "s1": false
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[lines 1-3]\nALPHA\nbeta\ngamma\n[lines 1-3 of 3]"
+     }
+    },
+    {
+     "tool": "read",
+     "session": "s1",
+     "input": {
+      "file_path": "a.txt"
+     },
+     "result": {
+      "text": "[file unchanged: a.txt]"
+     }
+    }
+   ]
+  },
+  {
    "name": "patch-rename",
    "steps": [
     {

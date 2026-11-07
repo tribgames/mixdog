@@ -44,19 +44,12 @@ pub struct DirectoryImportSessions {
     clock: Arc<dyn Clock>,
     ingest: Arc<dyn TurnIngest>,
     providers: Arc<ProviderReadiness>,
-    keychain: Arc<dyn KeychainReady>,
-}
-
-/// `boot.awaitKeychainPrewarm()`: resolves once the stored provider credentials are readable.
-#[async_trait]
-pub trait KeychainReady: Send + Sync {
-    async fn wait(&self);
 }
 
 impl DirectoryImportSessions {
     /// `routes`: the runtime's route context (`resolveRoute(config, {})`); `ingest`: the session
-    /// search ingest a finished turn gets (`ingestSessionTurn`); `providers` and `keychain`:
-    /// what `prepareLeadOptions` awaits before it reads the route.
+    /// search ingest a finished turn gets (`ingestSessionTurn`); `providers`: what
+    /// `prepareLeadOptions` awaits after it reads the route.
     pub fn new(
         directory: Arc<SessionDirectory>,
         catalog: Arc<SqliteStore>,
@@ -64,9 +57,8 @@ impl DirectoryImportSessions {
         clock: Arc<dyn Clock>,
         ingest: Arc<dyn TurnIngest>,
         providers: Arc<ProviderReadiness>,
-        keychain: Arc<dyn KeychainReady>,
     ) -> Self {
-        Self { directory, catalog, routes, clock, ingest, providers, keychain }
+        Self { directory, catalog, routes, clock, ingest, providers }
     }
 }
 
@@ -168,10 +160,13 @@ impl ImportSessions for DirectoryImportSessions {
         self.directory.stored_header(&ThreadId::from(id)).await.is_some()
     }
 
-    /// `prepareLeadOptions`: the keychain prewarm, the route, then every configured provider ready;
-    /// any failure is `noModelRoute` (`error?.code || 'noModelRoute'`).
+    /// `prepareLeadOptions`: the route, then every configured provider ready; any failure is
+    /// `noModelRoute` (`error?.code || 'noModelRoute'`). Node first awaits
+    /// `awaitKeychainPrewarm()` (`provider-readiness.mjs`), which waits at most 5 s for
+    /// `keychain-cjs.cjs` to warm its secret read cache and never fails: every platform's warm-up
+    /// catches its own errors. The secret store here keeps no read cache and needs no warm-up
+    /// (the registry reads each key from the store when it builds), so nothing is awaited.
     async fn prepare_lead(&self) -> Result<(), String> {
-        self.keychain.wait().await;
         main_route(self.routes.as_ref())?;
         self.providers.ensure_providers_ready(None).await.map(|_| ()).map_err(|_| "noModelRoute".to_owned())
     }

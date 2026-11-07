@@ -68,6 +68,25 @@ pub(crate) async fn eventually<T>(mut probe: impl FnMut() -> Option<T>) -> T {
     }
 }
 
+/// [`eventually`] for a test whose state moves on real I/O (the real store: its writer is an OS
+/// thread, so the clock cannot be paused). It ends when `probe` holds and is woken by a change of
+/// the state it reads, never by the clock: `wakes` are the signals of what the probe reads (the
+/// thread actor's steps, the directory losing a thread, the delete log), each registered before the
+/// probe runs so no change between probe and wait is missed. A wait that can never end is the
+/// test's failure, as for any event wait.
+pub(crate) async fn eventually_on<T>(wakes: &[&tokio::sync::Notify], mut probe: impl FnMut() -> Option<T>) -> T {
+    loop {
+        let mut waits: Vec<std::pin::Pin<Box<tokio::sync::futures::Notified<'_>>>> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
+        for wait in &mut waits {
+            wait.as_mut().enable();
+        }
+        if let Some(value) = probe() {
+            return value;
+        }
+        futures::future::select_all(waits).await;
+    }
+}
+
 pub(super) async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
     let reply = directory
         .request(request(
@@ -163,7 +182,7 @@ pub(crate) fn idle(handle: &SessionHandle) -> bool {
     handle.cell.run.load().is_none()
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_turn_publishes_its_rows_in_order_after_they_are_durable() {
     let rig = Rig::new();
     rig.set_script(echo());
@@ -204,7 +223,7 @@ async fn a_turn_publishes_its_rows_in_order_after_they_are_durable() {
     assert!(frames.iter().any(|(_, method, _)| method == "turn/completed"));
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 #[allow(clippy::disallowed_methods, reason = "test setup writes and reads the history file")]
 async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
     let rig = Rig::new();
@@ -261,7 +280,7 @@ async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn an_implicit_approval_session_asks_nobody() {
     let rig = Rig::new();
     let resolved: Arc<Mutex<Option<ApprovalResolution>>> = Arc::default();
@@ -309,7 +328,7 @@ async fn an_implicit_approval_session_asks_nobody() {
     assert!(rig.sink.events().is_empty(), "no approval request is published");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
     let rig = Rig::new();
     let resolved: Arc<Mutex<Option<ApprovalResolution>>> = Arc::default();
@@ -388,7 +407,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
     let rig = Rig::new();
     let reason: Arc<Mutex<Option<String>>> = Arc::default();
@@ -495,7 +514,7 @@ async fn a_turn_that_edits_a_file_seals_its_review_before_it_settles() {
     assert!(text.contains("a.txt") && text.contains("+two"), "{text}");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn input_and_task_notifications_release_the_runs_wait() {
     use mixdog_tools::exec::TaskNotifier;
     use mixdog_tools::exec::WakeReason;
@@ -550,7 +569,7 @@ async fn input_and_task_notifications_release_the_runs_wait() {
 
 /// A queued completion as the run takes it at a boundary: `SteerMode::TaskNotification`
 /// with its execution, after steered prompts; taken, it never starts a turn of its own.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
     use mixdog_tools::exec::TaskNotifier;
     let rig = Rig::new();
@@ -598,7 +617,7 @@ fn drain(stage: DrainStage) -> DrainRequest {
 /// `ask-turn-steering-drain.mjs:44-58`: a mid-chain boundary takes queued input only while the
 /// queue holds task notifications alone; the terminal boundary takes it all, the prompts merged
 /// into one input and each completion on its own, and none of it starts a turn of its own.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
     use mixdog_tools::exec::TaskNotifier;
     let rig = Rig::new();
@@ -653,7 +672,7 @@ async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
 /// `notification-bus.test.mjs` "one wake per session is in flight, and a suppressed wake
 /// replays afterwards": completions that land after the woken turn's last look each get a
 /// turn of their own, oldest first, and a replay that finds nothing ends the chain.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
     use mixdog_tools::exec::TaskNotifier;
     let rig = Rig::new();
@@ -729,7 +748,7 @@ async fn the_header_is_patched_and_read_through_the_ports_seam_only() {
 
 /// `ask-turn-steering-drain.mjs:48`: while a route saved during the turn is held, the queued
 /// completion is left to the next turn.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_held_route_leaves_a_completion_to_the_next_turn() {
     use crate::session::thread_state::SessionThreads;
     use mixdog_core_ports::ports::threads::ThreadState;
@@ -790,7 +809,7 @@ async fn start_with_session(directory: &SessionDirectory, session: Value) -> Arc
 
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
 /// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turns_input() {
     use mixdog_tools::exec::TaskNotifier;
     let rig = Rig::new();
@@ -820,7 +839,7 @@ async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turn
 /// `autoWakeCompletions: false` (`infrastructure.mjs:154`) and an owner that is not the live
 /// session (`notification-bus.test.mjs` "no longer the live session"): the completion is kept
 /// for the next turn and starts none.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
     use mixdog_tools::exec::TaskNotifier;
     let rig = Rig::new();
@@ -877,7 +896,7 @@ async fn turn_review_reverts_are_served_by_the_thread_handle() {
     assert!(matches!(error, CoreError::InvalidParams { .. }), "{error:?}");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_failed_barrier_applies_nothing_and_answers_the_mutation() {
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
@@ -908,7 +927,7 @@ async fn a_failed_barrier_applies_nothing_and_answers_the_mutation() {
     .await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
     let rig = Rig::new();
     rig.set_script(echo());
@@ -1010,7 +1029,7 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
     let handle = start_thread(&directory).await;
     let id = handle.id.clone();
     turn(&handle, "long job", "op-1").await;
-    let published = eventually(|| {
+    let published = eventually_on(&[&handle.cell.stepped], || {
         rig.sink.events().into_iter().find_map(|event| match event {
             ServerRequestEvent::Published(request) => Some(request.id),
             _ => None,
@@ -1065,7 +1084,7 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
         expected.push(format!("{hook}:{s}:/ws"));
     }
     expected.extend([format!("thread/deleted:{s}"), format!("forgetSessionSearch:{s}"), format!("releaseDeletedWorktree:{s}")]);
-    eventually(|| (lock(&rig.deletes.0).len() == expected.len()).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, &rig.deletes.1], || (lock(&rig.deletes.0).len() == expected.len()).then_some(())).await;
     assert_eq!(*lock(&rig.deletes.0), expected);
 
     // Deleted already, or not a session id: nothing is deleted, nothing runs.
@@ -1123,7 +1142,7 @@ async fn a_deleted_base_stays_readable_by_its_fork() {
     let directory = SessionDirectory::new(rig.deps_on(store.clone()));
     let base = start_thread(&directory).await;
     turn(&base, "first", "op-1").await;
-    eventually(|| (idle(&base) && rows(&base).len() == 2).then_some(())).await;
+    eventually_on(&[&base.cell.stepped], || (idle(&base) && rows(&base).len() == 2).then_some(())).await;
     let reply = base
         .request(request("thread/fork", json!({ "threadId": base.id, "opId": "op-fork" }), "op-fork"))
         .await
@@ -1204,7 +1223,7 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     turn(&handle, "work", "op-1").await;
     assert_eq!(ask(json!({})).await, refused("busy"));
     release.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     // The turn moved `lastUsedAt` past what the caller saw.
     let used = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
@@ -1222,7 +1241,7 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     assert_eq!(ask(json!({ "lastUsedAt": used })).await, json!({ "deleted": true }));
     let s = id.as_str();
     let worktree = format!("releaseDeletedWorktree:{s}");
-    eventually(|| lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, &rig.deletes.1], || lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
     let steps = lock(&rig.deletes.0).clone();
     // The tombstone's close metric (`markSessionClosed`), logged at the mark's ack, precedes the purge hooks.
     assert_eq!(steps[0], format!("sessionClosed:{s}:desktop-auto-delete"));
@@ -1252,7 +1271,7 @@ async fn a_large_prompt_round_trips_through_the_real_store() {
     let handle = start_thread(&first).await;
     let text = format!("ask {}", "p".repeat(300 << 10));
     turn(&handle, &text, "op-1").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     let id = handle.id.clone();
     // Body and prompt are blobs: the log holds neither copy of the text.
     let log = std::fs::read(data.path().join("sessions").join(id.as_str()).join("log.000000")).unwrap();
@@ -1281,9 +1300,9 @@ async fn the_real_store_reads_the_whole_history_oldest_first() {
     let directory = SessionDirectory::new(rig.deps_on(store));
     let handle = start_thread(&directory).await;
     turn(&handle, "one", "op-1").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     turn(&handle, "two", "op-2").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     let ids = |items: Vec<mixdog_protocol::ThreadItem>| items.iter().map(|i| i.id().clone()).collect::<Vec<_>>();
     let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
     assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown);
@@ -1294,7 +1313,7 @@ async fn the_real_store_reads_the_whole_history_oldest_first() {
         .await
         .expect("rewind");
     assert!(matches!(reply, Reply::Value(_)));
-    eventually(|| (rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (rows(&handle).len() == 2).then_some(())).await;
     assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown[..2]);
     assert!(directory.history_items(&ThreadId::from("missing")).await.is_err());
 }
@@ -1311,9 +1330,9 @@ async fn an_item_cursor_into_rewound_or_cleared_history_is_invalidated() {
     let directory = SessionDirectory::new(rig.deps_on(store));
     let handle = start_thread(&directory).await;
     turn(&handle, "one", "op-1").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     turn(&handle, "two", "op-2").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
     let list = |cursor: &ItemId| {
         directory.request(request(
@@ -1330,12 +1349,12 @@ async fn an_item_cursor_into_rewound_or_cleared_history_is_invalidated() {
         .request(request("thread/rewind", json!({ "threadId": handle.id, "opId": "op-3", "itemId": shown[2] }), "op-3"))
         .await
         .expect("rewind");
-    eventually(|| (rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (rows(&handle).len() == 2).then_some(())).await;
     assert!(matches!(list(&shown[3]).await, Err(CoreError::CursorInvalidated { .. })));
     assert!(list(&shown[0]).await.is_ok(), "a cursor that survived the rewind pages");
 
     handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-4" }), "op-4")).await.expect("clear");
-    eventually(|| rows(&handle).is_empty().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || rows(&handle).is_empty().then_some(())).await;
     assert!(matches!(list(&shown[0]).await, Err(CoreError::CursorInvalidated { .. })));
 }
 
@@ -1444,7 +1463,7 @@ async fn a_model_switch_after_a_compaction_anchors_on_the_summary() {
 /// grows its item (`item/reasoning/textDelta`), a notice is a polished `info` line, a model
 /// call's usage is `thread/tokenUsage/updated`, a compaction that changed the context marks
 /// where the turn began, and a committed row's own prompt text joins the prompt history.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
     let rig = Rig::new();
     let gate: Arc<tokio::sync::Notify> = Arc::default();
@@ -1582,7 +1601,7 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
 /// active and the thread idle, the runtime's continuation runs as an automatic turn whose input
 /// is runtime-synthetic (no user row); that turn pausing the Goal ends the chain, and the lane
 /// shows the paused Goal.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_goal_continues_across_a_turn_until_it_stops() {
     use mixdog_core_goal::goal::hooks::GoalViewHooks;
 
@@ -1690,7 +1709,7 @@ impl mixdog_core_goal::goal::hooks::GoalViewHooks for HeldSettle {
 
 /// A turn queued behind a running one starts only once the running turn's settlement
 /// (`turn_settled`) has returned, as Node's queue drains after `runTurn` awaits it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_queued_turn_starts_after_the_settlement_returns() {
     use std::sync::atomic::Ordering;
 
@@ -1753,7 +1772,7 @@ fn quota_failure() -> Script {
 /// queues its resume and, once its Goal settled `usage_limited`, records that Goal for the
 /// resume. A user prompt inside the settling window (after the failed turn end, before the
 /// Goal settlement) cancels the resume and keeps the suspension from being recorded.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecorded() {
     use std::sync::atomic::Ordering;
 
@@ -1862,7 +1881,7 @@ async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary
     let directory = SessionDirectory::new(rig.deps_on(store.clone()));
     let handle = start_thread(&directory).await;
     turn(&handle, "first", "op-1").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     rig.set_script(Arc::new(|run| {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
@@ -1873,7 +1892,7 @@ async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary
         })
     }));
     turn(&handle, "compact", "op-2").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     let ids = |handle: &SessionHandle| -> Vec<String> {
         handle.cell.view.load_full().items.iter().map(|item| item.id().as_str().to_owned()).collect()
     };
@@ -1884,7 +1903,7 @@ async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary
     let id = handle.id.clone();
     let switch = |at: i64| json!({ "provider": "openai", "modelId": "gpt-next", "at": at });
     assert!(super::record_model_switch(&directory, &id, &switch(300)).await.expect("record"));
-    eventually(|| (ids(&handle).len() == 5).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (ids(&handle).len() == 5).then_some(())).await;
     assert_eq!(ids(&handle)[4], format!("{}:model:300", live[3]));
 
     let reopened = SessionDirectory::new(rig.deps_on(store));
@@ -1900,7 +1919,7 @@ async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary
     assert_eq!(meta.at, Some(777));
 
     assert!(super::record_model_switch(&reopened, &id, &switch(400)).await.expect("record live"));
-    eventually(|| (ids(&restored).len() == shown.len() + 1).then_some(())).await;
+    eventually_on(&[&restored.cell.stepped], || (ids(&restored).len() == shown.len() + 1).then_some(())).await;
     assert_eq!(ids(&restored)[divider + 1..], [format!("divider:{cid}:model:300"), format!("divider:{cid}:model:400")]);
 }
 
@@ -1916,7 +1935,7 @@ async fn a_model_switch_is_recorded_once_on_its_anchor_and_read_back_folded() {
     let directory = SessionDirectory::new(rig.deps_on(store.clone()));
     let handle = start_thread(&directory).await;
     turn(&handle, "hello", "op-1").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     let id = handle.id.clone();
     let boundary = json!({ "provider": "openai", "modelId": "gpt-next", "at": 200 });
     assert!(super::record_model_switch(&directory, &id, &boundary).await.expect("record"));
@@ -1952,9 +1971,9 @@ async fn the_real_store_reopens_a_thread_and_appends_after_it() {
     let first = SessionDirectory::new(rig.deps_on(store.clone()));
     let handle = start_thread(&first).await;
     turn(&handle, "hello", "op-1").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     turn(&handle, "again", "op-2").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     let id = handle.id.clone();
     handle
         .request(request(
@@ -2002,8 +2021,8 @@ async fn the_real_store_reopens_a_thread_and_appends_after_it() {
         .expect("rewind");
     let Reply::Value(value) = reply else { panic!() };
     assert_eq!(value["text"], "again");
-    eventually(|| (rows(&reopened).len() == 2).then_some(())).await;
-    eventually(|| (prompt_list(&reopened) == ["hello"]).then_some(())).await;
+    eventually_on(&[&reopened.cell.stepped], || (rows(&reopened).len() == 2).then_some(())).await;
+    eventually_on(&[&reopened.cell.stepped], || (prompt_list(&reopened) == ["hello"]).then_some(())).await;
 }
 
 /// A subscriber attaches (the counting `FeedSource::attach` does around the feed).
@@ -2012,7 +2031,7 @@ fn subscribe(handle: &SessionHandle) {
     handle.cell.subscribed(true);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_context() {
     let rig = Rig::new();
     rig.set_script(echo());
@@ -2081,7 +2100,7 @@ async fn a_retention_delete_is_refused_when_the_session_changed_after_the_check(
     let handle = start_thread(&directory).await;
     let id = handle.id.clone();
     turn(&handle, "hello", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
     let live = CancellationToken::new();
 
@@ -2090,7 +2109,7 @@ async fn a_retention_delete_is_refused_when_the_session_changed_after_the_check(
     assert!(!directory.delete_stored(id.as_str(), read, &[], &live).await.expect("delete"), "opened");
     assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
     handle.cell.unsubscribed();
-    eventually(|| directory.handle(&id).is_none().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
 
     // Used after the check: its activity is not what the pass read.
     assert!(!directory.delete_stored(id.as_str(), read - 1.0, &[], &live).await.expect("delete"), "moved");
@@ -2120,7 +2139,7 @@ async fn a_retention_delete_is_refused_when_another_member_of_the_tree_is_open()
     let target = start_thread(&directory).await;
     let id = target.id.clone();
     turn(&target, "hello", "op-1").await;
-    eventually(|| idle(&target).then_some(())).await;
+    eventually_on(&[&target.cell.stepped], || idle(&target).then_some(())).await;
     let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
     let peer = start_thread(&directory).await;
     let peer_id = peer.id.clone();
@@ -2128,10 +2147,10 @@ async fn a_retention_delete_is_refused_when_another_member_of_the_tree_is_open()
     async fn unload(directory: &SessionDirectory, handle: Arc<SessionHandle>) {
         subscribe(&handle);
         handle.cell.unsubscribed();
-        eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
+        eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
     }
     turn(&peer, "hello", "op-p1").await;
-    eventually(|| idle(&peer).then_some(())).await;
+    eventually_on(&[&peer.cell.stepped], || idle(&peer).then_some(())).await;
     let seen = |peer_at: f64| [(peer_id.as_str().to_owned(), peer_at)];
 
     // The member is open now (whatever the pass read).
@@ -2148,7 +2167,7 @@ async fn a_retention_delete_is_refused_when_another_member_of_the_tree_is_open()
     rig.clock.0.store(5000, std::sync::atomic::Ordering::SeqCst);
     let reopened = directory.open_handle(&peer_id, &connection()).await.expect("reopen");
     turn(&reopened, "again", "op-p2").await;
-    eventually(|| idle(&reopened).then_some(())).await;
+    eventually_on(&[&reopened.cell.stepped], || idle(&reopened).then_some(())).await;
     unload(&directory, reopened).await;
     let now = super::sub_agent_retention::activity_at(&directory.stored_header(&peer_id).await.expect("header"));
     assert_ne!(now, sweep_read, "the member's activity moved");
@@ -2219,7 +2238,7 @@ async fn a_close_from_a_stale_admission_word_is_refused_after_an_attach_and_deta
     assert!(!cell.subscribing(), "a closed thread takes no attach");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_closes() {
     let rig = Rig::new();
     rig.set_script(echo());
@@ -2251,7 +2270,7 @@ async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_clos
     assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
     let rig = Rig::new();
     let (release, gate) = tokio::sync::watch::channel(false);
@@ -2275,7 +2294,7 @@ async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
     eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn shutdown_waits_for_the_ingests_at_most_2500_ms() {
     let rig = Rig::new();
     rig.set_script(echo());
@@ -2293,7 +2312,7 @@ async fn shutdown_waits_for_the_ingests_at_most_2500_ms() {
     assert!(lock(&rig.closes.seen).is_empty(), "the slow ingest was not waited for");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_completed_turn_goes_to_session_search_with_its_model_context() {
     let rig = Rig::new();
     rig.set_script(echo());
@@ -2307,7 +2326,7 @@ async fn a_completed_turn_goes_to_session_search_with_its_model_context() {
     assert_eq!(messages[1]["text"], "re: hello");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search_copy() {
     let rig = Rig::new();
     let (release, gate) = tokio::sync::watch::channel(false);
@@ -2345,7 +2364,7 @@ async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search
     eventually(|| (lock(&rig.ingests.0).len() == 2).then_some(())).await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_saved_provider_state_reaches_the_next_turn_whole_and_a_clear_drops_it() {
     use mixdog_core_api::domain::provider::ProviderState;
 
@@ -2392,7 +2411,7 @@ async fn a_saved_provider_state_reaches_the_next_turn_whole_and_a_clear_drops_it
     assert_eq!(handle.live_header().header().get("providerState"), None);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_tool_result_completes_its_call_in_place() {
     let rig = Rig::new();
     rig.set_script(Arc::new(|run| {
@@ -2456,7 +2475,7 @@ async fn a_tool_result_completes_its_call_in_place() {
     assert_eq!(completed[1], "a.txt");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn runs_get_the_sessions_tool_surface() {
     let rig = Rig::new();
     let seen: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
@@ -2520,7 +2539,7 @@ async fn a_reaction_is_stored_on_the_users_message_and_refused_as_node_does() {
     let directory = SessionDirectory::new(rig.deps_on(store.clone()));
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let id = handle.id.clone();
     let react = |params: Value| {
         handle.request(CoreRequest {
@@ -2598,7 +2617,7 @@ async fn a_room_post_stores_each_message_once_and_shows_it() {
     assert_eq!(added, 2, "a messageId repeated in the post is one row");
     let added = log.append_rows(id.as_str(), vec![row("m2", "two"), row("m3", "three")]).await.expect("post");
     assert_eq!(added, 1, "a messageId the conversation holds is skipped");
-    eventually(|| (rows(&handle).len() == before + 3).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (rows(&handle).len() == before + 3).then_some(())).await;
 
     let reopened = SessionDirectory::new(rig.deps_on(store));
     let reread = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
@@ -2653,7 +2672,7 @@ async fn a_hooks_transcript_path_is_the_sessions_export() {
     assert_eq!(files.transcript_path("../x").await, Value::Null);
 
     turn(&handle, "hello", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let log = sessions.join(format!("{id}.log.jsonl"));
     assert_eq!(files.transcript_path(&id).await, json!(log.to_string_lossy()));
     let read = log.clone();

@@ -117,6 +117,9 @@ struct Entry {
     /// from there until the stage leaves `tool_running` or a model event arrives.
     heartbeat_from: Option<i64>,
     tool_hint: ToolHint,
+    /// The turn's model loop is running (Node's `_api_call_with_interrupt` window around
+    /// `agentLoop`): an abort now ends the ask "during call", before it "before call".
+    in_call: bool,
 }
 
 impl Entry {
@@ -151,6 +154,17 @@ impl RunProgress {
     /// `runtime.stage`.
     pub fn stage(&self) -> Option<String> {
         self.entry.as_ref().map(|e| e.stage.clone())
+    }
+
+    /// The turn's model loop entered (`true`) or returned (`false`).
+    pub fn model_loop(&mut self, running: bool) {
+        self.touch().in_call = running;
+    }
+
+    /// Whether the turn's model loop is running: the window in which Node's ask settles an
+    /// abort as `aborted during call`.
+    pub fn in_call(&self) -> bool {
+        self.entry.as_ref().is_some_and(|e| e.in_call)
     }
 
     /// `markSessionAskStart`: a new ask clears the previous run's stamps.
@@ -471,6 +485,11 @@ impl ProgressPublisher {
 
     pub fn cancelling(&self) {
         self.apply(|p, _| p.cancelling());
+    }
+
+    /// The model loop entered or returned (`RunProgress::model_loop`).
+    pub fn model_loop(&self, running: bool) {
+        self.apply(|p, _| p.model_loop(running));
     }
 }
 

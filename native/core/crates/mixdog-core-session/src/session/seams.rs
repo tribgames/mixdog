@@ -459,6 +459,9 @@ pub struct AgentTurn {
     pub context: Option<Value>,
     /// The trusted text a routine's skill is selected from.
     pub skill_selection: Option<String>,
+    /// The caller runs the turn's progress watchdog (an agent dispatch, Node's
+    /// `startDispatchWatchdog` around `askSession`): the run arms none of its own.
+    pub caller_watchdog: bool,
 }
 
 /// What the actor hands a new run.

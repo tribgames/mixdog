@@ -13,7 +13,7 @@ pub const ROOM_MIN_MEMBERS: usize = 2;
 pub const ROOM_MAX_MEMBERS: usize = 6;
 /// The longest supervisor note a member's turn carries.
 pub const ROOM_INSTRUCTION_LIMIT: usize = 200;
-const ROOM_PASS_REPLY: &str = "(pass)";
+pub(crate) const ROOM_PASS_REPLY: &str = "(pass)";
 const NAME_LIMIT: usize = 80;
 
 struct Limit {

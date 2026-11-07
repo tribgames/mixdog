@@ -567,7 +567,7 @@ impl Discovery {
         let this = self.clone();
         let cand = candidate.clone();
         self.metas
-            .run(&key, async move {
+            .run(&key, move || async move {
                 let _permit = this.permits.acquire().await.expect("semaphore is never closed");
                 let home = this.codex_home(&cand);
                 let (c, scan) = (cand.clone(), this.scan_max_bytes);

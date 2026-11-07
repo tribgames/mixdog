@@ -43,9 +43,9 @@ pub struct WorkspaceContext {
 #[async_trait]
 pub trait HostRuntime: Send + Sync + 'static {
     /// A Lead session this runtime hosts.
-    fn is_lead(&self, session_id: &str) -> bool;
+    async fn is_lead(&self, session_id: &str) -> bool;
     /// A conversation session (a Lead or a bot chat).
-    fn attended(&self, session_id: &str) -> bool;
+    async fn attended(&self, session_id: &str) -> bool;
     /// The cwd the session's tools run in.
     fn runtime_cwd(&self, session_id: &str) -> String;
     /// The session has a user conversation message (`hasUserConversationMessage`).
@@ -139,12 +139,12 @@ impl SessionWorkspaceHost {
 
 #[async_trait]
 impl WorkspaceHost for SessionWorkspaceHost {
-    fn is_lead(&self, session_id: &str) -> bool {
-        self.runtime.is_lead(session_id)
+    async fn is_lead(&self, session_id: &str) -> bool {
+        self.runtime.is_lead(session_id).await
     }
 
-    fn attended(&self, session_id: &str) -> bool {
-        self.runtime.attended(session_id)
+    async fn attended(&self, session_id: &str) -> bool {
+        self.runtime.attended(session_id).await
     }
 
     fn session(&self, session_id: &str) -> Option<SessionView> {

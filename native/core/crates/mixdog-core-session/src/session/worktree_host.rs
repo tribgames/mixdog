@@ -81,11 +81,11 @@ pub struct WorkspaceChange {
 #[async_trait]
 pub trait WorkspaceHost: Send + Sync + 'static {
     /// Whether `session_id` is a Lead session this runtime hosts.
-    fn is_lead(&self, session_id: &str) -> bool;
+    async fn is_lead(&self, session_id: &str) -> bool;
 
     /// A conversation session (a Lead or a bot chat); schedule, webhook, routine and room runs
     /// are not and may only list worktrees.
-    fn attended(&self, session_id: &str) -> bool;
+    async fn attended(&self, session_id: &str) -> bool;
 
     /// The hosted session, or `None`.
     fn session(&self, session_id: &str) -> Option<SessionView>;

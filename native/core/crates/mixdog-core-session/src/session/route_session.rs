@@ -614,7 +614,7 @@ mod tests {
 
     /// `continueSessionInModel`'s session half over a real session: the boundary goes on the
     /// reply, the route lands as a cross-provider change, and the switch row follows the reply.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn switch_now_switches_the_conversation_in_place() {
         use mixdog_core_ports::ports::route::SessionRoutes;
         use crate::session::thread_state::SessionThreads;

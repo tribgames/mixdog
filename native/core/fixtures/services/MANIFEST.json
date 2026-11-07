@@ -70,11 +70,11 @@
   ],
   "product": {
     "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
-    "commit": "5159ffad2f0a30690e87786bbe2e50078fdef07a",
+    "commit": "dcbdc55a33af5229ea9a8c050220305d64c4cf06",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9248,
     "refComparison": {
-      "closestCommit": "5159ffad2f0a30690e87786bbe2e50078fdef07a",
+      "closestCommit": "dcbdc55a33af5229ea9a8c050220305d64c4cf06",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0

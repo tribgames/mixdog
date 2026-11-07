@@ -286,6 +286,8 @@ mod tests {
                     js_runtime: crate::js_runtime::fixture(dir.path()),
                     ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
                     host: outgoing.clone(),
+                    log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
+                    stop: mixdog_rt::CancellationToken::new(),
                 },
             )
             .await

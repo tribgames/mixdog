@@ -1,0 +1,383 @@
+{
+  "note": "bytes of gateway-session-routes.json (and .bak) after each writeStatuslineRoute step; calls inside one step run in one tick",
+  "cases": [
+    {
+      "name": "every field: preset, route fast, effort, trimmed provider",
+      "initial": null,
+      "steps": [
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 4242
+              },
+              "route": {
+                "provider": " anthropic ",
+                "model": "claude-opus-4",
+                "preset": {
+                  "id": "p1",
+                  "name": "Opus",
+                  "modelDisplay": "Claude Opus",
+                  "fast": true
+                },
+                "fast": false,
+                "effectiveEffort": "high",
+                "modelDisplay": "ignored when the preset has one"
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": "{\"version\":2,\"updatedAt\":1800000000000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef01#4242\":{\"mode\":\"fixed\",\"defaultProvider\":\"anthropic\",\"defaultModel\":\"claude-opus-4\",\"presetId\":\"p1\",\"presetName\":\"Opus\",\"effort\":\"high\",\"displayEffort\":\"high\",\"modelDisplay\":\"Claude Opus\",\"fast\":false,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":4242,\"updatedAt\":1800000000000}}}\n",
+          "bak": null
+        }
+      ]
+    },
+    {
+      "name": "preset fast and the route model display",
+      "initial": null,
+      "steps": [
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 4242
+              },
+              "route": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "preset": {
+                  "id": "  ",
+                  "name": "Fast",
+                  "fast": true
+                },
+                "modelDisplay": " GPT 5 "
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": "{\"version\":2,\"updatedAt\":1800000000000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef01#4242\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"presetName\":\"Fast\",\"modelDisplay\":\"GPT 5\",\"fast\":true,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":4242,\"updatedAt\":1800000000000}}}\n",
+          "bak": null
+        }
+      ]
+    },
+    {
+      "name": "non-string preset id and effort drop; a numeric model display is its string",
+      "initial": null,
+      "steps": [
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 7
+              },
+              "route": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "preset": {
+                  "id": 5,
+                  "name": "n",
+                  "modelDisplay": 7
+                },
+                "effectiveEffort": 3
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": "{\"version\":2,\"updatedAt\":1800000000000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef01#7\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"presetName\":\"n\",\"modelDisplay\":\"7\",\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":7,\"updatedAt\":1800000000000}}}\n",
+          "bak": null
+        }
+      ]
+    },
+    {
+      "name": "a route with no usable provider or model writes nothing",
+      "initial": null,
+      "steps": [
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 7
+              },
+              "route": {
+                "provider": "",
+                "model": "m"
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": null,
+          "bak": null
+        },
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 7
+              },
+              "route": {
+                "provider": "p"
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": null,
+          "bak": null
+        },
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 7
+              },
+              "route": {
+                "provider": 5,
+                "model": "m"
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": null,
+          "bak": null
+        }
+      ]
+    },
+    {
+      "name": "a session id the store never keys, no id, no route: nothing",
+      "initial": null,
+      "steps": [
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "abc",
+                "clientHostPid": 7
+              },
+              "route": {
+                "provider": "p",
+                "model": "m"
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": null,
+          "bak": null
+        },
+        {
+          "calls": [
+            {
+              "session": {
+                "clientHostPid": 7
+              },
+              "route": {
+                "provider": "p",
+                "model": "m"
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": null,
+          "bak": null
+        },
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 7
+              },
+              "route": null,
+              "now": 1800000000000
+            }
+          ],
+          "file": null,
+          "bak": null
+        }
+      ]
+    },
+    {
+      "name": "a later write keeps the key position and refreshes updatedAt; a second session and host",
+      "initial": null,
+      "steps": [
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 11
+              },
+              "route": {
+                "provider": " anthropic ",
+                "model": "claude-opus-4",
+                "preset": {
+                  "id": "p1",
+                  "name": "Opus",
+                  "modelDisplay": "Claude Opus",
+                  "fast": true
+                },
+                "fast": false,
+                "effectiveEffort": "high",
+                "modelDisplay": "ignored when the preset has one"
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": "{\"version\":2,\"updatedAt\":1800000000000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef01#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"anthropic\",\"defaultModel\":\"claude-opus-4\",\"presetId\":\"p1\",\"presetName\":\"Opus\",\"effort\":\"high\",\"displayEffort\":\"high\",\"modelDisplay\":\"Claude Opus\",\"fast\":false,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":11,\"updatedAt\":1800000000000}}}\n",
+          "bak": null
+        },
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef02",
+                "clientHostPid": 11
+              },
+              "route": {
+                "provider": "openai",
+                "model": "gpt-5"
+              },
+              "now": 1800000001000
+            }
+          ],
+          "file": "{\"version\":2,\"updatedAt\":1800000001000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef02#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"sessionId\":\"sess_abcdef02\",\"clientHostPid\":11,\"updatedAt\":1800000001000},\"sess_abcdef01#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"anthropic\",\"defaultModel\":\"claude-opus-4\",\"presetId\":\"p1\",\"presetName\":\"Opus\",\"effort\":\"high\",\"displayEffort\":\"high\",\"modelDisplay\":\"Claude Opus\",\"fast\":false,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":11,\"updatedAt\":1800000000000}}}\n",
+          "bak": "{\"version\":2,\"updatedAt\":1800000000000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef01#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"anthropic\",\"defaultModel\":\"claude-opus-4\",\"presetId\":\"p1\",\"presetName\":\"Opus\",\"effort\":\"high\",\"displayEffort\":\"high\",\"modelDisplay\":\"Claude Opus\",\"fast\":false,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":11,\"updatedAt\":1800000000000}}}\n"
+        },
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 11
+              },
+              "route": {
+                "provider": "openai",
+                "model": "gpt-5",
+                "fast": true
+              },
+              "now": 1800000002000
+            }
+          ],
+          "file": "{\"version\":2,\"updatedAt\":1800000002000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef01#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"fast\":true,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":11,\"updatedAt\":1800000002000},\"sess_abcdef02#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"sessionId\":\"sess_abcdef02\",\"clientHostPid\":11,\"updatedAt\":1800000001000}}}\n",
+          "bak": "{\"version\":2,\"updatedAt\":1800000001000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef02#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"sessionId\":\"sess_abcdef02\",\"clientHostPid\":11,\"updatedAt\":1800000001000},\"sess_abcdef01#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"anthropic\",\"defaultModel\":\"claude-opus-4\",\"presetId\":\"p1\",\"presetName\":\"Opus\",\"effort\":\"high\",\"displayEffort\":\"high\",\"modelDisplay\":\"Claude Opus\",\"fast\":false,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":11,\"updatedAt\":1800000000000}}}\n"
+        },
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 12
+              },
+              "route": {
+                "provider": " anthropic ",
+                "model": "claude-opus-4",
+                "preset": {
+                  "id": "p1",
+                  "name": "Opus",
+                  "modelDisplay": "Claude Opus",
+                  "fast": true
+                },
+                "fast": false,
+                "effectiveEffort": "high",
+                "modelDisplay": "ignored when the preset has one"
+              },
+              "now": 1800000003000
+            }
+          ],
+          "file": "{\"version\":2,\"updatedAt\":1800000003000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef01#12\":{\"mode\":\"fixed\",\"defaultProvider\":\"anthropic\",\"defaultModel\":\"claude-opus-4\",\"presetId\":\"p1\",\"presetName\":\"Opus\",\"effort\":\"high\",\"displayEffort\":\"high\",\"modelDisplay\":\"Claude Opus\",\"fast\":false,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":12,\"updatedAt\":1800000003000},\"sess_abcdef01#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"fast\":true,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":11,\"updatedAt\":1800000002000},\"sess_abcdef02#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"sessionId\":\"sess_abcdef02\",\"clientHostPid\":11,\"updatedAt\":1800000001000}}}\n",
+          "bak": "{\"version\":2,\"updatedAt\":1800000002000,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef01#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"fast\":true,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":11,\"updatedAt\":1800000002000},\"sess_abcdef02#11\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"sessionId\":\"sess_abcdef02\",\"clientHostPid\":11,\"updatedAt\":1800000001000}}}\n"
+        }
+      ]
+    },
+    {
+      "name": "writes queued in one tick land in one update with one updatedAt",
+      "initial": null,
+      "steps": [
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 21
+              },
+              "route": {
+                "provider": " anthropic ",
+                "model": "claude-opus-4",
+                "preset": {
+                  "id": "p1",
+                  "name": "Opus",
+                  "modelDisplay": "Claude Opus",
+                  "fast": true
+                },
+                "fast": false,
+                "effectiveEffort": "high",
+                "modelDisplay": "ignored when the preset has one"
+              },
+              "now": 1800000000000
+            },
+            {
+              "session": {
+                "id": "sess_abcdef02",
+                "clientHostPid": 21
+              },
+              "route": {
+                "provider": "openai",
+                "model": "gpt-5"
+              },
+              "now": 1800000000005
+            },
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 21
+              },
+              "route": {
+                "provider": "openai",
+                "model": "gpt-6"
+              },
+              "now": 1800000000009
+            }
+          ],
+          "file": "{\"version\":2,\"updatedAt\":1800000000009,\"sessions\":{},\"sessionHosts\":{\"sess_abcdef01#21\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-6\",\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":21,\"updatedAt\":1800000000009},\"sess_abcdef02#21\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-5\",\"sessionId\":\"sess_abcdef02\",\"clientHostPid\":21,\"updatedAt\":1800000000009}}}\n",
+          "bak": null
+        }
+      ]
+    },
+    {
+      "name": "a write prunes entries past the TTL, those without a stamp, and past the caps",
+      "initial": "{\"version\":2,\"updatedAt\":1799999995000,\"sessions\":{\"sess_oldlegacy\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-old\",\"sessionId\":\"sess_oldlegacy\",\"updatedAt\":1798704000000},\"sess_newlegacy\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-new\",\"sessionId\":\"sess_newlegacy\",\"updatedAt\":1799999999000},\"sess_nostamp0\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-none\",\"sessionId\":\"sess_nostamp0\"}},\"sessionHosts\":{\"sess_seed0000#1000\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0000\",\"clientHostPid\":1000,\"updatedAt\":1799999940000},\"sess_seed0001#1001\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0001\",\"clientHostPid\":1001,\"updatedAt\":1799999939000},\"sess_seed0002#1002\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0002\",\"clientHostPid\":1002,\"updatedAt\":1799999938000},\"sess_seed0003#1003\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0003\",\"clientHostPid\":1003,\"updatedAt\":1799999937000},\"sess_seed0004#1004\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0004\",\"clientHostPid\":1004,\"updatedAt\":1799999936000},\"sess_seed0005#1005\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0005\",\"clientHostPid\":1005,\"updatedAt\":1799999935000},\"sess_seed0006#1006\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0006\",\"clientHostPid\":1006,\"updatedAt\":1799999934000},\"sess_seed0007#1007\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0007\",\"clientHostPid\":1007,\"updatedAt\":1799999933000},\"sess_seed0008#1008\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0008\",\"clientHostPid\":1008,\"updatedAt\":1799999932000},\"sess_seed0009#1009\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0009\",\"clientHostPid\":1009,\"updatedAt\":1799999931000},\"sess_seed0010#1010\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0010\",\"clientHostPid\":1010,\"updatedAt\":1799999930000},\"sess_seed0011#1011\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0011\",\"clientHostPid\":1011,\"updatedAt\":1799999929000},\"sess_seed0012#1012\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0012\",\"clientHostPid\":1012,\"updatedAt\":1799999928000},\"sess_seed0013#1013\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0013\",\"clientHostPid\":1013,\"updatedAt\":1799999927000},\"sess_seed0014#1014\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0014\",\"clientHostPid\":1014,\"updatedAt\":1799999926000},\"sess_seed0015#1015\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0015\",\"clientHostPid\":1015,\"updatedAt\":1799999925000},\"sess_seed0016#1016\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0016\",\"clientHostPid\":1016,\"updatedAt\":1799999924000},\"sess_seed0017#1017\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0017\",\"clientHostPid\":1017,\"updatedAt\":1799999923000},\"sess_seed0018#1018\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0018\",\"clientHostPid\":1018,\"updatedAt\":1799999922000},\"sess_seed0019#1019\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0019\",\"clientHostPid\":1019,\"updatedAt\":1799999921000},\"sess_seed0020#1020\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0020\",\"clientHostPid\":1020,\"updatedAt\":1799999920000},\"sess_seed0021#1021\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0021\",\"clientHostPid\":1021,\"updatedAt\":1799999919000},\"sess_seed0022#1022\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0022\",\"clientHostPid\":1022,\"updatedAt\":1799999918000},\"sess_seed0023#1023\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0023\",\"clientHostPid\":1023,\"updatedAt\":1799999917000},\"sess_seed0024#1024\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0024\",\"clientHostPid\":1024,\"updatedAt\":1799999916000},\"sess_seed0025#1025\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0025\",\"clientHostPid\":1025,\"updatedAt\":1799999915000},\"sess_seed0026#1026\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0026\",\"clientHostPid\":1026,\"updatedAt\":1799999914000},\"sess_seed0027#1027\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0027\",\"clientHostPid\":1027,\"updatedAt\":1799999913000},\"sess_seed0028#1028\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0028\",\"clientHostPid\":1028,\"updatedAt\":1799999912000},\"sess_seed0029#1029\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0029\",\"clientHostPid\":1029,\"updatedAt\":1799999911000},\"sess_seed0030#1030\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0030\",\"clientHostPid\":1030,\"updatedAt\":1799999910000},\"sess_seed0031#1031\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0031\",\"clientHostPid\":1031,\"updatedAt\":1799999909000},\"sess_seed0032#1032\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0032\",\"clientHostPid\":1032,\"updatedAt\":1799999908000},\"sess_seed0033#1033\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0033\",\"clientHostPid\":1033,\"updatedAt\":1799999907000},\"sess_seed0034#1034\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0034\",\"clientHostPid\":1034,\"updatedAt\":1799999906000},\"sess_seed0035#1035\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0035\",\"clientHostPid\":1035,\"updatedAt\":1799999905000},\"sess_seed0036#1036\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0036\",\"clientHostPid\":1036,\"updatedAt\":1799999904000},\"sess_seed0037#1037\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0037\",\"clientHostPid\":1037,\"updatedAt\":1799999903000},\"sess_seed0038#1038\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0038\",\"clientHostPid\":1038,\"updatedAt\":1799999902000},\"sess_seed0039#1039\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0039\",\"clientHostPid\":1039,\"updatedAt\":1799999901000},\"sess_seed0040#1040\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0040\",\"clientHostPid\":1040,\"updatedAt\":1799999900000},\"sess_seed0041#1041\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0041\",\"clientHostPid\":1041,\"updatedAt\":1799999899000},\"sess_seed0042#1042\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0042\",\"clientHostPid\":1042,\"updatedAt\":1799999898000},\"sess_seed0043#1043\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0043\",\"clientHostPid\":1043,\"updatedAt\":1799999897000},\"sess_seed0044#1044\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0044\",\"clientHostPid\":1044,\"updatedAt\":1799999896000},\"sess_seed0045#1045\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0045\",\"clientHostPid\":1045,\"updatedAt\":1799999895000},\"sess_seed0046#1046\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0046\",\"clientHostPid\":1046,\"updatedAt\":1799999894000},\"sess_seed0047#1047\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0047\",\"clientHostPid\":1047,\"updatedAt\":1799999893000},\"sess_seed0048#1048\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0048\",\"clientHostPid\":1048,\"updatedAt\":1799999892000},\"sess_seed0049#1049\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0049\",\"clientHostPid\":1049,\"updatedAt\":1799999891000},\"sess_seed0050#1050\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0050\",\"clientHostPid\":1050,\"updatedAt\":1799999890000},\"sess_seed0051#1051\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0051\",\"clientHostPid\":1051,\"updatedAt\":1799999889000},\"sess_seed0052#1052\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0052\",\"clientHostPid\":1052,\"updatedAt\":1799999888000},\"sess_seed0053#1053\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0053\",\"clientHostPid\":1053,\"updatedAt\":1799999887000},\"sess_seed0054#1054\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0054\",\"clientHostPid\":1054,\"updatedAt\":1799999886000},\"sess_seed0055#1055\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0055\",\"clientHostPid\":1055,\"updatedAt\":1799999885000},\"sess_seed0056#1056\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0056\",\"clientHostPid\":1056,\"updatedAt\":1799999884000},\"sess_seed0057#1057\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0057\",\"clientHostPid\":1057,\"updatedAt\":1799999883000},\"sess_seed0058#1058\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0058\",\"clientHostPid\":1058,\"updatedAt\":1799999882000},\"sess_seed0059#1059\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0059\",\"clientHostPid\":1059,\"updatedAt\":1799999881000},\"sess_seed0060#1060\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0060\",\"clientHostPid\":1060,\"updatedAt\":1799999880000},\"sess_seed0061#1061\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0061\",\"clientHostPid\":1061,\"updatedAt\":1799999879000},\"sess_seed0062#1062\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0062\",\"clientHostPid\":1062,\"updatedAt\":1799999878000},\"sess_seed0063#1063\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0063\",\"clientHostPid\":1063,\"updatedAt\":1799999877000},\"sess_seed0064#1064\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0064\",\"clientHostPid\":1064,\"updatedAt\":1799999876000},\"sess_seed0065#1065\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0065\",\"clientHostPid\":1065,\"updatedAt\":1799999875000},\"sess_seed0066#1066\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0066\",\"clientHostPid\":1066,\"updatedAt\":1799999874000},\"sess_seed0067#1067\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0067\",\"clientHostPid\":1067,\"updatedAt\":1799999873000},\"sess_seed0068#1068\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0068\",\"clientHostPid\":1068,\"updatedAt\":1799999872000},\"sess_seed0069#1069\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0069\",\"clientHostPid\":1069,\"updatedAt\":1799999871000},\"sess_seed0070#1070\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0070\",\"clientHostPid\":1070,\"updatedAt\":1799999870000},\"sess_seed0071#1071\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0071\",\"clientHostPid\":1071,\"updatedAt\":1799999869000},\"sess_seed0072#1072\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0072\",\"clientHostPid\":1072,\"updatedAt\":1799999868000},\"sess_seed0073#1073\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0073\",\"clientHostPid\":1073,\"updatedAt\":1799999867000},\"sess_seed0074#1074\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0074\",\"clientHostPid\":1074,\"updatedAt\":1799999866000},\"sess_seed0075#1075\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0075\",\"clientHostPid\":1075,\"updatedAt\":1799999865000},\"sess_seed0076#1076\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0076\",\"clientHostPid\":1076,\"updatedAt\":1799999864000},\"sess_seed0077#1077\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0077\",\"clientHostPid\":1077,\"updatedAt\":1799999863000},\"sess_seed0078#1078\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0078\",\"clientHostPid\":1078,\"updatedAt\":1799999862000},\"sess_seed0079#1079\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0079\",\"clientHostPid\":1079,\"updatedAt\":1799999861000},\"sess_seed0080#1080\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0080\",\"clientHostPid\":1080,\"updatedAt\":1799999860000},\"sess_seed0081#1081\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0081\",\"clientHostPid\":1081,\"updatedAt\":1799999859000},\"sess_seed0082#1082\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0082\",\"clientHostPid\":1082,\"updatedAt\":1799999858000},\"sess_seed0083#1083\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0083\",\"clientHostPid\":1083,\"updatedAt\":1799999857000},\"sess_seed0084#1084\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0084\",\"clientHostPid\":1084,\"updatedAt\":1799999856000},\"sess_seed0085#1085\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0085\",\"clientHostPid\":1085,\"updatedAt\":1799999855000},\"sess_seed0086#1086\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0086\",\"clientHostPid\":1086,\"updatedAt\":1799999854000},\"sess_seed0087#1087\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0087\",\"clientHostPid\":1087,\"updatedAt\":1799999853000},\"sess_seed0088#1088\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0088\",\"clientHostPid\":1088,\"updatedAt\":1799999852000},\"sess_seed0089#1089\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0089\",\"clientHostPid\":1089,\"updatedAt\":1799999851000},\"sess_seed0090#1090\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0090\",\"clientHostPid\":1090,\"updatedAt\":1799999850000},\"sess_seed0091#1091\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0091\",\"clientHostPid\":1091,\"updatedAt\":1799999849000},\"sess_seed0092#1092\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0092\",\"clientHostPid\":1092,\"updatedAt\":1799999848000},\"sess_seed0093#1093\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0093\",\"clientHostPid\":1093,\"updatedAt\":1799999847000},\"sess_seed0094#1094\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0094\",\"clientHostPid\":1094,\"updatedAt\":1799999846000},\"sess_seed0095#1095\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0095\",\"clientHostPid\":1095,\"updatedAt\":1799999845000},\"sess_seed0096#1096\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0096\",\"clientHostPid\":1096,\"updatedAt\":1799999844000},\"sess_seed0097#1097\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0097\",\"clientHostPid\":1097,\"updatedAt\":1799999843000},\"sess_seed0098#1098\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0098\",\"clientHostPid\":1098,\"updatedAt\":1799999842000},\"sess_seed0099#1099\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0099\",\"clientHostPid\":1099,\"updatedAt\":1799999841000},\"sess_seed0100#1100\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0100\",\"clientHostPid\":1100,\"updatedAt\":1799999840000},\"sess_seed0101#1101\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0101\",\"clientHostPid\":1101,\"updatedAt\":1799999839000}}}\n",
+      "steps": [
+        {
+          "calls": [
+            {
+              "session": {
+                "id": "sess_abcdef01",
+                "clientHostPid": 31
+              },
+              "route": {
+                "provider": " anthropic ",
+                "model": "claude-opus-4",
+                "preset": {
+                  "id": "p1",
+                  "name": "Opus",
+                  "modelDisplay": "Claude Opus",
+                  "fast": true
+                },
+                "fast": false,
+                "effectiveEffort": "high",
+                "modelDisplay": "ignored when the preset has one"
+              },
+              "now": 1800000000000
+            }
+          ],
+          "file": "{\"version\":2,\"updatedAt\":1800000000000,\"sessions\":{\"sess_newlegacy\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-new\",\"sessionId\":\"sess_newlegacy\",\"updatedAt\":1799999999000}},\"sessionHosts\":{\"sess_abcdef01#31\":{\"mode\":\"fixed\",\"defaultProvider\":\"anthropic\",\"defaultModel\":\"claude-opus-4\",\"presetId\":\"p1\",\"presetName\":\"Opus\",\"effort\":\"high\",\"displayEffort\":\"high\",\"modelDisplay\":\"Claude Opus\",\"fast\":false,\"sessionId\":\"sess_abcdef01\",\"clientHostPid\":31,\"updatedAt\":1800000000000},\"sess_seed0000#1000\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0000\",\"clientHostPid\":1000,\"updatedAt\":1799999940000},\"sess_seed0001#1001\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0001\",\"clientHostPid\":1001,\"updatedAt\":1799999939000},\"sess_seed0002#1002\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0002\",\"clientHostPid\":1002,\"updatedAt\":1799999938000},\"sess_seed0003#1003\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0003\",\"clientHostPid\":1003,\"updatedAt\":1799999937000},\"sess_seed0004#1004\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0004\",\"clientHostPid\":1004,\"updatedAt\":1799999936000},\"sess_seed0005#1005\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0005\",\"clientHostPid\":1005,\"updatedAt\":1799999935000},\"sess_seed0006#1006\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0006\",\"clientHostPid\":1006,\"updatedAt\":1799999934000},\"sess_seed0007#1007\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0007\",\"clientHostPid\":1007,\"updatedAt\":1799999933000},\"sess_seed0008#1008\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0008\",\"clientHostPid\":1008,\"updatedAt\":1799999932000},\"sess_seed0009#1009\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0009\",\"clientHostPid\":1009,\"updatedAt\":1799999931000},\"sess_seed0010#1010\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0010\",\"clientHostPid\":1010,\"updatedAt\":1799999930000},\"sess_seed0011#1011\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0011\",\"clientHostPid\":1011,\"updatedAt\":1799999929000},\"sess_seed0012#1012\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0012\",\"clientHostPid\":1012,\"updatedAt\":1799999928000},\"sess_seed0013#1013\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0013\",\"clientHostPid\":1013,\"updatedAt\":1799999927000},\"sess_seed0014#1014\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0014\",\"clientHostPid\":1014,\"updatedAt\":1799999926000},\"sess_seed0015#1015\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0015\",\"clientHostPid\":1015,\"updatedAt\":1799999925000},\"sess_seed0016#1016\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0016\",\"clientHostPid\":1016,\"updatedAt\":1799999924000},\"sess_seed0017#1017\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0017\",\"clientHostPid\":1017,\"updatedAt\":1799999923000},\"sess_seed0018#1018\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0018\",\"clientHostPid\":1018,\"updatedAt\":1799999922000},\"sess_seed0019#1019\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0019\",\"clientHostPid\":1019,\"updatedAt\":1799999921000},\"sess_seed0020#1020\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0020\",\"clientHostPid\":1020,\"updatedAt\":1799999920000},\"sess_seed0021#1021\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0021\",\"clientHostPid\":1021,\"updatedAt\":1799999919000},\"sess_seed0022#1022\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0022\",\"clientHostPid\":1022,\"updatedAt\":1799999918000},\"sess_seed0023#1023\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0023\",\"clientHostPid\":1023,\"updatedAt\":1799999917000},\"sess_seed0024#1024\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0024\",\"clientHostPid\":1024,\"updatedAt\":1799999916000},\"sess_seed0025#1025\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0025\",\"clientHostPid\":1025,\"updatedAt\":1799999915000},\"sess_seed0026#1026\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0026\",\"clientHostPid\":1026,\"updatedAt\":1799999914000},\"sess_seed0027#1027\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0027\",\"clientHostPid\":1027,\"updatedAt\":1799999913000},\"sess_seed0028#1028\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0028\",\"clientHostPid\":1028,\"updatedAt\":1799999912000},\"sess_seed0029#1029\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0029\",\"clientHostPid\":1029,\"updatedAt\":1799999911000},\"sess_seed0030#1030\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0030\",\"clientHostPid\":1030,\"updatedAt\":1799999910000},\"sess_seed0031#1031\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0031\",\"clientHostPid\":1031,\"updatedAt\":1799999909000},\"sess_seed0032#1032\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0032\",\"clientHostPid\":1032,\"updatedAt\":1799999908000},\"sess_seed0033#1033\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0033\",\"clientHostPid\":1033,\"updatedAt\":1799999907000},\"sess_seed0034#1034\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0034\",\"clientHostPid\":1034,\"updatedAt\":1799999906000},\"sess_seed0035#1035\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0035\",\"clientHostPid\":1035,\"updatedAt\":1799999905000},\"sess_seed0036#1036\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0036\",\"clientHostPid\":1036,\"updatedAt\":1799999904000},\"sess_seed0037#1037\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0037\",\"clientHostPid\":1037,\"updatedAt\":1799999903000},\"sess_seed0038#1038\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0038\",\"clientHostPid\":1038,\"updatedAt\":1799999902000},\"sess_seed0039#1039\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0039\",\"clientHostPid\":1039,\"updatedAt\":1799999901000},\"sess_seed0040#1040\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0040\",\"clientHostPid\":1040,\"updatedAt\":1799999900000},\"sess_seed0041#1041\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0041\",\"clientHostPid\":1041,\"updatedAt\":1799999899000},\"sess_seed0042#1042\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0042\",\"clientHostPid\":1042,\"updatedAt\":1799999898000},\"sess_seed0043#1043\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0043\",\"clientHostPid\":1043,\"updatedAt\":1799999897000},\"sess_seed0044#1044\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0044\",\"clientHostPid\":1044,\"updatedAt\":1799999896000},\"sess_seed0045#1045\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0045\",\"clientHostPid\":1045,\"updatedAt\":1799999895000},\"sess_seed0046#1046\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0046\",\"clientHostPid\":1046,\"updatedAt\":1799999894000},\"sess_seed0047#1047\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0047\",\"clientHostPid\":1047,\"updatedAt\":1799999893000},\"sess_seed0048#1048\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0048\",\"clientHostPid\":1048,\"updatedAt\":1799999892000},\"sess_seed0049#1049\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0049\",\"clientHostPid\":1049,\"updatedAt\":1799999891000},\"sess_seed0050#1050\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0050\",\"clientHostPid\":1050,\"updatedAt\":1799999890000},\"sess_seed0051#1051\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0051\",\"clientHostPid\":1051,\"updatedAt\":1799999889000},\"sess_seed0052#1052\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0052\",\"clientHostPid\":1052,\"updatedAt\":1799999888000},\"sess_seed0053#1053\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0053\",\"clientHostPid\":1053,\"updatedAt\":1799999887000},\"sess_seed0054#1054\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0054\",\"clientHostPid\":1054,\"updatedAt\":1799999886000},\"sess_seed0055#1055\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0055\",\"clientHostPid\":1055,\"updatedAt\":1799999885000},\"sess_seed0056#1056\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0056\",\"clientHostPid\":1056,\"updatedAt\":1799999884000},\"sess_seed0057#1057\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0057\",\"clientHostPid\":1057,\"updatedAt\":1799999883000},\"sess_seed0058#1058\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0058\",\"clientHostPid\":1058,\"updatedAt\":1799999882000},\"sess_seed0059#1059\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0059\",\"clientHostPid\":1059,\"updatedAt\":1799999881000},\"sess_seed0060#1060\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0060\",\"clientHostPid\":1060,\"updatedAt\":1799999880000},\"sess_seed0061#1061\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0061\",\"clientHostPid\":1061,\"updatedAt\":1799999879000},\"sess_seed0062#1062\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0062\",\"clientHostPid\":1062,\"updatedAt\":1799999878000},\"sess_seed0063#1063\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0063\",\"clientHostPid\":1063,\"updatedAt\":1799999877000},\"sess_seed0064#1064\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0064\",\"clientHostPid\":1064,\"updatedAt\":1799999876000},\"sess_seed0065#1065\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0065\",\"clientHostPid\":1065,\"updatedAt\":1799999875000},\"sess_seed0066#1066\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0066\",\"clientHostPid\":1066,\"updatedAt\":1799999874000},\"sess_seed0067#1067\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0067\",\"clientHostPid\":1067,\"updatedAt\":1799999873000},\"sess_seed0068#1068\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0068\",\"clientHostPid\":1068,\"updatedAt\":1799999872000},\"sess_seed0069#1069\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0069\",\"clientHostPid\":1069,\"updatedAt\":1799999871000},\"sess_seed0070#1070\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0070\",\"clientHostPid\":1070,\"updatedAt\":1799999870000},\"sess_seed0071#1071\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0071\",\"clientHostPid\":1071,\"updatedAt\":1799999869000},\"sess_seed0072#1072\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0072\",\"clientHostPid\":1072,\"updatedAt\":1799999868000},\"sess_seed0073#1073\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0073\",\"clientHostPid\":1073,\"updatedAt\":1799999867000},\"sess_seed0074#1074\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0074\",\"clientHostPid\":1074,\"updatedAt\":1799999866000},\"sess_seed0075#1075\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0075\",\"clientHostPid\":1075,\"updatedAt\":1799999865000},\"sess_seed0076#1076\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0076\",\"clientHostPid\":1076,\"updatedAt\":1799999864000},\"sess_seed0077#1077\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0077\",\"clientHostPid\":1077,\"updatedAt\":1799999863000},\"sess_seed0078#1078\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0078\",\"clientHostPid\":1078,\"updatedAt\":1799999862000},\"sess_seed0079#1079\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0079\",\"clientHostPid\":1079,\"updatedAt\":1799999861000},\"sess_seed0080#1080\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0080\",\"clientHostPid\":1080,\"updatedAt\":1799999860000},\"sess_seed0081#1081\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0081\",\"clientHostPid\":1081,\"updatedAt\":1799999859000},\"sess_seed0082#1082\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0082\",\"clientHostPid\":1082,\"updatedAt\":1799999858000},\"sess_seed0083#1083\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0083\",\"clientHostPid\":1083,\"updatedAt\":1799999857000},\"sess_seed0084#1084\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0084\",\"clientHostPid\":1084,\"updatedAt\":1799999856000},\"sess_seed0085#1085\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0085\",\"clientHostPid\":1085,\"updatedAt\":1799999855000},\"sess_seed0086#1086\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0086\",\"clientHostPid\":1086,\"updatedAt\":1799999854000},\"sess_seed0087#1087\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0087\",\"clientHostPid\":1087,\"updatedAt\":1799999853000},\"sess_seed0088#1088\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0088\",\"clientHostPid\":1088,\"updatedAt\":1799999852000},\"sess_seed0089#1089\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0089\",\"clientHostPid\":1089,\"updatedAt\":1799999851000},\"sess_seed0090#1090\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0090\",\"clientHostPid\":1090,\"updatedAt\":1799999850000},\"sess_seed0091#1091\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0091\",\"clientHostPid\":1091,\"updatedAt\":1799999849000},\"sess_seed0092#1092\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0092\",\"clientHostPid\":1092,\"updatedAt\":1799999848000},\"sess_seed0093#1093\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0093\",\"clientHostPid\":1093,\"updatedAt\":1799999847000},\"sess_seed0094#1094\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0094\",\"clientHostPid\":1094,\"updatedAt\":1799999846000},\"sess_seed0095#1095\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0095\",\"clientHostPid\":1095,\"updatedAt\":1799999845000},\"sess_seed0096#1096\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0096\",\"clientHostPid\":1096,\"updatedAt\":1799999844000},\"sess_seed0097#1097\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0097\",\"clientHostPid\":1097,\"updatedAt\":1799999843000},\"sess_seed0098#1098\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0098\",\"clientHostPid\":1098,\"updatedAt\":1799999842000}}}\n",
+          "bak": "{\"version\":2,\"updatedAt\":1799999995000,\"sessions\":{\"sess_oldlegacy\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-old\",\"sessionId\":\"sess_oldlegacy\",\"updatedAt\":1798704000000},\"sess_newlegacy\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-new\",\"sessionId\":\"sess_newlegacy\",\"updatedAt\":1799999999000},\"sess_nostamp0\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-none\",\"sessionId\":\"sess_nostamp0\"}},\"sessionHosts\":{\"sess_seed0000#1000\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0000\",\"clientHostPid\":1000,\"updatedAt\":1799999940000},\"sess_seed0001#1001\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0001\",\"clientHostPid\":1001,\"updatedAt\":1799999939000},\"sess_seed0002#1002\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0002\",\"clientHostPid\":1002,\"updatedAt\":1799999938000},\"sess_seed0003#1003\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0003\",\"clientHostPid\":1003,\"updatedAt\":1799999937000},\"sess_seed0004#1004\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0004\",\"clientHostPid\":1004,\"updatedAt\":1799999936000},\"sess_seed0005#1005\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0005\",\"clientHostPid\":1005,\"updatedAt\":1799999935000},\"sess_seed0006#1006\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0006\",\"clientHostPid\":1006,\"updatedAt\":1799999934000},\"sess_seed0007#1007\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0007\",\"clientHostPid\":1007,\"updatedAt\":1799999933000},\"sess_seed0008#1008\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0008\",\"clientHostPid\":1008,\"updatedAt\":1799999932000},\"sess_seed0009#1009\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0009\",\"clientHostPid\":1009,\"updatedAt\":1799999931000},\"sess_seed0010#1010\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0010\",\"clientHostPid\":1010,\"updatedAt\":1799999930000},\"sess_seed0011#1011\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0011\",\"clientHostPid\":1011,\"updatedAt\":1799999929000},\"sess_seed0012#1012\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0012\",\"clientHostPid\":1012,\"updatedAt\":1799999928000},\"sess_seed0013#1013\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0013\",\"clientHostPid\":1013,\"updatedAt\":1799999927000},\"sess_seed0014#1014\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0014\",\"clientHostPid\":1014,\"updatedAt\":1799999926000},\"sess_seed0015#1015\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0015\",\"clientHostPid\":1015,\"updatedAt\":1799999925000},\"sess_seed0016#1016\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0016\",\"clientHostPid\":1016,\"updatedAt\":1799999924000},\"sess_seed0017#1017\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0017\",\"clientHostPid\":1017,\"updatedAt\":1799999923000},\"sess_seed0018#1018\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0018\",\"clientHostPid\":1018,\"updatedAt\":1799999922000},\"sess_seed0019#1019\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0019\",\"clientHostPid\":1019,\"updatedAt\":1799999921000},\"sess_seed0020#1020\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0020\",\"clientHostPid\":1020,\"updatedAt\":1799999920000},\"sess_seed0021#1021\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0021\",\"clientHostPid\":1021,\"updatedAt\":1799999919000},\"sess_seed0022#1022\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0022\",\"clientHostPid\":1022,\"updatedAt\":1799999918000},\"sess_seed0023#1023\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0023\",\"clientHostPid\":1023,\"updatedAt\":1799999917000},\"sess_seed0024#1024\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0024\",\"clientHostPid\":1024,\"updatedAt\":1799999916000},\"sess_seed0025#1025\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0025\",\"clientHostPid\":1025,\"updatedAt\":1799999915000},\"sess_seed0026#1026\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0026\",\"clientHostPid\":1026,\"updatedAt\":1799999914000},\"sess_seed0027#1027\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0027\",\"clientHostPid\":1027,\"updatedAt\":1799999913000},\"sess_seed0028#1028\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0028\",\"clientHostPid\":1028,\"updatedAt\":1799999912000},\"sess_seed0029#1029\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0029\",\"clientHostPid\":1029,\"updatedAt\":1799999911000},\"sess_seed0030#1030\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0030\",\"clientHostPid\":1030,\"updatedAt\":1799999910000},\"sess_seed0031#1031\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0031\",\"clientHostPid\":1031,\"updatedAt\":1799999909000},\"sess_seed0032#1032\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0032\",\"clientHostPid\":1032,\"updatedAt\":1799999908000},\"sess_seed0033#1033\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0033\",\"clientHostPid\":1033,\"updatedAt\":1799999907000},\"sess_seed0034#1034\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0034\",\"clientHostPid\":1034,\"updatedAt\":1799999906000},\"sess_seed0035#1035\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0035\",\"clientHostPid\":1035,\"updatedAt\":1799999905000},\"sess_seed0036#1036\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0036\",\"clientHostPid\":1036,\"updatedAt\":1799999904000},\"sess_seed0037#1037\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0037\",\"clientHostPid\":1037,\"updatedAt\":1799999903000},\"sess_seed0038#1038\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0038\",\"clientHostPid\":1038,\"updatedAt\":1799999902000},\"sess_seed0039#1039\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0039\",\"clientHostPid\":1039,\"updatedAt\":1799999901000},\"sess_seed0040#1040\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0040\",\"clientHostPid\":1040,\"updatedAt\":1799999900000},\"sess_seed0041#1041\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0041\",\"clientHostPid\":1041,\"updatedAt\":1799999899000},\"sess_seed0042#1042\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0042\",\"clientHostPid\":1042,\"updatedAt\":1799999898000},\"sess_seed0043#1043\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0043\",\"clientHostPid\":1043,\"updatedAt\":1799999897000},\"sess_seed0044#1044\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0044\",\"clientHostPid\":1044,\"updatedAt\":1799999896000},\"sess_seed0045#1045\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0045\",\"clientHostPid\":1045,\"updatedAt\":1799999895000},\"sess_seed0046#1046\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0046\",\"clientHostPid\":1046,\"updatedAt\":1799999894000},\"sess_seed0047#1047\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0047\",\"clientHostPid\":1047,\"updatedAt\":1799999893000},\"sess_seed0048#1048\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0048\",\"clientHostPid\":1048,\"updatedAt\":1799999892000},\"sess_seed0049#1049\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0049\",\"clientHostPid\":1049,\"updatedAt\":1799999891000},\"sess_seed0050#1050\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0050\",\"clientHostPid\":1050,\"updatedAt\":1799999890000},\"sess_seed0051#1051\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0051\",\"clientHostPid\":1051,\"updatedAt\":1799999889000},\"sess_seed0052#1052\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0052\",\"clientHostPid\":1052,\"updatedAt\":1799999888000},\"sess_seed0053#1053\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0053\",\"clientHostPid\":1053,\"updatedAt\":1799999887000},\"sess_seed0054#1054\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0054\",\"clientHostPid\":1054,\"updatedAt\":1799999886000},\"sess_seed0055#1055\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0055\",\"clientHostPid\":1055,\"updatedAt\":1799999885000},\"sess_seed0056#1056\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0056\",\"clientHostPid\":1056,\"updatedAt\":1799999884000},\"sess_seed0057#1057\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0057\",\"clientHostPid\":1057,\"updatedAt\":1799999883000},\"sess_seed0058#1058\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0058\",\"clientHostPid\":1058,\"updatedAt\":1799999882000},\"sess_seed0059#1059\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0059\",\"clientHostPid\":1059,\"updatedAt\":1799999881000},\"sess_seed0060#1060\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0060\",\"clientHostPid\":1060,\"updatedAt\":1799999880000},\"sess_seed0061#1061\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0061\",\"clientHostPid\":1061,\"updatedAt\":1799999879000},\"sess_seed0062#1062\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0062\",\"clientHostPid\":1062,\"updatedAt\":1799999878000},\"sess_seed0063#1063\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0063\",\"clientHostPid\":1063,\"updatedAt\":1799999877000},\"sess_seed0064#1064\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0064\",\"clientHostPid\":1064,\"updatedAt\":1799999876000},\"sess_seed0065#1065\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0065\",\"clientHostPid\":1065,\"updatedAt\":1799999875000},\"sess_seed0066#1066\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0066\",\"clientHostPid\":1066,\"updatedAt\":1799999874000},\"sess_seed0067#1067\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0067\",\"clientHostPid\":1067,\"updatedAt\":1799999873000},\"sess_seed0068#1068\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0068\",\"clientHostPid\":1068,\"updatedAt\":1799999872000},\"sess_seed0069#1069\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0069\",\"clientHostPid\":1069,\"updatedAt\":1799999871000},\"sess_seed0070#1070\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0070\",\"clientHostPid\":1070,\"updatedAt\":1799999870000},\"sess_seed0071#1071\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0071\",\"clientHostPid\":1071,\"updatedAt\":1799999869000},\"sess_seed0072#1072\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0072\",\"clientHostPid\":1072,\"updatedAt\":1799999868000},\"sess_seed0073#1073\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0073\",\"clientHostPid\":1073,\"updatedAt\":1799999867000},\"sess_seed0074#1074\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0074\",\"clientHostPid\":1074,\"updatedAt\":1799999866000},\"sess_seed0075#1075\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0075\",\"clientHostPid\":1075,\"updatedAt\":1799999865000},\"sess_seed0076#1076\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0076\",\"clientHostPid\":1076,\"updatedAt\":1799999864000},\"sess_seed0077#1077\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0077\",\"clientHostPid\":1077,\"updatedAt\":1799999863000},\"sess_seed0078#1078\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0078\",\"clientHostPid\":1078,\"updatedAt\":1799999862000},\"sess_seed0079#1079\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0079\",\"clientHostPid\":1079,\"updatedAt\":1799999861000},\"sess_seed0080#1080\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0080\",\"clientHostPid\":1080,\"updatedAt\":1799999860000},\"sess_seed0081#1081\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0081\",\"clientHostPid\":1081,\"updatedAt\":1799999859000},\"sess_seed0082#1082\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0082\",\"clientHostPid\":1082,\"updatedAt\":1799999858000},\"sess_seed0083#1083\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0083\",\"clientHostPid\":1083,\"updatedAt\":1799999857000},\"sess_seed0084#1084\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0084\",\"clientHostPid\":1084,\"updatedAt\":1799999856000},\"sess_seed0085#1085\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0085\",\"clientHostPid\":1085,\"updatedAt\":1799999855000},\"sess_seed0086#1086\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0086\",\"clientHostPid\":1086,\"updatedAt\":1799999854000},\"sess_seed0087#1087\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0087\",\"clientHostPid\":1087,\"updatedAt\":1799999853000},\"sess_seed0088#1088\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0088\",\"clientHostPid\":1088,\"updatedAt\":1799999852000},\"sess_seed0089#1089\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0089\",\"clientHostPid\":1089,\"updatedAt\":1799999851000},\"sess_seed0090#1090\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0090\",\"clientHostPid\":1090,\"updatedAt\":1799999850000},\"sess_seed0091#1091\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0091\",\"clientHostPid\":1091,\"updatedAt\":1799999849000},\"sess_seed0092#1092\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0092\",\"clientHostPid\":1092,\"updatedAt\":1799999848000},\"sess_seed0093#1093\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0093\",\"clientHostPid\":1093,\"updatedAt\":1799999847000},\"sess_seed0094#1094\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0094\",\"clientHostPid\":1094,\"updatedAt\":1799999846000},\"sess_seed0095#1095\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0095\",\"clientHostPid\":1095,\"updatedAt\":1799999845000},\"sess_seed0096#1096\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0096\",\"clientHostPid\":1096,\"updatedAt\":1799999844000},\"sess_seed0097#1097\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0097\",\"clientHostPid\":1097,\"updatedAt\":1799999843000},\"sess_seed0098#1098\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0098\",\"clientHostPid\":1098,\"updatedAt\":1799999842000},\"sess_seed0099#1099\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0099\",\"clientHostPid\":1099,\"updatedAt\":1799999841000},\"sess_seed0100#1100\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0100\",\"clientHostPid\":1100,\"updatedAt\":1799999840000},\"sess_seed0101#1101\":{\"mode\":\"fixed\",\"defaultProvider\":\"openai\",\"defaultModel\":\"gpt-x\",\"sessionId\":\"sess_seed0101\",\"clientHostPid\":1101,\"updatedAt\":1799999839000}}}\n"
+        }
+      ]
+    }
+  ]
+}

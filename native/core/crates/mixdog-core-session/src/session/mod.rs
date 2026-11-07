@@ -57,6 +57,7 @@ pub mod import_sessions;
 mod route_exclusions;
 pub mod route_session;
 pub mod agent_evidence;
+pub mod dispatch_sessions;
 pub mod search_backfill;
 pub mod secret_input;
 pub mod setup_facts;
@@ -75,6 +76,8 @@ mod routine_turn;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;
+#[cfg(test)]
+mod quota_lane_tests;
 pub mod quota_resume_scheduler;
 #[cfg(test)]
 mod quota_resume_scheduler_tests;
