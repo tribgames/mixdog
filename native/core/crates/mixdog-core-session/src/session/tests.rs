@@ -1041,6 +1041,136 @@ async fn a_start_whose_route_is_refused_creates_no_thread() {
     assert!(directory.loaded_ids().is_empty());
 }
 
+/// A thread whose tools were seeded and that is then not created is abandoned exactly once, whichever
+/// way `thread/start` ends: a failed `create`, a refused seed, a request cancelled mid-seed. A
+/// thread that is created is not abandoned (what the seed opened for it lives until it closes).
+#[tokio::test(start_paused = true)]
+async fn a_seeded_thread_that_is_not_created_is_abandoned_once() {
+    use mixdog_store::schema::record::Header;
+    enum Mode {
+        Seed,
+        Refuse,
+        Hang(Arc<tokio::sync::Notify>),
+    }
+    struct Tools {
+        mode: Mutex<Mode>,
+        seeded: Mutex<Vec<ThreadId>>,
+        abandoned: Mutex<Vec<ThreadId>>,
+    }
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.seeded).push(thread.clone());
+            let entered = match &*lock(&self.mode) {
+                Mode::Seed => None,
+                Mode::Refuse => return Err("refused".to_owned()),
+                Mode::Hang(entered) => Some(entered.clone()),
+            };
+            if let Some(entered) = entered {
+                entered.notify_one();
+                std::future::pending::<()>().await;
+            }
+            Ok(header.clone())
+        }
+        fn abandon(&self, thread: &ThreadId) {
+            lock(&self.abandoned).push(thread.clone());
+        }
+    }
+    let rig = Rig::new();
+    let tools = Arc::new(Tools { mode: Mutex::new(Mode::Seed), seeded: Mutex::default(), abandoned: Mutex::default() });
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_tools = tools.clone();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    let start = |op: &'static str| {
+        let directory = directory.clone();
+        async move { directory.request(request("thread/start", json!({ "opId": op, "kind": "task" }), op)).await }
+    };
+    let abandoned_as_seeded = |count: usize| {
+        let (seeded, abandoned) = (lock(&tools.seeded).clone(), lock(&tools.abandoned).clone());
+        assert_eq!(abandoned.len(), count, "{abandoned:?}");
+        assert_eq!(abandoned, seeded[..count], "each abandoned thread is the one that was seeded");
+    };
+
+    // `create` fails (the first commit of the new log is rolled back).
+    rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(start("op-create").await.is_err());
+    abandoned_as_seeded(1);
+    // The seed itself is refused.
+    *lock(&tools.mode) = Mode::Refuse;
+    assert!(start("op-refused").await.is_err());
+    abandoned_as_seeded(2);
+    // The request is cancelled while the seed runs.
+    let entered = Arc::new(tokio::sync::Notify::new());
+    *lock(&tools.mode) = Mode::Hang(entered.clone());
+    let task = tokio::spawn(start("op-cancelled"));
+    entered.notified().await;
+    task.abort();
+    assert!(task.await.is_err(), "the request was cancelled");
+    abandoned_as_seeded(3);
+    // A thread that is created is not abandoned.
+    *lock(&tools.mode) = Mode::Seed;
+    assert!(start("op-created").await.is_ok());
+    assert_eq!(lock(&tools.seeded).len(), 4);
+    abandoned_as_seeded(3);
+    assert_eq!(directory.loaded_ids().len(), 1);
+}
+
+/// A request cancelled after the thread is published and before its first record is acknowledged
+/// (`create`'s wait on the actor) does not release the scope of the thread that then gets created:
+/// the actor owns the seed from the publication. When that first record fails instead, the actor
+/// abandons it, whoever is still waiting.
+#[tokio::test(start_paused = true)]
+async fn a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the_actor() {
+    use mixdog_store::schema::record::Header;
+    struct Tools(Mutex<Vec<ThreadId>>);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
+            Ok(header.clone())
+        }
+        fn abandon(&self, thread: &ThreadId) {
+            lock(&self.0).push(thread.clone());
+        }
+    }
+    let rig = Rig::new();
+    let tools = Arc::new(Tools(Mutex::default()));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_tools = tools.clone();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    let cancelled_in_the_window = |op: &'static str| {
+        let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+        *lock(&rig.store.create_gate) = Some((arrived.clone(), go.1));
+        let directory = directory.clone();
+        let task = tokio::spawn(async move { directory.request(request("thread/start", json!({ "opId": op, "kind": "task" }), op)).await });
+        async move {
+            // The actor is published and its `session` record is at the store, unacknowledged.
+            arrived.notified().await;
+            task.abort();
+            assert!(task.await.is_err(), "the request was cancelled");
+            go.0
+        }
+    };
+
+    let release = cancelled_in_the_window("op-window").await;
+    assert!(lock(&tools.0).is_empty(), "the cancelled caller released nothing");
+    let id = directory.loaded_ids().pop().expect("the published thread");
+    release.send(()).expect("lane waits");
+    eventually(|| (rig.store.records(&id).len() == 1).then_some(())).await;
+    let handle = directory.handle(&id).expect("loaded");
+    handle
+        .request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": id, "set": {}, "unset": [] }), op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("the created thread answers");
+    assert!(lock(&tools.0).is_empty(), "a thread that was created keeps its scope");
+
+    rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    let release = cancelled_in_the_window("op-failed").await;
+    let failed = directory.loaded_ids().into_iter().find(|loaded| *loaded != id).expect("the second published thread");
+    release.send(()).expect("lane waits");
+    let abandoned = eventually(|| Some(lock(&tools.0).clone()).filter(|abandoned| !abandoned.is_empty())).await;
+    assert_eq!(abandoned, [failed], "the actor abandons the seed of a thread whose first record failed");
+}
+
 /// A `thread/start` with no `session` options is a `full` Lead denied the goal tools, as
 /// Node's `sessionOptions` makes it.
 #[tokio::test(start_paused = true)]
@@ -1467,6 +1597,8 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
     expected.extend([format!("thread/deleted:{s}"), format!("forgetSessionSearch:{s}"), format!("releaseDeletedWorktree:{s}")]);
     eventually_on(&[&handle.cell.stepped, &rig.deletes.1], || (lock(&rig.deletes.0).len() == expected.len()).then_some(())).await;
     assert_eq!(*lock(&rig.deletes.0), expected);
+    // The deleted session's MCP scope is released with its close (the servers it connected close).
+    assert_eq!(*lock(&rig.deletes.2), [s.to_owned()]);
 
     // Deleted already, or not a session id: nothing is deleted, nothing runs.
     let other = start_thread(&directory).await;
@@ -1506,9 +1638,11 @@ async fn a_delete_whose_mark_fails_logs_no_close() {
     assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{reply:?}");
     let closes = |rig: &Rig| lock(&rig.deletes.0).iter().filter(|step| step.starts_with("sessionClosed:")).count();
     assert_eq!(closes(&rig), 0, "an unacknowledged mark is not a close");
+    assert!(lock(&rig.deletes.2).is_empty(), "nor does it release the session's MCP scope");
     let reply = delete(&other, "op-ok").await;
     assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
     assert_eq!(closes(&rig), 1);
+    assert_eq!(*lock(&rig.deletes.2), [other.id.as_str().to_owned()]);
 }
 
 /// A deleted base keeps its files while a fork reads them: the fork still opens with the

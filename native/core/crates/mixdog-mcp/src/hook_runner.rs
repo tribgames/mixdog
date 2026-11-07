@@ -11,6 +11,7 @@ use crate::hook_bus::output::handler_timeout;
 use crate::hook_bus::output::limit_text;
 use crate::hooks::HookHandler;
 use crate::hub::McpHub;
+use crate::hub::normalize_scope;
 use crate::naming::PROVIDER_TOOL_NAME_MAX;
 use crate::naming::qualified_tool_name;
 use crate::server::CallError;
@@ -27,10 +28,13 @@ fn target_name(handler: &Value) -> String {
     }
 }
 
-/// Runs one `mcp_tool` handler with the hook `payload` as the tool's arguments. `cancel` is the
+/// Runs one `mcp_tool` handler with the hook `payload` as the tool's arguments. `scope` is the MCP
+/// scope of the session the hook fires for (`executeMcpTool(.., { scopeId: rt.mcpScopeId })`,
+/// `boot/infrastructure.mjs:97`): the tool is found among that session's servers only. `cancel` is the
 /// hook run's own cancellation.
 pub async fn run_mcp_tool_handler(
     hub: &McpHub,
+    scope: Option<&str>,
     handler: &HookHandler,
     payload: Value,
     event: &str,
@@ -41,7 +45,7 @@ pub async fn run_mcp_tool_handler(
         return HandlerRun::failed("mcp_tool handler missing tool name".to_owned(), false);
     }
     let timeout = handler_timeout(&handler.raw, event);
-    let Some((server, entry)) = hub.resolve(&name) else {
+    let Some((server, entry)) = hub.resolve_in(&normalize_scope(scope), &name) else {
         let server = name.strip_prefix("mcp__").and_then(|r| r.split("__").next()).unwrap_or_default();
         return HandlerRun::failed(format!("MCP server \"{server}\" not connected"), false);
     };

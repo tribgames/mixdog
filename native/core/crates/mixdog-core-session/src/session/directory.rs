@@ -148,6 +148,8 @@ pub(crate) struct CreateSpec {
     pub op: Option<OpId>,
     pub method: Method,
     pub params: Value,
+    /// What the thread's tool seed opened; the thread's actor owns it once the thread is published.
+    pub seed: Option<super::seams::SeededThread>,
 }
 
 pub struct SessionDirectory {
@@ -490,6 +492,7 @@ impl SessionDirectory {
                 op: None,
                 method: Method("thread/start"),
                 params,
+                seed: None,
             })
             .await
             .map(|_| ())
@@ -498,7 +501,7 @@ impl SessionDirectory {
     /// Creates a thread under a minted id with `header` as its first durable write (an internal
     /// `createSession`: nobody subscribes to it).
     pub async fn create_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
-        let spec = CreateSpec { id: None, header, base: None, op: None, method: Method("thread/start"), params };
+        let spec = CreateSpec { id: None, header, base: None, op: None, method: Method("thread/start"), params, seed: None };
         self.inner.create(spec).await.map(|handle| handle.id.clone())
     }
 
@@ -1094,6 +1097,7 @@ impl DirInner {
                     session,
                     tx: Some(tx),
                     value: json!({}),
+                    seed: spec.seed,
                 },
             );
             shard.insert(id.clone(), Slot_::Loaded(handle));
@@ -1263,7 +1267,14 @@ impl ThreadDirectory for SessionDirectory {
                 for (key, value) in created {
                     header.insert(key, value);
                 }
-                let header = self.inner.deps.new_tools.seed(&id, &header).await.map_err(|message| {
+                // Until the thread is published, any way out abandons the seed; the actor owns it after.
+                let seeded = super::seams::SeededThread::new(self.inner.deps.new_tools.clone(), id.clone());
+                let seeding = if params.kind == ThreadStartKind::Control {
+                    self.inner.deps.new_tools.seed_control(&id, &header)
+                } else {
+                    self.inner.deps.new_tools.seed(&id, &header)
+                };
+                let header = seeding.await.map_err(|message| {
                     mixdog_core_base::support::failed("session", format!("session: tools: {message}"))
                 })?;
                 let handle = self
@@ -1275,6 +1286,7 @@ impl ThreadDirectory for SessionDirectory {
                         op: req.op.clone(),
                         method: req.method,
                         params: req.params.clone(),
+                        seed: Some(seeded),
                     })
                     .await?;
                 self.inner.deps.new_route.seat(&handle.id).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;

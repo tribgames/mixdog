@@ -105,9 +105,51 @@ impl LiveRoute for Routes {
     fn adopt_held(&self, _: &ThreadId, _: &Route) {}
 }
 
+use mixdog_mcp::hub::ScopeReleased;
+
+/// The runtime's own scope in these tests.
+const RUNTIME_SCOPE: &str = "runtime-scope";
+
+/// The scopes opened and released, in order: `(scope, owner, cwd)` and `owner`.
+#[derive(Default)]
+struct Scopes {
+    opened: Mutex<Vec<(String, String, PathBuf)>>,
+    released: Mutex<Vec<String>>,
+    /// The folder the runtime scope was opened for, once it is.
+    runtime: Mutex<Option<PathBuf>>,
+}
+
+#[async_trait]
+impl McpScopes for Scopes {
+    async fn open(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased> {
+        self.opened.lock().unwrap().push((scope.to_owned(), owner.to_owned(), cwd.to_owned()));
+        Ok(())
+    }
+    fn release(&self, owner: &str) {
+        self.released.lock().unwrap().push(owner.to_owned());
+    }
+    async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased> {
+        let mut runtime = self.runtime.lock().unwrap();
+        if runtime.is_none() {
+            *runtime = Some(cwd.to_owned());
+            self.opened.lock().unwrap().push((RUNTIME_SCOPE.to_owned(), "runtime".to_owned(), cwd.to_owned()));
+        }
+        Ok(RUNTIME_SCOPE.to_owned())
+    }
+}
+
+/// One MCP tool, connected under every scope that has been opened and under no other.
+struct OpenedMcp(Arc<Scopes>, Arc<dyn Tool>);
+impl SessionMcp for OpenedMcp {
+    fn tools(&self, scope: Option<&str>, _: &Path) -> Vec<Arc<dyn Tool>> {
+        let open = scope.is_some_and(|scope| self.0.opened.lock().unwrap().iter().any(|(opened, _, _)| opened == scope));
+        if open { vec![self.1.clone()] } else { Vec::new() }
+    }
+}
+
 struct NoMcp;
 impl SessionMcp for NoMcp {
-    fn tools(&self, _: &Path) -> Vec<Arc<dyn Tool>> {
+    fn tools(&self, _: Option<&str>, _: &Path) -> Vec<Arc<dyn Tool>> {
         Vec::new()
     }
 }
@@ -291,6 +333,7 @@ struct Rig {
     prompts: Arc<FakePrompt>,
     connectors: Arc<Connectors>,
     generation: SurfaceGeneration,
+    scopes: Arc<Scopes>,
 }
 
 /// What a test varies: the mode, the Lead's route, the gates, and the thread under reconcile.
@@ -310,6 +353,8 @@ struct Setup {
     live: Option<Arc<dyn FeatureDenied>>,
     /// Takes the agent definition away from this pool tool.
     without_agent_spec: Option<&'static str>,
+    /// The MCP tool of every opened scope (see `OpenedMcp`), else no MCP tool.
+    mcp_tool: Option<Arc<dyn Tool>>,
 }
 
 fn setup(mode: &str) -> Setup {
@@ -326,6 +371,7 @@ fn setup(mode: &str) -> Setup {
         orchestration: "balanced".into(),
         live: None,
         without_agent_spec: None,
+        mcp_tool: None,
     }
 }
 
@@ -334,7 +380,12 @@ fn rig(g: &Value, setup: Setup) -> Rig {
 }
 
 fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
-    let Setup { mode, route, feature_denied, header, messages, running, denied, standalone, summary, orchestration, live, without_agent_spec } = setup;
+    let Setup { mode, route, feature_denied, header, messages, running, denied, standalone, summary, orchestration, live, without_agent_spec, mcp_tool } = setup;
+    let scopes = Arc::new(Scopes::default());
+    let mcp: Arc<dyn SessionMcp> = match mcp_tool {
+        Some(tool) => Arc::new(OpenedMcp(scopes.clone(), tool)),
+        None => Arc::new(NoMcp),
+    };
     let mut pool = pool_of(g);
     if let Some(name) = without_agent_spec {
         let at = pool.iter().position(|tool| tool.spec().name == name).expect("the tool");
@@ -350,7 +401,8 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
         tool_host: Arc::new(Bridge(bridge_docs(&pool))),
         pool,
         agent_tools: HashSet::from(["agent"]),
-        mcp: Arc::new(NoMcp),
+        mcp,
+        scopes: scopes.clone(),
         cwd: "/work".into(),
         routes: Arc::new(Routes(route.as_object().expect("route").clone())),
         feature_denied: live.unwrap_or_else(|| Arc::new(Gates(feature_denied))),
@@ -367,7 +419,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
         config_revision: Arc::new(|| 0),
         surface_generation: generation.clone(),
     })?;
-    Ok(Rig { host, threads, prompts, connectors, generation })
+    Ok(Rig { host, threads, prompts, connectors, generation, scopes })
 }
 
 /// Node's pre-session surface (`createToolSurface().activeToolSurface()`) over the real tool
@@ -390,6 +442,7 @@ async fn the_preview_surface_follows_node() {
         let surface = rig.host.preview_surface().await.expect("preview");
         let expect = &case["expect"];
         let label = case["name"].as_str().expect("name");
+        assert_eq!(surface["mcpScopeId"], RUNTIME_SCOPE, "{label}: the preview carries the runtime's scope");
         assert_eq!(doc_names(surface.get("tools")), names(&expect["tools"]), "{label}: tools");
         let catalog: Vec<Value> = surface["deferredToolCatalog"]
             .as_array()
@@ -455,6 +508,81 @@ async fn a_new_thread_starts_with_the_tools_node_gives_it() {
         assert_eq!(seeded["lastUsedAt"], 1_700_000_000_000_i64);
         assert_eq!((seeded["generation"].clone(), seeded["closed"].clone()), (json!(0), json!(false)));
     }
+}
+
+/// Each new thread has an MCP scope of its own (`rt.mcpScopeId = randomUUID()`, `boot/begin.mjs:24`):
+/// the header names it, the thread's servers connect under it before its tools are read, and the
+/// tools it lists are those of that scope; a seed that fails releases it.
+#[tokio::test]
+async fn a_new_thread_has_an_mcp_scope_of_its_own_and_lists_that_scopes_tools() {
+    let g = golden();
+    let tool = stub(&json!({ "name": "mcp__alpha__zeta", "description": "zeta of alpha", "inputSchema": { "type": "object" } }));
+    let rig = rig(&g, Setup { mcp_tool: Some(tool), ..setup("full") });
+    let mut header = Header::new();
+    header.insert("toolSpec".into(), tool_spec_for_mode("full"));
+    header.insert("disallowedTools".into(), json!([]));
+    header.insert("cwd".into(), json!("/work"));
+    let first = rig.host.seed(&ThreadId::from("t1"), &header).await.expect("seed");
+    let second = rig.host.seed(&ThreadId::from("t2"), &header).await.expect("seed");
+    let scope_of = |seeded: &Header| seeded["mcpScopeId"].as_str().expect("the header names the scope").to_owned();
+    let (one, two) = (scope_of(&first), scope_of(&second));
+    assert!(uuid::Uuid::parse_str(&one).is_ok() && uuid::Uuid::parse_str(&two).is_ok(), "{one} {two}");
+    assert_ne!(one, two);
+    assert_eq!(
+        *rig.scopes.opened.lock().unwrap(),
+        [(one, "t1".to_owned(), PathBuf::from("/work")), (two, "t2".to_owned(), PathBuf::from("/work"))],
+        "each scope is opened for its thread, in the thread's folder"
+    );
+    for seeded in [&first, &second] {
+        let listed: Vec<String> = ["tools", "deferredToolCatalog"].iter().flat_map(|key| doc_names(seeded.get(*key))).collect();
+        assert!(listed.contains(&"mcp__alpha__zeta".to_owned()), "{listed:?}");
+    }
+    assert!(rig.scopes.released.lock().unwrap().is_empty());
+    // A seed that ends in no thread is abandoned: its owner's scopes are released.
+    rig.host.abandon(&ThreadId::from("t2"));
+    assert_eq!(*rig.scopes.released.lock().unwrap(), ["t2".to_owned()]);
+}
+
+/// The preview reads the runtime's own scope, opened once; no thread takes it. Each thread is created
+/// with a scope of its own, as each Node `createSession` boots a runtime of its own
+/// (`session-service/entries/lifecycle.mjs:47`, `begin.mjs:24`).
+#[tokio::test]
+async fn every_thread_has_its_own_scope_and_none_takes_the_previews() {
+    let g = golden();
+    let rig = rig(&g, setup("full"));
+    let mut header = Header::new();
+    header.insert("toolSpec".into(), tool_spec_for_mode("full"));
+    header.insert("disallowedTools".into(), json!([]));
+    header.insert("cwd".into(), json!("/work"));
+    let previewed = rig.host.preview_surface().await.expect("preview");
+    assert_eq!(previewed["mcpScopeId"], RUNTIME_SCOPE);
+    assert_eq!(rig.host.preview_surface().await.expect("preview")["mcpScopeId"], previewed["mcpScopeId"], "the runtime scope is opened once");
+    let first = rig.host.seed(&ThreadId::from("t1"), &header).await.expect("seed");
+    let second = rig.host.seed(&ThreadId::from("t2"), &header).await.expect("seed");
+    assert_ne!(first["mcpScopeId"], RUNTIME_SCOPE, "the first thread does not take the runtime's scope");
+    assert_ne!(first["mcpScopeId"], second["mcpScopeId"]);
+    let opened: Vec<String> = rig.scopes.opened.lock().unwrap().iter().map(|(_, owner, _)| owner.clone()).collect();
+    assert_eq!(opened, ["runtime".to_owned(), "t1".to_owned(), "t2".to_owned()]);
+}
+/// The control thread (`thread/start{kind:"control"}`, Node's separate `ensureControlSession` runtime) opens no
+/// scope of its own: it is seeded in the runtime scope, so it and every read with no session share one
+/// connection set, and its close (the owner it names holds no scope) releases nothing.
+#[tokio::test]
+async fn the_control_thread_runs_in_the_runtime_scope_and_opens_none() {
+    let g = golden();
+    let rig = rig(&g, setup("full"));
+    let mut header = Header::new();
+    header.insert("toolSpec".into(), tool_spec_for_mode("full"));
+    header.insert("disallowedTools".into(), json!([]));
+    header.insert("cwd".into(), json!("/work"));
+    let previewed = rig.host.preview_surface().await.expect("preview");
+    let control = rig.host.seed_control(&ThreadId::from("ctl"), &header).await.expect("seed");
+    assert_eq!(control["mcpScopeId"], RUNTIME_SCOPE);
+    assert_eq!(control["mcpScopeId"], previewed["mcpScopeId"]);
+    let ordinary = rig.host.seed(&ThreadId::from("t1"), &header).await.expect("seed");
+    assert_ne!(ordinary["mcpScopeId"], RUNTIME_SCOPE);
+    let opened: Vec<String> = rig.scopes.opened.lock().unwrap().iter().map(|(_, owner, _)| owner.clone()).collect();
+    assert_eq!(opened, ["runtime".to_owned(), "t1".to_owned()], "the control thread opened no scope");
 }
 
 /// A thread just created is built from the settings as they stand (`noteToolAvailability`): its first

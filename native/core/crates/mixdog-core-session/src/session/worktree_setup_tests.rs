@@ -465,6 +465,17 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
             0
         }
     }
+    struct NoScopes;
+    #[async_trait::async_trait]
+    impl mixdog_mcp::mcp_glue::McpScopes for NoScopes {
+        async fn open(&self, _: &str, _: &str, _: &std::path::Path) -> Result<(), mixdog_mcp::hub::ScopeReleased> {
+            Ok(())
+        }
+        fn release(&self, _: &str) {}
+        async fn open_runtime(&self, _: &std::path::Path) -> Result<String, mixdog_mcp::hub::ScopeReleased> {
+            Ok(String::new())
+        }
+    }
     #[derive(Default)]
     struct Shells(Mutex<Vec<String>>);
     impl crate::session::shell_jobs::OwnedShells for Shells {
@@ -489,6 +500,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
         gateway_routes: crate::session::gateway_routes::GatewaySessionRoutes::new(data.path(), maintenance),
         shells: shells.clone(),
         tool_events: Arc::new(crate::session::tool_events::ToolEventsLog::new(data.path(), maintenance, Arc::new(Epoch))),
+        mcp_scopes: Arc::new(NoScopes),
     };
 
     deletion.release_session_work("sess_gone", "desktop-session-delete").await;

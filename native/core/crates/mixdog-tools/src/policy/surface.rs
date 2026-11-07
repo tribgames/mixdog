@@ -95,6 +95,10 @@ pub struct SessionSurface {
     /// The workflow this conversation switched to, and the tools it refuses.
     pub workflow_name: String,
     pub workflow_denied: Vec<String>,
+    /// The MCP scope the session's servers are registered under (`session.mcpScopeId`): what an MCP tool
+    /// name, a connector card and a nested call resolve against, as Node reads `sessionRef.mcpScopeId`
+    /// (`tool-exec/dispatch.mjs:57-59`). None: the session holds no scope, so no MCP server resolves.
+    pub mcp_scope: Option<String>,
 }
 
 const COMPACTED_PATCH_REFUSAL: &str = "Error: [tool-input-validation] apply_patch received a compacted-history placeholder, not executable patch content. Re-read the current target files and submit a fresh full patch; do not replay or reconstruct the stored marker.";
@@ -274,6 +278,7 @@ impl SessionSurface {
             route_excluded,
             connector_disabled: false,
             project_disabled: false,
+            mcp_scope: Some(mixdog_js::js_trim(&text("mcpScopeId")).to_owned()).filter(|scope| !scope.is_empty()),
         }
     }
 

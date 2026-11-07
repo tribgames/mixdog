@@ -65,7 +65,8 @@ pub trait DoctorSources: Send + Sync {
     async fn provider_setup(&self) -> Probe;
     /// The route provider of the session state (`getState().provider`).
     fn active_provider(&self) -> Option<String>;
-    async fn mcp_status(&self) -> Probe;
+    /// `mcpStatus()` of the runtime serving the check: the session `thread` names, else the runtime's own.
+    async fn mcp_status(&self, thread: Option<&ThreadId>) -> Probe;
     /// `getToolModuleSettings()`.
     async fn tool_module_settings(&self) -> Probe;
     async fn recap_settings(&self) -> Probe;
@@ -831,6 +832,7 @@ fn object(probe: Probe) -> Result<Option<Value>, ProbeFailed> {
 
 async fn run_check(
     id: &str,
+    thread: Option<&ThreadId>,
     sources: &dyn DoctorSources,
     config: &DoctorConfig,
     cancel: &CancellationToken,
@@ -844,7 +846,7 @@ async fn run_check(
             let active = sources.active_provider().unwrap_or_default();
             Ok(object(sources.provider_setup().await)?.and_then(|s| report_providers(&active, &s)))
         }
-        "mcp" => Ok(object(sources.mcp_status().await)?.and_then(|s| report_mcp(&s))),
+        "mcp" => Ok(object(sources.mcp_status(thread).await)?.and_then(|s| report_mcp(&s))),
         "memory" => {
             let memory = object(sources.tool_module_settings().await)?
                 .and_then(|s| s.get("memory").cloned());
@@ -964,13 +966,14 @@ fn row_json(id: &str, label: &str, verdict: &Verdict) -> Value {
 /// such and its late verdict dropped.
 async fn doctor_check(
     id: &'static str,
+    thread: Option<ThreadId>,
     label: &'static str,
     sources: Arc<dyn DoctorSources>,
     config: Arc<DoctorConfig>,
     cancel: CancellationToken,
     interactive: InteractiveIo,
 ) -> Value {
-    let work = run_check(id, &*sources, &config, &cancel, interactive);
+    let work = run_check(id, thread.as_ref(), &*sources, &config, &cancel, interactive);
     let verdict = match tokio::time::timeout(config.check_timeout, work).await {
         Err(_) => Verdict {
             level: Level::Warn,
@@ -1058,16 +1061,17 @@ impl DiagnosticsService {
     }
 
     /// `runDoctorChecks`: every check at once, under one deadline each.
-    async fn run_checks(&self, cancel: &CancellationToken) -> Value {
+    async fn run_checks(&self, thread: Option<&ThreadId>, cancel: &CancellationToken) -> Value {
         let mut set = tokio::task::JoinSet::new();
         for (index, (id, label)) in CHECKS.into_iter().enumerate() {
             let (sources, config, cancel) =
                 (self.sources.clone(), self.config.clone(), cancel.clone());
             let interactive = self.interactive;
+            let thread = thread.cloned();
             set.spawn(async move {
                 (
                     index,
-                    doctor_check(id, label, sources, config, cancel, interactive).await,
+                    doctor_check(id, thread, label, sources, config, cancel, interactive).await,
                 )
             });
         }
@@ -1124,7 +1128,7 @@ impl DiagnosticsService {
                         return Ok(json!({ "busy": true }));
                     }
                     let _running = Running(&self.running);
-                    let result = self.run_checks(&req.ctx.cancel).await;
+                    let result = self.run_checks(thread.as_ref(), &req.ctx.cancel).await;
                     if notice {
                         self.sources
                             .notice(thread.as_ref(), &format_report(&result))

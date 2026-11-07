@@ -22,6 +22,7 @@ use mixdog_core_base::rooms::ids::room_member_of_session;
 use mixdog_js::js_trim;
 use mixdog_js::value_to_string;
 use mixdog_mcp::McpHub;
+use mixdog_mcp::hub::normalize_scope;
 use mixdog_store::schema::record::Header;
 use serde_json::Map;
 use serde_json::Value;
@@ -37,23 +38,21 @@ use super::rules::RulesPolicy;
 use super::session_tools::Resolve;
 use super::session_tools::SessionMcp;
 use super::session_tools::SkillsListed;
+use super::session_tools::header_scope;
 use super::session_tools::resolve;
 use super::session_tools::session_doc;
 use super::tool_surface::truthy;
 
-/// `DEFAULT_MCP_SCOPE_ID` (`mcp/client.mjs:72`): the scope a session without `mcpScopeId` reads.
-/// The daemon's one hub is this scope.
-const DEFAULT_MCP_SCOPE: &str = "global";
-
 /// The server and the server's own tool name of a connected MCP tool (`mcp__<server>__<tool>`,
-/// possibly shortened): what a definition names when its name was cut.
+/// possibly shortened) among the servers of MCP scope `scope` (none: the default one): what a
+/// definition names when its name was cut.
 pub trait McpToolNames: Send + Sync {
-    fn names(&self, qualified: &str) -> Option<(String, String)>;
+    fn names(&self, scope: Option<&str>, qualified: &str) -> Option<(String, String)>;
 }
 
 impl McpToolNames for McpHub {
-    fn names(&self, qualified: &str) -> Option<(String, String)> {
-        let target = self.tool_target(qualified)?;
+    fn names(&self, scope: Option<&str>, qualified: &str) -> Option<(String, String)> {
+        let target = self.tool_target_in(&normalize_scope(scope), qualified)?;
         let entry = target.entry?;
         Some((target.server.name().to_owned(), entry.tool.clone()))
     }
@@ -86,10 +85,10 @@ fn strings(value: Option<&Value>) -> Option<Vec<String>> {
 /// A tool's definition as the session holds it (`ToolSpec::definition`). A connected MCP tool
 /// whose name was shortened to fit provider limits also names its server's own tool and the server,
 /// right after `name` (`mcpServerTools`, `mcp/client.mjs:1641-1646`).
-fn definition(pool: &[Arc<dyn Tool>], tool: &Arc<dyn Tool>, names: &dyn McpToolNames) -> Value {
+fn definition(pool: &[Arc<dyn Tool>], tool: &Arc<dyn Tool>, names: &dyn McpToolNames, scope: Option<&str>) -> Value {
     let doc = session_doc(pool, tool);
     let qualified = &tool.spec().name;
-    let Some((server, leaf)) = names.names(qualified) else { return doc };
+    let Some((server, leaf)) = names.names(scope, qualified) else { return doc };
     if *qualified == format!("mcp__{server}__{leaf}") {
         return doc;
     }
@@ -133,16 +132,11 @@ impl ResumeTools {
         }
         let model = header.get("model").and_then(Value::as_str).map_or("", js_trim);
         // `_getMcpTools(session.mcpScopeId, cwd)`: the servers registered under the session's scope
-        // (`normalizeMcpScopeId`: empty is the default one). The daemon's hub is the default scope,
-        // so a session of another scope has no connected server.
-        let scope = header.get("mcpScopeId").and_then(Value::as_str).map(js_trim).filter(|s| !s.is_empty());
-        let mcp = match scope {
-            None | Some(DEFAULT_MCP_SCOPE) => self.mcp.tools(&cwd),
-            Some(_) => Vec::new(),
-        };
+        // (`normalizeMcpScopeId`: empty is the default one), in the hub under that scope.
+        let scope = header_scope(header);
         let tools = resolve(
             &self.pool,
-            mcp,
+            self.mcp.tools(scope, &cwd),
             &Resolve {
                 tool_spec: Some(&tool_spec),
                 model,
@@ -152,7 +146,7 @@ impl ResumeTools {
                 disallowed: &disallowed,
             },
         );
-        let docs: Vec<Value> = tools.iter().map(|tool| definition(&self.pool, tool, self.mcp_names.as_ref())).collect();
+        let docs: Vec<Value> = tools.iter().map(|tool| definition(&self.pool, tool, self.mcp_names.as_ref(), scope)).collect();
         // `bindAgentOwner` (`finalizeSessionToolList`, `tool-resolution.mjs:72-75`): an agent's
         // session holds the agent text of `git` and `task` (`Tool::agent_spec`).
         let docs = if owner_is_agent { bind_agent_docs(docs, &agent_definitions(&self.pool)) } else { docs };
@@ -184,6 +178,7 @@ mod tests {
     use mixdog_core_api::domain::tool::ToolOutput;
     use mixdog_core_api::domain::tool::ToolSpec;
     use mixdog_core_base::rooms::ids::agent_home_session_id;
+    use mixdog_mcp::hub::DEFAULT_SCOPE;
 
     use super::*;
 
@@ -242,7 +237,7 @@ mod tests {
     /// `mcp__beta__web_search_extra` stands for `web_search_extra_long_name` of `beta`.
     struct Names;
     impl McpToolNames for Names {
-        fn names(&self, qualified: &str) -> Option<(String, String)> {
+        fn names(&self, _: Option<&str>, qualified: &str) -> Option<(String, String)> {
             match qualified {
                 "mcp__alpha__zeta" => Some(("alpha".into(), "zeta".into())),
                 "mcp__beta__web_search_extra" => Some(("beta".into(), "web_search_extra_long_name".into())),
@@ -251,10 +246,15 @@ mod tests {
         }
     }
 
-    struct Fixed(Vec<Arc<dyn Tool>>);
+    /// The tools of the servers connected under one MCP scope; a session of another scope has none
+    /// (`getMcpTools(scopeId)`).
+    struct Fixed {
+        scope: &'static str,
+        tools: Vec<Arc<dyn Tool>>,
+    }
     impl SessionMcp for Fixed {
-        fn tools(&self, _: &Path) -> Vec<Arc<dyn Tool>> {
-            self.0.clone()
+        fn tools(&self, scope: Option<&str>, _: &Path) -> Vec<Arc<dyn Tool>> {
+            if normalize_scope(scope) == self.scope { self.tools.clone() } else { Vec::new() }
         }
     }
 
@@ -288,12 +288,17 @@ mod tests {
     }
 
     fn producer(skills: Result<bool, String>, policy: Policy) -> ResumeTools {
+        producer_of(DEFAULT_SCOPE, skills, policy)
+    }
+
+    /// A producer whose MCP servers are connected under `mcp_scope`.
+    fn producer_of(mcp_scope: &'static str, skills: Result<bool, String>, policy: Policy) -> ResumeTools {
         let g = golden();
         let p = &g["pool"];
         let pool = ["builtin", "patch", "codeGraph", "internal"].iter().flat_map(|k| list(&p[k])).chain(["todo".to_owned(), "call_tool".to_owned()]);
         ResumeTools {
             pool: pool.map(|n| stub(&n)).collect(),
-            mcp: Arc::new(Fixed(list(&p["mcp"]).iter().map(|n| stub(n)).collect())),
+            mcp: Arc::new(Fixed { scope: mcp_scope, tools: list(&p["mcp"]).iter().map(|n| stub(n)).collect() }),
             mcp_names: Arc::new(Names),
             skills: Arc::new(Skills(skills)),
             policy: Arc::new(policy),
@@ -378,10 +383,9 @@ mod tests {
 
     /// The tool's own variants: an agent's session holds the agent text of `git` and `task`
     /// (`bindAgentOwner`), a Lead the Lead's; a shortened MCP name carries `mcpToolName` and
-    /// `mcpServerName` right after `name`, an unshortened one neither; a session of a scope the
-    /// daemon has no server under sees no MCP tool (`_getMcpTools(mcpScopeId, cwd)`).
+    /// `mcpServerName` right after `name`, an unshortened one neither.
     #[tokio::test]
-    async fn definitions_follow_the_owner_the_mcp_names_and_the_scope() {
+    async fn definitions_follow_the_owner_and_the_mcp_names() {
         let rig = || producer(Ok(false), Policy { hidden: false, no_delegation: false });
         let worker = rig()
             .prepare_tools(&header(json!({ "id": "sess_w", "owner": "agent", "cwd": "/work", "model": "claude-sonnet-4" })))
@@ -401,13 +405,28 @@ mod tests {
         assert_eq!((cut["mcpToolName"].clone(), cut["mcpServerName"].clone()), (json!("web_search_extra_long_name"), json!("beta")));
         let whole = doc(&lead, "mcp__alpha__zeta").expect("whole tool");
         assert!(whole.get("mcpToolName").is_none() && whole.get("mcpServerName").is_none(), "{whole}");
+    }
 
-        for (scope, sees) in [(json!(null), true), (json!(""), true), (json!("global"), true), (json!("agent-runtime-7"), false)] {
-            let prepared = rig()
+    /// A session sees the MCP tools of the servers connected under its own `mcpScopeId`, and no
+    /// other scope's (`_getMcpTools(mcpScopeId, cwd)` reads `getMcpTools(scopeId)`); a null, empty
+    /// or `global` id is the default scope (`normalizeMcpScopeId`).
+    #[tokio::test]
+    async fn a_session_sees_the_mcp_tools_of_its_own_scope() {
+        let sees = |prepared: &PreparedTools| names(prepared).iter().any(|n| n.starts_with("mcp__"));
+        let ask = |connected: &'static str, scope: Value| async move {
+            let prepared = producer_of(connected, Ok(false), Policy { hidden: false, no_delegation: false })
                 .prepare_tools(&header(json!({ "id": "sess_plain", "cwd": "/work", "model": "claude-sonnet-4", "mcpScopeId": scope })))
                 .await
                 .expect("prepared");
-            assert_eq!(names(&prepared).iter().any(|n| n.starts_with("mcp__")), sees, "scope {scope}");
+            sees(&prepared)
+        };
+        for scope in [json!(null), json!(""), json!("  "), json!("global")] {
+            assert!(ask("global", scope.clone()).await, "{scope} reads the default scope");
+            assert!(!ask("agent-runtime-7", scope.clone()).await, "{scope} reads no other scope");
         }
+        assert!(ask("agent-runtime-7", json!("agent-runtime-7")).await);
+        assert!(ask("agent-runtime-7", json!(" agent-runtime-7 ")).await, "the id is trimmed");
+        assert!(!ask("global", json!("agent-runtime-7")).await, "the default scope's servers are not another scope's");
+        assert!(!ask("agent-runtime-7", json!("agent-runtime-8")).await);
     }
 }

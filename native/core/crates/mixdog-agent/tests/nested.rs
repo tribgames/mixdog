@@ -148,7 +148,7 @@ impl Tool for Runs {
 struct Registry(Vec<Arc<Runs>>);
 
 impl ToolResolver for Registry {
-    fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>> {
+    fn resolve(&self, _scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
         self.0.iter().find(|tool| tool.spec().name == name).map(|tool| tool.clone() as Arc<dyn Tool>)
     }
 }
