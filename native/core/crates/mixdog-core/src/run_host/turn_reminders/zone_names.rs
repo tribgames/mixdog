@@ -101,7 +101,7 @@ pub(super) const RENAMED: [(&str, &str); 152] = [
     ("Europe/Zaporozhye", "Europe/Kiev"),
     ("GB", "Europe/London"),
     ("GB-Eire", "Europe/London"),
-    ("GMT", "UTC"),
+    ("GMT", "+00:00"),
     ("GMT+0", "UTC"),
     ("GMT-0", "UTC"),
     ("GMT0", "UTC"),

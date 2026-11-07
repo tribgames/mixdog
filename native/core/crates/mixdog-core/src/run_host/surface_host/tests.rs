@@ -1338,9 +1338,11 @@ async fn worker_request(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], case: &Va
 #[tokio::test]
 async fn the_provider_tool_array_follows_node_for_every_recorded_session() {
     let r = recording();
-    let (pool, mcp) = (recorded_pool(&r), recorded_mcp(&r));
+    let (pool, connected) = (recorded_pool(&r), recorded_mcp(&r));
     for case in r["cases"].as_array().expect("cases") {
         let label = case["name"].as_str().expect("name");
+        // Node's recorder connected the servers only for the cases that say so (`mcpConnected`).
+        let mcp = if case["input"]["mcpConnected"] == true { connected.clone() } else { Vec::new() };
         let sent = if case["input"]["kind"] == "worker" { worker_request(&pool, &mcp, case).await } else { lead_request(&pool, &mcp, case).await };
         let sent: Vec<Value> = sent.iter().map(wire).collect();
         let node = node_wire(&r, case);

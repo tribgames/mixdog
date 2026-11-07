@@ -198,8 +198,21 @@ pub(super) fn redact(raw: &str, cwd: Option<&str>) -> String {
             p.strip_prefix(&format!("{r}/")).map(|_| path[root.len()..].to_owned())
         }
     };
+    // `relative(cwd, fwd)` resolves `.` and `..` first: a path that climbs out of `cwd` is not cwd-relative.
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in fwd.split('/') {
+        match segment {
+            "." => {}
+            ".." if segments.len() > 1 => {
+                segments.pop();
+            }
+            ".." => {}
+            _ => segments.push(segment),
+        }
+    }
+    let resolved = segments.join("/");
     if let Some(cwd) = cwd.map(|c| c.replace('\\', "/")).filter(|c| !c.is_empty())
-        && let Some(rest) = under(cwd.trim_end_matches('/'), &fwd)
+        && let Some(rest) = under(cwd.trim_end_matches('/'), &resolved)
         && let Some(rel) = rest.strip_prefix('/')
         && !rel.is_empty()
     {

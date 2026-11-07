@@ -1,8 +1,8 @@
 //! A retried failed turn (`ask-turn-execute.mjs` `retainedUserTurn`, `agent-listing-notice.mjs:87`
 //! `withAgentListingNotice`): the failed turn's own message is resubmitted over the history before it, as it is, until
 //! the agents enabled now differ from what the conversation was told. Then its runtime context is replaced by the agent
-//! list reminder (an intact one is stripped first, `stripRuntimeUserContext`; a stale one is kept as the producer's
-//! own). Only its settings notice is acknowledged (`noticeRevision`, `ask-turn-execute.mjs:63`); every other reminder
+//! list reminder (an intact one is stripped first, `stripRuntimeUserContext`, and its prefix and suffix put back before
+//! the new reminder; a stale one is left as it is). Only its settings notice is acknowledged (`noticeRevision`, `ask-turn-execute.mjs:63`); every other reminder
 //! stays pending for the turn after.
 
 use mixdog_core_session::session::prompt_notice::Revisions;
@@ -72,16 +72,16 @@ pub fn resubmit(message: &Value, header: &Header, prior: &[Value], current: Opti
     let mut meta: Map<String, Value> = message.get("meta").and_then(Value::as_object).cloned().unwrap_or_default();
     meta.shift_remove("agentListing");
     let content = message.get("content").ok_or_else(|| "the retained message has no content".to_owned())?;
-    // An intact runtime context comes off with the reminders in it; a stale one stays, and its prefix and suffix are kept.
+    // `owned` is read off the stripped message's meta: an intact context comes off it, so the message's own prefix and
+    // suffix are put back around the stripped content; a stale one stays in the meta, so nothing is owned.
     let (inner, prefix, owned_suffix) = match stripped(content, message.get("role"), meta.get("runtimeUserContext")) {
         Some(inner) => {
-            meta.shift_remove("runtimeUserContext");
-            (inner, String::new(), String::new())
-        }
-        None => {
             let own = |key: &str| meta.get("runtimeUserContext").and_then(|context| context.get(key)).and_then(Value::as_str).unwrap_or_default().to_owned();
-            (content.clone(), own("prefix"), own("suffix"))
+            let owned = (inner, own("prefix"), own("suffix"));
+            meta.shift_remove("runtimeUserContext");
+            owned
         }
+        None => (content.clone(), String::new(), String::new()),
     };
     let suffix = format!("{owned_suffix}\n\n{}", notice.content);
     let content = match inner {
