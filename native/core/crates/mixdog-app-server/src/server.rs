@@ -531,6 +531,9 @@ impl Shared {
         // Eligibility starts only now, behind the response; what was published meanwhile is
         // delivered here, and an approvals-inbox connection gets every pending request.
         conn.finish_handshake();
+        if let Some(kind) = conn.session().map(|session| session.client.kind) {
+            self.outgoing.client_registered(kind);
+        }
         if conn.session().is_some_and(|session| session.model_proxy) {
             self.outgoing.serve_model_proxy(conn);
         }
@@ -833,6 +836,9 @@ impl Shared {
             return;
         }
         conn.mark_live(&feed_id, &sub_id);
+        if feed_id == FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID) && conn.is_desktop_on(&feed_id) {
+            self.outgoing.desktop_ready();
+        }
         self.outgoing.redeliver(conn);
     }
 

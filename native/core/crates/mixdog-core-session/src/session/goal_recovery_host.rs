@@ -20,11 +20,13 @@ use super::quota_lane::failure_text;
 pub struct SessionGoalRecovery {
     directory: Arc<SessionDirectory>,
     stored: StoredGoals,
+    log: Arc<dyn Fn(&str) + Send + Sync>,
 }
 
 impl SessionGoalRecovery {
-    pub fn new(directory: Arc<SessionDirectory>, stored: StoredGoals) -> Self {
-        Self { directory, stored }
+    /// `log` is the daemon's line log (Node's `log`).
+    pub fn new(directory: Arc<SessionDirectory>, stored: StoredGoals, log: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
+        Self { directory, stored, log }
     }
 }
 
@@ -50,6 +52,6 @@ impl RecoverySource for SessionGoalRecovery {
     }
 
     fn log(&self, line: &str) {
-        tracing::warn!("{line}");
+        (self.log)(line);
     }
 }
