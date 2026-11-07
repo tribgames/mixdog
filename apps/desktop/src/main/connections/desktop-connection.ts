@@ -35,6 +35,7 @@ import { createServiceTerminalHost } from './terminal-host';
 import { createCapabilityLane } from '../protocol/capability-route';
 import { createOperationLane } from '../protocol/desktop-operation-route';
 import type { ProtocolConnection } from '../protocol/connection';
+import { createCoreModelProxy } from '../protocol/model-proxy-relay';
 
 /** How long a server's tunnel may take to accept its first connection. */
 export const REMOTE_TUNNEL_READY_TIMEOUT_MS = 90_000;
@@ -105,6 +106,10 @@ export interface DesktopConnectionDependencies {
   /** The host's provider consent: may this server's turns use `provider`
    *  with this PC's sign-in? Absent, or a host without a list: all may. */
   isProviderAllowed?(connection: ConnectionIdentity, provider: string): boolean;
+  /** The providers the host lets this server use (`allowedProvidersForHost`): null = every one enabled here, [] = none. */
+  allowedProviders?(connection: ConnectionIdentity): string[] | null;
+  /** This PC's own core connection, where a server core's proxied model calls run (`modelProxy/run`). */
+  localProtocol?(): ProtocolConnection | null;
   /** A server connection's port forwards; the listening ports reach them through `update`. */
   createPortForwards?(connection: ConnectionIdentity, target: string): ServerPortForwards;
 }
@@ -362,16 +367,44 @@ function createConnectionModelProxy({
   reattach,
   emitNotice,
   serverLogins,
+  protocol,
 }: {
   spec: DesktopConnectionSpec;
   deps: DesktopConnectionDependencies;
   identity: ConnectionIdentity;
+  protocol: ProtocolConnection | null;
   client: DesktopServiceClient;
   reattach: ReturnType<typeof createReattachReport> | null;
   emitNotice(notice: DesktopConnectionNotice): void;
   /** The server runs models with its own logins now. */
   serverLogins(): boolean;
 }): ModelProxyHost {
+  // A server with a core endpoint asks this PC through the protocol (`model/proxy/execute`, DS §12.4), not through the
+  // claim/event/resolve/heartbeat operations: the calls run on this PC's own core.
+  const local = spec.kind === 'ssh' && protocol ? (deps.localProtocol?.() ?? null) : null;
+  if (spec.kind === 'ssh' && protocol) {
+    if (!local) throw new Error('A server core can use this PC\'s model sign-ins only through this PC\'s own core.');
+    const core = createCoreModelProxy(
+      protocol,
+      local,
+      () => deps.allowedProviders?.(identity) ?? null,
+      {
+        serving: () => !serverLogins(),
+        ...(reattach
+          ? {
+              onCallSettled: (event) => {
+                reattach.onModelCall(event);
+                // The server's turn ran on this PC's sign-in: say which one failed.
+                if (event.outcome === 'failed' && isSignInFailure(event.error)) {
+                  emitNotice({ kind: 'model-sign-in', provider: event.provider });
+                }
+              },
+            }
+          : {}),
+      }
+    );
+    return { handleDesktopEvent: () => false, revoke: core.revoke, dispose: core.dispose, get running() { return core.running; } };
+  }
   const proxyOptions: ModelProxyHostOptions = {
     invoke: (operation, args) => client.invokeDesktopOperation(operation, args),
     loadRuntime: () => deps.loadModelProxyRuntime(),
@@ -423,6 +456,7 @@ export function createDesktopConnection(
     reattach: panels?.reattach ?? null,
     emitNotice,
     serverLogins,
+    protocol,
   });
   const unsubscribeModelProxy = client.subscribeDesktopEvents(({ name, value }) => {
     modelProxy.handleDesktopEvent(name, value);

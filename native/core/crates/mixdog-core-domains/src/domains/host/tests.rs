@@ -12,6 +12,13 @@ struct Spy {
     targets: Mutex<Vec<Option<RemoteTarget>>>,
     power: Mutex<Vec<PowerEvent>>,
     clicks: Mutex<Vec<String>>,
+    surfaces: Mutex<Vec<UiOpenBrowser>>,
+}
+
+impl BrowserSurfaces for Spy {
+    fn requested(&self, request: UiOpenBrowser) {
+        self.surfaces.lock().unwrap().push(request);
+    }
 }
 
 impl RemoteBridge for Spy {
@@ -36,10 +43,28 @@ fn rig() -> (Arc<HostService>, Arc<MockStatePublisher>, Arc<Spy>) {
     let publisher = Arc::new(MockStatePublisher::default());
     let spy = Arc::new(Spy::default());
     (
-        HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone()),
+        HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone()),
         publisher,
         spy,
     )
+}
+
+#[test]
+fn a_browser_surface_request_reaches_the_open_feed_and_a_malformed_one_is_dropped() {
+    let (service, _, spy) = rig();
+    let from = ConnectionId(1);
+    service.notify(
+        Method("host/browser/surface"),
+        json!({ "sessionId": "s1", "reveal": true, "tabId": "p1", "title": "Docs" }),
+        from,
+    );
+    service.notify(Method("host/browser/surface"), json!({ "hide": true }), from);
+    let seen = spy.surfaces.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].session_id, "s1");
+    assert_eq!(seen[0].reveal, Some(true));
+    assert_eq!(seen[0].tab_id.as_deref(), Some("p1"));
+    assert_eq!(seen[0].hide, None);
 }
 
 fn set(change: &SectionChange) -> Value {

@@ -295,7 +295,9 @@ impl Inner {
         };
         let info = self.info(&settings, running, connected, live.as_deref(), &clients);
         let settings_value = serde_json::to_value(&settings).unwrap_or(Value::Null);
+        let push_registered = self.native_push_clients();
         self.cfg.section.update(|value| {
+            value.push_registered = push_registered;
             value.info = info;
             value.settings = settings_value;
             value.claims = claims;
@@ -303,6 +305,16 @@ impl Inner {
             value.controller_keys = controller_keys;
             value.owed_keys = owed_keys;
         });
+    }
+
+    /// The clients with a native push registration, sorted.
+    fn native_push_clients(&self) -> Vec<String> {
+        let store = self.state().native.clone();
+        let mut ids: Vec<String> =
+            store.map(|store| lock(&store).list().iter().map(|row| row.client_id.clone()).collect()).unwrap_or_default();
+        ids.sort();
+        ids.dedup();
+        ids
     }
 
     fn with_aliases(&self, rows: Vec<ClientInfo>) -> Vec<Value> {
@@ -955,6 +967,7 @@ impl RemoteRuntime {
             row.as_ref().ok().and_then(|row| bind_envelope(row, &state.caps))
         };
         let row = row.map_err(|e| RemoteError::Invalid(e.to_string()))?;
+        self.inner.refresh();
         if let Some(envelope) = envelope {
             self.inner.cfg.link.send(&envelope);
         }
@@ -967,6 +980,7 @@ impl RemoteRuntime {
         let (id, token) = (client_id.to_owned(), token.map(str::to_owned));
         let removed = self.inner.durable(move |lane| lock(&store).remove(lane, &id, token.as_deref())).await?;
         let removed = removed?;
+        self.inner.refresh();
         for row in &removed {
             self.inner.cfg.link.send(&unbind_envelope(row));
         }

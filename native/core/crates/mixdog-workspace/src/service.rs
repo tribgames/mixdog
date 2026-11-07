@@ -441,7 +441,13 @@ impl WorkspaceService {
                 let alias = params.get("alias").and_then(Value::as_str).unwrap_or_default();
                 value(json!({ "project": self.catalog.rename(s(params, "path")?, alias, op).await? }))
             }
-            "project/delete" => value(self.catalog.remove(s(params, "path")?, op).await?),
+            "project/delete" => {
+                // The servers rooted in the removed folder go with it (DS §4.1: Node's `lspDisposeUnder`).
+                let path = s(params, "path")?;
+                let removed = self.catalog.remove(path, op).await?;
+                self.lsp.dispose_under(std::path::Path::new(path)).await;
+                value(removed)
+            }
             "project/ensureDirectory" => {
                 let path = self.catalog.ensure_directory(s(params, "path")?, &cancel).await?;
                 value(json!({ "path": path.to_string_lossy() }))

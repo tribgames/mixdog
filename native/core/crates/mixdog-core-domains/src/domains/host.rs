@@ -13,7 +13,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::host::HostBrowserSurfaceParams;
 use mixdog_app_protocol::v2::host::HostNotificationClickedParams;
+use mixdog_app_protocol::v2::host::UiOpenBrowser;
 use mixdog_app_protocol::v2::host::HostPowerParams;
 use mixdog_app_protocol::v2::host::HostRemoteTargetSetParams;
 use mixdog_app_protocol::v2::host::HostStateSetParams;
@@ -94,11 +96,18 @@ pub trait NotificationClicks: Send + Sync {
     fn clicked(&self, thread: &ThreadId);
 }
 
+/// Where a browser surface request of the host goes: `ui/openRequested { kind: "browser" }` on the
+/// app feed, to every attached client (DS §12.3, replacing `browserRemoteOpen`).
+pub trait BrowserSurfaces: Send + Sync {
+    fn requested(&self, request: UiOpenBrowser);
+}
+
 pub struct HostService {
     publisher: Arc<dyn StatePublisher>,
     bridge: Arc<dyn RemoteBridge>,
     power: Arc<dyn PowerSink>,
     clicks: Arc<dyn NotificationClicks>,
+    surfaces: Arc<dyn BrowserSurfaces>,
 }
 
 impl HostService {
@@ -107,12 +116,14 @@ impl HostService {
         bridge: Arc<dyn RemoteBridge>,
         power: Arc<dyn PowerSink>,
         clicks: Arc<dyn NotificationClicks>,
+        surfaces: Arc<dyn BrowserSurfaces>,
     ) -> Arc<Self> {
         Arc::new(Self {
             publisher,
             bridge,
             power,
             clicks,
+            surfaces,
         })
     }
 
@@ -174,6 +185,7 @@ impl DomainService for HostService {
             "host/power",
             "host/update/report",
             "host/notification/clicked",
+            "host/browser/surface",
         ]
     }
 
@@ -189,6 +201,11 @@ impl DomainService for HostService {
                 if let Ok(HostUpdateReportParams { state }) = serde_json::from_value(params) {
                     self.publisher
                         .publish(SectionName::Update, None, change_of(&state));
+                }
+            }
+            "host/browser/surface" => {
+                if let Ok(request) = serde_json::from_value::<HostBrowserSurfaceParams>(params) {
+                    self.surfaces.requested(request.into());
                 }
             }
             "host/notification/clicked" => {

@@ -603,6 +603,9 @@ const connectionDependencies: DesktopConnectionDependencies = {
     const allowed = allowedProvidersForHost(connection.id);
     return allowed === null || allowed.includes(provider);
   },
+  allowedProviders: (connection) => allowedProvidersForHost(connection.id),
+  // Read when a server connection is created, which is after this PC's own connection exists.
+  localProtocol: () => localConnection.protocol,
   onDiagnostic: (connection, event, data) => {
     const entry =
       event === 'desktop-transport-error'
@@ -1418,7 +1421,9 @@ const sendToMainWindow = (channel: string, request: unknown): void => {
 localProtocol.onEvent(createTakeoverFeed((update) => onTakeoverState(update)));
 localProtocol.onEvent(
   createOpenRequestedHandler({
-    browser: (request) => sendToMainWindow(DESKTOP_IPC.browserOpenRequested, request),
+    // Not delivered here: this process's browser host handed the request to its window directly before it reported it
+    // (`host/browser/surface`); the core's `ui/openRequested` is for the other attached clients, paired phones.
+    browser: () => {},
     terminal: (request) => sendToMainWindow(DESKTOP_IPC.terminalRunRequested, request),
     visualize: (event) => visualize.openRequested(event),
     watchNewTab: (sessionId, requestId) => browserHost?.watchNewTab(sessionId, requestId),

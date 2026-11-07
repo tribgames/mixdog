@@ -484,7 +484,7 @@ version: string, kind: ConnectionKind, build?: string, };
 /**
  * Client notifications (X11): they take no in-flight slot.
  */
-export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams };
+export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/browser/surface", "params": HostBrowserSurfaceParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams };
 
 export type ClientPerfLogParams = { line: string, };
 
@@ -1373,7 +1373,12 @@ export type HistoryResetReason = "rewind" | "clear";
 /**
  * First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).
  */
-export type HostBrowserViewFramesParams = { tabId: string, 
+export type HostBrowserSurfaceParams = { sessionId: string, reveal?: boolean, hide?: boolean, handoff?: boolean, tabId?: string, title?: string, error?: string, };
+
+/**
+ * `host/browser/surface` (host → core notification): the window process's browser host asked its window to reveal or hide a session's browser surface (`browserRemoteOpen`). The core publishes it as `ui/openRequested { kind: "browser" }`.
+ */
+export type HostBrowserViewFramesParams = { tabId: string,
 /**
  * The X17 `streamId` the host stamps on this tab's frames.
  */
@@ -15535,6 +15540,11 @@ export const methodTable = {
       "delivery": null,
       "method": "host/update/report",
       "params": "HostUpdateReportParams"
+    },
+    {
+      "delivery": null,
+      "method": "host/browser/surface",
+      "params": "HostBrowserSurfaceParams"
     },
     {
       "delivery": null,

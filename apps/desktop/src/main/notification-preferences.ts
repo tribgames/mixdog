@@ -58,7 +58,7 @@ const record = (value: unknown): Record<string, unknown> =>
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/u;
 
 /** Stored preferences, each field falling back to the default when missing or invalid. */
-function storedPreferences(value: unknown): NotificationDevicePreferences {
+export function storedPreferences(value: unknown): NotificationDevicePreferences {
   const stored = record(value);
   const base = DEFAULT_NOTIFICATION_PREFERENCES;
   const events = record(stored.events);
@@ -96,7 +96,7 @@ function isNotificationTarget(value: unknown): value is NotificationTarget {
   );
 }
 
-function storedOverride(value: unknown): ConversationNotificationOverride | null {
+export function storedOverride(value: unknown): ConversationNotificationOverride | null {
   const entry = record(value);
   if (!isNotificationTarget(entry.target)) return null;
   const setting = record(entry.setting);
@@ -132,7 +132,7 @@ function readNotificationPreferencesFile(filePath: string): NotificationPreferen
 
 /** A device's preferences: its stored entry, else the default its kind and
  *  pairing time give it. */
-function devicePreferencesIn(
+export function devicePreferencesIn(
   doc: Pick<NotificationPreferencesDoc, 'devices' | 'migratedAt'> | null,
   deviceId: string,
   info: NotificationDeviceInfo = { kind: deviceId === NOTIFICATION_PC_DEVICE_ID ? 'pc' : 'browser' }

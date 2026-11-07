@@ -25,6 +25,54 @@
       ],
       "type": "object"
     },
+    "HostBrowserSurfaceParams": {
+      "description": "`host/browser/surface` (host → core notification): the window process's browser host asked its window to reveal or hide a session's browser surface (`browserRemoteOpen`). The core publishes it as `ui/openRequested { kind: \"browser\" }` so every attached client, paired phones included, opens the same surface. Fields are `UiOpenBrowser`'s.",
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "handoff": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "hide": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reveal": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "tabId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "HostNotificationClickedParams": {
       "properties": {
         "threadId": {
@@ -918,6 +966,25 @@
         },
         "params": {
           "$ref": "#/definitions/HostUpdateReportParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The window process's browser host revealed or hid a session's surface (an agent's explicit `open`/`hide`); the core publishes it as `ui/openRequested { kind: \"browser\" }`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/surface"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserSurfaceParams"
         }
       },
       "required": [

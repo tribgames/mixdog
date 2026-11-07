@@ -23,3 +23,7 @@ export const DEFAULT_DESKTOP_EDITOR_SETTINGS: DesktopEditorSettings = Object.fre
   insertSpaces: true,
   detectIndentation: true,
 });
+
+export function markdownDefaultViewSetting(value: unknown): DesktopEditorSettings['markdownDefaultView'] {
+  return value === 'rich' || value === 'source' ? value : 'preview';
+}
