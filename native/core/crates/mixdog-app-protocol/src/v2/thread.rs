@@ -543,7 +543,7 @@ pub struct ThreadMetadataUpdateParams {
 pub struct ThreadDeleteParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
-    /// Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → `preconditionFailed`.
+    /// Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → the reply `{deleted: false, reason}`, never an error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub if_idle: Option<JsonValue>,
 }
