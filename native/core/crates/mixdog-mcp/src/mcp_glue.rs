@@ -1028,14 +1028,16 @@ fn without_markers(cfg: &Value) -> Map<String, Value> {
 impl McpRuntime for McpGlue {
     /// A thread addresses the scope its header names while that scope is open (a child names its
     /// parent's, so it reads the parent's servers); no thread is a read of the runtime's own scope, the
-    /// one connected at boot ([`McpGlue::connect_runtime_scope`]).
+    /// one connected at boot ([`McpGlue::connect_runtime_scope`]) and connected here if the boot has not yet.
     async fn scope_of_request(&self, thread: Option<&str>) -> Result<Option<String>, String> {
         match thread {
             Some(thread) => Ok(self.surface.thread_scope(thread).await?.filter(|scope| self.scopes.is_open(scope))),
-            None => match self.scopes.runtime_ready().await {
-                Some(scope) => Ok(Some(scope)),
-                None => Err("the runtime's MCP scope is not connected".to_owned()),
-            },
+            // `open_runtime` is idempotent: before the boot's spawn has run, this read starts the connect
+            // itself, and after it, waits for it; either way it returns once the first connect settled.
+            None => {
+                let cwd = self.surface.current_cwd(None).await?;
+                self.scopes.open_runtime(&cwd.to_string_lossy()).await.map(Some).map_err(|error| format!("the runtime's MCP scope: {error}"))
+            }
         }
     }
 
