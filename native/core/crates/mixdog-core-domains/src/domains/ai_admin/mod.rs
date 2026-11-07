@@ -9,6 +9,7 @@ pub mod model_list;
 pub mod model_proxy;
 pub mod model_proxy_service;
 pub mod provider_status;
+pub mod provider_sync;
 mod quick_rows;
 pub mod route_actions;
 pub mod route_service;
@@ -24,6 +25,8 @@ mod account_actions_tests;
 mod agent_route_tests;
 #[cfg(test)]
 mod chat_routes_tests;
+#[cfg(test)]
+mod model_list_node_tests;
 #[cfg(test)]
 mod model_list_tests;
 #[cfg(test)]

@@ -1,0 +1,23 @@
+[
+  {"name":"custom-manual","calls":[{"action":"listProviderModels","args":[{"quick":true}]},{"action":"listProviderModels","args":[{}]},{"action":"listWebSearchModels","args":[{}]}],"agent":{
+    "providers":{"custom-aaaa":{"type":"custom","schemaVersion":2,"name":"Alpha","protocol":"openai-chat","baseURL":"__BASE_URL__","auth":"none","enabled":true,
+      "modelOverrides":{
+        "m1":{"manual":true,"name":"Model One","contextWindow":64000,"maxOutputTokens":4096},
+        "m2":{"manual":true,"reasoning":{"levels":["low","high"]}},
+        "m3":{"manual":true,"hidden":true},
+        "m4":{"manual":true,"supportsVision":false}}}},
+    "presets":[{"id":"p1","name":"P1","provider":"custom-aaaa","model":"m1","effort":"high"},{"id":"p2","name":"P2","provider":"custom-aaaa","model":"unlisted"}],
+    "default":"p1",
+    "workflowRoutes":{"planner":{"provider":"custom-aaaa","model":"m2"},"search":{"provider":"custom-aaaa","model":"m1"}},
+    "agents":{"bot":{"provider":"custom-aaaa","model":"m4"}}}},
+  {"name":"defaults","calls":[{"action":"listProviderModels","args":[{"quick":true}]},{"action":"listProviderModels","args":[{}]},{"action":"listWebSearchModels","args":[{}]}],"agent":{}},
+  {"name":"stored-canon","calls":[{"action":"listProviderModels","args":[{"quick":true}]},{"action":"listProviderModels","args":[{}]},{"action":"listWebSearchModels","args":[{}]}],"agent":{
+    "providers":{"ollama":{"enabled":true}},
+    "presets":[{"id":"old","name":"OLD","provider":"ollama","model":"llama"},{"id":"bad","name":"BAD"},{"id":"ok","name":"OK","provider":"anthropic-oauth","model":"claude-sonnet-4-6"}],
+    "default":"old",
+    "agents":{"x":{"provider":"lmstudio","model":"q"}}}},
+  {"name":"new-hidden","calls":[{"action":"listProviderModels","args":[{"quick":true}]},{"action":"listProviderModels","args":[{}]},{"action":"listWebSearchModels","args":[{}]}],"agent":{
+    "providers":{"custom-bbbb":{"type":"custom","schemaVersion":2,"name":"Beta","protocol":"openai-chat","baseURL":"__BASE_URL__","auth":"none","enabled":true,
+      "discovery":{"newModelsHidden":true},"modelOverrides":{"listed":{"manual":true}}}},
+    "presets":[{"id":"q1","name":"Q1","provider":"custom-bbbb","model":"listed"},{"id":"q2","name":"Q2","provider":"custom-bbbb","model":"unlisted"}]}}
+]

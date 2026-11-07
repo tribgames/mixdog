@@ -169,23 +169,25 @@ impl CatalogFacts for Facts {
         self.list.from_cache_rows(&self.catalog.snapshot(), rows)
     }
 
-    async fn collect_provider_models(&self, force: bool) -> Vec<Value> {
+    async fn collect_provider_models(&self, force: bool) -> Result<Vec<Value>, String> {
         self.list.rows(force, false).await
     }
 
-    async fn prepare(&self) {}
+    /// `awaitKeychainPrewarm()` and `ensureFullConfig()`: the loaded config, read again (the keychain
+    /// is read with it).
+    async fn prepare(&self) -> Result<(), String> {
+        self.list.refresh_providers().await
+    }
 
     fn providers_config(&self) -> Vec<(String, Value)> {
         self.providers()
     }
 
-    /// `ensureProvidersReady(config.providers)`. The trait has no error channel: a provider load that
-    /// failed leaves the registry as it was, and the scan lists what the catalog holds.
-    async fn ensure_providers_ready(&self) {
-        if self.list.prepare().await == Ok(false) {
-            return;
-        }
+    /// `ensureProvidersReady(config.providers)`: a failure is the load's (Node does not catch it).
+    async fn ensure_providers_ready(&self) -> Result<(), String> {
+        self.list.ensure_ready().await?;
         self.list.ready(false, None).await;
+        Ok(())
     }
 
     fn can_list(&self, name: &str) -> bool {
@@ -247,6 +249,6 @@ impl WebSearchModels for WebSearchModelsService {
         if force && !model_proxy_client_mode(&|name| std::env::var(name).ok()) {
             self.catalog.refresh().await;
         }
-        Ok(Value::Array(self.runtime(thread).collect(force).await))
+        self.runtime(thread).collect(force).await.map(Value::Array).map_err(Failure::error)
     }
 }

@@ -33,7 +33,9 @@ pub struct ListOptions {
 
 #[async_trait]
 pub trait ModelCatalog: Send + Sync {
-    async fn list(&self, options: ListOptions) -> Vec<ModelRow>;
+    /// `listProviderModels(options)`; `Err` is the throw of a provider load, which the caller's
+    /// resolution does not catch.
+    async fn list(&self, options: ListOptions) -> Result<Vec<ModelRow>, String>;
 }
 
 /// `String(value).toLowerCase().replace(/[^a-z0-9]+/g, '')`.
@@ -134,15 +136,15 @@ pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCat
     // waits on a provider; an incomplete one (cold or partial) may lack the model that wins,
     // or one that makes the name ambiguous, so only a literal id inside an exact, explicitly
     // named provider is taken from it. Anything else waits for the full catalog.
-    let quick_rows = catalog.list(ListOptions { quick: true, ..ListOptions::default() }).await;
+    let quick_rows = catalog.list(ListOptions { quick: true, ..ListOptions::default() }).await?;
     let mut pool = provider_rows(quick_rows.clone(), &provider);
     let mut hits = match_models(&pool, &model);
     if !quick_answer_holds(&quick_rows, &hits, &model, &provider) {
-        pool = provider_rows(catalog.list(ListOptions::default()).await, &provider);
+        pool = provider_rows(catalog.list(ListOptions::default()).await?, &provider);
         hits = match_models(&pool, &model);
     }
     if hits.is_empty() {
-        let refreshed = catalog.list(ListOptions { force: true, provider: provider_scope(&provider), quick: false }).await;
+        let refreshed = catalog.list(ListOptions { force: true, provider: provider_scope(&provider), quick: false }).await?;
         pool = provider_rows(refreshed, &provider);
         hits = match_models(&pool, &model);
     }

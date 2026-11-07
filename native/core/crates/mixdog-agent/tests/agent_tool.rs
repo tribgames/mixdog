@@ -334,9 +334,10 @@ impl Views for Fakes {
 
 #[async_trait]
 impl ModelCatalog for Fakes {
-    async fn list(&self, options: ModelListOptions) -> Vec<ModelRow> {
+    async fn list(&self, options: ModelListOptions) -> Result<Vec<ModelRow>, String> {
         self.0.log(json!(["listModels", { "quick": options.quick, "force": options.force, "provider": options.provider }]));
-        self.0
+        Ok(self
+            .0
             .list("catalog")
             .iter()
             .map(|r| ModelRow {
@@ -345,7 +346,7 @@ impl ModelCatalog for Fakes {
                 display: s(r, "display"),
                 catalog_complete: r.get("catalogComplete") == Some(&Value::Bool(true)),
             })
-            .collect()
+            .collect())
     }
 }
 

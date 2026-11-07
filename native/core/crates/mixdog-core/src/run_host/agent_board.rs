@@ -38,8 +38,8 @@ fn model_row(row: &Value) -> ModelRow {
 
 #[async_trait]
 impl ModelCatalog for ModelListCatalog {
-    async fn list(&self, options: ListOptions) -> Vec<ModelRow> {
-        self.0.rows_for(options.force, options.quick, options.provider.as_deref()).await.iter().map(model_row).collect()
+    async fn list(&self, options: ListOptions) -> Result<Vec<ModelRow>, String> {
+        Ok(self.0.rows_for(options.force, options.quick, options.provider.as_deref()).await?.iter().map(model_row).collect())
     }
 }
 

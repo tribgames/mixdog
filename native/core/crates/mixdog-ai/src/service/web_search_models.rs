@@ -313,14 +313,15 @@ pub trait CatalogFacts: Send + Sync {
     fn models_cache(&self) -> Option<Vec<Value>>;
     /// `rows.providerModelsFromCacheRows(rows)`.
     fn from_cache_rows(&self, rows: &[Value]) -> Vec<Value>;
-    /// `collectProviderModels({ force })`.
-    async fn collect_provider_models(&self, force: bool) -> Vec<Value>;
-    /// `awaitKeychainPrewarm()` and `ensureFullConfig()`.
-    async fn prepare(&self);
+    /// `collectProviderModels({ force })`; `Err` is its rejection.
+    async fn collect_provider_models(&self, force: bool) -> Result<Vec<Value>, String>;
+    /// `awaitKeychainPrewarm()` and `ensureFullConfig()`; `Err` is a throw, which nothing catches.
+    async fn prepare(&self) -> Result<(), String>;
     /// `config().providers`, in configuration order.
     fn providers_config(&self) -> Vec<(String, Value)>;
-    /// `ensureProvidersReady(config().providers)`.
-    async fn ensure_providers_ready(&self);
+    /// `ensureProvidersReady(config().providers)`; `Err` is a rejection, which nothing catches
+    /// (`loadWebSearchProviderModelsFresh` awaits it outside any `try`).
+    async fn ensure_providers_ready(&self) -> Result<(), String>;
     /// Whether `reg().getProvider(name)` has a `listModels`.
     fn can_list(&self, name: &str) -> bool;
     /// `provider._refreshModelCache()`; `None` when the provider has none. `Err` is a throw.
@@ -375,8 +376,8 @@ impl<F: CatalogFacts> WebSearchCatalog<F> {
     }
 
     /// `enabledWebSearchProviderConfig`, as names: enabled, search-capable, one per normalized id.
-    async fn enabled_providers(&self) -> Vec<String> {
-        self.facts.prepare().await;
+    async fn enabled_providers(&self) -> Result<Vec<String>, String> {
+        self.facts.prepare().await?;
         let mut names: Vec<String> = Vec::new();
         for (name, config) in self.facts.providers_config() {
             let provider = normalize_web_search_provider_id(&name);
@@ -387,7 +388,7 @@ impl<F: CatalogFacts> WebSearchCatalog<F> {
                 names.push(provider);
             }
         }
-        names
+        Ok(names)
     }
 
     /// One provider's search-capable rows; a failing listing yields none.
@@ -425,17 +426,17 @@ impl<F: CatalogFacts> WebSearchCatalog<F> {
     }
 
     /// `loadWebSearchProviderModelsFresh`.
-    async fn fresh(&self, force: bool) -> Vec<Value> {
+    async fn fresh(&self, force: bool) -> Result<Vec<Value>, String> {
         let quick = self.facts.quick();
         if self.facts.client_mode() {
-            let models = self.facts.collect_provider_models(force).await;
-            return rows_with_default(quick, &rows_from(quick, &models));
+            let models = self.facts.collect_provider_models(force).await?;
+            return Ok(rows_with_default(quick, &rows_from(quick, &models)));
         }
-        let names = self.enabled_providers().await;
+        let names = self.enabled_providers().await?;
         if names.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
-        self.facts.ensure_providers_ready().await;
+        self.facts.ensure_providers_ready().await?;
         let scans = futures::future::join_all(names.iter().map(|name| self.scan_provider(name, force))).await;
         let mut results = Vec::new();
         let mut seen = HashSet::new();
@@ -446,29 +447,29 @@ impl<F: CatalogFacts> WebSearchCatalog<F> {
                 results.push(row);
             }
         }
-        results
+        Ok(results)
     }
 
     /// `collectWebSearchProviderModels({ force })`.
-    pub async fn collect(&self, force: bool) -> Vec<Value> {
+    pub async fn collect(&self, force: bool) -> Result<Vec<Value>, String> {
         let quick = self.facts.quick();
         if self.facts.client_mode() {
             // The main catalog owns caching in client mode; no second cache pins an offline projection.
-            let rows = self.fresh(force).await;
-            return self.facts.from_cache_rows(&rows);
+            let rows = self.fresh(force).await?;
+            return Ok(self.facts.from_cache_rows(&rows));
         }
         self.sync_revision();
         if force {
-            let rows = self.fresh(true).await;
-            return self.adopt(rows);
+            let rows = self.fresh(true).await?;
+            return Ok(self.adopt(rows));
         }
         if let Some(cached) = self.cached() {
-            return self.facts.from_cache_rows(&rows_with_default(quick, &cached));
+            return Ok(self.facts.from_cache_rows(&rows_with_default(quick, &cached)));
         }
         if let Some(models) = self.facts.models_cache() {
-            return self.adopt(rows_with_default(quick, &rows_from(quick, &models)));
+            return Ok(self.adopt(rows_with_default(quick, &rows_from(quick, &models))));
         }
-        self.adopt(rows_with_default(quick, &quick_provider_rows(quick)))
+        Ok(self.adopt(rows_with_default(quick, &quick_provider_rows(quick))))
     }
 }
 
