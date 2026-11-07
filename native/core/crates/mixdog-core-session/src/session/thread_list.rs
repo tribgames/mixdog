@@ -522,6 +522,33 @@ mod tests {
         .await;
     }
 
+    /// Node's control session is created empty (`desktopSession: null`, no message) and never listed: `isLeadVisibleRow`
+    /// drops "a previewless zero-message row with no title" (`lead.rs`), and the app feed's `thread/summary/updated` is
+    /// published from the row `summary` answers. The desktop's control thread (`thread/start{kind:"task"}`) is such a row
+    /// until it holds a message or a title, with no flag of its own; the same row with a title is listed.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_task_thread_with_no_message_and_no_title_is_never_listed() {
+        let golden = golden();
+        let data = tempfile::tempdir().expect("data dir");
+        let service = service(data.path(), &golden).await;
+        let id = "sess_control_probe";
+        // What `thread/start` writes: the creation times, no title, no preview, no message.
+        let header = json!({ "id": id, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
+        let head = |header: &Value| CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
+        let listed = |answer: &Value| answer["data"].as_array().expect("data").iter().any(|row| row["id"] == id);
+        service.store.upsert(head(&header), DirtyMark::Clear).await.expect("upsert");
+        let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
+        assert!(!listed(&answer), "an empty untitled thread is listed");
+        assert!(service.summary(&ThreadId::from(id.to_owned())).await.expect("summary").is_none(), "its row is published");
+
+        let mut titled = header.clone();
+        titled["title"] = json!("Probe");
+        service.store.upsert(head(&titled), DirtyMark::Clear).await.expect("upsert");
+        let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
+        assert!(listed(&answer), "the rule is the emptiness rule, not the id");
+        assert!(service.summary(&ThreadId::from(id.to_owned())).await.expect("summary").is_some());
+    }
+
     /// A cursor that does not decode is Node's `EINVALIDCURSOR` failure; a text search or another
     /// ordering is not served by this listing.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
