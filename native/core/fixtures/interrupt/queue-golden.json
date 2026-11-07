@@ -1,0 +1,59 @@
+{
+ "source": "queue-helpers.mjs isQueuedEntryEditable",
+ "cases": [
+  {
+   "entry": {},
+   "editable": true
+  },
+  {
+   "entry": {
+    "mode": "prompt"
+   },
+   "editable": true
+  },
+  {
+   "entry": {
+    "mode": "steer"
+   },
+   "editable": true
+  },
+  {
+   "entry": {
+    "mode": "task-notification"
+   },
+   "editable": false
+  },
+  {
+   "entry": {
+    "mode": "pending-resume"
+   },
+   "editable": false
+  },
+  {
+   "entry": {
+    "mode": "goal-continuation"
+   },
+   "editable": false
+  },
+  {
+   "entry": {
+    "mode": "goal-closeout"
+   },
+   "editable": false
+  },
+  {
+   "entry": {
+    "mode": "prompt",
+    "isMeta": true
+   },
+   "editable": false
+  },
+  {
+   "entry": {
+    "mode": "prompt",
+    "isMeta": false
+   },
+   "editable": true
+  }
+ ]
+}

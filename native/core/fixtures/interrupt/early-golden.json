@@ -1,0 +1,29 @@
+{
+ "source": "eager-dispatch/entry.mjs notifyEarlyResult",
+ "cases": [
+  {
+   "name": "returns text",
+   "content": "fine",
+   "isError": false,
+   "toolCallId": "c1"
+  },
+  {
+   "name": "returns an error outcome as text",
+   "content": "Error: path is required",
+   "isError": false,
+   "toolCallId": "c1"
+  },
+  {
+   "name": "returns nothing",
+   "content": "",
+   "isError": false,
+   "toolCallId": "c1"
+  },
+  {
+   "name": "throws",
+   "content": "Error: boom",
+   "isError": true,
+   "toolCallId": "c1"
+  }
+ ]
+}

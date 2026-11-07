@@ -237,6 +237,12 @@ pub(crate) enum ProducerMsg {
         replacement: Vec<(ItemId, Value)>,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
+    /// The turn's prompt goes back to the composer (`finalizeInterruptedTurn` rewound it): the rewind record.
+    PromptRewound {
+        turn: TurnId,
+        item: ItemId,
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
 }
 
 /// What the run shows besides its rows and deltas.
@@ -594,6 +600,13 @@ impl RunPort {
     /// failed prompt, then the run's input row. It is the store's `compacted` record that drops
     /// rows from the context, written with nothing taken out of the transcript and no divider, so
     /// the next turn reads the prompt once. Resolves once it is durable (or failed).
+    /// A cancelled turn that produced nothing hands its prompt back: the rewind record at the prompt's row
+    /// (`session.messages` loses it in Node), so the row leaves the thread's items and its context.
+    pub async fn prompt_rewound(&self, item: ItemId) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.call(ProducerMsg::PromptRewound { turn: self.turn.clone(), item, ack }, rx).await?
+    }
+
     pub async fn context_rewound(&self, replacement: Vec<(ItemId, Value)>) -> Result<(), RunError> {
         let (ack, rx) = oneshot::channel();
         self.call(ProducerMsg::ContextRewound { turn: self.turn.clone(), replacement, ack }, rx).await?

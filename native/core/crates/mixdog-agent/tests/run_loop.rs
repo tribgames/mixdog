@@ -1394,7 +1394,7 @@ async fn abort_during_a_tool_cancels_its_token_and_keeps_finished_results() {
         observed_tool_calls: Vec::new(),
         observed_tool_results: Vec::new(),
         phase: mixdog_agent::interrupt::Phase::Tools,
-        reason: Some(mixdog_agent::interrupt::AbortReason::UserCancel),
+        reason: mixdog_agent::interrupt::AbortReason::UserCancel,
     });
     let tail = dump(&closed.transcript);
     assert_eq!(
