@@ -386,7 +386,9 @@ impl WireCodec for CompatResponsesCodec {
         let framing = if self.is_socket() { Framing::WebSocket } else { Framing::Sse };
         let info = self.config.models.get(&request.model);
         let profile = self.responses_profile(request, info.as_deref());
-        let decoder = profile.decoder_for(request, framing, Arc::new(ClockOnly));
+        // `streamCompatResponses`: `<provider>:responses` over HTTP/SSE; the socket is the xAI WebSocket (`_wsErrLabel`).
+        let label = if self.is_socket() { "xAI WS".to_owned() } else { format!("{}:responses", self.profile.id) };
+        let decoder = profile.decoder_for(request, framing, Arc::new(ClockOnly)).with_label(label);
         // Over HTTP/SSE a compatible route is folded by Node's compatible events collector; its socket by the WebSocket one.
         Box::new(if self.is_socket() { decoder } else { decoder.compat_events() })
     }

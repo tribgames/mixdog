@@ -811,6 +811,9 @@ pub struct ProviderError {
     /// the stream named one; `None` means the send's own model. Set by the
     /// adapter where Node stamps `partialModel`.
     pub partial_model: Option<Box<str>>,
+    /// The replay envelope of the items a cut stream had finished (Node `partialProviderReplay`), when the wire keeps
+    /// one: the response builder folds it into the failed attempt's partial.
+    pub partial_replay: Option<Box<ProviderReplay>>,
     /// A page the user must open to unblock the account (Antigravity
     /// `VALIDATION_REQUIRED`: the `google.rpc.Help` link, else
     /// `metadata.validation_url`, else `metadata.validation_link`). Read from
@@ -854,6 +857,7 @@ impl ProviderError {
             message: String::new(),
             partial_usage: None,
             partial_model: None,
+            partial_replay: None,
             verification_url: None,
             rejected_tool: None,
             account_blocked: false,

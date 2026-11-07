@@ -1879,3 +1879,30 @@ fn the_chat_decoder_reports_the_progress_kinds_node_s_consumer_does() {
         assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
     }
 }
+
+/// The full text of a cut stream, with the label Node puts in front of it: `<provider>:responses` over HTTP/SSE and the
+/// recorded `_wsErrLabel('xai')` over the socket (`golden/stream_progress.json`).
+#[test]
+fn a_cut_compat_responses_stream_says_what_node_says() {
+    let golden = crate::providers::progress_golden::golden();
+    let ws_label = golden["labels"]["xaiWs"].as_str().expect("label");
+    for (transport, expected) in [
+        (TransportKind::Http1, "xai:responses SSE stream truncated: incomplete (max_output_tokens) with tool call in flight".to_owned()),
+        (TransportKind::WebSocket, format!("{ws_label} response.incomplete (max_output_tokens) with tool call in flight")),
+    ] {
+        let codec = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), transport);
+        let mut decoder = codec.decoder(&base_request("grok-4.5"));
+        let frames = [
+            json!({"type": "response.output_item.added", "item": {"type": "function_call", "id": "fc1", "call_id": "c1", "name": "lookup"}}),
+            json!({"type": "response.incomplete", "response": {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": []}}),
+        ];
+        let mut failure = None;
+        for frame in frames {
+            let bytes = if transport == TransportKind::WebSocket { frame.to_string() } else { format!("data: {frame}\n\n") };
+            if let Err(error) = decoder.feed(bytes.as_bytes()) {
+                failure = Some(error);
+            }
+        }
+        assert_eq!(failure.expect("a cut stream").message, expected);
+    }
+}

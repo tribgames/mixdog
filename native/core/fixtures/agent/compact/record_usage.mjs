@@ -493,7 +493,7 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
     const { createHttpSseResponseState } = await load(`${providerDir}/openai-http-sse-response-state.mjs`);
     const noop = () => {};
     const describeOutcome = (error, stopReason) => ({
-      error: error ? { message: error.message, incompleteReason: error.incompleteReason ?? null, pendingToolUse: error.pendingToolUse === true, partialUsage: error.partialUsage != null, partialModel: error.partialModel ?? null } : null,
+      error: error ? { message: error.message, incompleteReason: error.incompleteReason ?? null, pendingToolUse: error.pendingToolUse === true, partialUsage: error.partialUsage != null, partialModel: error.partialModel ?? null, partial: { content: error.partialContent ?? null, calls: Array.isArray(error.partialToolCalls) ? error.partialToolCalls.map((call) => call.id) : null, replay: Array.isArray(error.partialProviderReplay?.items) ? error.partialProviderReplay.items.map((item) => item.id ?? item.call_id ?? item.type) : null } } : null,
       stopReason: stopReason ?? null,
     });
     const makeWs = () => {
@@ -531,6 +531,8 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
           state.handleEvent(event);
         } catch (thrown) {
           error = thrown;
+          // The stream's own catch: what it completed rides on the error.
+          state.attachStreamPartial(error);
         }
         return kinds;
       };
@@ -631,7 +633,16 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
       ['two messages in a bundle', [
         { type: 'response.created', response: { id: 'r1', model: 'm' } },
         completed([message, { ...message, id: 'm2', content: [{ type: 'output_text', text: 'Again.' }] }]),
-      ]],      ['an argument delta for an unknown item', [
+      ]],      ['a cutoff after finished items', [
+        ...stream.slice(0, 7),
+        { type: 'response.output_item.added', output_index: 2, item: fc },
+        { type: 'response.function_call_arguments.done', item_id: 'fc1', arguments: '{"path":"a.txt"}' },
+        { type: 'response.output_item.done', output_index: 2, item: fcDone },
+        { type: 'response.output_item.added', output_index: 3, item: { ...fc, id: 'fc2', call_id: 'c2' } },
+        { type: 'response.function_call_arguments.delta', item_id: 'fc2', delta: '{"pa' },
+        { type: 'response.incomplete', response: { id: 'r1', model: 'm', status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [], usage: { input_tokens: 3, output_tokens: 2 } } },
+      ]],
+      ['an argument delta for an unknown item', [
         { type: 'response.created', response: { id: 'r1', model: 'm' } },
         { type: 'response.reasoning_summary_text.delta', item_id: 'rs1', delta: 'hm' },
         { type: 'response.function_call_arguments.delta', item_id: 'ghost', delta: '' },
@@ -786,7 +797,17 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
     }
     decoders.devin = wire.map((event, index) => ({ wire: event, kinds: nonTransport(per[index]) }));
   }
-  writeFileSync(join(here, 'golden', 'stream_progress.json'), `${JSON.stringify({ start: started, events, decoders }, null, 2)}\n`);
+  // The label Node prefixes to a Responses stream error, per route and transport (`_wsErrLabel`, `httpLabel`).
+  const { _wsErrLabel } = await load(`${providerDir}/openai-ws-pool.mjs`);
+  const { httpLabel } = await load(`${providerDir}/openai-error-contract.mjs`);
+  const labels = {
+    codexWs: _wsErrLabel('openai-oauth'),
+    apiKeyWs: _wsErrLabel('openai-direct'),
+    xaiWs: _wsErrLabel('xai'),
+    codexHttp: httpLabel({ type: 'openai-oauth' }),
+    apiKeyHttp: httpLabel({ type: 'openai-direct' }),
+  };
+  writeFileSync(join(here, 'golden', 'stream_progress.json'), `${JSON.stringify({ start: started, events, decoders, labels }, null, 2)}\n`);
 }
 
 writeFileSync(join(here, 'golden', 'usage.json'), `${JSON.stringify({ cases }, null, 2)}\n`);

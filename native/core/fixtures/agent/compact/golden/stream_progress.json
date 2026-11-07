@@ -880,7 +880,14 @@
             "incompleteReason": null,
             "pendingToolUse": false,
             "partialUsage": false,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": [
+                "c1"
+              ],
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -1040,7 +1047,14 @@
             "incompleteReason": null,
             "pendingToolUse": false,
             "partialUsage": false,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": [
+                "c1"
+              ],
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -1223,7 +1237,12 @@
             "incompleteReason": null,
             "pendingToolUse": true,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -1269,7 +1288,12 @@
             "incompleteReason": null,
             "pendingToolUse": false,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -1331,7 +1355,12 @@
             "incompleteReason": null,
             "pendingToolUse": true,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -1544,6 +1573,215 @@
         }
       },
       {
+        "name": "a cutoff after finished items",
+        "framing": "compat",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "reasoning",
+                "id": "rs1",
+                "summary": []
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.reasoning_summary_text.delta",
+              "item_id": "rs1",
+              "delta": "thinking"
+            },
+            "kinds": [
+              "reasoning"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 0,
+              "item": {
+                "type": "reasoning",
+                "id": "rs1",
+                "summary": [
+                  {
+                    "type": "summary_text",
+                    "text": "thinking"
+                  }
+                ],
+                "encrypted_content": "enc"
+              }
+            },
+            "kinds": [
+              "reasoning"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": []
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_text.delta",
+              "item_id": "m1",
+              "delta": "Hello there. "
+            },
+            "kinds": [
+              "text"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Hello there. "
+                  }
+                ]
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.function_call_arguments.done",
+              "item_id": "fc1",
+              "arguments": "{\"path\":\"a.txt\"}"
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}",
+                "status": "completed"
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 3,
+              "item": {
+                "type": "function_call",
+                "id": "fc2",
+                "call_id": "c2",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.function_call_arguments.delta",
+              "item_id": "fc2",
+              "delta": "{\"pa"
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "Hello there. ",
+        "outcome": {
+          "error": {
+            "message": "compat SSE stream truncated: incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": null,
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m",
+            "partial": {
+              "content": "Hello there. ",
+              "calls": [
+                "c1"
+              ],
+              "replay": null
+            }
+          },
+          "stopReason": null
+        }
+      },
+      {
         "name": "an argument delta for an unknown item",
         "framing": "compat",
         "steps": [
@@ -1620,7 +1858,12 @@
             "incompleteReason": null,
             "pendingToolUse": true,
             "partialUsage": false,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -2467,7 +2710,12 @@
             "incompleteReason": "max_output_tokens",
             "pendingToolUse": true,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -2539,7 +2787,12 @@
             "incompleteReason": "max_output_tokens",
             "pendingToolUse": true,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -2585,7 +2838,12 @@
             "incompleteReason": "content_filter",
             "pendingToolUse": false,
             "partialUsage": true,
-            "partialModel": null
+            "partialModel": null,
+            "partial": {
+              "content": null,
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -2647,7 +2905,12 @@
             "incompleteReason": "max_output_tokens",
             "pendingToolUse": true,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -2856,6 +3119,219 @@
         "text": "",
         "outcome": {
           "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a cutoff after finished items",
+        "framing": "ws",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "reasoning",
+                "id": "rs1",
+                "summary": []
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.reasoning_summary_text.delta",
+              "item_id": "rs1",
+              "delta": "thinking"
+            },
+            "kinds": [
+              "reasoning"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 0,
+              "item": {
+                "type": "reasoning",
+                "id": "rs1",
+                "summary": [
+                  {
+                    "type": "summary_text",
+                    "text": "thinking"
+                  }
+                ],
+                "encrypted_content": "enc"
+              }
+            },
+            "kinds": [
+              "reasoning"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": []
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_text.delta",
+              "item_id": "m1",
+              "delta": "Hello there. "
+            },
+            "kinds": [
+              "text"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Hello there. "
+                  }
+                ]
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.function_call_arguments.done",
+              "item_id": "fc1",
+              "arguments": "{\"path\":\"a.txt\"}"
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}",
+                "status": "completed"
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 3,
+              "item": {
+                "type": "function_call",
+                "id": "fc2",
+                "call_id": "c2",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.function_call_arguments.delta",
+              "item_id": "fc2",
+              "delta": "{\"pa"
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "Hello there. ",
+        "outcome": {
+          "error": {
+            "message": "ws response.incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": "max_output_tokens",
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m",
+            "partial": {
+              "content": "Hello there. ",
+              "calls": [
+                "c1"
+              ],
+              "replay": [
+                "rs1",
+                "m1",
+                "fc1"
+              ]
+            }
+          },
           "stopReason": null
         }
       },
@@ -3778,7 +4254,12 @@
             "incompleteReason": "max_output_tokens",
             "pendingToolUse": true,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -3850,7 +4331,12 @@
             "incompleteReason": "max_output_tokens",
             "pendingToolUse": true,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -3896,7 +4382,12 @@
             "incompleteReason": null,
             "pendingToolUse": false,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -3958,7 +4449,12 @@
             "incompleteReason": "max_output_tokens",
             "pendingToolUse": true,
             "partialUsage": true,
-            "partialModel": "m"
+            "partialModel": "m",
+            "partial": {
+              "content": "",
+              "calls": null,
+              "replay": null
+            }
           },
           "stopReason": null
         }
@@ -4167,6 +4663,215 @@
         "text": "",
         "outcome": {
           "error": null,
+          "stopReason": null
+        }
+      },
+      {
+        "name": "a cutoff after finished items",
+        "framing": "sse",
+        "steps": [
+          {
+            "wire": {
+              "type": "response.created",
+              "response": {
+                "id": "r1",
+                "model": "m"
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "reasoning",
+                "id": "rs1",
+                "summary": []
+              }
+            },
+            "kinds": []
+          },
+          {
+            "wire": {
+              "type": "response.reasoning_summary_text.delta",
+              "item_id": "rs1",
+              "delta": "thinking"
+            },
+            "kinds": [
+              "reasoning"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 0,
+              "item": {
+                "type": "reasoning",
+                "id": "rs1",
+                "summary": [
+                  {
+                    "type": "summary_text",
+                    "text": "thinking"
+                  }
+                ],
+                "encrypted_content": "enc"
+              }
+            },
+            "kinds": [
+              "reasoning"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": []
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_text.delta",
+              "item_id": "m1",
+              "delta": "Hello there. "
+            },
+            "kinds": [
+              "text"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "m1",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Hello there. "
+                  }
+                ]
+              }
+            },
+            "kinds": [
+              "semantic"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.function_call_arguments.done",
+              "item_id": "fc1",
+              "arguments": "{\"path\":\"a.txt\"}"
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.done",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc1",
+                "call_id": "c1",
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}",
+                "status": "completed"
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.output_item.added",
+              "output_index": 3,
+              "item": {
+                "type": "function_call",
+                "id": "fc2",
+                "call_id": "c2",
+                "name": "read",
+                "arguments": ""
+              }
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.function_call_arguments.delta",
+              "item_id": "fc2",
+              "delta": "{\"pa"
+            },
+            "kinds": [
+              "tool"
+            ]
+          },
+          {
+            "wire": {
+              "type": "response.incomplete",
+              "response": {
+                "id": "r1",
+                "model": "m",
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "output": [],
+                "usage": {
+                  "input_tokens": 3,
+                  "output_tokens": 2
+                }
+              }
+            },
+            "kinds": []
+          }
+        ],
+        "text": "Hello there. ",
+        "outcome": {
+          "error": {
+            "message": "sse response.incomplete (max_output_tokens) with tool call in flight",
+            "incompleteReason": "max_output_tokens",
+            "pendingToolUse": true,
+            "partialUsage": true,
+            "partialModel": "m",
+            "partial": {
+              "content": "Hello there. ",
+              "calls": [
+                "c1"
+              ],
+              "replay": null
+            }
+          },
           "stopReason": null
         }
       },
@@ -4605,5 +5310,12 @@
         ]
       }
     ]
+  },
+  "labels": {
+    "codexWs": "OpenAI OAuth WS",
+    "apiKeyWs": "OpenAI WS",
+    "xaiWs": "xAI WS",
+    "codexHttp": "OpenAI OAuth HTTP fallback",
+    "apiKeyHttp": "OpenAI HTTP fallback"
   }
 }
