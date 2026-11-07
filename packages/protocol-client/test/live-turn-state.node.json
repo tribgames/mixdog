@@ -1,0 +1,139 @@
+{
+  "activeToolSummary": null,
+  "activeTools": null,
+  "agentJobs": [],
+  "agentScope": {
+    "sessionId": "<id:1>"
+  },
+  "agentWorkers": [],
+  "autoClear": {
+    "custom": false,
+    "enabled": true,
+    "idleMs": "<ts>",
+    "label": "1h",
+    "minContextPercent": 10,
+    "provider": "custom-harness",
+    "providerCustom": false,
+    "providerDefault": 3600000,
+    "providerDefaults": [
+      {
+        "builtInMs": "<ts>",
+        "builtInUnlimited": false,
+        "custom": false,
+        "idleMs": "<ts>",
+        "provider": "custom-harness",
+        "unlimited": false
+      },
+      {
+        "builtInMs": "<ts>",
+        "builtInUnlimited": false,
+        "custom": false,
+        "idleMs": "<ts>",
+        "provider": "default",
+        "unlimited": false
+      }
+    ],
+    "unlimited": false
+  },
+  "autoCompactTokenLimit": 128000,
+  "autoEffort": true,
+  "busy": false,
+  "clientHostPid": "<pid>",
+  "commandBusy": false,
+  "commandStatus": null,
+  "compactBoundaryTokens": 128000,
+  "contextPercent": null,
+  "contextWindow": 128000,
+  "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-edit\\ws",
+  "displayContextWindow": 128000,
+  "effectiveContextWindowPercent": 100,
+  "effort": null,
+  "effortOptions": [],
+  "fast": false,
+  "fastCapable": false,
+  "lastTurn": null,
+  "model": "harness-model",
+  "modelParameters": {},
+  "orchestrationMode": "balanced",
+  "pendingOrchestrationModeSwitch": false,
+  "pendingWorkflowSwitch": false,
+  "progressHint": null,
+  "promptHistoryList": [
+    "Change \"real-turn\" to \"edited\" in hello.txt. HARNESS-TURN-1"
+  ],
+  "provider": "custom-harness",
+  "queued": [],
+  "rawContextWindow": 128000,
+  "sessionForkedFrom": null,
+  "sessionId": "<id:1>",
+  "sessionModel": "harness-model",
+  "sessionProvider": "custom-harness",
+  "setupChanged": {
+    "action": "settings_changed",
+    "at": "<ts>",
+    "seq": 1
+  },
+  "spinner": null,
+  "stats": {
+    "cacheWriteTokens": 0,
+    "cachedTokens": 0,
+    "costUsd": 0,
+    "currentContextSource": "last_api_request",
+    "currentContextTokens": 1200,
+    "currentContextUpdatedAt": "<ts>",
+    "currentEstimatedContextTokens": 0,
+    "inputTokens": 3600,
+    "latestCacheWriteTokens": 0,
+    "latestCachedTokens": 0,
+    "latestInputTokens": 1200,
+    "latestOutputTokens": 24,
+    "latestPromptTokens": 1200,
+    "outputTokens": 72,
+    "promptTokens": 3600,
+    "turns": 1,
+    "usageReadout": {
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "input": 3600,
+      "output": 72,
+      "requestMs": "<ts>",
+      "requestOutputTokens": 72
+    }
+  },
+  "streamingPartial": null,
+  "streamingTail": null,
+  "structureRevision": "<ts>",
+  "systemShell": {
+    "command": "",
+    "effective": "",
+    "source": "auto"
+  },
+  "themeEpoch": 0,
+  "thinking": null,
+  "toasts": [],
+  "toolApproval": null,
+  "toolApprovalResult": null,
+  "toolApprovalsWaiting": 0,
+  "toolMode": "full",
+  "transcriptArchive": null,
+  "transcriptHistoryAfter": false,
+  "transcriptHistoryBefore": false,
+  "transcriptSpilled": {
+    "epoch": 0,
+    "rows": 0
+  },
+  "transcriptViewItems": null,
+  "transcriptViewRevision": 0,
+  "turnEffort": null,
+  "webSearchRoute": {
+    "model": "default",
+    "provider": "default"
+  },
+  "workflow": {
+    "delegatesAgents": true,
+    "description": "Handle tasks as requested.",
+    "id": "default",
+    "name": "Default",
+    "source": "built-in"
+  }
+}

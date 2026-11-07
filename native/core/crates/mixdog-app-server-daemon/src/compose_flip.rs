@@ -1562,7 +1562,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         };
     let compaction_world = Arc::new(mixdog_core::run_host::compaction_world::ProcessCompactionWorld::new(compaction_services));
     let compactors = Arc::new(mixdog_core::run_host::compactors::SessionCompactors::new(compaction_world.clone(), clock_agent.clone()));
-    let config_seams = Arc::new(mixdog_core::run_host::run_seams::ConfigRunSeams::new(config.clone(), agents.clone(), b.package_root.join("src"), b.data_dir.clone(), b.env.clone())); // run-host-28
+    let config_seams = Arc::new(mixdog_core::run_host::run_seams::ConfigRunSeams::new(config.clone(), agents.clone(), b.package_root.join("src"), b.data_dir.clone(), b.env.clone()).with_settings_changes(mixdog_core::run_host::settings_changes::SettingsChanges::start(config.clone(), secret_changes.clone()))); // run-host-28
     let late_route_session = Arc::new(crate::late_session::LateRouteSession::default());
     // The route service is built after the directory and reads it: the route a `thread/start` thread begins on and the pick held for a turn start are late cells, bound where it is built.
     let late_new_route = Arc::new(mixdog_core::run_host::route_start::LateNewRoute::default());

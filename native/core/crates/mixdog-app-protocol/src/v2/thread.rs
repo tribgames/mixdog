@@ -856,6 +856,15 @@ pub struct ThreadRuntime {
     // Node's toasts: transient notices, empty while none.
     #[serde(default)]
     pub toasts: Vec<JsonValue>,
+    // Node's activeToolSummary (active-tool-summary.mjs): count:startedAt of the running Shell, Web Research and Agent calls, null while none.
+    #[serde(default)]
+    pub active_tool_summary: Option<String>,
+    // Node's toolMode: the session's tool surface mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_mode: Option<String>,
+    // Node's setupChanged (notification-router.mjs): the last settings change a setup action reported, { action, seq, at }; absent until one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_changed: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -891,6 +900,21 @@ pub struct ThreadRoute {
     // Node's runtime.effortOptions (state.route.effortOptions): the efforts the route's model offers, empty while none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort_options: Option<Vec<JsonValue>>,
+    // Node's runtime.cwd: the session's working folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    // Node's runtime.session.forkedFrom: the origin id of a session opened as a fork, null otherwise.
+    #[serde(default)]
+    pub session_forked_from: Option<String>,
+    // Node's runtime.systemShell: { source, command, effective }.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_shell: Option<JsonValue>,
+    // Node's runtime.webSearchRoute: the configured web-search route, default/default while unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search_route: Option<JsonValue>,
+    // Node's autoClear (getAutoClear): the idle auto-clear setting for the route's provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_clear: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -919,6 +943,18 @@ pub struct ThreadContext {
     // Node's stats: the session's usage totals and context measurement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stats: Option<JsonValue>,
+    // Node's runtime.rawContextWindow: the model's window before the effective-percent cut, null while unknown.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub raw_context_window: Option<i64>,
+    // Node's runtime.effectiveContextWindowPercent: the share of the raw window the session may use, null while unknown.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub effective_context_window_percent: Option<i64>,
+    // Node's compactBoundaryTokens (syncContextDisplayFields): the compaction boundary, 0 until known.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub compact_boundary_tokens: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -928,6 +964,9 @@ pub struct ThreadAgents {
     pub agent_workers: Vec<JsonValue>,
     #[serde(default)]
     pub agent_jobs: Vec<JsonValue>,
+    // Node's agentScope (agent-tool.mjs statusFor): whose agents the rows are, { sessionId } for a session; null while the status is not ready.
+    #[serde(default)]
+    pub agent_scope: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]

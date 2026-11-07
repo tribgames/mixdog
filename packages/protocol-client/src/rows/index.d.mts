@@ -45,6 +45,7 @@ export function aggregateToolCategoryEntries(name: string, args?: unknown, categ
 export function isTaskWaitToolCall(name: string, args?: unknown): boolean;
 export function aggregateBucketForCategory(category: string, options?: { agentBatch?: string }): string;
 export function aggregateLoadingTargetsSteps(calls: readonly AggregateCall[]): Generator<void, string[], void>;
+export function aggregateToolMembersSteps(calls: readonly AggregateCall[]): Generator<void, Record<string, unknown>[], void>;
 export function aggregateRawResultSteps(calls: readonly AggregateCall[]): Generator<void, string, void>;
 export function aggregateResultPatchSteps(
   aggregate: { calls: readonly AggregateCall[] },
@@ -54,6 +55,7 @@ export function aggregateResultPatchSteps(
 export function mergeAggregateCategoryEntries(aggregate: AggregateHeader, entries: readonly CategoryEntry[]): void;
 export function stringUiDiffPatch(value: unknown): { uiDiff?: string };
 export function toolCallOutcome(message: { isError?: boolean; toolName?: string; name?: string; toolKind?: string }, rawText: string): ToolOutcome;
+export function toolResultDisplay(message: { isError?: boolean }, rawText: string, toolName: string): ToolOutcome & { isError: boolean; text: string };
 export function isTranscriptHiddenControlToolName(name: unknown): boolean;
 export function isTranscriptHiddenToolItem(item: { name?: unknown; result?: unknown } | null | undefined): boolean;
 export function toolResultTerminalStatus(text: unknown): string;

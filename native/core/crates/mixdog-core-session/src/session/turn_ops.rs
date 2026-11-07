@@ -143,6 +143,13 @@ pub trait ManualCompaction: Send + Sync {
     /// saved configuration, when it differs from the header's. `install`: the session is being installed
     /// (the one sync that leaves an injected configuration's sessions alone).
     fn synced_compaction(&self, header: &mixdog_store::schema::record::Header, install: bool) -> Option<Value>;
+    /// The configured values the route section carries besides the session's own: `autoClear` (`getAutoClear`), `systemShell`
+    /// (`normalizeSystemShellConfig(config.shell)`) and `webSearchRoute` (`webSearchRouteOrDefault(config.webSearchRoute)`), for
+    /// the thread whose header is `header`.
+    fn route_config(&self, header: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute;
+    /// The saved configuration's change counter (`announceSettingsChange`, providers.mjs): it moves when a settings change is applied, and
+    /// a thread then announces `setupChanged`. `None`: no configuration.
+    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>>;
 }
 
 /// What a thread's transcript is priced and signed with on its provider (the compaction's own

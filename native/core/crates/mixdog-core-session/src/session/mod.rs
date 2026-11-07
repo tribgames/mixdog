@@ -77,6 +77,8 @@ mod prewarm_signals_tests;
 mod agent_activity_tests;
 #[cfg(test)]
 mod toast_tests;
+#[cfg(test)]
+mod route_config_tests;
 pub mod dispatch_sessions;
 pub mod search_backfill;
 pub mod secret_input;

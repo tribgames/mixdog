@@ -683,10 +683,10 @@ impl RunObserver for PortObserver {
             }
             // Node's syncContextDisplayFields (context-state.mjs:116): the window the status shows and the compaction trigger, once known (> 0).
             // A send that compacts nothing also records its check (`compactTelemetry(ctx, 'pre_send_check')`).
-            RunEvent::ContextPressure { will_compact, trigger_tokens, context_window, messages, tools, reactive, .. } => {
+            RunEvent::ContextPressure { will_compact, trigger_tokens, boundary_tokens, context_window, messages, tools, reactive, .. } => {
                 let positive = |tokens: u64| i64::try_from(tokens).ok().filter(|tokens| *tokens > 0);
                 let window = context_window.and_then(positive);
-                let context = mixdog_app_protocol::v2::thread::ThreadContext { context_window: window, display_context_window: window, auto_compact_token_limit: positive(trigger_tokens), ..Default::default() };
+                let context = mixdog_app_protocol::v2::thread::ThreadContext { context_window: window, display_context_window: window, auto_compact_token_limit: positive(trigger_tokens), compact_boundary_tokens: positive(boundary_tokens), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Context(context)));
                 if !will_compact {
                     let _ = self.out.send(Shown::Check(mixdog_core_session::session::run::SendCheck { messages, tools, reactive }));
@@ -2022,6 +2022,12 @@ mod tests {
             false
         }
         fn synced_compaction(&self, _: &mixdog_store::schema::record::Header, _: bool) -> Option<Value> {
+            None
+        }
+        fn route_config(&self, _: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
+            Default::default()
+        }
+        fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
             None
         }
         fn run_settings(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> super::super::assemble::RunSettings {

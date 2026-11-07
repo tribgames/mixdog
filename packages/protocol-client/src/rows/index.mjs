@@ -6,11 +6,13 @@ export { STEP, aggregateDoneCategoriesSteps, aggregateToolCategoryEntries, isTas
 export {
   aggregateBucketForCategory,
   aggregateLoadingTargetsSteps,
+  aggregateToolMembersSteps,
   aggregateRawResultSteps,
   aggregateResultPatchSteps,
   mergeAggregateCategoryEntries,
   stringUiDiffPatch,
   toolCallOutcome,
+  toolResultDisplay,
 } from './tool-result-status.mjs';
 export { isTranscriptHiddenControlToolName, isTranscriptHiddenToolItem } from './tool-execution-contract.mjs';
 export { toolResultTerminalStatus } from './tool-status.mjs';

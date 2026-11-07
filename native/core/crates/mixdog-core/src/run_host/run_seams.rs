@@ -18,6 +18,7 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_js::{string_to_number, to_number, to_number_of};
 use mixdog_store::agent_mode::session_mode_of;
 use mixdog_store::schema::record::Header;
+use mixdog_app_protocol::v2::thread::ThreadRoute;
 use serde_json::Value;
 
 use mixdog_core_config::config::Config;
@@ -41,11 +42,19 @@ pub struct ConfigRunSeams {
     /// The configuration was handed in by a headless caller (`usesInjectedConfig(params)`): its sessions keep the
     /// compaction they were created with when they are installed.
     injected_config: bool,
+    /// The settings changes this process announced (`announceSettingsChange`); none for a configuration nobody follows.
+    settings: Option<Arc<crate::run_host::settings_changes::SettingsChanges>>,
 }
 
 impl ConfigRunSeams {
     pub fn new(config: Config, agents: Arc<AgentDefinitions>, plugin_root: PathBuf, data_dir: PathBuf, env: EnvReader) -> Self {
-        Self { config, agents, plugin_root, data_dir, env, injected_config: false }
+        Self { config, agents, plugin_root, data_dir, env, injected_config: false, settings: None }
+    }
+
+    /// The announcer of this process's settings changes, which the threads follow.
+    pub fn with_settings_changes(mut self, settings: Arc<crate::run_host::settings_changes::SettingsChanges>) -> Self {
+        self.settings = Some(settings);
+        self
     }
 
     /// Marks the configuration as injected by the caller rather than the profile on disk.
@@ -249,6 +258,33 @@ impl ConfigSeams for ConfigRunSeams {
         super::compaction_follow::sync_change(header, &saved).set.remove("compaction")
     }
 
+    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
+        self.settings.as_ref().map(|settings| settings.subscribe())
+    }
+
+    fn route_config(&self, header: &Header) -> ThreadRoute {
+        let provider = header.get("provider").and_then(Value::as_str);
+        // `normalizeSystemShellConfig(config.shell)`: the configured command, else `MIXDOG_SHELL`, else the platform's own.
+        let command = self.config.get("shell.command").and_then(|command| command.as_str().map(|c| mixdog_js::js_trim(c).to_owned())).unwrap_or_default();
+        let env_command = (self.env)("MIXDOG_SHELL").map(|c| mixdog_js::js_trim(&c).to_owned()).unwrap_or_default();
+        let source = if !command.is_empty() {
+            "config"
+        } else if !env_command.is_empty() {
+            "env"
+        } else {
+            "auto"
+        };
+        let effective = if command.is_empty() { env_command } else { command.clone() };
+        // `webSearchRouteOrDefault(config.webSearchRoute)`; a saved route that does not normalize leaves the seeded default in place.
+        let configured = self.config.get("webSearchRoute").unwrap_or(Value::Null);
+        let web_search_route = mixdog_ai::service::routes::web_search_route_or_default(&[&configured]).ok();
+        ThreadRoute {
+            auto_clear: Some(Value::Object(mixdog_agent::compact::settings::get_auto_clear(&self.config.agent(), provider))),
+            system_shell: Some(serde_json::json!({ "command": command, "effective": effective, "source": source })),
+            web_search_route,
+            ..Default::default()
+        }
+    }
     fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
         mixdog_core_config::config::hidden_agents::hidden_agent_stall_cap_idle_seconds(agent?)
     }

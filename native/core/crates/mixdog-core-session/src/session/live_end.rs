@@ -33,6 +33,29 @@ pub fn done_verb(turn: usize) -> &'static str {
     DONE_VERBS[(turn * 5 + 2) % DONE_VERBS.len()]
 }
 
+/// A shown item as the live turn holds it (`turn.mjs`, `turn-tool-cards.mjs`), not as a restore rebuilds it from the record:
+/// an assistant row carries its turn's `attemptId` and `completionVerb` and `streaming: false`; the turn's input row carries
+/// no `checkpointId` (the turn's end does); a tool row reads as the turn's card, an aggregate even for one call
+/// ([`mixdog_protocol::ToolRun::live`]). `attempt` is the stored row's own `attemptId`, `verb` the open turn's.
+pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&str>, verb: Option<&str>) -> mixdog_protocol::ThreadItem {
+    use mixdog_protocol::ThreadItem;
+    match &mut item {
+        ThreadItem::UserMessage { checkpoint_id, .. } => *checkpoint_id = None,
+        ThreadItem::AgentMessage { meta, .. } => {
+            if let Some(attempt) = attempt {
+                meta.ext.insert("attemptId".into(), json!(attempt));
+            }
+            if let Some(verb) = verb {
+                meta.ext.insert("completionVerb".into(), json!(verb));
+            }
+            meta.ext.insert("streaming".into(), json!(false));
+        }
+        ThreadItem::ToolCall { run, .. } => run.live = Some(true),
+        _ => {}
+    }
+    item
+}
+
 /// JavaScript truthiness of a call field.
 fn truthy(value: &Value) -> bool {
     match value {
@@ -238,6 +261,23 @@ pub(crate) fn live_end_row(
 
 #[cfg(test)]
 mod tests {
+
+    /// The live form of a shown item (`live_form`): the `edit` scenario's rows of the Node daemon carry `attemptId`, `completionVerb` and
+    /// `streaming: false` on an assistant row, no `checkpointId` on the input row, and a tool card that reads as the turn's.
+    #[test]
+    fn a_shown_item_takes_the_live_form() {
+        use mixdog_protocol::{ItemMeta, MaybeBlob, ThreadItem, ToolRun};
+        let reply = ThreadItem::AgentMessage { id: "a".into(), text: MaybeBlob::Inline("hi".into()), meta: ItemMeta::default(), imported_tool_runs: Vec::new() };
+        let ThreadItem::AgentMessage { meta, .. } = live_form(reply, Some("att"), Some("Mapped")) else { panic!("a reply stays a reply") };
+        assert_eq!(
+            (meta.ext.get("attemptId"), meta.ext.get("completionVerb"), meta.ext.get("streaming")),
+            (Some(&json!("att")), Some(&json!("Mapped")), Some(&json!(false)))
+        );
+        let call = ThreadItem::ToolCall { id: "t".into(), name: "read".into(), input: json!({}), output: None, run: Box::new(ToolRun::default()), meta: ItemMeta::default() };
+        let ThreadItem::ToolCall { run, .. } = live_form(call, None, None) else { panic!("a call stays a call") };
+        assert_eq!(run.live, Some(true));
+    }
+
     use super::*;
 
     struct Names(Option<HashSet<String>>);

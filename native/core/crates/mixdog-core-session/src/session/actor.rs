@@ -537,6 +537,10 @@ pub(crate) struct SessionActor {
     goal_tail: Option<tokio::task::JoinHandle<()>>,
     /// The expiry timer of each toast in the queue (`toastTimers`), by toast id: `thread/clear` and the thread's close cancel them.
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
+    /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
+    active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
+    /// How many settings changes this thread announced (`setupChangeSeq`).
+    setup_changes: u64,
     /// The prompt-history appends not on disk yet, and their write-behind and retry (`prompt-history-store.mjs`).
     prompt_appends: prompt_history::AppendQueue,
     /// Answered once the deleted thread's turn ended.
@@ -678,6 +682,8 @@ impl SessionActor {
             goal_deferred: false,
             goal_tail: None,
             toast_timers: std::collections::HashMap::new(),
+            active_calls: std::collections::BTreeMap::new(),
+            setup_changes: 0,
             prompt_appends: Default::default(),
             delete_closed: None,
             delete_mark: None,
@@ -728,6 +734,7 @@ impl SessionActor {
         }
         // The session is installed (created or resumed): `syncSessionCompaction` (`boot/infrastructure.mjs`).
         self.sync_compaction();
+        self.seed_route_config();
         self.deps.runtime_hooks.started(&self.id);
         self.load_persisted_prompts();
         self.pump();
@@ -741,6 +748,7 @@ impl SessionActor {
         // There is no periodic pass: Node dropped the 2 s pulse for change marks (858b0b2d2), and
         // the marks that move agent status are the status listener's signals.
         self.read_agent_status(false);
+        let mut settings = self.deps.compaction.settings_changes();
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
@@ -755,6 +763,7 @@ impl SessionActor {
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
                 Some(msg) = self.ch.inbox_rx.recv() => self.on_inbox(msg),
+                Some(()) = settings_changed(&mut settings) => self.on_settings_changed(),
                 else => break,
             }
             self.pump();
@@ -1059,6 +1068,8 @@ impl SessionActor {
         let jobs = self.jobs_tx.clone();
         let generation = self.generation;
         let thread = self.id.clone();
+        // The open turn's `completionVerb`, which its live rows carry.
+        let verb = self.run.as_ref().map(|slot| slot.verb);
         let submitted = self.deps.lanes.cpu.submit(&CancellationToken::new(), move |lane| {
             let result = deps.codec.encode(lane, &record).map(|encoded| {
                 let Record::Item(row) = &*record else {
@@ -1074,6 +1085,16 @@ impl SessionActor {
                     .items(lane, row)
                     .into_iter()
                     .filter(|shown| !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. })))
+                    .map(|shown| {
+                        let attempt = match &row.body {
+                            mixdog_store::schema::blob::Slot::Inline(body) => body.pointer("/meta/transcript/attemptId").and_then(Value::as_str),
+                            _ => None,
+                        };
+                        match shown {
+                            Shown::Item(item) => Shown::Item(super::live_end::live_form(item, attempt, verb)),
+                            Shown::Update(item) => Shown::Update(super::live_end::live_form(item, attempt, verb)),
+                        }
+                    })
                     .collect();
                 // An update's frame carries the merged item: it is built at release.
                 let notes = shown
@@ -1568,6 +1589,7 @@ impl SessionActor {
             for shown in shown {
                 match shown {
                     Shown::Item(item) => {
+                        self.track_active_tool(item);
                         if let Some(ordinal) = ordinal
                             && let Some(projected) = self
                                 .projected
@@ -1579,6 +1601,7 @@ impl SessionActor {
                         }
                     }
                     Shown::Update(update) => {
+                        self.track_active_tool(update);
                         if let Some(merged) = self.acked.shown_for(update) {
                             notes.push(item_completed(&self.id, row, &merged));
                         }
@@ -1656,6 +1679,13 @@ impl SessionActor {
                     )));
                 }
                 Record::Meta(_) | Record::Session(_) => {
+                    // `toolMode` is runtime state (Node's `runtime.toolMode`), moved by `thread/setToolMode` in the header.
+                    if let Record::Meta(meta) = &**record
+                        && let mixdog_store::schema::blob::Slot::Inline(header) = &meta.change
+                        && header.set.contains_key("toolMode")
+                    {
+                        notes.push(self.runtime_note());
+                    }
                     if self.acked.sections.title != *title_before
                         && let Some(title) = &self.acked.sections.title
                     {
@@ -1687,7 +1717,7 @@ impl SessionActor {
         }
         let t = &self.id;
         match section {
-            Section::Runtime(_) | Section::ProgressHint(_) | Section::Toasts(_) => self.runtime_note(),
+            Section::Runtime(_) | Section::ProgressHint(_) | Section::Toasts(_) | Section::ActiveTools(_) | Section::SetupChanged(_) => self.runtime_note(),
             Section::Route(_) => note("thread/route/updated", t, self.acked.route()),
             Section::Context(_) => note("thread/context/updated", t, self.acked.context()),
             Section::Todo(v) => note("thread/todo/updated", t, v),
@@ -2274,6 +2304,7 @@ impl SessionActor {
     /// [`Self::fail_entry`]). A failure record that cannot be built (a typed `MalformedFacts`) shows
     /// no end and settles no quota; the Goal still settles.
     fn close_failed(&mut self, turn: &TurnId, failed: FailedClose<'_>, settle: Value) {
+        self.clear_active_tools();
         let now = self.deps.clock.now_ms();
         failed.live.close(now);
         self.turns_closed += 1;
@@ -2318,6 +2349,7 @@ impl SessionActor {
     /// `reclaimed` (the stopped turn's prompt handed back to the composer, `abort.mjs:65`) suppresses the end in Node;
     /// the core's `turn/interrupt` never hands a prompt back (`restorePrompt` is not acted on), so it is never set.
     fn close_done(&mut self, turn: &TurnId, done: DoneClose<'_>) {
+        self.clear_active_tools();
         let now = self.deps.clock.now_ms();
         done.live.close(now);
         let finished = done.status == "done";
@@ -2641,6 +2673,93 @@ impl SessionActor {
             let mut set = serde_json::Map::new();
             set.insert("compaction".into(), synced);
             self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }));
+        }
+    }
+
+    /// `markToolCallActive` / `markToolCallDone` (active-tool-summary.mjs) from the shown tool rows: a live call with no result yet is
+    /// running; its result ends it. Only the surfaced categories (Shell, Web Research, Agent: `classifyToolCategory`) are tracked, each call by
+    /// its work units (`aggregateToolCategoryEntries`: a search of three queries counts three).
+    fn track_active_tool(&mut self, item: &ThreadItem) {
+        let ThreadItem::ToolCall { name, input, run, .. } = item else { return };
+        let (Some(call_id), Some(true)) = (run.call_id.as_deref(), run.live) else { return };
+        if run.result.is_none() {
+            // `openToolCard`: the category and its work-unit count (`activeCount`) decide what is tracked.
+            let Some((category, count)) = mixdog_protocol::tool_units::surfaced_tool_units(name, input) else { return };
+            self.active_calls.insert(call_id.to_owned(), (category, count, self.deps.clock.now_ms()));
+            self.publish_active_tools();
+        } else if self.active_calls.remove(call_id).is_some() {
+            self.publish_active_tools();
+        }
+    }
+
+    /// `recomputeActiveToolSummary`: `count:startedAt` of Shell, Web Research and Agent in that order, and the per-tool counts; published
+    /// when the summary differs from the held one.
+    fn publish_active_tools(&mut self) {
+        const SURFACED: [(&str, &str); 3] = [("Shell", "shell"), ("Web Research", "web_search"), ("Agent", "agent")];
+        let mut totals = [(0_i64, 0_i64); 3];
+        for (category, count, started) in self.active_calls.values() {
+            let Some(at) = SURFACED.iter().position(|(surfaced, _)| surfaced == category) else { continue };
+            totals[at].0 += (*count).max(1);
+            if *started > 0 && (totals[at].1 == 0 || *started < totals[at].1) {
+                totals[at].1 = *started;
+            }
+        }
+        let next = totals
+            .iter()
+            .any(|(count, _)| *count > 0)
+            .then(|| totals.iter().map(|(count, started)| format!("{count}:{started}")).collect::<Vec<_>>().join(":"));
+        if next == self.projected.sections.runtime.as_ref().and_then(|runtime| runtime.active_tool_summary.clone()) {
+            return;
+        }
+        let active = next.map(|summary| {
+            let mut tools = serde_json::Map::new();
+            for ((_, key), (count, started)) in SURFACED.iter().zip(totals) {
+                if count > 0 {
+                    tools.insert((*key).to_owned(), json!({ "count": count, "startedAt": started }));
+                }
+            }
+            (summary, Value::Object(tools))
+        });
+        self.accept_view(Change::Section(Section::ActiveTools(active)), Vec::new());
+    }
+
+    /// `clearActiveToolSummary`: the turn ended, no call is running.
+    fn clear_active_tools(&mut self) {
+        let held = self.projected.sections.runtime.as_ref().is_some_and(|runtime| runtime.active_tool_summary.is_some() || runtime.active_tools.is_some());
+        if self.active_calls.is_empty() && !held {
+            return;
+        }
+        self.active_calls.clear();
+        if held {
+            self.accept_view(Change::Section(Section::ActiveTools(None)), Vec::new());
+        }
+    }
+
+    /// A settings change this runtime applied (`announceSettingsChange`): the surfaces re-read, and `setupChanged` counts it
+    /// (notification-router.mjs: `{ action, seq, at }`); the route section follows the saved configuration.
+    fn on_settings_changed(&mut self) {
+        self.setup_changes += 1;
+        let change = json!({ "action": "settings_changed", "seq": self.setup_changes, "at": self.deps.clock.now_ms() });
+        self.accept_view(Change::Section(Section::SetupChanged(change)), Vec::new());
+        self.sync_route_config();
+    }
+
+    /// The installed session's state holds the configured route values from its start (`createInitialSessionState` takes `baseRouteState()`):
+    /// they are seeded into the state, not published, so a feed that attaches reads them in its snapshot and no frame announces them.
+    fn seed_route_config(&mut self) {
+        let change = Change::Section(Section::Route(self.deps.compaction.route_config(&self.projected.header)));
+        self.projected.apply(&change, None);
+        self.acked.apply(&change, None);
+    }
+
+    /// The route section's configured values (`autoClear`, `systemShell`, `webSearchRoute` of `baseRouteState`), published when the
+    /// saved configuration states something other than the section holds. Read at each announced settings change: the stored settings
+    /// the route values come from are the ones settingsChanged compares.
+    fn sync_route_config(&mut self) {
+        let route = self.deps.compaction.route_config(&self.projected.header);
+        let held = self.projected.sections.route.clone().unwrap_or_default();
+        if route.auto_clear != held.auto_clear || route.system_shell != held.system_shell || route.web_search_route != held.web_search_route {
+            self.accept_view(Change::Section(Section::Route(route)), Vec::new());
         }
     }
 
@@ -3770,7 +3889,7 @@ impl SessionActor {
         // A cleared session starts with no toasts (`emptySessionPatch`), and none of the old ones expires (`beginTuiReset`, `session-reset.mjs:50`).
         self.cancel_toast_timers();
         Ok(Plan {
-            kind: PlanKind::Records(records, vec![Change::Section(Section::Toasts(Vec::new()))]),
+            kind: PlanKind::Records(records, vec![Change::Section(Section::Toasts(Vec::new())), Change::Section(Section::ActiveTools(None))]),
             value,
             after: Some(true),
             prompt: None,
@@ -4692,6 +4811,14 @@ fn goal_lane_status(goal: &Goal) -> &str {
 async fn sleep_until(deadline: Option<tokio::time::Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// The next change of the saved configuration's counter; never ready for a thread without one (or once the configuration is gone).
+async fn settings_changed(changes: &mut Option<tokio::sync::watch::Receiver<u64>>) -> Option<()> {
+    match changes {
+        Some(changes) => changes.changed().await.ok(),
         None => std::future::pending().await,
     }
 }

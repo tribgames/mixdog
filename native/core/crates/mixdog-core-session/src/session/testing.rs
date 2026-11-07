@@ -94,6 +94,10 @@ pub struct TestCompaction {
     pub sync_calls: Mutex<Vec<bool>>,
     /// Each `prepare_books`: the provider and the number of messages.
     pub prepared: Mutex<Vec<(String, usize)>>,
+    /// The configured route values (`route_config`).
+    pub route: Mutex<mixdog_app_protocol::v2::thread::ThreadRoute>,
+    /// The saved configuration's settings-change counter, when the test follows one.
+    pub settings: Mutex<Option<tokio::sync::watch::Receiver<u64>>>,
 }
 
 #[async_trait::async_trait]
@@ -127,6 +131,12 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     fn synced_compaction(&self, _: &mixdog_store::schema::record::Header, install: bool) -> Option<Value> {
         lock(&self.sync_calls).push(install);
         lock(&self.synced).clone()
+    }
+    fn route_config(&self, _: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
+        lock(&self.route).clone()
+    }
+    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
+        lock(&self.settings).clone()
     }
 }
 

@@ -3479,7 +3479,7 @@ export type ThreadActiveFlag = "waitingOnApproval" | "waitingOnUserInput" | "quo
  */
 export type ThreadAgentControlParams = { opId: OpId, threadId?: ThreadId, args?: JsonValue, };
 
-export type ThreadAgents = { agentWorkers: Array<JsonValue>, agentJobs: Array<JsonValue>, };
+export type ThreadAgents = { agentWorkers: Array<JsonValue>, agentJobs: Array<JsonValue>, agentScope?: JsonValue, };
 
 export type ThreadApprovals = { toolApprovalResult?: ToolApprovalResult, handoffQuestions?: Array<JsonValue>, };
 
@@ -3502,7 +3502,7 @@ export type ThreadClearSessionChangeHistoryParams = { opId: OpId, threadId?: Thr
 
 export type ThreadCompactStartParams = { threadId: ThreadId, opId: OpId, options?: JsonValue, };
 
-export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, contextWindow?: number, displayContextWindow?: number, autoCompactTokenLimit?: number, stats?: JsonValue, };
+export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, contextWindow?: number, displayContextWindow?: number, autoCompactTokenLimit?: number, stats?: JsonValue, rawContextWindow?: number, effectiveContextWindowPercent?: number, compactBoundaryTokens?: number, };
 
 /**
  * Params of `thread/contextStatus`.
@@ -3769,13 +3769,13 @@ typing?: JsonValue,
  */
 handoffQuestions?: Array<JsonValue>, };
 
-export type ThreadRoute = { sessionProvider?: string, sessionModel?: string, fast?: boolean, fastCapable?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, selectedContextWindow?: number, effort?: string, provider?: string, model?: string, turnEffort?: string, effortOptions?: Array<JsonValue>, };
+export type ThreadRoute = { sessionProvider?: string, sessionModel?: string, fast?: boolean, fastCapable?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, selectedContextWindow?: number, effort?: string, provider?: string, model?: string, turnEffort?: string, effortOptions?: Array<JsonValue>, cwd?: string, sessionForkedFrom?: string, systemShell?: JsonValue, webSearchRoute?: JsonValue, autoClear?: JsonValue, };
 
 export type ThreadRuntime = { busy: boolean, commandBusy: boolean, thinking?: JsonValue, spinner?: JsonValue, commandStatus?: JsonValue, progressHint?: JsonValue, activeTools?: JsonValue, storage?: StorageState, 
 /**
  * Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.
  */
-waitingOnProviderSince?: number, clientHostPid?: number, toasts: Array<JsonValue>, };
+waitingOnProviderSince?: number, clientHostPid?: number, toasts: Array<JsonValue>, activeToolSummary?: string, toolMode?: string, setupChanged?: JsonValue, };
 
 export type ThreadSearchParams = { query: string, };
 
@@ -4075,7 +4075,12 @@ callId?: string, result?: MaybeBlob<string>, rawResult?: MaybeBlob<string>, isEr
 /**
  * The structured side channel of a result (`toolMeta`).
  */
-toolMeta?: ToolMeta, count?: number, completedCount?: number, aggregate?: ToolAggregate, };
+toolMeta?: ToolMeta, count?: number, completedCount?: number, aggregate?: ToolAggregate,
+/**
+ * Built by a live turn's tool cards (`turn-tool-cards.mjs`): the row reads as that turn's card, an `__aggregate__`
+ * even for one call, not as the card a restore rebuilds (`mergeRestoredToolItems` merges only two or more).
+ */
+live?: boolean, };
 
 /**
  * Params of `tools/toolsStatus`.

@@ -15,6 +15,9 @@ import type { AggregateCall, AggregateHeader } from './rows/index.mjs';
 
 const FINISHED = new Set(['completed', 'failed', 'declined', 'interrupted']);
 
+/** The tool rows a live turn built (`ToolRun.live`): `mergeToolRows` reads this, and no row carries it. */
+const liveRows = new WeakSet<Obj>();
+
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const present = <K extends string>(key: K, v: unknown): { [P in K]?: Json } => (typeof v === 'string' && v ? ({ [key]: v } as { [P in K]?: Json }) : {});
@@ -119,6 +122,7 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
     ...(finite(m.at) ? { at: m.at, startedAt: m.at, ...(finished ? { completedAt: m.at } : {}) } : {}),
     ...present('callId', asObj(item.run).callId ?? ext.callId),
   };
+  if (asObj(item.run).live === true) liveRows.add(row);
   if (!finished) return row;
   const result = output ?? '';
   row.result = result;
@@ -139,6 +143,8 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
 /** A tool row that can join an aggregate: a finished per-call card (restore.mjs `mergeRestoredToolItems` merges restored cards,
  * which have all finished; a call still running stays its own card until its result arrives). */
 const mergeable = (row: Obj): boolean => row.kind === 'tool' && row.aggregate !== true && row.imported !== true && 'result' in row;
+/** A live tool row joins its bucket's aggregate whether or not its result has arrived (`syncAggregateHeader` counts the call at once). */
+const liveMergeable = (row: Obj): boolean => row.kind === 'tool' && row.aggregate !== true && row.imported !== true;
 
 /** Collapses every run of two or more consecutive finished tool rows of one bucket into one `__aggregate__` card, shaped exactly
  * like the live turn's (restore.mjs `buildRestoredAggregateItem`), and drops the tool rows the transcript hides. A non-tool row ends
@@ -155,20 +161,22 @@ export function mergeToolRows(rows: readonly Obj[]): Obj[] {
 export const ROWS_PER_STEP = 16;
 export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[], void> {
   const merged: Obj[] = [];
-  let run: { bucket: string; members: { item: Obj; category: string }[] } | null = null;
+  let run: { bucket: string; live: boolean; members: { item: Obj; category: string }[] } | null = null;
   // A run of any length aggregates in steps too: one step per `ROWS_PER_STEP` of its members.
   function* flush(): Generator<void, void, void> {
     if (!run) return;
-    const members = run.members;
+    const { members, live } = run;
     run = null;
-    if (members.length >= 2) merged.push(yield* aggregateRowSteps(members));
+    // A restore merges two or more finished cards (`mergeRestoredToolItems`); a live turn's tool cards put every call of a bucket on an aggregate, even one.
+    if (members.length >= 2 || live) merged.push(yield* aggregateRowSteps(members, live));
     else for (const member of members) merged.push(member.item);
   }
   let seen = 0;
   for (const item of rows) {
     if (++seen % ROWS_PER_STEP === 0) yield;
     if (item.kind === 'tool' && node.isTranscriptHiddenToolItem(item)) continue;
-    if (!mergeable(item)) {
+    const live = liveRows.has(item);
+    if (!(live ? liveMergeable(item) : mergeable(item))) {
       yield* flush();
       merged.push(item);
       continue;
@@ -178,32 +186,81 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
     const bucket = category === 'Agent' ? '' : node.aggregateBucketForCategory(category);
     if (!bucket) {
       yield* flush();
-      merged.push(item);
+      // A live standalone card (`standaloneCardSpec`) is sealed (`finalizeToolHeaders`) and shown (`materialize`) when its turn ends.
+      merged.push(live ? { ...item, headerFinalized: true, deferredDisplayReady: true } : item);
       continue;
     }
-    if (run && run.bucket === bucket) {
+    if (run && run.bucket === bucket && run.live === live) {
       run.members.push({ item, category });
       continue;
     }
     yield* flush();
-    run = { bucket, members: [{ item, category }] };
+    run = { bucket, live, members: [{ item, category }] };
   }
   yield* flush();
   return merged;
 }
 
 /** The card of one run, every pass over its members stepped: the per-member work (outcome, summary, category entries) and then the
- * finalization (result patch and its members and detail line, last diff, loading targets, call ids, done categories, raw result). */
-function* aggregateRowSteps(members: readonly { item: Obj; category: string }[]): Generator<void, Obj, void> {
+ * finalization (result patch and its members and detail line, last diff, loading targets, call ids, done categories, raw result).
+ * `live`: the card of a live turn (turn-aggregate-cards.mjs): its calls are keyed by their provider call id, it carries no `at` or
+ * `callIds`, and it is `deferredDisplayReady`; while a call has no result yet it holds only the header `syncAggregateHeader` keeps. */
+function* aggregateRowSteps(members: readonly { item: Obj; category: string }[], live: boolean): Generator<void, Obj, void> {
   const header: AggregateHeader = { categories: new Map(), categoryOrder: [] };
   const calls: AggregateCall[] = [];
   for (const { item, category } of members) {
     if (calls.length % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
     node.mergeAggregateCategoryEntries(header, node.aggregateToolCategoryEntries(item.name as string, item.args, category));
+    // A live card keys its calls by the provider's call id (`aggregateCallEntry`), a restored one by the restored item's id.
+    const callId = live ? item.callId : item.id;
+    if (!('result' in item)) {
+      // `aggregateCallEntry`: a call whose result has not arrived.
+      calls.push({
+        callId,
+        name: item.name as string,
+        args: item.args,
+        category,
+        isError: false,
+        isCallError: false,
+        isExitError: false,
+        exitCode: null,
+        resultText: null,
+        rawResultText: null,
+        resolved: false,
+        startedAt: item.startedAt,
+        completedAt: null,
+        summary: null,
+      } as unknown as AggregateCall);
+      continue;
+    }
     const resultText = String(item.result ?? '');
+    const rawResultText = String(item.rawResult ?? item.result ?? '');
+    if (live) {
+      // The live card's result (`applyAggregateCallFields` of `toolResultDisplay`): the text a card shows (a command's body without its
+      // exit header, a failure as its presented error) beside the raw body.
+      const outcome = node.toolResultDisplay({ isError: item.isError === true }, rawResultText, item.name as string);
+      calls.push({
+        callId,
+        name: item.name as string,
+        args: item.args,
+        category,
+        isError: outcome.isError,
+        isCallError: outcome.isCallError,
+        isExitError: outcome.isExitError,
+        exitCode: outcome.exitCode,
+        resultText: outcome.text,
+        rawResultText,
+        ...node.stringUiDiffPatch(item.uiDiff),
+        resolved: true,
+        startedAt: item.startedAt,
+        completedAt: item.completedAt,
+        summary: !outcome.isError ? node.summarizeToolResult(item.name as string, item.args, rawResultText, outcome.isError) : null,
+      });
+      continue;
+    }
     const { exitCode, isExitError, isCallError } = node.toolCallOutcome({ isError: item.isError === true, toolName: item.name as string }, resultText);
     calls.push({
-      callId: item.id,
+      callId,
       name: item.name as string,
       args: item.args,
       category,
@@ -212,13 +269,36 @@ function* aggregateRowSteps(members: readonly { item: Obj; category: string }[])
       isExitError,
       exitCode,
       resultText,
-      rawResultText: String(item.rawResult ?? item.result ?? ''),
+      rawResultText,
       ...node.stringUiDiffPatch(item.uiDiff),
       resolved: true,
       startedAt: item.startedAt,
       completedAt: item.completedAt,
       summary: !isCallError && resultText.trim() ? node.summarizeToolResult(item.name as string, item.args, resultText, false) : null,
     });
+  }
+  const loadingTargets = yield* node.aggregateLoadingTargetsSteps(calls);
+  const first = members[0]!.item;
+  const resolvedCount = calls.filter((call) => call.resolved).length;
+  if (resolvedCount < calls.length) {
+    return {
+      kind: 'tool',
+      id: first.id as Json,
+      name: '__aggregate__',
+      args: { categoryOrder: header.categoryOrder, ...(loadingTargets.length > 0 ? { loadingTargets } : {}) },
+      count: calls.length,
+      completedCount: resolvedCount,
+      categories: Object.fromEntries(header.categories) as unknown as Json,
+      toolMembers: (yield* node.aggregateToolMembersSteps(calls)) as unknown as Json,
+      aggregate: true,
+      result: null,
+      rawResult: null,
+      isError: false,
+      expanded: false,
+      headerFinalized: false,
+      ...(first.startedAt != null ? { startedAt: first.startedAt } : {}),
+      deferredDisplayReady: true,
+    };
   }
   // Every pass over the members below steps with the same quantum: the Node helpers' stepped forks, and the two small ones here.
   const outcomePatch = yield* node.aggregateResultPatchSteps({ calls }, calls, calls.length);
@@ -230,9 +310,7 @@ function* aggregateRowSteps(members: readonly { item: Obj; category: string }[])
       break;
     }
   }
-  const first = members[0]!.item;
   const last = members[members.length - 1]!.item;
-  const loadingTargets = yield* node.aggregateLoadingTargetsSteps(calls);
   const callIds: Json[] = [];
   for (let i = 0; i < members.length; i++) {
     if (i % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
@@ -247,7 +325,7 @@ function* aggregateRowSteps(members: readonly { item: Obj; category: string }[])
     name: '__aggregate__',
     args: { categoryOrder: header.categoryOrder, ...(loadingTargets.length > 0 ? { loadingTargets } : {}) },
     aggregate: true,
-    ...(callIds.length > 0 ? { callIds } : {}),
+    ...(!live && callIds.length > 0 ? { callIds } : {}),
     categories: Object.fromEntries(header.categories) as unknown as Json,
     doneCategories: doneCategories as unknown as Json,
     completedCount: calls.length,
@@ -256,12 +334,11 @@ function* aggregateRowSteps(members: readonly { item: Obj; category: string }[])
     ...(latestUiDiff ? { uiDiff: latestUiDiff.uiDiff } : {}),
     expanded: false,
     headerFinalized: true,
-    ...(first.at != null ? { at: first.at } : {}),
+    ...(live ? { deferredDisplayReady: true } : first.at != null ? { at: first.at } : {}),
     ...(first.startedAt != null ? { startedAt: first.startedAt } : {}),
     ...(last.completedAt != null ? { completedAt: last.completedAt } : {}),
   };
 }
-
 // ───────────────────────────── user rows and attachments ─────────────────────────────
 
 const ATTACHMENT_ID = /^[a-f0-9]{64}$/;

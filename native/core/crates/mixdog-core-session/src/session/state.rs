@@ -402,8 +402,20 @@ impl SessionState {
         match section {
             // The queue is the session's own (Toasts): a producer's whole runtime section leaves it.
             Section::Runtime(mut value) => {
-                value.toasts = s.runtime.take().map(|held| held.toasts).unwrap_or_default();
+                let held = s.runtime.take().unwrap_or_default();
+                value.toasts = held.toasts;
+                // The running tools are the session's own too (`ActiveTools`).
+                value.active_tool_summary = held.active_tool_summary;
+                value.active_tools = held.active_tools;
+                value.setup_changed = held.setup_changed;
                 s.runtime = Some(value);
+            }
+            Section::SetupChanged(change) => s.runtime.get_or_insert_with(ThreadRuntime::default).setup_changed = Some(change),
+            Section::ActiveTools(active) => {
+                let runtime = s.runtime.get_or_insert_with(ThreadRuntime::default);
+                let (summary, tools) = active.unzip();
+                runtime.active_tool_summary = summary;
+                runtime.active_tools = tools;
             }
             Section::Toasts(toasts) => s.runtime.get_or_insert_with(ThreadRuntime::default).toasts = toasts,
             Section::ProgressHint(hint) => s.runtime.get_or_insert_with(ThreadRuntime::default).progress_hint = hint,
@@ -453,6 +465,8 @@ impl SessionState {
             provider: header_text("provider"),
             model: header_text("model"),
             effort_options: Some(Vec::new()),
+            cwd: header_text("cwd"),
+            session_forked_from: header_text("forkedFrom"),
             ..Default::default()
         };
         merge_route(initial, self.sections.route.clone().unwrap_or_default())
@@ -461,9 +475,13 @@ impl SessionState {
     /// The context section as clients hold it: the engine's initial figures (initial-state.mjs: display window and compaction limit 0, no window,
     /// stats of a session that has made no call) under what producers published.
     pub fn context(&self) -> ThreadContext {
+        let header_number = |key: &str| self.header.get(key).and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).map(|n| n as i64);
         let initial = ThreadContext {
             display_context_window: Some(0),
             auto_compact_token_limit: Some(0),
+            compact_boundary_tokens: Some(0),
+            raw_context_window: header_number("rawContextWindow"),
+            effective_context_window_percent: header_number("effectiveContextWindowPercent"),
             stats: Some(super::stats::SessionStats::default().json(0)),
             ..Default::default()
         };
@@ -515,6 +533,8 @@ impl SessionState {
         runtime.storage = (storage != StorageState::Ok).then_some(storage);
         // Node's runtime.clientHostPid: this process hosts the session runtime.
         runtime.client_host_pid = Some(std::process::id());
+        // Node's runtime.toolMode: the thread's tool mode (`thread/setToolMode` keeps it in the header).
+        runtime.tool_mode = Some(self.header.get("toolMode").and_then(Value::as_str).filter(|mode| !mode.is_empty()).unwrap_or("full").to_owned());
         runtime
     }
 }
@@ -535,6 +555,11 @@ fn merge_route(held: ThreadRoute, new: ThreadRoute) -> ThreadRoute {
         model: new.model.or(held.model),
         turn_effort: new.turn_effort.or(held.turn_effort),
         effort_options: new.effort_options.or(held.effort_options),
+        cwd: new.cwd.or(held.cwd),
+        session_forked_from: new.session_forked_from.or(held.session_forked_from),
+        system_shell: new.system_shell.or(held.system_shell),
+        web_search_route: new.web_search_route.or(held.web_search_route),
+        auto_clear: new.auto_clear.or(held.auto_clear),
     }
 }
 
@@ -548,6 +573,9 @@ fn merge_context(held: ThreadContext, new: ThreadContext) -> ThreadContext {
         display_context_window: new.display_context_window.or(held.display_context_window),
         auto_compact_token_limit: new.auto_compact_token_limit.or(held.auto_compact_token_limit),
         stats: new.stats.or(held.stats),
+        raw_context_window: new.raw_context_window.or(held.raw_context_window),
+        effective_context_window_percent: new.effective_context_window_percent.or(held.effective_context_window_percent),
+        compact_boundary_tokens: new.compact_boundary_tokens.or(held.compact_boundary_tokens),
     }
 }
 
@@ -634,4 +662,49 @@ mod tests {
         state.apply(&Change::Section(Section::Toasts(Vec::new())), None);
         assert_eq!(state.sections.runtime.clone().unwrap().toasts, Vec::<serde_json::Value>::new());
         assert!(state.sections.runtime.unwrap().busy, "the queue's expiry leaves the rest of the section");
-    }}
+    }
+
+    /// The running tools are the session's own like the toasts: a producer's whole runtime section leaves them, and their section
+    /// clears both fields at once (`clearActiveToolSummary`).
+    #[test]
+    fn the_running_tools_publish_apart_from_the_runtime_section() {
+        let mut state = SessionState::new(10);
+        let tools = json!({ "shell": { "count": 1, "startedAt": 100 } });
+        state.apply(&Change::Section(Section::ActiveTools(Some(("1:100:0:0:0:0".into(), tools.clone())))), None);
+        state.apply(&Change::Section(Section::Runtime(ThreadRuntime { busy: true, ..ThreadRuntime::default() })), None);
+        let runtime = state.sections.runtime.clone().unwrap();
+        assert_eq!((runtime.active_tool_summary.as_deref(), runtime.active_tools), (Some("1:100:0:0:0:0"), Some(tools)));
+        state.apply(&Change::Section(Section::ActiveTools(None)), None);
+        let runtime = state.sections.runtime.unwrap();
+        assert_eq!((runtime.active_tool_summary, runtime.active_tools, runtime.busy), (None, None, true));
+    }
+
+    /// The session-state fields Node's `baseRouteState` and `initial-state.mjs` hold besides the sections' producers: the working folder,
+    /// the model window figures and the tool mode follow the header (`real-turn-harness` `session-state`: cwd, rawContextWindow,
+    /// effectiveContextWindowPercent, compactBoundaryTokens 0 until the first sync, toolMode).
+    #[test]
+    fn the_header_states_the_cwd_the_window_and_the_tool_mode() {
+        let mut state = SessionState::new(10);
+        assert_eq!(state.runtime(StorageState::Ok).tool_mode.as_deref(), Some("full"));
+        state.header.insert("cwd".into(), json!("/work"));
+        state.header.insert("rawContextWindow".into(), json!(128000));
+        state.header.insert("effectiveContextWindowPercent".into(), json!(100));
+        state.header.insert("toolMode".into(), json!("readonly"));
+        let (route, context, runtime) = (state.route(), state.context(), state.runtime(StorageState::Ok));
+        assert_eq!((route.cwd.as_deref(), route.session_forked_from), (Some("/work"), None));
+        assert_eq!((context.raw_context_window, context.effective_context_window_percent, context.compact_boundary_tokens), (Some(128000), Some(100), Some(0)));
+        assert_eq!(runtime.tool_mode.as_deref(), Some("readonly"));
+        state.apply(&Change::Section(Section::Context(ThreadContext { compact_boundary_tokens: Some(128000), ..Default::default() })), None);
+        assert_eq!(state.context().compact_boundary_tokens, Some(128000));
+    }
+
+    /// `setupChanged` (notification-router.mjs `{ action, seq, at }`) is the session's own too: a producer's whole runtime section leaves it.
+    #[test]
+    fn a_runtime_section_leaves_the_setup_change() {
+        let mut state = SessionState::new(10);
+        let change = json!({ "action": "settings_changed", "seq": 1, "at": 5 });
+        state.apply(&Change::Section(Section::SetupChanged(change.clone())), None);
+        state.apply(&Change::Section(Section::Runtime(ThreadRuntime { busy: true, ..ThreadRuntime::default() })), None);
+        assert_eq!(state.sections.runtime.unwrap().setup_changed, Some(change));
+    }
+}

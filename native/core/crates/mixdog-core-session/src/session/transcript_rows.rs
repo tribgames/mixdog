@@ -315,9 +315,17 @@ impl<'a> Ids<'a> {
         Self { iid, part: 0 }
     }
 
+    /// A live record's later rows have ids of their own, opaque like the record's (Node's `nextId()` gives every card one): the
+    /// record's 128-bit id plus the row's position. A stored record from another source (`hist_...`) keeps `<iid>:<n>`.
     pub fn next(&mut self) -> String {
         self.part += 1;
-        if self.part == 1 { self.iid.to_owned() } else { format!("{}:{}", self.iid, self.part) }
+        if self.part == 1 {
+            return self.iid.to_owned();
+        }
+        match self.iid.strip_prefix("itm_").filter(|hex| hex.len() == 32).and_then(|hex| u128::from_str_radix(hex, 16).ok()) {
+            Some(bits) => format!("itm_{:032x}", bits.wrapping_add((self.part - 1) as u128)),
+            None => format!("{}:{}", self.iid, self.part),
+        }
     }
 }
 
@@ -954,4 +962,23 @@ fn is_context_ack(message: &Value) -> bool {
     text_field_at(message, "source") == "context-ack"
         && message.get("content").and_then(Value::as_str).is_some_and(|c| js_trim(c) == ".")
         && !message.get("toolCalls").is_some_and(Value::is_array)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A live record's later rows have opaque ids of their own (Node's `nextId()` per card), derived from the record's id and stable per
+    /// record; a stored record from another source keeps `<iid>:<n>`.
+    #[test]
+    fn a_later_row_of_a_live_record_has_an_opaque_id_of_its_own() {
+        let iid = "itm_00000000000000000000000000000fff";
+        let mut ids = Ids::new(iid);
+        assert_eq!(
+            (ids.next(), ids.next(), ids.next()),
+            (iid.to_owned(), "itm_00000000000000000000000000001000".to_owned(), "itm_00000000000000000000000000001001".to_owned())
+        );
+        let mut stored = Ids::new("hist_S_1_1");
+        assert_eq!((stored.next(), stored.next()), ("hist_S_1_1".to_owned(), "hist_S_1_1:2".to_owned()));
+    }
 }

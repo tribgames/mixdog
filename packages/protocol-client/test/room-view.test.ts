@@ -20,7 +20,7 @@ function sectionOf(state: O | null, questions: O[], view: O): O | null {
 
 /** The room log as its own fields give it (the recorded snapshot), with `roomView` set by the live section. */
 function fold(snapshot: O, roomView: O | null): SessionFold {
-  const base: SessionFold = { sessionId: 'sess_room_room01', items: snapshot.items, fields: { busy: snapshot.busy }, live: null };
+  const base: SessionFold = { sessionId: 'sess_room_room01', items: snapshot.items, fields: { busy: snapshot.busy }, live: null, structureRevision: 0 };
   return sessionReducer.apply(base, { method: 'thread/roomView/updated', params: { threadId: 'sess_room_room01', value: roomView } } as never);
 }
 
