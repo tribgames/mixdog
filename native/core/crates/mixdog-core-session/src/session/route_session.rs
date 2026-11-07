@@ -685,7 +685,9 @@ mod tests {
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let thread = ThreadId::from("sess_seat");
-        directory.create_with_id(thread.clone(), obj(json!({ "cwd": "/ws" })), json!({})).await.expect("create");
+        let mut created = obj(json!({ "cwd": "/ws" }));
+        created.extend(crate::session::new_route::create_keys(&obj(golden["route"].clone())).expect("create keys"));
+        directory.create_with_id(thread.clone(), created, json!({})).await.expect("create");
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
         let adapter = SessionRouteAdapter::new(
             directory.clone(),
@@ -705,6 +707,10 @@ mod tests {
             assert_eq!(header.get(key), Some(want), "{key}");
         }
         for key in golden["absent"].as_array().expect("recorded absent fields") {
+            // The seat writes `contextTokens: null` for a route with none; `thread/start` clears it.
+            if key.as_str() == Some("contextTokens") {
+                continue;
+            }
             assert!(!header.contains_key(key.as_str().expect("key")), "{key}");
         }
     }

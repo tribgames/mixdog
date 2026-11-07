@@ -962,9 +962,9 @@ async fn a_started_thread_adopts_its_route_before_its_tools_and_seats_it_once_cr
     struct Route(Steps);
     #[async_trait::async_trait]
     impl super::NewThreadRoute for Route {
-        async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<(), String> {
+        async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
             lock(&self.0).push(json!(["adopt", thread, draft]));
-            Ok(())
+            Ok(json!({ "provider": "custom-harness", "model": "harness-model", "preset": { "name": "Lead" } }).as_object().cloned().expect("route"))
         }
         async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
             lock(&self.0).push(json!(["seat", thread]));
@@ -976,7 +976,10 @@ async fn a_started_thread_adopts_its_route_before_its_tools_and_seats_it_once_cr
     impl super::NewThreadTools for Tools {
         async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
             lock(&self.0).push(json!(["seed", thread]));
-            Ok(header.clone())
+            // The seat writes `contextTokens: null` for a route with none; a created record omits it.
+            let mut seeded = header.clone();
+            seeded.insert("contextTokens".into(), Value::Null);
+            Ok(seeded)
         }
     }
     let rig = Rig::new();
@@ -993,6 +996,9 @@ async fn a_started_thread_adopts_its_route_before_its_tools_and_seats_it_once_cr
     let first = started(directory.request(request("thread/start", json!({ "opId": "op-draft", "kind": "task", "draft": draft }), "op-draft")).await.expect("thread/start"));
     let pick = json!({ "provider": "custom-harness", "model": "harness-model", "fast": false });
     assert_eq!(*lock(&steps), [json!(["adopt", first, pick]), json!(["seed", first]), json!(["seat", first])]);
+    let header = directory.handle(&first).expect("loaded").cell.header.load_full();
+    assert_eq!((header["presetName"].clone(), header["codexWireSessionId"].clone(), header["contextPercent"].clone()), (json!("Lead"), Value::Null, Value::Null));
+    assert!(!header.contains_key("contextTokens"), "a record without a window omits contextTokens");
     lock(&steps).clear();
     let second = started(directory.request(request("thread/start", json!({ "opId": "op-plain", "kind": "task" }), "op-plain")).await.expect("thread/start"));
     assert_eq!(*lock(&steps), [json!(["adopt", second, Value::Null]), json!(["seed", second]), json!(["seat", second])]);

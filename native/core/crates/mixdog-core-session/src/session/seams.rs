@@ -479,8 +479,10 @@ pub trait NewThreadTools: Send + Sync + 'static {
 #[async_trait::async_trait]
 pub trait NewThreadRoute: Send + Sync + 'static {
     /// Makes `draft` (else the default route) the live route of `thread`, which does not exist yet.
-    /// Fails with the text of the refusal; the thread is then not created.
-    async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<(), String>;
+    /// Answers the live route the thread then has (the record's create-only route keys are made
+    /// from it, `new_route::create_keys`). Fails with the text of the refusal; the thread is then
+    /// not created.
+    async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String>;
 
     /// The created, still empty `thread` takes its live route onto its header.
     async fn seat(&self, thread: &ThreadId) -> Result<(), String>;
