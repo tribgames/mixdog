@@ -8,7 +8,7 @@
 //!   a `kind` of `tool{threadId,toolCallId}`, `terminalTab{tabId}`, `lsp{root,lang}`,
 //!   `internal`; the same kinds as a single-key object work too.
 //! - `terminal/ensure` options `{profile?, cwd?, cols?, rows?}`; result `{id, replay,
-//!   sizeOwner}` and `terminal/attach` result `{id, hasReplay, sizeOwner}`, where `sizeOwner` is
+//!   sizeOwner}` and `terminal/attach` result `{id, replay, sizeOwner}` (a tab that is not running answers `null`), where `sizeOwner` is
 //!   `{cols, rows, own}` for the calling connection, or `null`.
 //! - Section `terminalActivity`: `{<tabId>: "idle"|"running"|"finished"}` (an unknown state is
 //!   absent). Section `terminalTabs`: `[{id, shell, running, cwd, sizeOwner:{cols,rows,owner}}]`.

@@ -151,7 +151,7 @@ async fn terminal_size_is_owned_by_the_focusing_connection_and_output_can_pause(
     };
     assert_eq!(attach(1).await, Value::Null, "nobody has focused yet");
 
-    service.call(request("terminal/focus", json!({ "tabId": id }), 1)).await.unwrap();
+    service.call(request("terminal/focus", json!({ "tabId": id, "focused": true }), 1)).await.unwrap();
     assert_eq!(attach(1).await["own"], json!(true));
     assert_eq!(attach(2).await["own"], json!(false));
 
@@ -172,6 +172,43 @@ async fn terminal_size_is_owned_by_the_focusing_connection_and_output_can_pause(
         assert!(matches!(reply, Reply::Value(ref v) if v == &json!({})), "{method} answers with an empty result");
     }
     service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_running() {
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let service = TerminalService::new(manager, feeds, Arc::new(MockStatePublisher::default()), TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    // No tab id: the core spawns a new terminal and answers the id it generated.
+    let ensure = |connection: u64| request("terminal/ensure", json!({ "options": { "cwd": cwd } }), connection);
+    let Reply::Value(first) = service.call(ensure(1)).await.unwrap() else {
+        panic!("terminal/ensure answers with a value");
+    };
+    let Reply::Value(second) = service.call(ensure(1)).await.unwrap() else {
+        panic!("terminal/ensure answers with a value");
+    };
+    let (first, second) = (first["id"].as_str().unwrap().to_owned(), second["id"].as_str().unwrap().to_owned());
+    assert_ne!(first, second, "each ensure without an id is a new terminal");
+
+    // attach to a running tab answers Node's `{id, replay, sizeOwner}`.
+    let Reply::Subscribe(sub) = service.call(request("terminal/attach", json!({ "tabId": first }), 1)).await.unwrap() else {
+        panic!("terminal/attach answers with a subscription");
+    };
+    assert_eq!(sub.result["id"], json!(first));
+    assert!(sub.result["replay"].is_string());
+
+    // Leaving a tab (`focused: false`) does not give the size up.
+    service.call(request("terminal/focus", json!({ "tabId": first, "focused": true }), 1)).await.unwrap();
+    service.call(request("terminal/focus", json!({ "tabId": first, "focused": false }), 1)).await.unwrap();
+    assert_eq!(service.tabs().size_owner(&first).map(|o| o.owner), Some("1".to_owned()));
+
+    // A tab that is not running is Node's `null`, and nothing is spawned.
+    let Reply::Value(none) = service.call(request("terminal/attach", json!({ "tabId": "term_never" }), 1)).await.unwrap() else {
+        panic!("an unknown tab answers with a value");
+    };
+    assert_eq!(none, Value::Null);
+    service.tabs().dispose_all();
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -4208,10 +4208,14 @@ pub struct ProjectFsSearchTextParams {
 /// Params of `projectFs/replaceText`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ProjectFsReplaceTextParams {
     pub op_id: OpId,
     pub root: String,
     pub options: JsonValue,
+    pub replacement: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel_paths: Option<Vec<String>>,
 }
 
 impl crate::common::HasOpId for ProjectFsReplaceTextParams {
@@ -4223,10 +4227,15 @@ impl crate::common::HasOpId for ProjectFsReplaceTextParams {
 /// Params of `projectFs/recovery`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ProjectFsRecoveryParams {
     pub op_id: OpId,
     pub root: String,
     pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
 }
 
 impl crate::common::HasOpId for ProjectFsRecoveryParams {
@@ -4542,8 +4551,13 @@ impl crate::common::HasOpId for DocumentInstallLibreOfficeParams {
 /// Params of `git/status`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct GitStatusParams {
     pub cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reuse_line_stats: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_line_stats: Option<bool>,
 }
 
 /// Params of `git/branches`.
@@ -5213,6 +5227,7 @@ impl crate::common::HasOpId for GithubInstallParams {
 #[serde(rename_all = "camelCase")]
 pub struct GithubRequestParams {
     pub op_id: OpId,
+    pub cwd: String,
     pub input: JsonValue,
 }
 
@@ -5346,9 +5361,11 @@ pub struct ProcessWriteStdinParams {
 /// Params of `terminal/ensure`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TerminalEnsureParams {
     pub op_id: OpId,
-    pub tab_id: TerminalTabId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<TerminalTabId>,
     pub options: JsonValue,
 }
 
@@ -5378,6 +5395,7 @@ pub struct TerminalProfilesParams {}
 #[serde(rename_all = "camelCase")]
 pub struct TerminalFocusParams {
     pub tab_id: TerminalTabId,
+    pub focused: bool,
 }
 
 /// Params of `terminal/pause`.
@@ -5479,7 +5497,8 @@ impl crate::common::HasOpId for RemoteAccessRotateParams {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessResolveClaimParams {
     pub op_id: OpId,
-    pub input: JsonValue,
+    pub claim_id: String,
+    pub approve: bool,
 }
 
 impl crate::common::HasOpId for RemoteAccessResolveClaimParams {
@@ -5493,6 +5512,7 @@ impl crate::common::HasOpId for RemoteAccessResolveClaimParams {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessPairCodeParams {
     pub op_id: OpId,
+    pub action: String,
 }
 
 impl crate::common::HasOpId for RemoteAccessPairCodeParams {

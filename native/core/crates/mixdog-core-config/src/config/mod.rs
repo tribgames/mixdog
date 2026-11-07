@@ -563,6 +563,9 @@ impl Shared {
                 set_in(doc, &["desktop", &marker], Value::Bool(true));
             }
         }
+        if path == "agent.compaction.auto" {
+            retire_legacy_compaction(doc);
+        }
         if remove || key.default.as_ref() == Some(&edit.value) {
             remove_in(doc, &parts);
         } else {
@@ -572,8 +575,57 @@ impl Shared {
     }
 }
 
-/// `desktop.activityRailPins`: the revision is assigned inside the write transaction; the
-/// default list is never stored, the revision alone keeps ordering.
+/// `DesktopSettingsStore.update('autoCompact')`: before `auto` is stored, the retired compaction
+/// keys go and their canonical successors take their values (`summaryModel` from `semanticModel`,
+/// `memoryTimeoutMs` from `recallMemoryTimeoutMs`), so a legacy value cannot override `auto`.
+fn retire_legacy_compaction(doc: &mut Doc) {
+    const RETIRED: [&str; 17] = [
+        "enabled",
+        "type",
+        "compactType",
+        "compact_type",
+        "semantic",
+        "semanticModel",
+        "prune",
+        "tailTurns",
+        "recallMemoryTimeoutMs",
+        "recallIngestLimit",
+        "recallChunkLimit",
+        "recallLimit",
+        "recallCycle1BatchSize",
+        "recallRowsPerSession",
+        "recallWindowSize",
+        "recallConcurrency",
+        "recallCycle1DeadlineMs",
+    ];
+    // JavaScript truthiness of a stored value.
+    let set = |value: Option<&Value>| match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
+        Some(_) => true,
+    };
+    let Some(compaction) = doc
+        .get_mut("agent")
+        .and_then(Value::as_object_mut)
+        .and_then(|agent| agent.get_mut("compaction"))
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    for (canonical, retired) in [("summaryModel", "semanticModel"), ("memoryTimeoutMs", "recallMemoryTimeoutMs")] {
+        if !set(compaction.get(canonical)) && set(compaction.get(retired)) {
+            let carried = compaction[retired].clone();
+            compaction.insert(canonical.to_owned(), carried);
+        }
+    }
+    for key in RETIRED {
+        compaction.shift_remove(key);
+    }
+}
+
+/// `desktop.activityRailPins`: the revision is assigned inside the write transaction; the/// default list is never stored, the revision alone keeps ordering.
 fn write_pins(
     doc: &mut Doc,
     value: &Value,

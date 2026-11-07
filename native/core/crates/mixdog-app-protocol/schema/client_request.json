@@ -3706,6 +3706,18 @@
       "properties": {
         "cwd": {
           "type": "string"
+        },
+        "reuseLineStats": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "skipLineStats": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -3993,12 +4005,16 @@
     "GithubRequestParams": {
       "description": "Params of `github/request`.",
       "properties": {
+        "cwd": {
+          "type": "string"
+        },
         "input": true,
         "opId": {
           "type": "string"
         }
       },
       "required": [
+        "cwd",
         "input",
         "opId"
       ],
@@ -6424,8 +6440,20 @@
         "action": {
           "type": "string"
         },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
+        },
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "root": {
           "type": "string"
@@ -6469,6 +6497,18 @@
           "type": "string"
         },
         "options": true,
+        "relPaths": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "replacement": {
+          "type": "string"
+        },
         "root": {
           "type": "string"
         }
@@ -6476,6 +6516,7 @@
       "required": [
         "opId",
         "options",
+        "replacement",
         "root"
       ],
       "type": "object"
@@ -8062,11 +8103,15 @@
     "RemoteAccessPairCodeParams": {
       "description": "Params of `remoteAccess/pairCode`.",
       "properties": {
+        "action": {
+          "type": "string"
+        },
         "opId": {
           "type": "string"
         }
       },
       "required": [
+        "action",
         "opId"
       ],
       "type": "object"
@@ -8140,13 +8185,19 @@
     "RemoteAccessResolveClaimParams": {
       "description": "Params of `remoteAccess/resolveClaim`.",
       "properties": {
-        "input": true,
+        "approve": {
+          "type": "boolean"
+        },
+        "claimId": {
+          "type": "string"
+        },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "input",
+        "approve",
+        "claimId",
         "opId"
       ],
       "type": "object"
@@ -8898,24 +8949,30 @@
         },
         "options": true,
         "tabId": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "opId",
-        "options",
-        "tabId"
+        "options"
       ],
       "type": "object"
     },
     "TerminalFocusParams": {
       "description": "Params of `terminal/focus`.",
       "properties": {
+        "focused": {
+          "type": "boolean"
+        },
         "tabId": {
           "type": "string"
         }
       },
       "required": [
+        "focused",
         "tabId"
       ],
       "type": "object"

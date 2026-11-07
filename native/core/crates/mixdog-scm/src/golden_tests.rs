@@ -1588,3 +1588,28 @@ async fn a_second_taken_folder_fails_the_creation_and_rolls_the_second_name_back
 async fn a_branch_asked_for_by_name_is_not_retried() {
     assert_eq!(taken_folder_outcome(1, Some("feature/login")).await, add_retry_golden()["exactBranch"]);
 }
+
+#[tokio::test]
+async fn a_repository_review_names_the_default_branch_it_diffs_against() {
+    let (_guard, repo, _head) = fixture_repo();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "clean"]);
+    let scm = scm();
+    let (name, point) = crate::inspect::review::repo_base(&scm.git, &CancellationToken::new(), &repo, "branch").await.unwrap();
+    assert_eq!(name, "main");
+    assert_eq!(point.0, git(&repo, &["rev-parse", "HEAD"]));
+    let (uncommitted, _) = crate::inspect::review::repo_base(&scm.git, &CancellationToken::new(), &repo, "uncommitted").await.unwrap();
+    assert_eq!(uncommitted, "HEAD");
+}
+#[tokio::test]
+async fn a_status_that_skips_line_stats_has_no_counts_and_leaves_the_counted_scan_alone() {
+    let (_guard, repo, _head) = fixture_repo();
+    let scm = scm();
+    let cancel = CancellationToken::new();
+    let skipped = scm.git_status_counting(&repo, &cancel, false).await.unwrap();
+    let files = skipped["files"].as_array().unwrap();
+    assert!(!files.is_empty());
+    assert!(files.iter().all(|file| file["additions"] == 0 && file["deletions"] == 0));
+    let counted = scm.git_status_counting(&repo, &cancel, true).await.unwrap();
+    assert!(counted["files"].as_array().unwrap().iter().any(|file| file["additions"].as_u64().unwrap_or(0) > 0));
+}

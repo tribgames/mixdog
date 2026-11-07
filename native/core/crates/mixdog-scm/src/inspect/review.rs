@@ -140,16 +140,17 @@ fn split_patches(diff: &str, paths: &[&str]) -> HashMap<String, String> {
 /// The commit a repository review diffs against: HEAD for uncommitted work, the merge-base with
 /// the default branch for the branch view (origin's HEAD, else `origin/main`, `origin/master`,
 /// `main`, `master`; HEAD when none exists). An unborn HEAD is diffed against the empty tree.
+/// The name is the review's `base` as the pane shows it: the default branch, else `HEAD`.
 pub async fn repo_base(
     git: &Git,
     cancel: &CancellationToken,
     root: &std::path::Path,
     source: &str,
-) -> Result<ObjectId, ScmFailure> {
+) -> Result<(String, ObjectId), ScmFailure> {
     use crate::inspect::history::empty_tree;
     use crate::inspect::history::has_head;
     if !has_head(git, cancel, root).await? {
-        return Ok(ObjectId(empty_tree(git, cancel, root).await?));
+        return Ok(("HEAD".to_owned(), ObjectId(empty_tree(git, cancel, root).await?)));
     }
     let resolve = |rev: String| async move {
         let output = git
@@ -158,7 +159,7 @@ pub async fn repo_base(
         Ok::<_, ScmFailure>(output.success().then(|| output.stdout_text().trim().to_owned()))
     };
     if source == "uncommitted" {
-        return Ok(ObjectId(resolve("HEAD^{commit}".into()).await?.unwrap_or_default()));
+        return Ok(("HEAD".to_owned(), ObjectId(resolve("HEAD^{commit}".into()).await?.unwrap_or_default())));
     }
     let origin_head = git
         .outcome(
@@ -187,13 +188,14 @@ pub async fn repo_base(
     }
     let head = resolve("HEAD^{commit}".into()).await?.unwrap_or_default();
     let Some(base) = base else {
-        return Ok(ObjectId(head));
+        return Ok(("HEAD".to_owned(), ObjectId(head)));
     };
     let merged = git
         .outcome(cancel, root, &["--no-optional-locks", "merge-base", &base, "HEAD"], &RunOptions::read())
         .await?;
     let found = merged.stdout_text().trim().to_owned();
-    Ok(ObjectId(if merged.success() && !found.is_empty() { found } else { head }))
+    let point = if merged.success() && !found.is_empty() { found } else { head };
+    Ok((base, ObjectId(point)))
 }
 
 /// The tree of the work tree as it is now, untracked files included and ignored ones left out,

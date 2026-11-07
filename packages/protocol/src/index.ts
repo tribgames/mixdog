@@ -1221,7 +1221,7 @@ export type GitStashPopParams = { opId: OpId, cwd: string, };
 /**
  * Params of `git/status`.
  */
-export type GitStatusParams = { cwd: string, };
+export type GitStatusParams = { cwd: string, reuseLineStats?: boolean, skipLineStats?: boolean, };
 
 /**
  * Params of `git/sync`.
@@ -1321,7 +1321,7 @@ export type GithubPrViewParams = { cwd: string, value: JsonValue, };
 /**
  * Params of `github/request`.
  */
-export type GithubRequestParams = { opId: OpId, input: JsonValue, };
+export type GithubRequestParams = { opId: OpId, cwd: string, input: JsonValue, };
 
 /**
  * Params of `github/star`.
@@ -2590,7 +2590,7 @@ export type ProjectFsReadTextParams = { root: string, rel: string, };
 /**
  * Params of `projectFs/recovery`.
  */
-export type ProjectFsRecoveryParams = { opId: OpId, root: string, action: string, };
+export type ProjectFsRecoveryParams = { opId: OpId, root: string, action: string, id?: string, revision?: string, };
 
 /**
  * Params of `projectFs/rename`.
@@ -2600,7 +2600,7 @@ export type ProjectFsRenameParams = { opId: OpId, root: string, rel: string, new
 /**
  * Params of `projectFs/replaceText`.
  */
-export type ProjectFsReplaceTextParams = { opId: OpId, root: string, options: JsonValue, };
+export type ProjectFsReplaceTextParams = { opId: OpId, root: string, options: JsonValue, replacement: string, relPaths?: Array<string>, };
 
 /**
  * Params of `projectFs/searchText`.
@@ -3022,7 +3022,7 @@ export type RemoteAccessDeliverScreenControllerKeyParams = { opId: OpId, input: 
 /**
  * Params of `remoteAccess/pairCode`.
  */
-export type RemoteAccessPairCodeParams = { opId: OpId, };
+export type RemoteAccessPairCodeParams = { opId: OpId, action: string, };
 
 /**
  * Params of `remoteAccess/pushPublicKey`.
@@ -3052,7 +3052,7 @@ export type RemoteAccessRemovePushSubscriptionParams = { opId: OpId, endpoint: s
 /**
  * Params of `remoteAccess/resolveClaim`.
  */
-export type RemoteAccessResolveClaimParams = { opId: OpId, input: JsonValue, };
+export type RemoteAccessResolveClaimParams = { opId: OpId, claimId: string, approve: boolean, };
 
 /**
  * Params of `remoteAccess/revokeClient`.
@@ -3436,12 +3436,12 @@ export type TerminalDisposeParams = { opId: OpId, tabId: TerminalTabId, };
 /**
  * Params of `terminal/ensure`.
  */
-export type TerminalEnsureParams = { opId: OpId, tabId: TerminalTabId, options: JsonValue, };
+export type TerminalEnsureParams = { opId: OpId, tabId?: TerminalTabId, options: JsonValue, };
 
 /**
  * Params of `terminal/focus`.
  */
-export type TerminalFocusParams = { tabId: TerminalTabId, };
+export type TerminalFocusParams = { tabId: TerminalTabId, focused: boolean, };
 
 export type TerminalInputParams = { tabId: TerminalTabId, data: string, };
 
@@ -5000,7 +5000,7 @@ export type ClientMethods = {
   "transfer/beginWrite": { params: TransferBeginWriteParams; result: JsonValue };
   "transfer/writeChunk": { params: TransferWriteChunkParams; result: EmptyResult };
   "transfer/commit": { params: TransferCommitParams; result: JsonValue };
-  "transfer/abort": { params: TransferAbortParams; result: EmptyResult };
+  "transfer/abort": { params: TransferAbortParams; result: JsonValue };
   "transfer/trash/info": { params: TransferTrashInfoParams; result: JsonValue };
   "transfer/trash/entry": { params: TransferTrashEntryParams; result: JsonValue };
   "lsp/subscribe": { params: LspSubscribeParams; result: Subscription };
@@ -5076,7 +5076,7 @@ export type ClientMethods = {
   "process/resizePty": { params: ProcessResizePtyParams; result: EmptyResult };
   "process/writeStdin": { params: ProcessWriteStdinParams; result: EmptyResult };
   "terminal/ensure": { params: TerminalEnsureParams; result: JsonValue };
-  "terminal/attach": { params: TerminalAttachParams; result: Subscription };
+  "terminal/attach": { params: TerminalAttachParams; result: JsonValue };
   "terminal/profiles": { params: TerminalProfilesParams; result: JsonValue };
   "terminal/focus": { params: TerminalFocusParams; result: EmptyResult };
   "terminal/pause": { params: TerminalPauseParams; result: EmptyResult };
@@ -13013,7 +13013,7 @@ export const methodTable = {
         "relay"
       ],
       "params": "FsWatchParams",
-      "result": "v2::feed::Subscription",
+      "result": "JsonValue",
       "scope": {
         "field": "watchId",
         "kind": "fsWatch"
@@ -13257,7 +13257,7 @@ export const methodTable = {
         "ssh"
       ],
       "params": "TransferAbortParams",
-      "result": "v2::feed::EmptyResult",
+      "result": "JsonValue",
       "scope": {
         "kind": "none"
       }

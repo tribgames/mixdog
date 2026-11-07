@@ -50,7 +50,6 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use crate::desktop::home_dir;
 use crate::engine::Scm;
 use crate::error::GITHUB_DOMAIN;
 use crate::error::ScmFailure;
@@ -339,23 +338,27 @@ impl ScmService {
     }
 
     async fn review_get(self: &Arc<Self>, params: ReviewDiffGetParams, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        let (root, base) = match params.scope {
+        // A repository review (`scope: repo`) answers in the pane's own shapes, by request form;
+        // `base_name` is set for it alone.
+        let (root, base, base_name) = match params.scope {
             WireReviewScope::Repo => {
                 let dir = cwd(params.cwd.as_deref().unwrap_or(""))?;
                 let repo = self.scm.open(&dir, cancel).await?;
                 let root = repo.root()?.to_path_buf();
-                let base = review::repo_base(&self.scm.git, cancel, &root, params.source.as_deref().unwrap_or("branch")).await?;
-                (root, base)
+                let (name, base) = review::repo_base(&self.scm.git, cancel, &root, params.source.as_deref().unwrap_or("branch")).await?;
+                (root, base, Some(name))
             }
             scope => {
                 let thread = params
                     .thread_id
                     .clone()
                     .ok_or_else(|| ScmFailure::invalid("threadId", "a thread id"))?;
-                self.bases
+                let (root, base) = self
+                    .bases
                     .base(&thread, scope, params.checkpoint_id.as_deref())
                     .await
-                    .ok_or_else(|| ScmFailure::refused("REVIEW_UNAVAILABLE", "This review has no recorded starting point."))?
+                    .ok_or_else(|| ScmFailure::refused("REVIEW_UNAVAILABLE", "This review has no recorded starting point."))?;
+                (root, base, None)
             }
         };
         let repo = self.scm.open(&root, cancel).await?;
@@ -411,6 +414,27 @@ impl ScmService {
                 }
             }
         }
+        if let Some(name) = base_name {
+            // `gitReviewDiffs`: `{patches, omitted}`.
+            if params.files.is_some() {
+                let mut shaped = json!({ "patches": out["patches"], "omitted": [] });
+                if let Some(pending) = out.get("pending") {
+                    shaped["pending"] = pending.clone();
+                }
+                return Ok(shaped);
+            }
+            // `gitReviewDiff`: the patch text itself.
+            if params.path.is_some() {
+                return Ok(match out.get("patch") {
+                    Some(patch) => patch.clone(),
+                    None => json!({ "pending": out["pending"] }),
+                });
+            }
+            // `gitReview`: the rows with the repository and its base branch.
+            out["repository"] = json!(true);
+            out["root"] = json!(root.to_string_lossy());
+            out["base"] = json!(name);
+        }
         Ok(out)
     }
 
@@ -451,17 +475,12 @@ impl ScmService {
         Ok(())
     }
 
-    async fn github_request(self: &Arc<Self>, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+    async fn github_request(self: &Arc<Self>, project: &str, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         if !self.gate.github_enabled().await {
             return Err(ScmFailure::Refused { domain: GITHUB_DOMAIN, code: "FEATURE_DISABLED", message: GATE_OFF.into() });
         }
-        let mut input = input.clone();
-        // The project directory travels beside the request; the allowlist never sees it.
-        let dir = match input.as_object_mut().and_then(|map| map.shift_remove("cwd")) {
-            Some(Value::String(dir)) => cwd(&dir)?,
-            _ => home_dir(),
-        };
-        self.scm.github.execute(&input, &dir, cancel).await
+        // The repository the request runs in; the allowlist never sees it.
+        self.scm.github.execute(input, &cwd(project)?, cancel).await
     }
 
     async fn handle(self: &Arc<Self>, req: &CoreRequest) -> Result<Reply, CoreError> {
@@ -474,7 +493,7 @@ impl ScmService {
             };
         }
         let value: Value = match method {
-            "git/status" => { let p: p::GitStatusParams = decode(req)?; scm.git_status(&cwd(&p.cwd)?, cancel).await? }
+            "git/status" => { let p: p::GitStatusParams = decode(req)?; scm.git_status_counting(&cwd(&p.cwd)?, cancel, p.skip_line_stats != Some(true)).await? }
             "git/branches" => { let p: p::GitBranchesParams = decode(req)?; scm.git_branches(&cwd(&p.cwd)?, cancel).await? }
             "git/log" => { let p: p::GitLogParams = decode(req)?; scm.git_log(&cwd(&p.cwd)?, cancel, p.query.as_deref().unwrap_or(""), p.skip.unwrap_or(0), p.limit.unwrap_or(40)).await? }
             "git/show" => { let p: p::GitShowParams = decode(req)?; scm.git_show(&cwd(&p.cwd)?, cancel, &p.hash).await? }
@@ -543,7 +562,7 @@ impl ScmService {
             }
             "github/logout" => scm.gh_logout(cancel).await?,
             "github/install" => scm.gh_install(cancel).await?,
-            "github/request" => { let p: p::GithubRequestParams = decode(req)?; self.github_request(&p.input, cancel).await? }
+            "github/request" => { let p: p::GithubRequestParams = decode(req)?; self.github_request(&p.cwd, &p.input, cancel).await? }
             "github/starStatus" => scm.gh_star_status(cancel).await?,
             "github/star" => scm.gh_star(cancel).await?,
             "github/pr/list" => { let p: p::GithubPrListParams = decode(req)?; scm.gh_pr_list(&cwd(&p.cwd)?, cancel).await? }
