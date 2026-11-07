@@ -17,7 +17,9 @@ pub const CANCEL_DRAIN_PATH: &str = "/mgmt/cancelDrain";
 pub const RELEASE_PATH: &str = "/mgmt/release";
 pub const TERMINATE_PATH: &str = "/mgmt/terminate";
 
-/// Why a stop was asked for. The reason changes the text a user sees, never the behaviour;
+/// Why a stop was asked for. The reason changes the text a user sees, and for one reason the behaviour:
+/// a `whenIdle` stop for `Quit` is put off while any client is attached (Node's `POST /shutdown`, `daemon.mjs:506-529`) and the
+/// core then stops when the last client leaves; every other reason drains at once and waits only for running work.
 /// `NoClients` is the core's own trigger and is refused on the management path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

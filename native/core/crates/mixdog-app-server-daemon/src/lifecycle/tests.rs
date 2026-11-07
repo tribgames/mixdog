@@ -180,11 +180,54 @@ fn a_stop_request_waits_for_zero_clients_as_node_s_shutdown_does() {
             // The last client leaving then stops it, with the text of the same registry (`daemon.mjs:1245`).
             drop(clients);
         } else {
+            // Work running when the request comes (the recorded turn): the stop waits for it and reads what settled.
+            let work = case["running"].is_string().then(|| fx.lifecycle.begin_activity(turn()));
             fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+            assert_eq!(!fx.recorder.has_exited(), case["aliveWhileRunning"].as_bool().unwrap_or(false), "{name}");
+            drop(work);
         }
         fx.recorder.wait_exit();
-        assert_eq!(release_reason(&fx.recorder.events()), [reason_of(case["log"][0].as_str().unwrap())], "{name}");
+        // The stop Node ended with: its `shutting down (..)` line, else (a request that was put off) the deferral's registry.
+        let ended = case["log"].as_array().unwrap().iter().filter_map(|l| l.as_str()).rfind(|l| l.starts_with("shutting down")).unwrap_or_else(|| case["log"][0].as_str().unwrap());
+        assert_eq!(release_reason(&fx.recorder.events()), [reason_of(ended)], "{name}");
     }
+}
+
+/// A `Quit` request held back by a service call in flight reads 'service calls settled' (`daemon.mjs:543`, `drainDeferral` ->
+/// 'calls'), the one recheck text that no recording could drive (no call stays in flight from outside); the order of the two kinds
+/// follows Node's recheck chain: the kind that ends last names the stop.
+#[test]
+fn a_stop_held_back_by_calls_or_work_reads_the_one_that_settled_last() {
+    for (calls_first, text) in [(true, "busy service work settled"), (false, "service calls settled")] {
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let call = fx.lifecycle.begin_call();
+        let work = fx.lifecycle.begin_activity(turn());
+        fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        if calls_first {
+            drop(call);
+            assert!(!fx.recorder.has_exited(), "the work still holds it");
+            drop(work);
+        } else {
+            drop(work);
+            assert!(!fx.recorder.has_exited(), "the call still holds it");
+            drop(call);
+        }
+        fx.recorder.wait_exit();
+        assert_eq!(release_reason(&fx.recorder.events()), [text]);
+    }
+}
+
+#[test]
+fn a_signal_s_name_wins_over_the_recheck_text() {
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let work = fx.lifecycle.begin_activity(turn());
+    fx.lifecycle.note_trigger("SIGTERM");
+    fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+    drop(work);
+    fx.recorder.wait_exit();
+    assert_eq!(release_reason(&fx.recorder.events()), ["SIGTERM"]);
 }
 
 #[test]

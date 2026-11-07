@@ -2,20 +2,34 @@
   "cases": [
     {
       "name": "a session client is attached",
-      "clients": 1,
       "request": "POST /shutdown",
       "aliveAfter": true,
+      "clients": 1,
       "log": [
         "shutdown deferred (no live session clients): channels=0 sessionClients=1 remote=0"
       ]
     },
     {
       "name": "no client is attached",
-      "clients": 0,
       "request": "POST /shutdown",
       "aliveAfter": false,
+      "clients": 0,
       "log": [
         "shutting down (no live session clients)"
+      ]
+    },
+    {
+      "name": "a turn is running and no client is attached",
+      "request": "POST /shutdown",
+      "running": "a turn",
+      "aliveWhileRunning": true,
+      "aliveAfter": false,
+      "clients": 0,
+      "log": [
+        "shutdown deferred (no live session clients): busySessions=1 memoryAgents=0",
+        "shutdown deferred (busy service work settled): busySessions=1 memoryAgents=0",
+        "shutdown deferred (no live session clients): busySessions=1 memoryAgents=0",
+        "shutting down (busy service work settled)"
       ]
     }
   ]

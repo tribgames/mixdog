@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 482,
+      "bytes": 1033,
       "path": "twin.json",
-      "sha256": "802d081f22973234d187260be25586247f9dac82a61c72e93236237a6e61e440"
+      "sha256": "1e94c1571c7335de7417f6de7a430b459d1b57675406016b20560fdb60459c7f"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-self-shutdown-deferral.mjs",
   "set": "self-shutdown-deferral",
-  "totalBytes": 482
+  "totalBytes": 1033
 }
