@@ -385,6 +385,15 @@ const TOKENS = {
   '<TESTDATA>': fwdOf(process.env.MIXDOG_DATA_DIR),
   '<TESTROOT>': fwdOf(process.env.MIXDOG_ROOT),
   '<TESTRUNTIME>': fwdOf(process.env.MIXDOG_RUNTIME_ROOT), '<WSPOSIX>': `/${drive}${wsText.slice(2)}`, '<WSCYG>': `/cygdrive/${drive}${wsText.slice(2)}`, '<WSMNT>': `/mnt/${drive}${wsText.slice(2)}` };
+// The reverse of `withTokens`, in one pass over the longest value first: `/cygdrive/c/x` and `/mnt/c/x`
+// hold `/c/x`, so a value matched on its own would nest a token inside another's spelling.
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const tokenize = (s, encode) => {
+  const byValue = new Map(Object.entries(TOKENS).map(([k, v]) => [encode(v), k]));
+  const longestFirst = [...byValue.keys()].sort((a, b) => b.length - a.length);
+  return s.replace(new RegExp(longestFirst.map(escapeRe).join('|'), 'g'), (m) => byValue.get(m));
+};
+const jsonText = (v) => JSON.stringify(v).slice(1, -1);
 const withTokens = (input) => JSON.parse(Object.entries(TOKENS).reduce((s, [k, v]) => s.split(k).join(JSON.stringify(v).slice(1, -1)), JSON.stringify(input)));
 const recorded = [];
 for (const [name, input] of Object.entries(CASES)) {
@@ -393,7 +402,7 @@ for (const [name, input] of Object.entries(CASES)) {
   const guard = refusal
     ? { error: scrub(refusal) }
     : {
-        args: JSON.parse(Object.entries(TOKENS).reduce((s, [k, v]) => s.split(JSON.stringify(v).slice(1, -1)).join(k), JSON.stringify(probe))),
+        args: JSON.parse(tokenize(JSON.stringify(probe), jsonText)),
         limitDefaulted: Object.getOwnPropertyDescriptor(probe, '_readLimitDefaulted')?.value === true,
       };
   const raw = await executeBuiltinTool('read', withTokens(input), ws, {});
@@ -418,7 +427,7 @@ const MESSAGES = [
   `stat 'relative/path'`,
   `a "C:\\Users\\nobody\\f" and 'D:/other/g'`,
 ];
-const untoken = (s) => Object.entries(TOKENS).reduce((acc, [k, v]) => acc.split(v).join(k), s);
+const untoken = (s) => tokenize(s, (v) => v);
 const messages = [];
 for (const input of MESSAGES) {
   for (const cwd of [undefined, ws]) {

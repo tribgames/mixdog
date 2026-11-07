@@ -4661,7 +4661,7 @@
    "windowsOnly": true,
    "guard": {
     "args": {
-     "path": "/cygdrive<WSPOSIX>/a.txt",
+     "path": "<WSCYG>/a.txt",
      "limit": 500
     },
     "limitDefaulted": true
@@ -4678,7 +4678,7 @@
    "windowsOnly": true,
    "guard": {
     "args": {
-     "path": "/mnt<WSPOSIX>/a.txt",
+     "path": "<WSMNT>/a.txt",
      "limit": 500
     },
     "limitDefaulted": true
