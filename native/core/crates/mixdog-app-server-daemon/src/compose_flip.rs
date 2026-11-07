@@ -1781,6 +1781,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 goals: mixdog_core_goal::goal::quota::GoalQuotaResume::new(quota_store.clone(), early_goals.clone() /* batch-d: `early_rows` returns `Arc<GoalRuntime>` */),
                 auto_resume: auto_resume.clone(),
             };
+            let session_surface = surface_generation.clone();
             let (data_dir, tokens, clock, features, route_change, quota, session_search, catalog_index) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (b.server_requests.clone(), built_remote.registry.clone()), route_change.clone(), quota, session_search.clone(), catalog_index.clone());
             move |runs| mixdog_core_session::session::SessionDeps {
                 store: store_threads,
@@ -1833,7 +1834,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 agent_signals: activity.clone(),
                 warm: Arc::new(mixdog_core::run_host::warm_ports::WarmedTurns::new(warmer.clone())), // flip-channel-router-2: the turn-start warmer note (`ask-session.mjs:198-201,313`); the one `Arc<Warmer>`
                 notices: Arc::new(mixdog_core::run_host::desktop_notices::SessionDesktopNotices(desktop_notices.clone())), // flip-gaps-ai-3
-                surface: surface_generation.clone(),
+                surface: session_surface.clone(),
         builtin_skills: Arc::new(CatalogBuiltinSkills(mcp_catalog.clone())), // turn-failure-4: the built-in skill names of the catalog the pool's Skill tool reads
                 code_graph_prewarm: session_prewarm.clone(), // batch i: the sessions' busy-state, first-visible and cwd events reach the one timer
                 agent_status: late_agent_status.clone(),
