@@ -209,6 +209,23 @@ mod tests {
         std::fs::write(path, bytes).unwrap();
     }
 
+    /// Node reports the selected model (`selectVoiceModelId()`), not the id of the manifest entry
+    /// it names; the entry id is only the name shown while no weight file is installed.
+    #[test]
+    fn the_runtime_reports_the_selected_model_key() {
+        let manifest = RuntimeManifest::from_json(
+            &serde_json::json!({ "version": "1.10.1", "models": { "standard": { "id": "large-v3-turbo-q8_0", "filename": "ggml.bin", "size": 9 } } }),
+            "win32-x64",
+            "standard",
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = resolve_voice_runtime(dir.path(), &manifest);
+        assert_eq!(runtime.model_id, "standard");
+        assert_eq!(VoiceRuntime::absent(&manifest).model_id, "standard");
+        assert_eq!(voice_runtime_info(&runtime, &manifest).model, "large-v3-turbo-q8_0");
+    }
+
     #[test]
     fn empty_data_dir_reports_nothing_installed() {
         let dir = tempfile::tempdir().unwrap();
