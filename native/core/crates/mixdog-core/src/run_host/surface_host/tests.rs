@@ -177,6 +177,13 @@ impl SkillsListed for NoSkills {
     }
 }
 
+/// The bridge exposure's own definitions, Node's `TOOL_BRIDGE_TOOLS` (`load_tool`, `call_tool`) as the session holds
+/// them, with their title. The recorded pool holds `load_tool` as `_getMcpTools` projects it (no title), which is not
+/// what the bridge appends to a session.
+fn node_bridge() -> Vec<Value> {
+    ["load_tool", "call_tool"].iter().map(|name| mixdog_js::fixture_tools::definition(name).expect("a recorded bridge tool")).collect()
+}
+
 struct Bridge(Vec<Value>);
 impl ToolSurfaceHost for Bridge {
     fn bridge_tools(&self) -> Vec<Value> {
@@ -351,7 +358,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
     let standalone = standalone.unwrap_or_else(|| internal_tools(&pool).iter().map(tool_doc).collect());
     let host = LeadSurfaceHost::new(SurfaceSources {
         mode,
-        tool_host: Arc::new(Bridge(bridge_docs(&pool))),
+        tool_host: Arc::new(Bridge(node_bridge())),
         pool,
         agent_tools: HashSet::from(["agent"]),
         mcp: Arc::new(Mcp(mcp)),
@@ -475,7 +482,8 @@ async fn a_just_created_thread_is_not_rebuilt_at_its_first_turn() {
     header.insert("toolSpec".into(), tool_spec_for_mode(mode));
     header.insert("cwd".into(), json!("/work"));
     let seeded = rig.host.seed(&thread, &header).await.expect("seed");
-    assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|".to_owned(), settings: "r1".to_owned() }));
+    // `availabilityKey`: the config revision, the surface generation (the new session moved it to 1) and the gate list.
+    assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|1|".to_owned(), settings: "r1".to_owned() }));
     *rig.threads.header.lock().unwrap() = seeded;
     rig.host.reconcile_empty(&thread).await.expect("first turn");
     assert_eq!(rig.prompts.0.lock().unwrap().len(), 2, "composed at creation and read again at the turn");
@@ -484,7 +492,7 @@ async fn a_just_created_thread_is_not_rebuilt_at_its_first_turn() {
     // A skill, plugin or MCP change moves the surface generation: the next turn rebuilds and is brought to the new key.
     rig.generation.bump();
     rig.host.reconcile_empty(&thread).await.expect("after a change");
-    assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|1|".to_owned(), settings: "r1".to_owned() }));
+    assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|2|".to_owned(), settings: "r1".to_owned() }));
 }
 
 /// `createSession` denies the feature gates as they stand (`disallowedTools: [...callerDisallowedTools,
@@ -1184,7 +1192,7 @@ async fn worker_request(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], case: &Va
     }
     let resume = ResumeTools { pool: pool.to_vec(), mcp: Arc::new(Mcp(mcp.to_vec())), mcp_names: Arc::new(Unshortened), skills: Arc::new(NoSkills), policy: Arc::new(Role(hidden)) };
     let prepared = resume.prepare_tools(&header).await.expect("prepared");
-    let host = Bridge(bridge_docs(pool));
+    let host = Bridge(node_bridge());
     let surface = ToolSurface { host: &host, clock: &Fixed };
     let change = resumed_surface_change(&surface, &Fixed, &header, prepared, hidden);
     for key in &change.unset {
