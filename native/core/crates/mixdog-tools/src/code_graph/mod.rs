@@ -8,6 +8,7 @@ mod graph;
 mod hits;
 mod modes;
 mod outline;
+mod output;
 mod refs;
 mod resolve;
 mod roots;
@@ -16,6 +17,7 @@ mod routing_tests;
 #[cfg(test)]
 mod tests;
 mod util;
+mod workspace;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::tool::Tool;
@@ -66,6 +68,15 @@ pub fn dependency_roots(output: &ToolOutput) -> Option<Vec<String>> {
 
 pub use cache::GraphCache;
 pub use federation::TrustedRoots;
+pub use workspace::WorkspaceCodeGraph;
+
+/// Why a call produced no answer.
+enum Failure {
+    /// The dispatcher refused the call (Node throws an `Error` with this message).
+    Refused(String),
+    /// The lane job did not complete.
+    Lane(mixdog_scm::error::ScmFailure),
+}
 
 pub struct CodeGraphTool {
     spec: ToolSpec,
@@ -102,6 +113,37 @@ impl CodeGraphTool {
         self.cache.schedule_flush(io);
         matches!(built, Ok(Some(_)))
     }
+
+    /// `executeCodeGraphTool(name, args, cwd)`, the one path every surface answers through: the
+    /// agent tool (`Tool::call`) and the workspace `project/codeGraph` adapter.
+    async fn answer(
+        &self,
+        cwd: std::path::PathBuf,
+        args: &JsonValue,
+        io: mixdog_rt::MaintenanceIo,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<dispatch::Answer, Failure> {
+        let parsed = args::Args::parse(args);
+        // Parsing and indexing a project is CPU and disk bound: keep it off the async workers.
+        let snapshot = federation::TrustSnapshot::read(&*self.trust).await;
+        let cache = self.cache.clone();
+        let job_args = parsed.clone();
+        let joined = mixdog_scm::repo::on_lane(io, cancel, move || {
+            let snapshot = snapshot.with_cached(cache.roots());
+            let env = dispatch::Env { trust: &snapshot, cache: &cache, session_cwd: &cwd };
+            dispatch::run(&job_args, &cwd, &env)
+        })
+        .await;
+        self.cache.schedule_flush(io);
+        match joined {
+            Ok(Ok(mut answer)) => {
+                answer.text = output::wrap(answer.text, &answer.warnings, &parsed);
+                Ok(answer)
+            }
+            Ok(Err(message)) => Err(Failure::Refused(message)),
+            Err(failure) => Err(Failure::Lane(failure)),
+        }
+    }
 }
 
 #[async_trait]
@@ -111,20 +153,9 @@ impl Tool for CodeGraphTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let parsed = args::Args::parse(&args);
         let cwd = ctx.cwd.as_path().to_path_buf();
-        // Parsing and indexing a project is CPU and disk bound: keep it off the async workers.
-        let snapshot = federation::TrustSnapshot::read(&*self.trust).await;
-        let cache = self.cache.clone();
-        let joined = mixdog_scm::repo::on_lane(ctx.io.maintenance, &ctx.cancel, move || {
-            let snapshot = snapshot.with_cached(cache.roots());
-            let env = dispatch::Env { trust: &snapshot, cache: &cache, session_cwd: &cwd };
-            dispatch::run(&parsed, &cwd, &env)
-        })
-        .await;
-        self.cache.schedule_flush(ctx.io.maintenance);
-        match joined {
-            Ok(Ok(answer)) => {
+        match self.answer(cwd, &args, ctx.io.maintenance, &ctx.cancel).await {
+            Ok(answer) => {
                 let mut output = text_output(answer.text);
                 let complete = answer.complete;
                 output.meta = answer.dependency_roots.map(|roots| {
@@ -133,11 +164,11 @@ impl Tool for CodeGraphTool {
                 });
                 Ok(output)
             }
-            Ok(Err(message)) => Err(invalid_args("code_graph", message)),
-            Err(mixdog_scm::error::ScmFailure::Cancelled) => {
+            Err(Failure::Refused(message)) => Err(invalid_args("code_graph", message)),
+            Err(Failure::Lane(mixdog_scm::error::ScmFailure::Cancelled)) => {
                 Err(ToolError::new(ToolErrorCode::Cancelled, "Error: tool call cancelled"))
             }
-            Err(e) => Err(ToolError::new(
+            Err(Failure::Lane(e)) => Err(ToolError::new(
                 ToolErrorCode::Internal {
                     incident_id: String::new(),
                 },

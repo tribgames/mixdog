@@ -30,7 +30,7 @@ pub enum Verdict {
 }
 
 /// `isResponsesFreeformTool`.
-fn freeform(tool: &Value) -> bool {
+pub(super) fn freeform(tool: &Value) -> bool {
     let Some(grammar) = tool.get("freeform").filter(|f| f.is_object()) else { return false };
     grammar.get("type").and_then(Value::as_str) == Some("grammar") && grammar.get("syntax").is_some_and(Value::is_string) && grammar.get("definition").is_some_and(Value::is_string)
 }

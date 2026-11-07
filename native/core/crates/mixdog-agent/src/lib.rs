@@ -23,6 +23,7 @@ pub mod fork;
 pub mod interrupt;
 pub mod limits;
 pub mod message;
+pub mod native_search;
 mod no_tool;
 pub mod offload;
 pub mod one_shot;

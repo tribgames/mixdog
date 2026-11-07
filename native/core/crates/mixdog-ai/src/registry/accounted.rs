@@ -122,9 +122,13 @@ impl AccountingDeps {
     }
 }
 
-/// `instance.constructor.inputExcludesCache`: Anthropic reports input without its cache reads.
-fn input_excludes_cache(provider: &str) -> bool {
-    matches!(provider, "anthropic" | "anthropic-oauth")
+/// `instance.constructor.inputExcludesCache`, the one source of the usage convention: the adapter
+/// classes that report input without its cache reads and writes (`static inputExcludesCache = true`
+/// in anthropic.mjs, anthropic-oauth.mjs, devin.mjs, vertex-ai.mjs); every other class, custom
+/// providers included, reports input with the cache. The accounting, the context metrics and the
+/// model proxy's advertisement all read this function.
+pub fn input_excludes_cache(provider: &str) -> bool {
+    matches!(provider, "anthropic" | "anthropic-oauth" | "devin-oauth" | "vertex-ai")
 }
 
 /// The accounting of a logical send between its attempts, with the failure of the last one

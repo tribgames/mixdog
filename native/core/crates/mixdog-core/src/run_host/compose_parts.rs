@@ -27,6 +27,8 @@ use mixdog_core_goal::goal::GoalConfig;
 use mixdog_core_goal::goal::GoalEnv;
 use mixdog_core_goal::goal::GoalRuntime;
 use mixdog_core_ports::ports::run_stamps::RunStamps;
+use mixdog_core_ports::ports::threads::HeaderUpdate;
+use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_run::ports::running_work::ProcessWork;
 use mixdog_core_run::run_host::guards::UserCycles;
@@ -420,6 +422,13 @@ impl ThreadState for LateThreads {
 
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {
         self.threads()?.publish(thread, section).await
+    }
+}
+
+#[async_trait]
+impl HeaderUpdates for LateThreads {
+    async fn update_header(&self, thread: &ThreadId, update: HeaderUpdate) -> Result<(), PortError> {
+        self.threads()?.update_header(thread, update).await
     }
 }
 

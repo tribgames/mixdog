@@ -770,23 +770,26 @@ pub trait ProxyEvents: Send + Sync {
 }
 
 /// `quotaUsable`: a forced usage reading per account, decided by
-/// `mixdog_ai::service::quota_usable` (the usage service takes the readings).
+/// `mixdog_ai::service::quota_usable` (the usage service takes the readings). `Err` is a
+/// measurement that failed (Node's rejected `measureProviderQuota`): the call fails with its message.
 #[async_trait]
 pub trait QuotaProbe: Send + Sync {
-    async fn usable(&self, provider: &str, model: &str) -> bool;
+    async fn usable(&self, provider: &str, model: &str) -> Result<bool, String>;
 }
 
-/// `resolveWireRoute`: the PC adapter's wire for a model (its config and roster decide).
+/// `resolveWireRoute`: the PC adapter's wire for a model (its config and roster decide). `None`
+/// for an adapter with a single wire (Node: no `resolveWireRoute` method) or a model no offered wire serves.
 #[async_trait]
 pub trait WireRouter: Send + Sync {
-    async fn route(&self, provider: &str, model: &str, context: w::ProxyRouteContext) -> Option<w::ProxyWireRoute>;
+    async fn route(&self, adapter: &dyn p::ProviderAdapter, model: &str, context: w::ProxyRouteContext) -> Result<Option<w::ProxyWireRoute>, p::ProviderError>;
 }
 
 /// `providerConfig`: the PC's registry as `mixdog_ai::service::model_proxy::public_provider_config`
-/// projects it, and whether the registry is loaded.
+/// projects it, and whether the registry is loaded. `Err` is a registry that could not be loaded
+/// (the call fails with its message).
 #[async_trait]
 pub trait ProviderConfigSource: Send + Sync {
-    async fn public(&self) -> (Vec<(String, w::ProxyProviderInfo)>, bool);
+    async fn public(&self) -> Result<(Vec<(String, w::ProxyProviderInfo)>, bool), String>;
 }
 
 pub struct ProxyRunner {
@@ -820,21 +823,67 @@ fn refusal(code: &str, message: String, kind: p::ErrorKind) -> w::ProxyFailure {
     failure_out(&error, w::ProxyOutcome::Provider)
 }
 
+/// A call that failed with a plain `Error` (no code, no status): the record Node answers with.
+fn plain_failure(message: String) -> w::ProxyFailure {
+    let mut error = p::ProviderError::new(p::ErrorKind::Unknown, p::DeliveryState::NotSent);
+    error.message = message;
+    failure_out(&error, w::ProxyOutcome::Provider)
+}
+
+/// `cancelledError()` (model-proxy-host.ts): the abort of a call the server gave up.
+fn cancelled_failure() -> w::ProxyFailure {
+    let mut error = p::ProviderError::new(p::ErrorKind::Transient, p::DeliveryState::Ambiguous);
+    error.message = "The remote session cancelled the model call.".into();
+    failure_out(&error, w::ProxyOutcome::Provider)
+}
+
+/// `isProviderAllowed` (model-proxy-host.ts): the host's saved list; `None` is every provider enabled on this PC.
+fn allows(allowed: Option<&[String]>, name: &str) -> bool {
+    allowed.is_none_or(|list| list.iter().any(|entry| entry == name))
+}
+
+/// `providerNotAllowed` (model-proxy-host.ts).
+fn not_allowed(name: &str) -> w::ProxyFailure {
+    refusal("MODEL_PROXY_PROVIDER_NOT_ALLOWED", format!("This PC does not let this server use provider \"{name}\"."), p::ErrorKind::InvalidRequest)
+}
+
 impl ProxyRunner {
-    /// `modelProxy/run`: one call of a server core, on this PC's provider of the same name.
-    pub async fn run(&self, call: w::ProxyCall, events: &dyn ProxyEvents, cancel: &CancellationToken) -> Result<w::ProxyAnswer, w::ProxyFailure> {
+    /// `modelProxy/run`: one call of a server core, on this PC's provider of the same name. `allowed` is the
+    /// list the asking host may use (`ModelProxyRunParams::allowed_providers`); a provider outside it is neither
+    /// named in the config answer nor reachable by any call.
+    pub async fn run(&self, call: w::ProxyCall, allowed: Option<&[String]>, events: &dyn ProxyEvents, cancel: &CancellationToken) -> Result<w::ProxyAnswer, w::ProxyFailure> {
+        // A call given up reads nothing of this PC's (`signal.throwIfAborted()`, model-proxy-host.ts `execute`).
+        if cancel.is_cancelled() {
+            return Err(cancelled_failure());
+        }
+        // "Restricted to the provider the daemon named": checked before the provider is looked up (host.ts:713).
+        if let w::ProxyCall::QuotaUsable { provider, .. } | w::ProxyCall::ResolveWireRoute { provider, .. } | w::ProxyCall::ListModels { provider, .. } | w::ProxyCall::Send { provider, .. } = &call
+            && !provider.is_empty()
+            && !allows(allowed, provider)
+        {
+            return Err(not_allowed(provider));
+        }
         match call {
             w::ProxyCall::ProviderConfig => {
-                let (providers, ready) = self.config.public().await;
+                let (mut providers, ready) = self.config.public().await.map_err(plain_failure)?;
+                // `publicProviderConfig`: a provider the server may not use is not even named to it.
+                providers.retain(|(name, _)| allows(allowed, name));
                 Ok(w::ProxyAnswer::ProviderConfig { providers, ready: Some(ready) })
             }
             w::ProxyCall::QuotaUsable { provider, model } => {
                 self.adapter(&provider).await?;
-                Ok(w::ProxyAnswer::Usable { usable: self.quota.usable(&provider, &model).await })
+                if cancel.is_cancelled() {
+                    return Err(cancelled_failure());
+                }
+                Ok(w::ProxyAnswer::Usable { usable: self.quota.usable(&provider, &model).await.map_err(plain_failure)? })
             }
             w::ProxyCall::ResolveWireRoute { provider, model, context } => {
-                self.adapter(&provider).await?;
-                Ok(w::ProxyAnswer::Route { route: self.wire.route(&provider, &model, context).await })
+                let adapter = self.adapter(&provider).await?;
+                if cancel.is_cancelled() {
+                    return Err(cancelled_failure());
+                }
+                let route = self.wire.route(adapter.as_ref(), &model, context).await.map_err(|e| failure_out(&e, w::ProxyOutcome::Provider))?;
+                Ok(w::ProxyAnswer::Route { route })
             }
             w::ProxyCall::ListModels { provider, refresh } => {
                 self.adapter(&provider).await?;
@@ -866,11 +915,7 @@ impl ProxyRunner {
                         error.message = format!("{e:?}");
                         Err(failure_out(&error, w::ProxyOutcome::Admission))
                     }
-                    Err(SendError::Cancelled) => {
-                        let mut error = p::ProviderError::new(p::ErrorKind::Transient, p::DeliveryState::Ambiguous);
-                        error.message = "The remote session cancelled the model call.".into();
-                        Err(failure_out(&error, w::ProxyOutcome::Provider))
-                    }
+                    Err(SendError::Cancelled) => Err(cancelled_failure()),
                 }
             }
         }

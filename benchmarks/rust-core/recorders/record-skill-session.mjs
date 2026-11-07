@@ -3,8 +3,9 @@
 //   arm — `loadSkillToolDependencies` (`runtime-core/skill-tool-loading.mjs`) over a live session: which of a
 //     skill's dependency tools join the session (`selectDeferredTools`, `tool-catalog.mjs`), under which
 //     denials (`preDispatchDenyForSession`), and the session afterwards (`tools`, `deferredCallableTools`,
-//     `deferredDiscoveredTools`, `deferredSelectedTools`, `skillLoadedTools`). `result` is the text the model is
-//     shown after the stub; the Rust `DeferredToolArm` returns nothing, so only the session is compared.
+//     `deferredDiscoveredTools`, `deferredSelectedTools`, `skillLoadedTools`). `result` is the Skill result the
+//     model is shown, `head` its stub and `notice` what follows the stub (`lines`, and the `native` payload that
+//     replaces the result on a native tool-search provider, `summary` apart): the Rust `ArmNotice`.
 //   transcript — `skillBodyPresentInSession` (`context/skill-catalog.mjs`) over a session's saved `messages` and
 //     its `liveTurnMessages`: whether the injected body is still in the conversation the model sees.
 //
@@ -41,6 +42,10 @@ const office = doc('office', { description: 'Create a document.', inputSchema: {
 const handoff = doc('handoff_user');
 const figma = doc('mcp__figma__get_design', { description: 'Read a design.', annotations: { readOnlyHint: true } });
 const other = doc('mcp__other__inspect', { annotations: { readOnlyHint: true } });
+const patcher = doc('patcher', { description: 'Patch files.', freeformDescription: 'Free-form patch text.', freeform: { type: 'grammar', syntax: 'lark', definition: 'start: /.+/' } });
+const skillBody = (name, body) => buildSkillResultEnvelope(name, body, `/skills/${name}`);
+const user = (content, extra = {}) => ({ role: 'user', content, ...extra });
+const injected = (body) => user(body, { meta: 'skill' });
 const badSchema = doc('bad_schema', { inputSchema: { type: 'object', properties: { a: { type: 'not-a-type' } } } });
 
 // A session as `createSession` leaves it: the surface built by `applyDeferredToolSurface`, then `after` adjusts it.
@@ -84,22 +89,32 @@ const ARM = [
   ['repeated dependencies count once', session('openai-oauth', ALL, 'full'), [dep('tool', 'read'), dep('tool', 'read'), dep('tool', 'office'), dep('tool', 'office')]],
   ['a tool the route rejects is not loaded on a schema surface', session('openrouter', [...ALL, badSchema], 'full', asBridgeless), [dep('tool', 'bad_schema'), dep('tool', 'office')]],
   ['a session without a tool list loads nothing', { id: 'sess_skill', provider: 'openai-oauth', messages: [] }, [dep('tool', 'office')]],
-].map(([name, before, dependencies, issues = [], loads = 1]) => {
+  ['an unchanged repeat load is already active and still reports the tools', session('openai-oauth', ALL, 'full'), [dep('tool', 'office')], [], 1, true],
+  ['a free-form tool loads as a custom tool on openai', session('openai-oauth', [skillTool, read, patcher], 'full'), [dep('tool', 'patcher')]],
+  ['a free-form tool loads as a function on anthropic', session('anthropic-oauth', [skillTool, read, patcher], 'full'), [dep('tool', 'patcher')]],
+  ['bridge: an eager dependency is direct and a deferred one is bridged', session('openrouter', ALL, 'full'), [dep('tool', 'read'), dep('tool', 'office')]],
+].map(([name, before, dependencies, issues = [], loads = 1, already = false]) => {
+  // An unchanged repeat load: the session's transcript already holds the body the load injects.
+  if (already) before.messages = [injected(skillBody('deck-guide', '# Deck guide'))];
   const live = json(before);
   const snapshot = json(before);
   let result = '';
+  let head = '';
   for (let load = 0; load < loads; load += 1) {
-    const envelope = buildSkillToolEnvelope('deck-guide', '# Deck guide', '/skills/deck-guide', { toolDependencies: dependencies, dependencyIssues: issues });
+    const envelope = buildSkillToolEnvelope('deck-guide', '# Deck guide', '/skills/deck-guide', { toolDependencies: dependencies, dependencyIssues: issues }, live);
+    head = envelope.result;
     result = loadSkillToolDependencies(envelope, live).result;
   }
-  return { name, before: snapshot, dependencies, issues, loads, result, after: json(live) };
+  // What follows the stub: the lines of the summary, and the native payload that carries them.
+  const wrapped = result.startsWith('{"nativeToolSearch"') ? JSON.parse(result).nativeToolSearch : null;
+  const { summary = result, ...native } = wrapped ?? {};
+  const lines = summary.split('\n');
+  if (lines.shift() !== head) throw new Error(`${name}: the result does not start with the stub`);
+  return { name, before: snapshot, dependencies, issues, loads, already, head, result, notice: { lines, native: wrapped ? native : null }, after: json(live) };
 });
 
-const skillBody = (name, body) => buildSkillResultEnvelope(name, body, `/skills/${name}`);
 const v1 = skillBody('deck-guide', '# Deck guide v1');
 const v2 = skillBody('deck-guide', '# Deck guide v2');
-const user = (content, extra = {}) => ({ role: 'user', content, ...extra });
-const injected = (body) => user(body, { meta: 'skill' });
 const TRANSCRIPT = [
   ['the body is in the saved messages', { messages: [user('hi'), injected(v1)] }, v1],
   ['no turn runs and the body was never loaded', { messages: [user('hi')] }, v1],

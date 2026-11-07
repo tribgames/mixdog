@@ -1,0 +1,8 @@
+{
+  "tool": "code_graph",
+  "input": {
+    "mode": "symbols",
+    "files": "src/ok.mjs"
+  },
+  "text": "export function good (L1-3)  function good()"
+}

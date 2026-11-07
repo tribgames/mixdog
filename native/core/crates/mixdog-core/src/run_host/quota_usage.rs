@@ -63,6 +63,56 @@ impl QuotaReadings for UsageReadings {
     }
 }
 
+/// `measureProviderQuota(provider)`'s answer, owned so a caller may keep it: the model proxy's PC
+/// shares one per provider for a window and judges each model against it.
+pub enum Measured {
+    /// A provider that reports no exhausted quota.
+    None,
+    /// No roster: the single credential's fresh meter.
+    Single { use_credits: bool, reading: Option<Value> },
+    /// One forced reading per roster account.
+    Roster { use_credits: bool, accounts: Vec<(String, Option<Value>)> },
+}
+
+fn route(provider: &str, account_id: &str) -> RouteInfo {
+    RouteInfo { provider: provider.to_owned(), model: String::new(), account_id: account_id.to_owned() }
+}
+
+/// `measureProviderQuota`: the model-independent, account-wide measurement. Only an account-pooled
+/// provider reports exhausted quota at all.
+pub async fn measure(readings: &dyn QuotaReadings, provider: &str) -> Result<Measured, String> {
+    if !ACCOUNT_PROVIDERS.contains(&provider) {
+        return Ok(Measured::None);
+    }
+    let pool = readings.pool(provider).await?;
+    let use_credits = pool.uses_credits();
+    if pool.accounts.is_empty() {
+        // No roster: the single credential's fresh meter decides.
+        let reading = readings.forced(&route(provider, "default")).await;
+        return Ok(Measured::Single { use_credits, reading });
+    }
+    // The routes outlive the futures that borrow them.
+    let routes: Vec<RouteInfo> = pool.accounts.iter().map(|row| route(provider, &row.id)).collect();
+    let results = join_all(routes.iter().map(|route| readings.forced(route))).await;
+    Ok(Measured::Roster { use_credits, accounts: pool.accounts.iter().map(|row| row.id.clone()).zip(results).collect() })
+}
+
+/// `quotaMeasurementServesModel(measurement, model)`: the pool's choice is over the roster as the
+/// readings left it, so a roster is read again here.
+pub async fn serves(readings: &dyn QuotaReadings, provider: &str, measured: &Measured, model: &str, now: i64) -> Result<bool, String> {
+    match measured {
+        Measured::None => Ok(true),
+        Measured::Single { use_credits, reading } => {
+            Ok(quota_measurement_serves_model(&Measurement::Single { use_credits: *use_credits, reading: reading.as_ref() }, model, now))
+        }
+        Measured::Roster { use_credits, accounts } => {
+            let after = readings.pool(provider).await?;
+            let accounts = accounts.iter().map(|(id, reading)| AccountReading { id, reading: reading.as_ref() }).collect();
+            Ok(quota_measurement_serves_model(&Measurement::Roster { use_credits: *use_credits, accounts, pool: &after }, model, now))
+        }
+    }
+}
+
 pub struct ProviderQuotaUsable {
     env: Arc<dyn Environment>,
     channel: Arc<dyn QuotaChannel>,
@@ -81,10 +131,6 @@ impl ProviderQuotaUsable {
     }
 }
 
-fn route(provider: &str, account_id: &str) -> RouteInfo {
-    RouteInfo { provider: provider.to_owned(), model: String::new(), account_id: account_id.to_owned() }
-}
-
 #[async_trait]
 impl QuotaUsage for ProviderQuotaUsable {
     async fn usable(&self, provider: &str, model: &str) -> Result<bool, UsageError> {
@@ -96,27 +142,8 @@ impl QuotaUsage for ProviderQuotaUsable {
                 Err(ChannelError::Failed(message)) => Err(UsageError::Failed(message)),
             };
         }
-        // Only an account-pooled provider reports exhausted quota at all.
-        if !ACCOUNT_PROVIDERS.contains(&provider) {
-            return Ok(true);
-        }
-        let failed = UsageError::Failed;
-        let pool = self.readings.pool(provider).await.map_err(failed)?;
-        let use_credits = pool.uses_credits();
-        if pool.accounts.is_empty() {
-            // No roster: the single credential's fresh meter decides.
-            let reading = self.readings.forced(&route(provider, "default")).await;
-            let measurement = Measurement::Single { use_credits, reading: reading.as_ref() };
-            return Ok(quota_measurement_serves_model(&measurement, model, (self.now)()));
-        }
-        // The routes outlive the futures that borrow them.
-        let routes: Vec<RouteInfo> = pool.accounts.iter().map(|row| route(provider, &row.id)).collect();
-        let results = join_all(routes.iter().map(|route| self.readings.forced(route))).await;
-        // The readings recorded what they measured: the pool's choice is over the roster as they left it.
-        let after = self.readings.pool(provider).await.map_err(UsageError::Failed)?;
-        let accounts = pool.accounts.iter().zip(&results).map(|(row, reading)| AccountReading { id: &row.id, reading: reading.as_ref() }).collect();
-        let measurement = Measurement::Roster { use_credits, accounts, pool: &after };
-        Ok(quota_measurement_serves_model(&measurement, model, (self.now)()))
+        let measured = measure(&*self.readings, provider).await.map_err(UsageError::Failed)?;
+        serves(&*self.readings, provider, &measured, model, (self.now)()).await.map_err(UsageError::Failed)
     }
 }
 

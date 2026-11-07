@@ -118,7 +118,39 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office, read. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office, read. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "office"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -350,7 +382,39 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"anthropic-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office, read. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office, read. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "anthropic-oauth",
+          "toolReferences": [
+            "office"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "anthropic-oauth",
@@ -652,7 +716,15 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}.",
+      "notice": {
+        "lines": [
+          "Required tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openrouter",
@@ -1022,7 +1094,15 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openrouter",
@@ -1339,7 +1419,39 @@
       ],
       "issues": [],
       "loads": 2,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "office"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -1639,7 +1751,15 @@
       ],
       "issues": [],
       "loads": 2,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openrouter",
@@ -1956,7 +2076,16 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools unavailable: nope (not available in this session)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools unavailable: nope (not available in this session)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -2176,7 +2305,16 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools unavailable: OFFICE (not available in this session)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools unavailable: OFFICE (not available in this session)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -2400,7 +2538,17 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools loaded: read. Their full definitions are available on your next request; use them directly without load_tool.\nRequired tools unavailable: office (readonly mode)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools loaded: read. Their full definitions are available on your next request; use them directly without load_tool.",
+          "Required tools unavailable: office (readonly mode)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -2627,7 +2775,16 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools unavailable: office (Error: tool \"office\" is not available on this session's schema allowlist.)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools unavailable: office (Error: tool \"office\" is not available on this session's schema allowlist.)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -2854,7 +3011,16 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools unavailable: office (not available in this session)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools unavailable: office (not available in this session)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -3083,7 +3249,17 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools loaded: read. Their full definitions are available on your next request; use them directly without load_tool.\nRequired tools unavailable: office (readonly mode)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools loaded: read. Their full definitions are available on your next request; use them directly without load_tool.",
+          "Required tools unavailable: office (readonly mode)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -3308,7 +3484,39 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "office"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -3535,7 +3743,39 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "office"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -3775,7 +4015,34 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"mcp__figma__get_design\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"mcp__figma__get_design\",\"description\":\"Read a design.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{}}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: mcp__figma__get_design. Their full definitions are available on your next request; use them directly without load_tool.\\nRequired tools unavailable: mcp:absent (no available connected tools)\\nNo tools were installed or enabled and no permissions were changed.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: mcp__figma__get_design. Their full definitions are available on your next request; use them directly without load_tool.",
+          "Required tools unavailable: mcp:absent (no available connected tools)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "mcp__figma__get_design"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "mcp__figma__get_design",
+              "description": "Read a design.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -4023,7 +4290,16 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools unavailable: mcp__figma__get_design (not available in this session)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools unavailable: mcp__figma__get_design (not available in this session)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -4247,7 +4523,32 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"lookup\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"lookup\",\"description\":\"lookup tool\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{}}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: lookup. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: lookup. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "lookup"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "lookup",
+              "description": "lookup tool",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -4468,7 +4769,16 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools unavailable: http:office (unsupported dependency type)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools unavailable: http:office (unsupported dependency type)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -4685,7 +4995,16 @@
         "SKILL.md: bad dependency"
       ],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools unavailable: SKILL.md: bad dependency\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools unavailable: SKILL.md: bad dependency",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -4915,7 +5234,32 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"late_tool\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"late_tool\",\"description\":\"late_tool tool\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{}}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: late_tool. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: late_tool. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "late_tool"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "late_tool",
+              "description": "late_tool tool",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -5147,7 +5491,16 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools unavailable: handoff_user (Error: control-plane tool \"handoff_user\" is Lead-only and not available to agent workers.)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools unavailable: handoff_user (Error: control-plane tool \"handoff_user\" is Lead-only and not available to agent workers.)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -5355,7 +5708,32 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"handoff_user\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"handoff_user\",\"description\":\"handoff_user tool\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{}}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: handoff_user. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: handoff_user. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "handoff_user"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "handoff_user",
+              "description": "handoff_user tool",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -5577,7 +5955,39 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "office"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -5805,7 +6215,39 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "office"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -6045,7 +6487,39 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office, read. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office, read. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "office"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ]
+        }
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
@@ -6362,7 +6836,17 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\nRequired tools unavailable: bad_schema (tool \"bad_schema\" is unavailable with the current model: the provider rejected its input schema at /properties/a/type (not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.",
+          "Required tools unavailable: bad_schema (tool \"bad_schema\" is unavailable with the current model: the provider rejected its input schema at /properties/a/type (not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openrouter",
@@ -6592,11 +7076,1176 @@
       ],
       "issues": [],
       "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
       "result": "Loaded skill: deck-guide\nRequired tools unavailable: office (not available in this session)\nNo tools were installed or enabled and no permissions were changed.",
+      "notice": {
+        "lines": [
+          "Required tools unavailable: office (not available in this session)",
+          "No tools were installed or enabled and no permissions were changed."
+        ],
+        "native": null
+      },
       "after": {
         "id": "sess_skill",
         "provider": "openai-oauth",
         "messages": []
+      }
+    },
+    {
+      "name": "an unchanged repeat load is already active and still reports the tools",
+      "before": {
+        "id": "sess_skill",
+        "provider": "openai-oauth",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "<skill>\n<name>deck-guide</name>\n<base-dir>/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+            "meta": "skill"
+          }
+        ],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "office",
+            "description": "Create a document.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "native",
+        "deferredNativeTools": true,
+        "deferredSurfaceMode": "full",
+        "deferredCallableTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": []
+      },
+      "dependencies": [
+        {
+          "type": "tool",
+          "value": "office"
+        }
+      ],
+      "issues": [],
+      "loads": 1,
+      "already": true,
+      "head": "Loaded skill: deck-guide (already active; instructions unchanged — follow them without calling Skill again)",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide (already active; instructions unchanged — follow them without calling Skill again)\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "office"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "after": {
+        "id": "sess_skill",
+        "provider": "openai-oauth",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "<skill>\n<name>deck-guide</name>\n<base-dir>/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+            "meta": "skill"
+          }
+        ],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "office",
+            "description": "Create a document.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "native",
+        "deferredNativeTools": true,
+        "deferredSurfaceMode": "full",
+        "deferredCallableTools": [
+          "read",
+          "office",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "office",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": [
+          "office"
+        ],
+        "skillLoadedTools": [
+          "office"
+        ]
+      }
+    },
+    {
+      "name": "a free-form tool loads as a custom tool on openai",
+      "before": {
+        "id": "sess_skill",
+        "provider": "openai-oauth",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "patcher",
+            "description": "Patch files.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "freeformDescription": "Free-form patch text.",
+            "freeform": {
+              "type": "grammar",
+              "syntax": "lark",
+              "definition": "start: /.+/"
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "native",
+        "deferredNativeTools": true,
+        "deferredSurfaceMode": "full",
+        "deferredCallableTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": []
+      },
+      "dependencies": [
+        {
+          "type": "tool",
+          "value": "patcher"
+        }
+      ],
+      "issues": [],
+      "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"patcher\"],\"openaiTools\":[{\"type\":\"custom\",\"name\":\"patcher\",\"description\":\"Free-form patch text.\",\"format\":{\"type\":\"grammar\",\"syntax\":\"lark\",\"definition\":\"start: /.+/\"}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "openai-oauth",
+          "toolReferences": [
+            "patcher"
+          ],
+          "openaiTools": [
+            {
+              "type": "custom",
+              "name": "patcher",
+              "description": "Free-form patch text.",
+              "format": {
+                "type": "grammar",
+                "syntax": "lark",
+                "definition": "start: /.+/"
+              }
+            }
+          ]
+        }
+      },
+      "after": {
+        "id": "sess_skill",
+        "provider": "openai-oauth",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "patcher",
+            "description": "Patch files.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "freeformDescription": "Free-form patch text.",
+            "freeform": {
+              "type": "grammar",
+              "syntax": "lark",
+              "definition": "start: /.+/"
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "native",
+        "deferredNativeTools": true,
+        "deferredSurfaceMode": "full",
+        "deferredCallableTools": [
+          "read",
+          "patcher",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "patcher",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": [
+          "patcher"
+        ],
+        "skillLoadedTools": [
+          "patcher"
+        ]
+      }
+    },
+    {
+      "name": "a free-form tool loads as a function on anthropic",
+      "before": {
+        "id": "sess_skill",
+        "provider": "anthropic-oauth",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "patcher",
+            "description": "Patch files.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "freeformDescription": "Free-form patch text.",
+            "freeform": {
+              "type": "grammar",
+              "syntax": "lark",
+              "definition": "start: /.+/"
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "native",
+        "deferredNativeTools": true,
+        "deferredSurfaceMode": "full",
+        "deferredCallableTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": []
+      },
+      "dependencies": [
+        {
+          "type": "tool",
+          "value": "patcher"
+        }
+      ],
+      "issues": [],
+      "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"anthropic-oauth\",\"toolReferences\":[\"patcher\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"patcher\",\"description\":\"Patch files.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{}}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "notice": {
+        "lines": [
+          "Required tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool."
+        ],
+        "native": {
+          "provider": "anthropic-oauth",
+          "toolReferences": [
+            "patcher"
+          ],
+          "openaiTools": [
+            {
+              "type": "function",
+              "name": "patcher",
+              "description": "Patch files.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      },
+      "after": {
+        "id": "sess_skill",
+        "provider": "anthropic-oauth",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "patcher",
+            "description": "Patch files.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "freeformDescription": "Free-form patch text.",
+            "freeform": {
+              "type": "grammar",
+              "syntax": "lark",
+              "definition": "start: /.+/"
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "native",
+        "deferredNativeTools": true,
+        "deferredSurfaceMode": "full",
+        "deferredCallableTools": [
+          "read",
+          "patcher",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "patcher",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": [
+          "patcher"
+        ],
+        "skillLoadedTools": [
+          "patcher"
+        ]
+      }
+    },
+    {
+      "name": "bridge: an eager dependency is direct and a deferred one is bridged",
+      "before": {
+        "id": "sess_skill",
+        "provider": "openrouter",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "load_tool",
+            "title": "load_tool",
+            "annotations": {
+              "title": "load_tool",
+              "readOnlyHint": true,
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "agentHidden": true
+            },
+            "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "names": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1
+                    }
+                  ],
+                  "description": "Exact name(s)/aliases."
+                }
+              },
+              "required": [
+                "names"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "call_tool",
+            "title": "call_tool",
+            "annotations": {
+              "title": "call_tool",
+              "readOnlyHint": false,
+              "destructiveHint": true,
+              "idempotentHint": false,
+              "openWorldHint": true,
+              "agentHidden": true
+            },
+            "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "description": "Exact tool name."
+                },
+                "arguments": {
+                  "type": "object",
+                  "description": "Arguments for that tool."
+                }
+              },
+              "required": [
+                "name",
+                "arguments"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "messages": [],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "office",
+            "description": "Create a document.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "canonical",
+        "deferredNativeTools": false,
+        "deferredSurfaceMode": "full",
+        "toolExposureMode": "bridge-v1",
+        "deferredCallableTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "Skill"
+        ]
+      },
+      "dependencies": [
+        {
+          "type": "tool",
+          "value": "read"
+        },
+        {
+          "type": "tool",
+          "value": "office"
+        }
+      ],
+      "issues": [],
+      "loads": 1,
+      "already": false,
+      "head": "Loaded skill: deck-guide",
+      "result": "Loaded skill: deck-guide\nRequired tools available directly: read.\nRequired tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}.",
+      "notice": {
+        "lines": [
+          "Required tools available directly: read.",
+          "Required tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}."
+        ],
+        "native": null
+      },
+      "after": {
+        "id": "sess_skill",
+        "provider": "openrouter",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "load_tool",
+            "title": "load_tool",
+            "annotations": {
+              "title": "load_tool",
+              "readOnlyHint": true,
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "agentHidden": true
+            },
+            "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "names": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1
+                    }
+                  ],
+                  "description": "Exact name(s)/aliases."
+                }
+              },
+              "required": [
+                "names"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "call_tool",
+            "title": "call_tool",
+            "annotations": {
+              "title": "call_tool",
+              "readOnlyHint": false,
+              "destructiveHint": true,
+              "idempotentHint": false,
+              "openWorldHint": true,
+              "agentHidden": true
+            },
+            "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "description": "Exact tool name."
+                },
+                "arguments": {
+                  "type": "object",
+                  "description": "Arguments for that tool."
+                }
+              },
+              "required": [
+                "name",
+                "arguments"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "messages": [],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "description": "Skill tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "office",
+            "description": "Create a document.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "canonical",
+        "deferredNativeTools": false,
+        "deferredSurfaceMode": "full",
+        "toolExposureMode": "bridge-v1",
+        "deferredCallableTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "Skill"
+        ],
+        "skillLoadedTools": [
+          "read",
+          "office"
+        ]
       }
     }
   ],

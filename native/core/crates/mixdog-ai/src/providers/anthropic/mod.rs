@@ -29,6 +29,8 @@ mod models_tests;
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]
+mod native_search_tests;
+#[cfg(test)]
 mod shared_prefix_tests;
 #[cfg(test)]
 mod tests;

@@ -14,6 +14,7 @@ use mixdog_ai::admission::process_lane_settings;
 use mixdog_ai::broker::ModelBroker;
 use mixdog_ai::broker::SendError;
 use mixdog_ai::broker::SendRequest;
+use mixdog_ai::registry::accounted::input_excludes_cache;
 use mixdog_ai::registry::accounting::Completed;
 use mixdog_ai::registry::accounting::Facts;
 use mixdog_ai::registry::accounting::Outcome;
@@ -246,7 +247,7 @@ impl HostedSearchSender for ProviderSearchSender {
         let owner = self.host.session_id();
         let base = owner.as_deref().filter(|id| !id.is_empty()).unwrap_or("web_search");
         let session_id = format!("{base}:{SOURCE_TYPE}:{}", base36((self.deps.now)().max(0) as u64));
-        let excludes_cache = matches!(provider, "anthropic" | "anthropic-oauth");
+        let excludes_cache = input_excludes_cache(provider);
         let identity = SendIdentity {
             provider: provider.to_owned(),
             model: candidate.model.clone(),

@@ -34,6 +34,7 @@ pub mod factory;
 pub mod watchdog;
 pub mod quota_channel;
 pub mod proxy_providers;
+pub mod model_proxy_pc;
 pub mod agent_dispatch;
 pub mod dispatch_sessions;
 mod failed_turn_rewind;

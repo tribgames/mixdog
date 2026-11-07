@@ -27,6 +27,7 @@ use mixdog_agent::compact::pressure::{
 use mixdog_agent::compact::tool_schema::RequestTools;
 use mixdog_agent::env::{Clock, CompactError, CompactRequest, CompactTrigger};
 use mixdog_agent::message::AgentMessage;
+use mixdog_ai::registry::accounted::input_excludes_cache;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_api::ids::{ItemId, ThreadId};
@@ -85,11 +86,6 @@ impl HostManualCompaction {
 
 fn number(value: f64) -> Value {
     mixdog_js::json_number(value)
-}
-
-/// `providerInputExcludesCache`.
-fn input_excludes_cache(provider: &str) -> bool {
-    matches!(provider, "anthropic" | "anthropic-oauth")
 }
 
 /// `usage` in the shape Node's pass reports it.

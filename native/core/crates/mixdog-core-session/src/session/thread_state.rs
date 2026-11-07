@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
@@ -17,9 +18,29 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
+use mixdog_core_ports::ports::threads::HeaderUpdate;
+use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::Section;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::threads::port_error;
+
+impl SessionDirectory {
+    /// Applies `update` to the header of `thread` on its actor, the header's only writer: the
+    /// change is computed from the header as it stands there and is the next record, so a
+    /// concurrent write is neither lost nor raced. Opens the thread as the ports' reads do.
+    pub async fn update_header(&self, thread: &ThreadId, update: HeaderUpdate) -> Result<(), CoreError> {
+        let ctx = CallContext::internal("ports");
+        let handle = self.open_handle(thread, &ctx).await?;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        handle
+            .inbox
+            .send(super::actor::Inbox::UpdateHeader { update, tx })
+            .await
+            .map_err(|_| CoreError::Internal { incident_id: "header-update-closed".into() })?;
+        rx.await.map_err(|_| CoreError::Internal { incident_id: "header-update-dropped".into() })??;
+        Ok(())
+    }
+}
 
 /// [`ThreadState`] over the session directory.
 pub struct SessionThreads {
@@ -73,6 +94,13 @@ impl ThreadState for SessionThreads {
         let ctx = CallContext::internal("ports");
         let handle = self.directory.open_handle(thread, &ctx).await.map_err(port_error)?;
         handle.set_section(section).await.map_err(port_error)
+    }
+}
+
+#[async_trait]
+impl HeaderUpdates for SessionThreads {
+    async fn update_header(&self, thread: &ThreadId, update: HeaderUpdate) -> Result<(), PortError> {
+        self.directory.update_header(thread, update).await.map_err(port_error)
     }
 }
 

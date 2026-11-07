@@ -1,6 +1,6 @@
 //! File tools (WP-TOOLS-FS): read, list, glob, find, grep.
 
-mod common;
+pub(crate) mod common;
 mod edit;
 mod edit_plan;
 mod hints;

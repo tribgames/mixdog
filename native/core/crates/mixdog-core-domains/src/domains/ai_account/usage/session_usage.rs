@@ -82,7 +82,7 @@ impl SessionUsageService {
     }
 
     async fn totals(&self, ids: Vec<String>, owners: Vec<String>) -> Result<Value, CoreError> {
-        let ledger = self.ledger.ledger().map_err(|e| ledger_failure(e, DOMAIN))?;
+        let ledger = self.ledger.ledger().await.map_err(|e| ledger_failure(e, DOMAIN))?;
         let bucket = ledger.session_usage(ids, owners).await.map_err(|e| ledger_failure(e, DOMAIN))?;
         Ok(session_usage_snapshot(&bucket))
     }

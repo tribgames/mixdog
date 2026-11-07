@@ -495,8 +495,36 @@ async fn reconciled(g: &Value, messages: Vec<Value>, running: bool) -> Rig {
     rig(g, Setup { header: stale_header(g).await, messages, running, denied: vec!["shell".into()], ..setup("full") })
 }
 
+/// Node rebuilds the catalog from `[...session.tools, ...extra, ...deferredCatalogUnion]` and sorts it by route rank, then measured usage,
+/// then that input index (`surfaceCatalog` in `runtime-core/tool-catalog.mjs:407-424`, `sortedCatalogByMeasuredUsage` in
+/// `tool-catalog-schema.mjs:133-146`). The input is the previous pass's output, so a tool that the first pass put in `tools` moves ahead of its
+/// ties on the next pass: Node's catalog order is not a fixed point after one pass either. From the second pass on the input already has the
+/// tools first within every tie, so the order stays. The property is therefore: the second reconcile may only reorder `deferredToolCatalog`
+/// (same members), and the third changes nothing.
+async fn settles_after_the_catalog_reorders_once(rig: &Rig, thread: &ThreadId) {
+    let before = doc_names(rig.threads.header.lock().unwrap().get("deferredToolCatalog"));
+    let written = rig.threads.patches.lock().unwrap().len();
+    rig.host.reconcile_empty(thread).await.expect("second");
+    {
+        let patches = rig.threads.patches.lock().unwrap();
+        assert!(patches.len() <= written + 1, "the second reconcile writes at most the reordered catalog");
+        if patches.len() > written {
+            let (set, unset) = &patches[written];
+            assert!(unset.is_empty(), "the second reconcile unsets nothing: {unset:?}");
+            assert_eq!(set.keys().map(String::as_str).collect::<Vec<_>>(), ["deferredToolCatalog"], "the second reconcile writes only the catalog");
+        }
+    }
+    let after = doc_names(rig.threads.header.lock().unwrap().get("deferredToolCatalog"));
+    let (mut a, mut b) = (before.clone(), after.clone());
+    a.sort();
+    b.sort();
+    assert_eq!(a, b, "the same tools, in another order");
+    let settled = rig.threads.patches.lock().unwrap().len();
+    rig.host.reconcile_empty(thread).await.expect("third");
+    assert_eq!(rig.threads.patches.lock().unwrap().len(), settled, "the third reconcile finds nothing to change");
+}
 #[tokio::test]
-async fn an_empty_idle_thread_takes_the_denials_and_a_second_reconcile_changes_nothing() {
+async fn an_empty_idle_thread_takes_the_denials_and_the_third_reconcile_changes_nothing() {
     let g = golden();
     let rig = reconciled(&g, Vec::new(), false).await;
     let thread = ThreadId::from("t1");
@@ -506,8 +534,7 @@ async fn an_empty_idle_thread_takes_the_denials_and_a_second_reconcile_changes_n
     assert!(!doc_names(header.get("tools")).contains(&"shell".to_owned()));
     assert!(!doc_names(header.get("deferredToolCatalog")).contains(&"shell".to_owned()));
     assert_eq!(rig.threads.patches.lock().unwrap().len(), 1);
-    rig.host.reconcile_empty(&thread).await.expect("again");
-    assert_eq!(rig.threads.patches.lock().unwrap().len(), 1);
+    settles_after_the_catalog_reorders_once(&rig, &thread).await;
 }
 
 #[tokio::test]
@@ -548,9 +575,8 @@ async fn an_empty_thread_with_a_prompt_identity_takes_a_new_prompt_and_the_workf
         assert_eq!(requests[0].target.contact_catalog_context, "# Bots\n\n- Mimi (lead)", "the contact catalog of the workflow reaches the prompt");
         assert!(!requests[0].has_git_tool || doc_names(after.get("tools")).contains(&"git".to_owned()) || doc_names(after.get("deferredToolCatalog")).contains(&"git".to_owned()));
     }
-    // The next reconcile finds nothing to change.
-    rig.host.reconcile_empty(&ThreadId::from("t1")).await.expect("again");
-    assert_eq!(rig.threads.patches.lock().unwrap().len(), 1);
+    // The catalog reorders once at most, then nothing changes.
+    settles_after_the_catalog_reorders_once(&rig, &ThreadId::from("t1")).await;
 }
 
 /// A thread with a conversation takes a moved settings gate without being re-prefixed: the tool

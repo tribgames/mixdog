@@ -1,0 +1,1147 @@
+{
+  "parse": [
+    {
+      "name": "openai native: a deferred function",
+      "toolName": "Skill",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "parsed": {
+        "provider": "openai-oauth",
+        "toolReferences": [
+          "office"
+        ],
+        "openaiTools": [
+          {
+            "type": "function",
+            "name": "office",
+            "description": "Create a document.",
+            "defer_loading": true,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
+        ],
+        "summary": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+      },
+      "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+    },
+    {
+      "name": "openai native: a free-form custom tool",
+      "toolName": "Skill",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"patcher\"],\"openaiTools\":[{\"type\":\"custom\",\"name\":\"patcher\",\"description\":\"Free-form patch text.\",\"format\":{\"type\":\"grammar\",\"syntax\":\"lark\",\"definition\":\"start: /.+/\"}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "parsed": {
+        "provider": "openai-oauth",
+        "toolReferences": [
+          "patcher"
+        ],
+        "openaiTools": [
+          {
+            "type": "custom",
+            "name": "patcher",
+            "description": "Free-form patch text.",
+            "format": {
+              "type": "grammar",
+              "syntax": "lark",
+              "definition": "start: /.+/"
+            }
+          }
+        ],
+        "summary": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool."
+      },
+      "content": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool."
+    },
+    {
+      "name": "anthropic native: a deferred function",
+      "toolName": "Skill",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"anthropic-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "parsed": {
+        "provider": "anthropic-oauth",
+        "toolReferences": [
+          "office"
+        ],
+        "openaiTools": [
+          {
+            "type": "function",
+            "name": "office",
+            "description": "Create a document.",
+            "defer_loading": true,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
+        ],
+        "summary": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+      },
+      "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+    },
+    {
+      "name": "openai native: only an eager dependency",
+      "toolName": "Skill",
+      "result": "Loaded skill: deck-guide\nRequired tools loaded: read. Their full definitions are available on your next request; use them directly without load_tool.",
+      "parsed": null,
+      "content": "Loaded skill: deck-guide\nRequired tools loaded: read. Their full definitions are available on your next request; use them directly without load_tool."
+    },
+    {
+      "name": "bridge: nothing native",
+      "toolName": "Skill",
+      "result": "Loaded skill: deck-guide\nRequired tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}.",
+      "parsed": null,
+      "content": "Loaded skill: deck-guide\nRequired tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}."
+    },
+    {
+      "name": "a payload with no summary names the loaded tools",
+      "toolName": "load_tool",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"OpenAI-OAuth \",\"toolReferences\":[\" office \",3,\"\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"parameters\":{}}]}}",
+      "parsed": {
+        "provider": "openai-oauth",
+        "toolReferences": [
+          "office"
+        ],
+        "openaiTools": [
+          {
+            "type": "function",
+            "name": "office",
+            "parameters": {}
+          }
+        ],
+        "summary": "Loaded deferred tools: office"
+      },
+      "content": "Loaded deferred tools: office"
+    },
+    {
+      "name": "a payload with a summary",
+      "toolName": "tool_search",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"OpenAI-OAuth \",\"toolReferences\":[\" office \",3,\"\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"parameters\":{}}],\"summary\":\"Loaded by search\"}}",
+      "parsed": {
+        "provider": "openai-oauth",
+        "toolReferences": [
+          "office"
+        ],
+        "openaiTools": [
+          {
+            "type": "function",
+            "name": "office",
+            "parameters": {}
+          }
+        ],
+        "summary": "Loaded by search"
+      },
+      "content": "Loaded by search"
+    },
+    {
+      "name": "missing and blocked tools are appended to the summary",
+      "toolName": "skill_view",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"anthropic\",\"toolReferences\":[\"a\"]},\"selected\":{\"tools\":{\"missing\":[\" x \",\"\",7],\"blocked\":[{\"name\":\"b\",\"reason\":\"readonly mode\"},{\"name\":\"c\"},\"d\",null,0,{},[]]}}}",
+      "parsed": {
+        "provider": "anthropic",
+        "toolReferences": [
+          "a"
+        ],
+        "openaiTools": [],
+        "summary": "Loaded deferred tools: a\nmissing: x, 7; blocked: b (readonly mode), c, d"
+      },
+      "content": "Loaded deferred tools: a\nmissing: x, 7; blocked: b (readonly mode), c, d"
+    },
+    {
+      "name": "tools without names are dropped, and a type must be text",
+      "toolName": "Skill",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"OpenAI-OAuth \",\"toolReferences\":[],\"openaiTools\":[{\"name\":\" \"},{\"name\":\"a\",\"type\":1},{\"name\":\"b\",\"type\":null},{\"name\":\"c\"},[],\"x\",null,{\"type\":\"function\",\"name\":\"d\"}]}}",
+      "parsed": {
+        "provider": "openai-oauth",
+        "toolReferences": [],
+        "openaiTools": [
+          {
+            "name": "c"
+          },
+          {
+            "type": "function",
+            "name": "d"
+          }
+        ],
+        "summary": "Loaded deferred tools: c, d"
+      },
+      "content": "Loaded deferred tools: c, d"
+    },
+    {
+      "name": "a provider alone is a payload",
+      "toolName": "Skill",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"Anthropic\"}}",
+      "parsed": {
+        "provider": "anthropic",
+        "toolReferences": [],
+        "openaiTools": [],
+        "summary": "Loaded deferred tools: "
+      },
+      "content": "Loaded deferred tools: "
+    },
+    {
+      "name": "an empty payload is none",
+      "toolName": "Skill",
+      "result": "{\"nativeToolSearch\":{\"provider\":\" \",\"toolReferences\":[],\"openaiTools\":[]}}",
+      "parsed": null,
+      "content": "{\"nativeToolSearch\":{\"provider\":\" \",\"toolReferences\":[],\"openaiTools\":[]}}"
+    },
+    {
+      "name": "a payload that is not an object is none",
+      "toolName": "Skill",
+      "result": "{\"nativeToolSearch\":\"x\"}",
+      "parsed": null,
+      "content": "{\"nativeToolSearch\":\"x\"}"
+    },
+    {
+      "name": "an array payload is none",
+      "toolName": "Skill",
+      "result": "{\"nativeToolSearch\":[1]}",
+      "parsed": null,
+      "content": "{\"nativeToolSearch\":[1]}"
+    },
+    {
+      "name": "other JSON is none",
+      "toolName": "Skill",
+      "result": "[1,2]",
+      "parsed": null,
+      "content": "[1,2]"
+    },
+    {
+      "name": "text is none",
+      "toolName": "Skill",
+      "result": "Loaded skill: deck-guide",
+      "parsed": null,
+      "content": "Loaded skill: deck-guide"
+    },
+    {
+      "name": "another tool is none",
+      "toolName": "read",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"OpenAI-OAuth \",\"toolReferences\":[\" office \",3,\"\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"parameters\":{}}]}}",
+      "parsed": null,
+      "content": "{\"nativeToolSearch\":{\"provider\":\"OpenAI-OAuth \",\"toolReferences\":[\" office \",3,\"\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"parameters\":{}}]}}"
+    },
+    {
+      "name": "a summary of text only",
+      "toolName": "Skill",
+      "result": "{\"nativeToolSearch\":{\"provider\":\"openai\",\"summary\":42}}",
+      "parsed": {
+        "provider": "openai",
+        "toolReferences": [],
+        "openaiTools": [],
+        "summary": "Loaded deferred tools: "
+      },
+      "content": "Loaded deferred tools: "
+    }
+  ],
+  "requests": [
+    {
+      "name": "openai native: a deferred function: openai input",
+      "wire": "openai",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "skill-1",
+              "name": "Skill",
+              "arguments": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "skill-1",
+          "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.",
+          "nativeToolSearch": {
+            "provider": "openai-oauth",
+            "toolReferences": [
+              "office"
+            ],
+            "openaiTools": [
+              {
+                "type": "function",
+                "name": "office",
+                "description": "Create a document.",
+                "defer_loading": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "summary": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+          }
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "input": [
+        {
+          "type": "message",
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Create a presentation."
+            }
+          ],
+          "internal_chat_message_metadata_passthrough": {}
+        },
+        {
+          "type": "function_call",
+          "call_id": "skill-1",
+          "name": "Skill",
+          "arguments": "{\"name\":\"deck-guide\"}"
+        },
+        {
+          "type": "function_call_output",
+          "call_id": "skill-1",
+          "output": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+        },
+        {
+          "type": "tool_search_call",
+          "call_id": "skill-1_load",
+          "execution": "client",
+          "arguments": {
+            "names": [
+              "office"
+            ]
+          }
+        },
+        {
+          "type": "tool_search_output",
+          "call_id": "skill-1_load",
+          "status": "completed",
+          "execution": "client",
+          "tools": [
+            {
+              "type": "function",
+              "name": "office",
+              "description": "Create a document.",
+              "defer_loading": true,
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              },
+              "strict": false
+            }
+          ]
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Go on."
+            }
+          ],
+          "internal_chat_message_metadata_passthrough": {}
+        }
+      ],
+      "skill": "openai native: a deferred function"
+    },
+    {
+      "name": "openai native: a deferred function: anthropic messages, tool offered",
+      "wire": "anthropic",
+      "provider": "anthropic-oauth",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "skill-1",
+              "name": "Skill",
+              "arguments": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "skill-1",
+          "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.",
+          "nativeToolSearch": {
+            "provider": "openai-oauth",
+            "toolReferences": [
+              "office"
+            ],
+            "openaiTools": [
+              {
+                "type": "function",
+                "name": "office",
+                "description": "Create a document.",
+                "defer_loading": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "summary": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+          }
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "offered": [
+        "Skill",
+        "read",
+        "office",
+        "patcher"
+      ],
+      "messagesOut": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "skill-1",
+              "name": "Skill",
+              "input": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "skill-1",
+              "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\n\nGo on."
+            }
+          ]
+        }
+      ],
+      "skill": "openai native: a deferred function"
+    },
+    {
+      "name": "openai native: a deferred function: anthropic messages, tool not offered",
+      "wire": "anthropic",
+      "provider": "anthropic-oauth",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "skill-1",
+              "name": "Skill",
+              "arguments": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "skill-1",
+          "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.",
+          "nativeToolSearch": {
+            "provider": "openai-oauth",
+            "toolReferences": [
+              "office"
+            ],
+            "openaiTools": [
+              {
+                "type": "function",
+                "name": "office",
+                "description": "Create a document.",
+                "defer_loading": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "summary": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+          }
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "offered": [
+        "Skill",
+        "read"
+      ],
+      "messagesOut": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "skill-1",
+              "name": "Skill",
+              "input": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "skill-1",
+              "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\n\nGo on."
+            }
+          ]
+        }
+      ],
+      "skill": "openai native: a deferred function"
+    },
+    {
+      "name": "openai native: a free-form custom tool: openai input",
+      "wire": "openai",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "skill-1",
+              "name": "Skill",
+              "arguments": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "skill-1",
+          "content": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool.",
+          "nativeToolSearch": {
+            "provider": "openai-oauth",
+            "toolReferences": [
+              "patcher"
+            ],
+            "openaiTools": [
+              {
+                "type": "custom",
+                "name": "patcher",
+                "description": "Free-form patch text.",
+                "format": {
+                  "type": "grammar",
+                  "syntax": "lark",
+                  "definition": "start: /.+/"
+                }
+              }
+            ],
+            "summary": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool."
+          }
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "input": [
+        {
+          "type": "message",
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Create a presentation."
+            }
+          ],
+          "internal_chat_message_metadata_passthrough": {}
+        },
+        {
+          "type": "function_call",
+          "call_id": "skill-1",
+          "name": "Skill",
+          "arguments": "{\"name\":\"deck-guide\"}"
+        },
+        {
+          "type": "function_call_output",
+          "call_id": "skill-1",
+          "output": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool."
+        },
+        {
+          "type": "tool_search_call",
+          "call_id": "skill-1_load",
+          "execution": "client",
+          "arguments": {
+            "names": [
+              "patcher"
+            ]
+          }
+        },
+        {
+          "type": "tool_search_output",
+          "call_id": "skill-1_load",
+          "status": "completed",
+          "execution": "client",
+          "tools": [
+            {
+              "type": "custom",
+              "name": "patcher",
+              "description": "Free-form patch text.",
+              "format": {
+                "type": "grammar",
+                "syntax": "lark",
+                "definition": "start: /.+/"
+              }
+            }
+          ]
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Go on."
+            }
+          ],
+          "internal_chat_message_metadata_passthrough": {}
+        }
+      ],
+      "skill": "openai native: a free-form custom tool"
+    },
+    {
+      "name": "openai native: a free-form custom tool: anthropic messages, tool offered",
+      "wire": "anthropic",
+      "provider": "anthropic-oauth",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "skill-1",
+              "name": "Skill",
+              "arguments": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "skill-1",
+          "content": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool.",
+          "nativeToolSearch": {
+            "provider": "openai-oauth",
+            "toolReferences": [
+              "patcher"
+            ],
+            "openaiTools": [
+              {
+                "type": "custom",
+                "name": "patcher",
+                "description": "Free-form patch text.",
+                "format": {
+                  "type": "grammar",
+                  "syntax": "lark",
+                  "definition": "start: /.+/"
+                }
+              }
+            ],
+            "summary": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool."
+          }
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "offered": [
+        "Skill",
+        "read",
+        "office",
+        "patcher"
+      ],
+      "messagesOut": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "skill-1",
+              "name": "Skill",
+              "input": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "skill-1",
+              "content": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool.\n\nGo on."
+            }
+          ]
+        }
+      ],
+      "skill": "openai native: a free-form custom tool"
+    },
+    {
+      "name": "openai native: a free-form custom tool: anthropic messages, tool not offered",
+      "wire": "anthropic",
+      "provider": "anthropic-oauth",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "skill-1",
+              "name": "Skill",
+              "arguments": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "skill-1",
+          "content": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool.",
+          "nativeToolSearch": {
+            "provider": "openai-oauth",
+            "toolReferences": [
+              "patcher"
+            ],
+            "openaiTools": [
+              {
+                "type": "custom",
+                "name": "patcher",
+                "description": "Free-form patch text.",
+                "format": {
+                  "type": "grammar",
+                  "syntax": "lark",
+                  "definition": "start: /.+/"
+                }
+              }
+            ],
+            "summary": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool."
+          }
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "offered": [
+        "Skill",
+        "read"
+      ],
+      "messagesOut": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "skill-1",
+              "name": "Skill",
+              "input": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "skill-1",
+              "content": "Loaded skill: deck-guide\nRequired tools loaded: patcher. Their full definitions are available on your next request; use them directly without load_tool.\n\nGo on."
+            }
+          ]
+        }
+      ],
+      "skill": "openai native: a free-form custom tool"
+    },
+    {
+      "name": "anthropic native: a deferred function: openai input",
+      "wire": "openai",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "skill-1",
+              "name": "Skill",
+              "arguments": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "skill-1",
+          "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.",
+          "nativeToolSearch": {
+            "provider": "anthropic-oauth",
+            "toolReferences": [
+              "office"
+            ],
+            "openaiTools": [
+              {
+                "type": "function",
+                "name": "office",
+                "description": "Create a document.",
+                "defer_loading": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "summary": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+          }
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "input": [
+        {
+          "type": "message",
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Create a presentation."
+            }
+          ],
+          "internal_chat_message_metadata_passthrough": {}
+        },
+        {
+          "type": "function_call",
+          "call_id": "skill-1",
+          "name": "Skill",
+          "arguments": "{\"name\":\"deck-guide\"}"
+        },
+        {
+          "type": "function_call_output",
+          "call_id": "skill-1",
+          "output": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\nThis ordinary function result cannot register native tools. Use tool_search with names:[\"office\"] to load their definitions."
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Go on."
+            }
+          ],
+          "internal_chat_message_metadata_passthrough": {}
+        }
+      ],
+      "skill": "anthropic native: a deferred function"
+    },
+    {
+      "name": "anthropic native: a deferred function: anthropic messages, tool offered",
+      "wire": "anthropic",
+      "provider": "anthropic-oauth",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "skill-1",
+              "name": "Skill",
+              "arguments": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "skill-1",
+          "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.",
+          "nativeToolSearch": {
+            "provider": "anthropic-oauth",
+            "toolReferences": [
+              "office"
+            ],
+            "openaiTools": [
+              {
+                "type": "function",
+                "name": "office",
+                "description": "Create a document.",
+                "defer_loading": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "summary": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+          }
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "offered": [
+        "Skill",
+        "read",
+        "office",
+        "patcher"
+      ],
+      "messagesOut": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "skill-1",
+              "name": "Skill",
+              "input": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "skill-1",
+              "content": [
+                {
+                  "type": "tool_reference",
+                  "tool_name": "office"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "skill": "anthropic native: a deferred function"
+    },
+    {
+      "name": "anthropic native: a deferred function: anthropic messages, tool not offered",
+      "wire": "anthropic",
+      "provider": "anthropic-oauth",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "skill-1",
+              "name": "Skill",
+              "arguments": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "skill-1",
+          "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.",
+          "nativeToolSearch": {
+            "provider": "anthropic-oauth",
+            "toolReferences": [
+              "office"
+            ],
+            "openaiTools": [
+              {
+                "type": "function",
+                "name": "office",
+                "description": "Create a document.",
+                "defer_loading": true,
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "summary": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+          }
+        },
+        {
+          "role": "user",
+          "content": "Go on."
+        }
+      ],
+      "offered": [
+        "Skill",
+        "read"
+      ],
+      "messagesOut": [
+        {
+          "role": "user",
+          "content": "Create a presentation."
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "skill-1",
+              "name": "Skill",
+              "input": {
+                "name": "deck-guide"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "skill-1",
+              "content": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\n\nGo on."
+            }
+          ]
+        }
+      ],
+      "skill": "anthropic native: a deferred function"
+    }
+  ]
+}

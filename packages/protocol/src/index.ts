@@ -2248,7 +2248,11 @@ export type ModelProxyRunParams = {
 /**
  * Stream id the local core stamps on `modelProxy/run/event`.
  */
-runId: string, call: ProxyCall, };
+runId: string, call: ProxyCall, 
+/**
+ * The providers this server may use through this PC: the host's saved list, `null` for every provider enabled here. Always sent: a message without it is refused, never read as every provider.
+ */
+allowedProviders: Array<string> | null, };
 
 export type ModelRequestPhase = "started" | "completed" | "failed";
 

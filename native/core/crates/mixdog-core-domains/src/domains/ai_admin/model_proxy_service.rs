@@ -108,11 +108,11 @@ impl DomainService for ModelProxyService {
         let Caller::Connection(to) = req.ctx.caller else {
             return Err(invalid("caller", "a connection: the events of the run go to it"));
         };
-        let ModelProxyRunParams { run_id, call } = serde_json::from_value(req.params).map_err(|e| invalid("params", &e.to_string()))?;
+        let ModelProxyRunParams { run_id, call, allowed_providers } = serde_json::from_value(req.params).map_err(|e| invalid("params", &e.to_string()))?;
         let cancel = req.ctx.cancel.child_token();
         self.runs.lock().unwrap_or_else(PoisonError::into_inner).insert((to, run_id.clone()), cancel.clone());
         let events = RunEvents { notifier: Arc::clone(&self.notifier), to, run_id: run_id.clone() };
-        let ran = self.runner.run(call, &events, &cancel).await;
+        let ran = self.runner.run(call, allowed_providers.as_deref(), &events, &cancel).await;
         self.runs.lock().unwrap_or_else(PoisonError::into_inner).remove(&(to, run_id));
         let result = match ran {
             Ok(answer) => answer,

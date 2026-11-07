@@ -519,6 +519,46 @@ async fn a_tool_results_ui_diff_rides_its_message_as_a_string_and_stays_off_the_
     }
 }
 
+/// A loading tool (named `name`) that answers `text`, as `Skill` answers with a native tool-search payload.
+struct Loader(ToolSpec, String);
+#[async_trait]
+impl Tool for Loader {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput { parts: vec![ToolPart::Text(self.1.clone())], ..ToolOutput::default() })
+    }
+}
+
+/// `finalizeBatchResults` turns a loading tool's result that carries `nativeToolSearch` into the
+/// message's `native_tool_search` and keeps its summary as the text; the next request carries
+/// both (`fixtures/native-tool-search/golden.json`, the recorded Node results).
+#[tokio::test]
+async fn a_loading_tools_native_search_payload_rides_its_message_to_the_next_request() {
+    let golden: JsonValue = serde_json::from_str(include_str!("../../../fixtures/native-tool-search/golden.json")).unwrap();
+    let mut ran = 0;
+    for case in golden["parse"].as_array().unwrap().iter().filter(|case| case["toolName"] != "read") {
+        let mut spec = Echo::tool().spec().clone();
+        spec.name = case["toolName"].as_str().unwrap().to_owned();
+        let h = Harness::new(vec![
+            turn(vec![call("c1", &spec.name, json!({})), done(StopReason::ToolUse)]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        let loader = Arc::new(Loader(spec, case["result"].as_str().unwrap().to_owned()));
+        let out = finish(h.run(config(), vec![loader], vec![AgentMessage::user("go")])).await;
+        let result = out.transcript.iter().find(|m| m.tool_call_id() == Some("c1")).expect("tool result");
+        let want = Some(case["parsed"].clone()).filter(|parsed| !parsed.is_null());
+        assert_eq!(result.message.native_tool_search, want, "{}", case["name"]);
+        assert_eq!(result.text(), case["content"].as_str().unwrap(), "{}", case["name"]);
+        let sent = h.provider.requests();
+        let wire = sent[1].messages.iter().find(|m| m.tool_call_id.as_deref() == Some("c1")).expect("sent tool result");
+        assert_eq!(wire.native_tool_search, want, "{}: sent", case["name"]);
+        ran += 1;
+    }
+    assert_eq!(ran, 16);
+}
+
 /// Never finishes on its own; ends when its token is cancelled.
 struct Hang(ToolSpec);
 impl Hang {

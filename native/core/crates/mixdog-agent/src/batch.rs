@@ -15,6 +15,7 @@ use std::sync::Mutex;
 
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
+use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_rt::TaskClass;
@@ -28,6 +29,7 @@ use crate::env::or_cancelled;
 use crate::limits;
 use crate::message::AgentMessage;
 use crate::message::Source;
+use crate::native_search::parse_native_tool_search;
 use crate::message::ToolKind;
 use crate::run::AgentError;
 use crate::run::Run;
@@ -627,6 +629,18 @@ impl Run {
         let indices: Vec<usize> = (0..calls.len())
             .filter(|i| executed[*i] && staged[*i].is_some())
             .collect();
+        // A loading tool's native tool-search payload becomes the message's, and its summary the
+        // result (`finalizeBatchResults` parses before anything is offloaded or cached).
+        for i in &indices {
+            if let Some(m) = staged[*i].as_mut()
+                && let Content::Text(text) = &m.message.content
+                && let Some(native) = parse_native_tool_search(&calls[*i].name, text)
+                && let Some(summary) = native.get("summary").and_then(serde_json::Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
+            {
+                m.message.native_tool_search = Some(native);
+                m.message.content = Content::Text(summary);
+            }
+        }
         if let Some(store) = self.env.artifacts.clone() {
             let mut entries: Vec<crate::offload::BatchEntry> = indices
                 .iter()

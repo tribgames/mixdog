@@ -40,13 +40,15 @@ const DOMAIN: &str = "usage";
 
 /// The usage ledger, asked for at every call as Node asks `getUsageLedger()`: opening it can fail and
 /// the process's ledger path can change, so a service holds this, never one opened ledger.
+#[async_trait]
 pub trait LedgerAccess: Send + Sync {
-    fn ledger(&self) -> Result<Arc<UsageLedger>, LedgerError>;
+    async fn ledger(&self) -> Result<Arc<UsageLedger>, LedgerError>;
 }
 
 /// A ledger that is already open.
+#[async_trait]
 impl LedgerAccess for Arc<UsageLedger> {
-    fn ledger(&self) -> Result<Arc<UsageLedger>, LedgerError> {
+    async fn ledger(&self) -> Result<Arc<UsageLedger>, LedgerError> {
         Ok(Arc::clone(self))
     }
 }
@@ -120,7 +122,7 @@ impl UsageService {
     async fn get_usage_requests(&self, options: Value) -> Result<Value, CoreError> {
         let options: UsageRequestsOptions =
             serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
-        let ledger = self.ledger.ledger().map_err(|e| ledger_failure(e, DOMAIN))?;
+        let ledger = self.ledger.ledger().await.map_err(|e| ledger_failure(e, DOMAIN))?;
         // Settled first, so a send's record is in the page requested after it.
         let mut page = ledger.get_usage_requests(options, now_ms()).await.map_err(|e| ledger_failure(e, DOMAIN))?;
         let requests = page["requests"].as_array().cloned().unwrap_or_default();
@@ -219,7 +221,7 @@ impl DomainService for UsageService {
             "usage/getUsageStats" => {
                 let options: UsageStatsOptions =
                     serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
-                self.ledger.ledger().map_err(|e| ledger_failure(e, DOMAIN))?.get_usage_stats(options, now_ms).await.map_err(|e| ledger_failure(e, DOMAIN))?
+                self.ledger.ledger().await.map_err(|e| ledger_failure(e, DOMAIN))?.get_usage_stats(options, now_ms).await.map_err(|e| ledger_failure(e, DOMAIN))?
             }
             "usage/getUsageRequests" => self.get_usage_requests(options).await?,
             other => return Err(wrong_method(DOMAIN, other)),

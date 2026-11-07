@@ -1,0 +1,11 @@
+{
+  "tool": "code_graph",
+  "input": {
+    "mode": "symbols",
+    "files": [
+      "src/ok.mjs",
+      "src/use.mjs"
+    ]
+  },
+  "text": "# symbols src/ok.mjs\nexport function good (L1-3)  function good()\n\n# symbols src/use.mjs\nexport variable v (L2)"
+}

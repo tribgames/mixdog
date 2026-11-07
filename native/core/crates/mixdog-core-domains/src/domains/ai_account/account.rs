@@ -90,7 +90,7 @@ impl AccountService {
                 }
             }
         }
-        let ledger = self.ledger.ledger().map_err(|e| ledger_failure(e, DOMAIN))?;
+        let ledger = self.ledger.ledger().await.map_err(|e| ledger_failure(e, DOMAIN))?;
         let history = ledger.get_quota_history(options, in_use, now_ms()).await.map_err(|e| ledger_failure(e, DOMAIN))?;
         Ok(self.label_quota_history(history).await)
     }

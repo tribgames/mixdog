@@ -226,6 +226,9 @@ pub(crate) enum Inbox {
         header: Option<super::turn_ops::CompactionHeader>,
         tx: oneshot::Sender<Result<super::turn_ops::CompactionCommit, CoreError>>,
     },
+    /// `HeaderUpdates::update_header`: `update` computes a header change on the actor, from the
+    /// header as projected, and the change is written as the next record; answered once durable.
+    UpdateHeader { update: mixdog_core_ports::ports::threads::HeaderUpdate, tx: Waiter },
 }
 
 /// Results of lane jobs the actor submitted.
@@ -3002,6 +3005,7 @@ impl SessionActor {
             }
             Inbox::QuotaResumeFire { generation, tx } => self.quota_fire(generation, tx),
             Inbox::Op { call, tx } => self.op_call(call, tx),
+            Inbox::UpdateHeader { update, tx } => self.update_header(update, tx),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {
@@ -3018,6 +3022,35 @@ impl SessionActor {
                 }
             }
         }
+    }
+
+    /// `Inbox::UpdateHeader`: the change is computed here, from a copy of the header as projected
+    /// (the actor is the header's only writer), and written as one `meta` record, answered once
+    /// durable. A change that sets and unsets nothing writes nothing. `update` is synchronous and
+    /// pure by contract (`HeaderUpdates`); a panic in it fails only this caller and writes nothing,
+    /// and the actor goes on.
+    fn update_header(&mut self, update: mixdog_core_ports::ports::threads::HeaderUpdate, tx: Waiter) {
+        if !self.outbox.has_room(Class::Normal) {
+            let _ = tx.send(Err(CoreError::WindowFull { thread_id: self.id.clone() }));
+            return;
+        }
+        let header = self.projected.header.clone();
+        let Ok(change) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| update(&header))) else {
+            let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
+            return;
+        };
+        if change.set.is_empty() && change.unset.is_empty() {
+            let _ = tx.send(Ok(Reply::Value(json!({}))));
+            return;
+        }
+        let record = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
+        let plan = Plan {
+            kind: PlanKind::Records(vec![(record, Class::Normal, Display::None, Vec::new())], Vec::new()),
+            value: json!({}),
+            after: None,
+            prompt: None,
+        };
+        self.apply_plan(plan, None, tx);
     }
 
     /// The thread scope's op store (P §9.2): `Await` answers once a running execution of the op
