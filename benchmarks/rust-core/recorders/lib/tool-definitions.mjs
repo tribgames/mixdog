@@ -228,8 +228,14 @@ export function resolveToolRefs(value, fixture) {
   const walk = (node) => {
     if (Array.isArray(node)) return node.map(walk);
     if (!node || typeof node !== 'object') return node;
-    if (typeof node.$tool === 'string') {
-      const key = node.variant ? `${node.$tool}@${node.variant}` : node.$tool;
+    if ('$tool' in node) {
+      // The same strictness as the Rust loader: a field of the wrong type is an error, never read as absent.
+      if (typeof node.$tool !== 'string') throw new Error(`a tool reference whose $tool is not a string: ${JSON.stringify(node)}`);
+      if ('variant' in node && (typeof node.variant !== 'string' || node.variant === '')) throw new Error(`${node.$tool}: the variant of a reference is a non-empty string, not ${JSON.stringify(node.variant)}`);
+      if (typeof node.hash !== 'string') throw new Error(`${node.$tool}: the reference has no string hash`);
+      if ('override' in node && (!node.override || typeof node.override !== 'object' || Array.isArray(node.override))) throw new Error(`${node.$tool}: override is an object`);
+      if ('unset' in node && (!Array.isArray(node.unset) || node.unset.some((field) => typeof field !== 'string'))) throw new Error(`${node.$tool}: unset is an array of strings`);
+      const key = 'variant' in node ? `${node.$tool}@${node.variant}` : node.$tool;
       const entry = fixture.definitions[key];
       if (!entry) throw new Error(`the tool reference ${key} is not in the shared fixture`);
       if (contentHash(entry.definition) !== entry.hash) throw new Error(`${key}: the fixture entry does not hash to its own hash`);
@@ -238,8 +244,7 @@ export function resolveToolRefs(value, fixture) {
       for (const [field, fieldValue] of Object.entries(node.override ?? {})) out[field] = walk(fieldValue);
       for (const field of node.unset ?? []) delete out[field];
       return out;
-    }
-    return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, walk(child)]));
+    }    return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, walk(child)]));
   };
   return walk(value);
 }

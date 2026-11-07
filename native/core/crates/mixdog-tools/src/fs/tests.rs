@@ -165,12 +165,12 @@ impl crate::code_graph::TrustedRoots for NoRoots {
     }
 }
 
-/// The built-in tools are Node's definition objects, whole (`fixtures/tool-defs/definitions.json`,
-/// `record-tool-definitions.mjs`): the description and the `inputSchema` the model is sent, key for
-/// key, with the title, trigger and every hint. A delegated agent's `git` is Node's agent variant.
+/// The built-in tools are Node's definition objects, whole (`fixtures/tool-definitions/definitions.json`,
+/// `record-tool-definitions.mjs`, through `mixdog_js::fixture_tools`): the description and the `inputSchema`
+/// the model is sent, key for key, with the title, trigger and every hint. A delegated agent's `git` is Node's
+/// agent variant.
 #[test]
 fn the_builtin_tools_are_nodes_definitions() {
-    let golden: JsonValue = serde_json::from_str(include_str!("../../../../fixtures/tool-defs/definitions.json")).expect("the golden is JSON");
     let cache_dir = tempfile::tempdir().unwrap();
     let tools: Vec<Box<dyn Tool>> = vec![
         Box::new(crate::code_graph::CodeGraphTool::new(Arc::new(NoRoots), Arc::new(crate::code_graph::GraphCache::new(cache_dir.path().join("cache"))))),
@@ -186,13 +186,13 @@ fn the_builtin_tools_are_nodes_definitions() {
     ];
     for tool in &tools {
         let spec = tool.spec();
-        let node = golden["definitions"].as_array().expect("definitions").iter().find(|def| def["name"] == spec.name.as_str()).expect("a Node definition");
-        assert_eq!(&tool.definition(), node, "{}", spec.name);
+        let node = mixdog_js::fixture_tools::definition(&spec.name).expect("a Node definition");
+        assert_eq!(tool.definition(), node, "{}", spec.name);
         assert_eq!(spec.annotations.to_json().to_string(), node["annotations"].to_string(), "{} annotations", spec.name);
     }
-    let node_agent_git = golden["variants"].as_array().expect("variants").iter().find(|row| row["name"] == "git" && row["surface"] == "agent").expect("the agent git");
+    let node_agent_git = mixdog_js::fixture_tools::definition("git@agent").expect("the agent git");
     let git = crate::git::GitTool::new();
-    assert_eq!(&git.agent_spec().expect("git has an agent text").definition(), &node_agent_git["definition"]);
+    assert_eq!(git.agent_spec().expect("git has an agent text").definition(), node_agent_git);
 }
 
 async fn run_golden(ctx: &ToolContext, root: &AbsPath, cases: &[&str]) {

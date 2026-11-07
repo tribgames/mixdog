@@ -575,15 +575,14 @@ mod tools {
         assert_eq!(local.spec().annotations.open_world_hint, Some(false));
     }
 
-    /// The four web tools are Node's definition objects (`fixtures/tool-defs/definitions.json`):
-    /// title, trigger, `public`, description, inputSchema and annotations, key for key.
+    /// The four web tools are Node's definition objects (`fixtures/tool-definitions/definitions.json`, through
+    /// `mixdog_js::fixture_tools`): title, trigger, `public`, description, inputSchema and annotations, key for key.
     #[test]
     fn the_web_tools_are_nodes_definitions() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/tool-defs/definitions.json")).expect("the golden is JSON");
         let web = service(|_| {});
         for tool in web.tools().iter() {
-            let node = golden["definitions"].as_array().expect("definitions").iter().find(|def| def["name"] == tool.spec().name.as_str()).expect("a Node definition");
-            assert_eq!(&tool.spec().definition(), node, "{}", tool.spec().name);
+            let node = mixdog_js::fixture_tools::definition(&tool.spec().name).expect("a Node definition");
+            assert_eq!(tool.spec().definition(), node, "{}", tool.spec().name);
             assert_eq!(tool.spec().definition()["annotations"].to_string(), node["annotations"].to_string(), "{} annotations", tool.spec().name);
         }
     }

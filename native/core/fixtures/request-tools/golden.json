@@ -26,7 +26,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635245,
+              "lastCheckedAt": 1794069106278,
               "lastBeforeTokens": 939,
               "lastAfterTokens": 939,
               "lastPressureTokens": 939,
@@ -44,7 +44,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635246,
+                  "at": 1794069106278,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -149,7 +149,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635246,
+              "lastCheckedAt": 1794069106278,
               "lastBeforeTokens": 939,
               "lastAfterTokens": 939,
               "lastPressureTokens": 939,
@@ -167,7 +167,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635246,
+                  "at": 1794069106278,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -176,7 +176,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635246,
+                  "at": 1794069106278,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -282,7 +282,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635247,
+              "lastCheckedAt": 1794069106279,
               "lastBeforeTokens": 939,
               "lastAfterTokens": 939,
               "lastPressureTokens": 939,
@@ -300,7 +300,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635246,
+                  "at": 1794069106278,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -309,7 +309,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635246,
+                  "at": 1794069106278,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -318,7 +318,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635247,
+                  "at": 1794069106279,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -430,7 +430,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635248,
+              "lastCheckedAt": 1794069106281,
               "lastBeforeTokens": 991,
               "lastAfterTokens": 991,
               "lastPressureTokens": 991,
@@ -448,7 +448,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635248,
+                  "at": 1794069106281,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -579,7 +579,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635249,
+              "lastCheckedAt": 1794069106282,
               "lastBeforeTokens": 989,
               "lastAfterTokens": 989,
               "lastPressureTokens": 989,
@@ -597,7 +597,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635248,
+                  "at": 1794069106281,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -606,7 +606,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635249,
+                  "at": 1794069106282,
                   "stage": "pre_send_check",
                   "pressure": 989,
                   "est": 16,
@@ -743,7 +743,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635250,
+              "lastCheckedAt": 1794069106283,
               "lastBeforeTokens": 991,
               "lastAfterTokens": 991,
               "lastPressureTokens": 991,
@@ -761,7 +761,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635250,
+                  "at": 1794069106283,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -891,7 +891,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635251,
+              "lastCheckedAt": 1794069106284,
               "lastBeforeTokens": 937,
               "lastAfterTokens": 937,
               "lastPressureTokens": 937,
@@ -909,7 +909,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635250,
+                  "at": 1794069106283,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -918,7 +918,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635251,
+                  "at": 1794069106284,
                   "stage": "pre_send_check",
                   "pressure": 937,
                   "est": 16,
@@ -1030,7 +1030,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635251,
+              "lastCheckedAt": 1794069106285,
               "lastBeforeTokens": 911,
               "lastAfterTokens": 911,
               "lastPressureTokens": 911,
@@ -1048,7 +1048,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635250,
+                  "at": 1794069106283,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -1057,7 +1057,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635251,
+                  "at": 1794069106284,
                   "stage": "pre_send_check",
                   "pressure": 937,
                   "est": 16,
@@ -1066,7 +1066,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635251,
+                  "at": 1794069106285,
                   "stage": "pre_send_check",
                   "pressure": 911,
                   "est": 16,
@@ -1167,7 +1167,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635252,
+              "lastCheckedAt": 1794069106285,
               "lastBeforeTokens": 939,
               "lastAfterTokens": 939,
               "lastPressureTokens": 939,
@@ -1185,7 +1185,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635252,
+                  "at": 1794069106285,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -1292,7 +1292,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635253,
+              "lastCheckedAt": 1794069106286,
               "lastBeforeTokens": 1058,
               "lastAfterTokens": 1058,
               "lastPressureTokens": 1058,
@@ -1310,7 +1310,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635252,
+                  "at": 1794069106285,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -1319,7 +1319,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635253,
+                  "at": 1794069106286,
                   "stage": "pre_send_check",
                   "pressure": 1058,
                   "est": 16,
@@ -1480,7 +1480,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635253,
+              "lastCheckedAt": 1794069106286,
               "lastBeforeTokens": 939,
               "lastAfterTokens": 939,
               "lastPressureTokens": 939,
@@ -1498,7 +1498,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635253,
+                  "at": 1794069106286,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -1603,7 +1603,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635253,
+              "lastCheckedAt": 1794069106287,
               "lastBeforeTokens": 939,
               "lastAfterTokens": 939,
               "lastPressureTokens": 939,
@@ -1621,7 +1621,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635253,
+                  "at": 1794069106286,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -1630,7 +1630,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635253,
+                  "at": 1794069106287,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -1742,7 +1742,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635254,
+              "lastCheckedAt": 1794069106287,
               "lastBeforeTokens": 939,
               "lastAfterTokens": 939,
               "lastPressureTokens": 939,
@@ -1760,7 +1760,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635253,
+                  "at": 1794069106286,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -1769,7 +1769,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635253,
+                  "at": 1794069106287,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -1778,7 +1778,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635254,
+                  "at": 1794069106287,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -1898,7 +1898,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635255,
+              "lastCheckedAt": 1794069106288,
               "lastBeforeTokens": 991,
               "lastAfterTokens": 991,
               "lastPressureTokens": 991,
@@ -1916,7 +1916,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635255,
+                  "at": 1794069106288,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -2047,7 +2047,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635255,
+              "lastCheckedAt": 1794069106288,
               "lastBeforeTokens": 991,
               "lastAfterTokens": 991,
               "lastPressureTokens": 991,
@@ -2065,7 +2065,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635255,
+                  "at": 1794069106288,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -2074,7 +2074,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635255,
+                  "at": 1794069106288,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -2211,7 +2211,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635256,
+              "lastCheckedAt": 1794069106288,
               "lastBeforeTokens": 991,
               "lastAfterTokens": 991,
               "lastPressureTokens": 991,
@@ -2229,7 +2229,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635256,
+                  "at": 1794069106288,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -2359,7 +2359,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635256,
+              "lastCheckedAt": 1794069106289,
               "lastBeforeTokens": 937,
               "lastAfterTokens": 937,
               "lastPressureTokens": 937,
@@ -2377,7 +2377,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635256,
+                  "at": 1794069106288,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -2386,7 +2386,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635256,
+                  "at": 1794069106289,
                   "stage": "pre_send_check",
                   "pressure": 937,
                   "est": 16,
@@ -2501,7 +2501,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635256,
+              "lastCheckedAt": 1794069106289,
               "lastBeforeTokens": 991,
               "lastAfterTokens": 991,
               "lastPressureTokens": 991,
@@ -2519,7 +2519,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635256,
+                  "at": 1794069106288,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -2528,7 +2528,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635256,
+                  "at": 1794069106289,
                   "stage": "pre_send_check",
                   "pressure": 937,
                   "est": 16,
@@ -2537,7 +2537,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635256,
+                  "at": 1794069106289,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -2670,7 +2670,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635258,
+              "lastCheckedAt": 1794069106290,
               "lastBeforeTokens": 603,
               "lastAfterTokens": 603,
               "lastPressureTokens": 603,
@@ -2688,7 +2688,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635258,
+                  "at": 1794069106290,
                   "stage": "pre_send_check",
                   "pressure": 603,
                   "est": 16,
@@ -2800,7 +2800,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635259,
+              "lastCheckedAt": 1794069106292,
               "lastBeforeTokens": 669,
               "lastAfterTokens": 669,
               "lastPressureTokens": 669,
@@ -2818,7 +2818,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635258,
+                  "at": 1794069106290,
                   "stage": "pre_send_check",
                   "pressure": 603,
                   "est": 16,
@@ -2827,7 +2827,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635259,
+                  "at": 1794069106292,
                   "stage": "pre_send_check",
                   "pressure": 669,
                   "est": 16,
@@ -2964,7 +2964,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635261,
+              "lastCheckedAt": 1794069106292,
               "lastBeforeTokens": 534,
               "lastAfterTokens": 534,
               "lastPressureTokens": 534,
@@ -2982,7 +2982,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635258,
+                  "at": 1794069106290,
                   "stage": "pre_send_check",
                   "pressure": 603,
                   "est": 16,
@@ -2991,7 +2991,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635259,
+                  "at": 1794069106292,
                   "stage": "pre_send_check",
                   "pressure": 669,
                   "est": 16,
@@ -3000,7 +3000,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635261,
+                  "at": 1794069106293,
                   "stage": "pre_send_check",
                   "pressure": 534,
                   "est": 16,
@@ -3118,7 +3118,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635261,
+              "lastCheckedAt": 1794069106293,
               "lastBeforeTokens": 939,
               "lastAfterTokens": 939,
               "lastPressureTokens": 939,
@@ -3136,7 +3136,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635261,
+                  "at": 1794069106293,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -3249,7 +3249,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635262,
+              "lastCheckedAt": 1794069106293,
               "lastBeforeTokens": 937,
               "lastAfterTokens": 937,
               "lastPressureTokens": 937,
@@ -3267,7 +3267,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635261,
+                  "at": 1794069106293,
                   "stage": "pre_send_check",
                   "pressure": 939,
                   "est": 16,
@@ -3276,7 +3276,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635262,
+                  "at": 1794069106293,
                   "stage": "pre_send_check",
                   "pressure": 937,
                   "est": 16,
@@ -3396,7 +3396,7 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635262,
+              "lastCheckedAt": 1794069106294,
               "lastBeforeTokens": 991,
               "lastAfterTokens": 991,
               "lastPressureTokens": 991,
@@ -3414,7 +3414,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635262,
+                  "at": 1794069106294,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -3545,7 +3545,7 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794068635263,
+              "lastCheckedAt": 1794069106294,
               "lastBeforeTokens": 995,
               "lastAfterTokens": 995,
               "lastPressureTokens": 995,
@@ -3563,7 +3563,7 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794068635262,
+                  "at": 1794069106294,
                   "stage": "pre_send_check",
                   "pressure": 991,
                   "est": 16,
@@ -3572,7 +3572,7 @@
                   "baselineAt": null
                 },
                 {
-                  "at": 1794068635263,
+                  "at": 1794069106294,
                   "stage": "pre_send_check",
                   "pressure": 995,
                   "est": 16,

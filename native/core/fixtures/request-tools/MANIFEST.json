@@ -5,16 +5,16 @@
     {
       "bytes": 149683,
       "path": "golden.json",
-      "sha256": "d162ee4fbb27c3356de60123a33204a021129798d5232d9446fec353c9465b46"
+      "sha256": "3e31bd17dea1885f654df40431597bc72936e45feb84a936e788e889129e4823"
     }
   ],
   "product": {
     "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
-    "commit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
+    "commit": "d6983371ed0de0369c0433e2079ab6419e963044",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9252,
     "refComparison": {
-      "closestCommit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
+      "closestCommit": "d6983371ed0de0369c0433e2079ab6419e963044",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
