@@ -626,6 +626,51 @@ fn a_cut_or_filtered_turn_never_dispatches_its_tool_calls() {
     assert!(decoder.exposure().tool_input_cut);
 }
 
+/// The real-turn harness's provider (`lib/fake-provider.mjs`, `scenarios.mjs` `toolCall`): the
+/// call's JSON arguments cut in half over two `index: 0` deltas, the second carrying no id or
+/// name, then the finish chunk and a usage-only chunk. The tool gets the whole object, wherever
+/// the body is cut.
+#[test]
+fn a_tool_call_streamed_in_two_argument_deltas_reaches_the_tool_whole() {
+    let frame = |delta: JsonValue, finish: JsonValue| {
+        let chunk = json!({
+            "id": "chatcmpl-harness", "object": "chat.completion.chunk", "created": 1700000000, "model": "harness-model",
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+        });
+        format!("data: {chunk}\n\n")
+    };
+    let arguments = json!({"path": "hello.txt"}).to_string();
+    let (first, second) = arguments.split_at(arguments.len() / 2);
+    let mut sse = String::new();
+    sse.push_str(&frame(json!({"role": "assistant", "content": ""}), JsonValue::Null));
+    sse.push_str(&frame(json!({"content": "I will read the file."}), JsonValue::Null));
+    sse.push_str(&frame(
+        json!({"tool_calls": [{"index": 0, "id": "call_harness_1", "type": "function", "function": {"name": "read", "arguments": first}}]}),
+        JsonValue::Null,
+    ));
+    sse.push_str(&frame(json!({"tool_calls": [{"index": 0, "function": {"arguments": second}}]}), JsonValue::Null));
+    sse.push_str(&frame(json!({}), json!("tool_calls")));
+    let usage = json!({"id": "chatcmpl-harness", "object": "chat.completion.chunk", "model": "harness-model", "choices": [],
+        "usage": {"prompt_tokens": 1200, "completion_tokens": 24, "total_tokens": 1224}});
+    sse.push_str(&format!("data: {usage}\n\ndata: [DONE]\n\n"));
+
+    let codec = plain_codec();
+    for split in [0, sse.len() / 3, sse.len() / 2, sse.len()] {
+        let events = decode(&codec, sse.as_bytes(), split);
+        assert_eq!(
+            tool_calls_of(&events),
+            [ToolCall {
+                id: "call_harness_1".into(),
+                name: "read".into(),
+                arguments: json!({"path": "hello.txt"}),
+                native_type: None,
+            }],
+            "split at {split}"
+        );
+        assert_eq!(stop_of(&events), StopReason::ToolUse);
+    }
+}
+
 #[test]
 fn malformed_tool_arguments_ride_as_data_after_a_finish() {
     let codec = plain_codec();
