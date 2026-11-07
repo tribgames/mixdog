@@ -203,6 +203,95 @@ async fn the_relay_peer_header_never_raises_rights_or_works_off_the_ssh_listener
     for spec in CLIENT_METHODS.iter().filter(|spec| spec.allows(Origin::Relay) && spec.method != "transfer/grant/mint") {
         assert!(spec.allows(Origin::Local) && spec.allows(Origin::Ssh), "{} is relay-only", spec.method);
     }
+
+    // The exception stated outright, not read back from the table it is an exception to: the real server behind each
+    // listener refuses the grant to a local and to an SSH connection (a relay peer header on the loopback listener
+    // changes nothing), and serves it to a relay connection.
+    for (listener, peers, origin) in [
+        (ListenerOrigin::Loopback, &[][..], "local"),
+        (ListenerOrigin::Loopback, &["0a1b2c3d-4e5f"][..], "local"),
+        (ListenerOrigin::SshTunnel, &[][..], "ssh"),
+    ] {
+        let answer = mint_answer(listener, peers).await;
+        assert_eq!(
+            answer["error"]["data"],
+            serde_json::json!({ "reason": "permissionDenied", "method": "transfer/grant/mint", "origin": origin }),
+            "{origin} {peers:?}: {answer}"
+        );
+    }
+    let served = mint_answer(ListenerOrigin::SshTunnel, &["0a1b2c3d-4e5f"]).await;
+    assert!(served.get("error").is_none(), "a relay connection is served the grant: {served}");
+    assert_eq!(served["result"]["method"], "transfer/grant/mint", "{served}");
+}
+
+/// `transfer/grant/mint` sent over a connection to a listener of `origin` (dialled with the relay `peers` header) on the
+/// real server over the mock core, which echoes what it is served; the answer to it.
+async fn mint_answer(origin: ListenerOrigin, peers: &[&str]) -> serde_json::Value {
+    use mixdog_app_protocol::v1::{CapabilityState, ServerCapabilities};
+    use mixdog_app_server::{AppServer, Inbound, Outgoing, ServerConfig, VersionOrder};
+    use mixdog_core_api::mock::{MockCore, MockLimits};
+
+    let (hub, mut listener) = listen_as(Limits::default(), origin).await;
+    let origins = hub.clone();
+    let available = || CapabilityState::Available;
+    let server = AppServer::new(
+        Arc::new(MockCore::new(&["transfer/grant/mint"], MockLimits::default())),
+        Outgoing::new(),
+        Arc::new(move |id| origins.origin_of(id)),
+        ServerConfig {
+            user_agent: "mixdog-test".to_owned(),
+            platform_family: "windows".to_owned(),
+            platform_os: "windows".to_owned(),
+            server_version: "1.4.6".to_owned(),
+            server_build: "test".to_owned(),
+            server_instance_id: "instance-1".to_owned(),
+            capabilities: ServerCapabilities {
+                office: available(),
+                js_skills: available(),
+                browser: available(),
+                computer: available(),
+                voice: available(),
+            },
+            limits: Limits::default(),
+            version_gate: Arc::new(|_| VersionOrder::Equal),
+        },
+    )
+    .unwrap();
+    let (mut client, accepted) = connected(&mut listener, Dial { peers, ..Dial::default() }).await;
+    let AcceptedConnection { id, mut inbound, sink, .. } = accepted;
+    let handle = server.open(id, Arc::new(sink.clone()));
+    tokio::spawn(async move {
+        while let Some(message) = inbound.recv().await {
+            match handle.on_message(message) {
+                Inbound::Continue => {}
+                Inbound::Pause(resume) => resume.await,
+                Inbound::Close(code) => {
+                    sink.close(code);
+                    break;
+                }
+            }
+        }
+    });
+
+    let initialize = serde_json::json!({
+        "id": 0, "method": "initialize",
+        "params": { "clientInfo": { "name": "test", "version": "1.4.6", "kind": "desktop" }, "capabilities": {} },
+    });
+    let mint = serde_json::json!({ "id": 1, "method": "transfer/grant/mint", "params": { "path": "/outside/file.txt" } });
+    for request in [initialize, mint] {
+        client.send(Message::text(request.to_string())).await.unwrap();
+        loop {
+            let Message::Text(text) = client.next().await.expect("the connection ended").unwrap() else { continue };
+            let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
+            if frame["id"] == request["id"] {
+                if request["id"] == 1 {
+                    return frame;
+                }
+                break;
+            }
+        }
+    }
+    unreachable!("the mint request is the last one sent")
 }
 
 #[tokio::test]
