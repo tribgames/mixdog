@@ -157,6 +157,7 @@ impl SessionActor {
     /// screen), else the prompt the failed turn replays.
     fn retry_turn(retained: Option<super::super::quota_lane::Retained>, prompt: Option<String>, provenance: Option<Value>) -> Result<Option<super::super::quota_lane::RetryTurn>, CoreError> {
         if let Some(retained) = retained {
+            let prior = retained.prior();
             let prompt: PromptContent = serde_json::from_value(retained.content)
                 .map_err(|_| super::super::turn_ops::failure("The failed message holds content this daemon cannot resend"))?;
             let options = mixdog_protocol::thread::SubmitOptions {
@@ -165,7 +166,7 @@ impl SessionActor {
                 retry_attempt_id: retained.attempt_id,
                 ..Default::default()
             };
-            return Ok(Some(super::super::quota_lane::RetryTurn { input: TurnInput { prompt, options: Some(options) }, hidden: true, provenance }));
+            return Ok(Some(super::super::quota_lane::RetryTurn { input: TurnInput { prompt, options: Some(options) }, hidden: true, provenance, prior: Some(prior) }));
         }
         Ok(prompt.map(|prompt| {
             let options = mixdog_protocol::thread::SubmitOptions {
@@ -173,13 +174,14 @@ impl SessionActor {
                 retry_failed_turn: Some(true),
                 ..Default::default()
             };
-            super::super::quota_lane::RetryTurn { input: TurnInput { prompt: PromptContent::Text(prompt), options: Some(options) }, hidden: false, provenance }
+            super::super::quota_lane::RetryTurn { input: TurnInput { prompt: PromptContent::Text(prompt), options: Some(options) }, hidden: false, provenance, prior: None }
         }))
     }
 
     fn begin_retry(&mut self, retry: super::super::quota_lane::RetryTurn) {
         self.retry_hidden = retry.hidden;
         self.retry_provenance = Some(retry.provenance);
+        self.retry_prior = retry.prior;
         self.start_run(retry.input, None, None, None);
     }
 

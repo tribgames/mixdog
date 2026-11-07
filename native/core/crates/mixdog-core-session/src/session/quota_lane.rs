@@ -162,6 +162,22 @@ pub(crate) struct Retained {
     pub content: Value,
     pub message_id: String,
     pub attempt_id: Option<String>,
+    /// The completions the message has recorded, the failure being retried last (`retainedUserTurn`).
+    pub previous_completions: Vec<Value>,
+}
+
+/// What the retry row keeps of the failed message it resends (`retainedUserTurn`, `ask-turn-execute.mjs:38-61`):
+/// its message id, and every failed completion it has recorded, as `meta.transcript.previousCompletions`.
+#[derive(Clone)]
+pub(crate) struct Prior {
+    pub message_id: String,
+    pub completions: Vec<Value>,
+}
+
+impl Retained {
+    pub(crate) fn prior(&self) -> Prior {
+        Prior { message_id: self.message_id.clone(), completions: self.previous_completions.clone() }
+    }
 }
 
 /// `retainedRetryInput()`: the last non-system model message, when it is the failed turn's own
@@ -177,7 +193,23 @@ pub(crate) fn retained_retry_input(messages: &[Value]) -> Option<Retained> {
         content: message.get("content").cloned().unwrap_or(Value::Null),
         message_id: value_to_string(id.expect("checked")),
         attempt_id: transcript.and_then(|t| t.pointer("/completion/attemptId")).and_then(Value::as_str).map(str::to_owned),
+        previous_completions: previous_completions(transcript.expect("checked")),
     })
+}
+
+/// `[...(previousTranscript.previousCompletions || []), { ...completion, at: completion.at ?? previousTranscript.at }]`
+/// (`retainedUserTurn`): `completion` is the failed one the caller checked. An `at` that is absent or null takes the
+/// message's own; with neither, the entry has none.
+fn previous_completions(transcript: &Value) -> Vec<Value> {
+    let mut completions = transcript.get("previousCompletions").and_then(Value::as_array).cloned().unwrap_or_default();
+    let completion = transcript.get("completion").and_then(Value::as_object).expect("checked");
+    let own = completion.get("at").filter(|at| !at.is_null()).or_else(|| transcript.get("at").filter(|at| !at.is_null()));
+    let mut entry: serde_json::Map<String, Value> = completion.iter().filter(|(key, _)| key.as_str() != "at").map(|(key, value)| (key.clone(), value.clone())).collect();
+    if let Some(at) = own {
+        entry.insert("at".into(), at.clone());
+    }
+    completions.push(Value::Object(entry));
+    completions
 }
 
 /// The retry a resume admits (`retryFailedTurn(key)`'s queued entry): the turn the session
@@ -189,6 +221,8 @@ pub(crate) struct RetryTurn {
     pub hidden: bool,
     /// `failedTurnProvenance` of the turn it retries: stored on the retry row as `meta.provenance`.
     pub provenance: Option<Value>,
+    /// The failed message a retained retry resends: the row keeps its id and its recorded completions.
+    pub prior: Option<Prior>,
 }
 
 /// `failedTurnProvenance(messages, input)` as the object a retry row stores: the `{ source, origin }` of the

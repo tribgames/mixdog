@@ -596,6 +596,15 @@ async fn a_retry_of_a_system_turn_and_the_retry_of_that_retry_are_noted_as_syste
     let begun = super::testing::lock(&rig.warms.begun).clone();
     let kinds: Vec<TurnKind> = begun.iter().map(|(_, input, messages)| turn_kind(input, messages.as_ref())).collect();
     assert_eq!(kinds, [TurnKind::Return, TurnKind::System, TurnKind::System], "the prompt is a return, both retries are system");
+
+    // A retained retry keeps the failed message's id (`messageId: previousTranscript.messageId`) and carries every failure
+    // it replaced, the earliest first (`previousCompletions`, `ask-turn-execute.mjs:38-61`): without the id the retry of
+    // the retry finds no retained message and is not resumable.
+    let rows: Vec<Value> = directory.model_context(&handle.id).read().await.expect("context").into_iter().map(|(_, message)| message).collect();
+    let last = rows.last().expect("the last retry's row").pointer("/meta/transcript").cloned().expect("its transcript");
+    assert_eq!(last["messageId"], "m1");
+    let previous = last["previousCompletions"].as_array().expect("the failures it replaced");
+    assert_eq!(previous.iter().map(|completion| completion["status"].clone()).collect::<Vec<_>>(), [json!("failed"), json!("failed")]);
 }
 
 /// A failed turn gets `meta.transcript.completion` on its last message (`attachFailedTurnCompletion`,
