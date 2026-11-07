@@ -47,6 +47,7 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 const GOLDEN: &str = include_str!("../../../fixtures/plugins-status/golden.json");
+const CONNECTED: &str = include_str!("../../../fixtures/plugins-status/connected.json");
 
 /// The thread the real-glue replay asks as: its header names no scope, so it reads nothing live
 /// (`scope_of_request`), which is what Node's recording with no server connected reads.
@@ -261,12 +262,17 @@ async fn the_rows_are_the_ones_node_answers_for_the_summary_it_read() {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn the_summary_of_the_real_glue_is_the_one_node_reads_with_no_server_connected() {
-    let dir = tempfile::tempdir().unwrap();
-    let golden = lay_out(dir.path()).await;
+/// The real glue, host and service over `dir`'s data folder: what a daemon is composed of for the plugins.
+struct Stack {
+    glue: Arc<McpGlue>,
+    host: Arc<GlueHost>,
+    service: PluginsService,
+    config: Arc<Config>,
+}
+
+fn stack(dir: &Path) -> Stack {
     let tokens = mixdog_rt::testing::tokens();
-    let data = dir.path().join("data");
+    let data = dir.join("data");
     let config = Arc::new(Config::default());
     let admin = Arc::new(PluginAdmin::new(data.clone(), Arc::new(NoGit), Arc::new(|| {})));
     let declarations = Arc::new(DeclarationCache::new());
@@ -282,19 +288,27 @@ async fn the_summary_of_the_real_glue_is_the_one_node_reads_with_no_server_conne
         declarations: declarations.clone(),
         maintenance: tokens.maintenance_io,
         oauth_env: OAuthEnv { store: Arc::new(NoSecrets), plugin_data: data.clone(), io: tokens.durability_io },
-        env: Env::default(),
-        surface: Arc::new(Surface(dir.path().join("proj"))),
+        env: std::env::vars().collect::<Env>(),
+        surface: Arc::new(Surface(dir.join("proj"))),
         health: Arc::new(AccountHealth::default()),
     });
     let catalog = SkillCatalog::new(
-        data.clone(),
+        data,
         tokens.maintenance_io,
         Arc::new(|_: &InLane<MaintenanceIo>| Vec::<mixdog_mcp::skills::SkillRoot>::new()),
         Arc::new(NoSettings),
         &SkillsWatch::new(),
     );
-    let host = Arc::new(GlueHost::new(glue, catalog));
+    let host = Arc::new(GlueHost::new(glue.clone(), catalog));
     let service = PluginsService::new(admin, declarations, config.clone(), host.clone(), tokens.maintenance_io);
+    Stack { glue, host, service, config }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_summary_of_the_real_glue_is_the_one_node_reads_with_no_server_connected() {
+    let dir = tempfile::tempdir().unwrap();
+    let golden = lay_out(dir.path()).await;
+    let Stack { host, service, config, .. } = stack(dir.path());
     for (index, step) in golden["steps"].as_array().unwrap().iter().enumerate() {
         change_disk(dir.path(), index).await;
         if step["connected"] == json!(true) {
@@ -305,4 +319,50 @@ async fn the_summary_of_the_real_glue_is_the_one_node_reads_with_no_server_conne
         assert_eq!(host.plugin_mcp_summary(Some(THREAD)).await.unwrap(), step["summary"], "{name}: the summary");
         assert_status(step, &status_of(&service, Some(THREAD)).await);
     }
+}
+
+/// The stdio test server (`mock/server.rs`) the MCP suites run.
+const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
+
+/// `connected.json`, recorded by `record-connected.mjs`: Node's own client connected to the same test
+/// server through the real glue. The plugin's server really connects here too, in the runtime's scope.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_connected_through_the_real_glue_reads_as_it_does_in_node() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = json_escaped(&dir.path().to_string_lossy());
+    let mock_path = MOCK.to_owned();
+    let golden: Value = serde_json::from_str(&CONNECTED.replace("<BASE>", &base)).unwrap();
+    let steps: Value = serde_json::from_str(&golden["steps"].to_string().replace("<MOCK>", &json_escaped(&mock_path))).unwrap();
+    let (root, laid, mock) = (dir.path().to_path_buf(), golden.clone(), mock_path);
+    on_lane(move |lane| {
+        let opts = Opts::default();
+        for (name, files) in laid["fixtures"].as_object().unwrap() {
+            let plugin = root.join("src").join(name);
+            mixdog_statefile::create_dir_all(lane, &plugin).unwrap();
+            for (relative, text) in files.as_object().unwrap() {
+                // The recorded file holds JSON text, so the server's path is written with its backslashes doubled.
+                let text = text.as_str().unwrap().replace("<MOCK>", &mock.replace('\\', "\\\\"));
+                mixdog_statefile::write_file(lane, &file_in(&plugin, relative), text.as_bytes(), &opts).unwrap();
+            }
+        }
+        let plugins = root.join("data").join("plugins");
+        mixdog_statefile::create_dir_all(lane, &plugins).unwrap();
+        let registry = json!({"version": 1, "plugins": [{
+            "id": "hub-1", "name": "hub", "source": root.join("src").join("hub").to_string_lossy(), "sourceType": "local",
+            "managed": false, "root": root.join("src").join("hub").to_string_lossy(), "enabled": true,
+        }]});
+        mixdog_statefile::write_json(lane, &plugins.join("registry.json"), &registry, &opts).unwrap();
+        mixdog_statefile::create_dir_all(lane, &root.join("proj")).unwrap();
+    })
+    .await;
+    let Stack { glue, host, service, .. } = stack(dir.path());
+    glue.connect_runtime_scope().await.unwrap();
+    let steps = steps.as_array().unwrap();
+    // Step 0: the plugin's server is connected in the runtime's scope.
+    assert_eq!(host.plugin_mcp_summary(None).await.unwrap(), steps[0]["summary"], "{}: the summary", steps[0]["name"]);
+    assert_status(&steps[0], &status_of(&service, None).await);
+    // Step 1: that server dropped.
+    host.connect_configured_mcp("plugin-hub-1-mock", false).await;
+    assert_eq!(host.plugin_mcp_summary(None).await.unwrap(), steps[1]["summary"], "{}: the summary", steps[1]["name"]);
+    assert_status(&steps[1], &status_of(&service, None).await);
 }

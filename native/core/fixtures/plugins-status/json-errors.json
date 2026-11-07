@@ -1,0 +1,1009 @@
+{
+ "node": "v22.20.0",
+ "rows": [
+  {
+   "name": "\"\"",
+   "hex": "",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\" \"",
+   "hex": "20",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"\\n\\n\"",
+   "hex": "0a0a",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"{\"",
+   "hex": "7b",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"[\"",
+   "hex": "5b",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\"\"",
+   "hex": "7b226122",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 5"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":\"",
+   "hex": "7b2261223a",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":1\"",
+   "hex": "7b2261223a31",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 7"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":1,\"",
+   "hex": "7b2261223a312c",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 8"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":{\"",
+   "hex": "7b2261223a7b",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 7"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":[\"",
+   "hex": "7b2261223a5b",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":[1\"",
+   "hex": "7b2261223a5b31",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 8"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":[1,\"",
+   "hex": "7b2261223a5b312c",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"\\\"abc\"",
+   "hex": "22616263",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 5"
+   ]
+  },
+  {
+   "name": "\"\\\"abc\\\\\"",
+   "hex": "226162635c",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"\\\"a\\\\u12\"",
+   "hex": "22615c753132",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 7"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":\\\"x\"",
+   "hex": "7b2261223a2278",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 8"
+   ]
+  },
+  {
+   "name": "\"tru\"",
+   "hex": "747275",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"nul\"",
+   "hex": "6e756c",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"fals\"",
+   "hex": "66616c73",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"truex\"",
+   "hex": "7472756578",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 5"
+   ]
+  },
+  {
+   "name": "\"nulll\"",
+   "hex": "6e756c6c6c",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 5"
+   ]
+  },
+  {
+   "name": "\"{,}\"",
+   "hex": "7b2c7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"{a:1}\"",
+   "hex": "7b613a317d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"{'a':1}\"",
+   "hex": "7b2761273a317d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\" 1}\"",
+   "hex": "7b22612220317d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 6"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":1 \\\"b\\\":2}\"",
+   "hex": "7b2261223a31202262223a327d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 8"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":1,}\"",
+   "hex": "7b2261223a312c7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 8"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":1,,\\\"b\\\":2}\"",
+   "hex": "7b2261223a312c2c2262223a327d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 8"
+   ]
+  },
+  {
+   "name": "\"[1,]\"",
+   "hex": "5b312c5d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"[,1]\"",
+   "hex": "5b2c315d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"[1 2]\"",
+   "hex": "5b3120325d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"[1,,2]\"",
+   "hex": "5b312c2c325d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"[}\"",
+   "hex": "5b7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{]\"",
+   "hex": "7b5d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"}\"",
+   "hex": "7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"]\"",
+   "hex": "5d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\",\"",
+   "hex": "2c",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\":\"",
+   "hex": "3a",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":}\"",
+   "hex": "7b2261223a7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":,}\"",
+   "hex": "7b2261223a2c7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\"::1}\"",
+   "hex": "7b2261223a3a317d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":1}}\"",
+   "hex": "7b2261223a317d7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 8"
+   ]
+  },
+  {
+   "name": "\"{} {}\"",
+   "hex": "7b7d207b7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"[] []\"",
+   "hex": "5b5d205b5d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"{}x\"",
+   "hex": "7b7d78",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 3"
+   ]
+  },
+  {
+   "name": "\"{} x\"",
+   "hex": "7b7d2078",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"null null\"",
+   "hex": "6e756c6c206e756c6c",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 6"
+   ]
+  },
+  {
+   "name": "\"\\\"a\\\\qb\\\"\"",
+   "hex": "22615c716222",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"\\\"a\\\\x41\\\"\"",
+   "hex": "22615c78343122",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"\\\"a\\\\u12g4\\\"\"",
+   "hex": "22615c753132673422",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 7"
+   ]
+  },
+  {
+   "name": "\"\\\"a\\\\u\\\"\"",
+   "hex": "22615c7522",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 5"
+   ]
+  },
+  {
+   "name": "\"\\\"a\\\\'b\\\"\"",
+   "hex": "22615c276222",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"\\\"tab\\there\\\"\"",
+   "hex": "22746162096865726522",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 5"
+   ]
+  },
+  {
+   "name": "\"\\\"line\\nbreak\\\"\"",
+   "hex": "226c696e650a627265616b22",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 6"
+   ]
+  },
+  {
+   "name": "\"\\\"nul\\u0000x\\\"\"",
+   "hex": "226e756c007822",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 5"
+   ]
+  },
+  {
+   "name": "\"\\\"\\u001f\\\"\"",
+   "hex": "221f22",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"01\"",
+   "hex": "3031",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"00\"",
+   "hex": "3030",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"-\"",
+   "hex": "2d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"-x\"",
+   "hex": "2d78",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"--1\"",
+   "hex": "2d2d31",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"+1\"",
+   "hex": "2b31",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"1.\"",
+   "hex": "312e",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 3"
+   ]
+  },
+  {
+   "name": "\"1.e5\"",
+   "hex": "312e6535",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 3"
+   ]
+  },
+  {
+   "name": "\".5\"",
+   "hex": "2e35",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"1e\"",
+   "hex": "3165",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 3"
+   ]
+  },
+  {
+   "name": "\"1e+\"",
+   "hex": "31652b",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"1E-\"",
+   "hex": "31452d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"0x10\"",
+   "hex": "30783130",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"1a\"",
+   "hex": "3161",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"-0.\"",
+   "hex": "2d302e",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"1.5.5\"",
+   "hex": "312e352e35",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 4"
+   ]
+  },
+  {
+   "name": "\"12abc\"",
+   "hex": "3132616263",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 3"
+   ]
+  },
+  {
+   "name": "\"NaN\"",
+   "hex": "4e614e",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"Infinity\"",
+   "hex": "496e66696e697479",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"-Infinity\"",
+   "hex": "2d496e66696e697479",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"undefined\"",
+   "hex": "756e646566696e6564",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"[object Object]\"",
+   "hex": "5b6f626a656374204f626a6563745d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"True\"",
+   "hex": "54727565",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"NULL\"",
+   "hex": "4e554c4c",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"abc\"",
+   "hex": "616263",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"xyz\"",
+   "hex": "78797a",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"<html>\"",
+   "hex": "3c68746d6c3e",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"<!DOCTYPE html>\"",
+   "hex": "3c21444f43545950452068746d6c3e",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"Not Found\"",
+   "hex": "4e6f7420466f756e64",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"mcpServers\\\":{\\\"a\\\":{\\\"command\\\":\\\"x\\\"},}}\"",
+   "hex": "7b226d637053657276657273223a7b2261223a7b22636f6d6d616e64223a2278227d2c7d7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 36"
+   ]
+  },
+  {
+   "name": "\"{\\\"mcpServers\\\":{\\\"a\\\":{\\\"command\\\":\\\"x\\\"}}\"",
+   "hex": "7b226d637053657276657273223a7b2261223a7b22636f6d6d616e64223a2278227d7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 36"
+   ]
+  },
+  {
+   "name": "\"{\\\"mcpServers\\\":{\\\"a\\\":{\\\"command\\\":\\\"x\\\"}}}}\"",
+   "hex": "7b226d637053657276657273223a7b2261223a7b22636f6d6d616e64223a2278227d7d7d7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 37"
+   ]
+  },
+  {
+   "name": "\"{\\n  \\\"mcpServers\\\": {\\n    \\\"a\\\": {\\n      \\\"command\\\": \\\"x\\\",\\n    }\\n  }\\n}\"",
+   "hex": "7b0a2020226d637053657276657273223a207b0a202020202261223a207b0a20202020202022636f6d6d616e64223a202278222c0a202020207d0a20207d0a7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 5 column 5"
+   ]
+  },
+  {
+   "name": "\"{\\r\\n  \\\"a\\\": 1,\\r\\n  b\\r\\n}\"",
+   "hex": "7b0d0a20202261223a20312c0d0a2020620d0a7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 3 column 3"
+   ]
+  },
+  {
+   "name": "\"{\\r  \\\"a\\\": 1,\\r  b\\r}\"",
+   "hex": "7b0d20202261223a20312c0d2020620d7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 3 column 3"
+   ]
+  },
+  {
+   "name": "\"﻿{\\\"mcpServers\\\":{}}\"",
+   "hex": "efbbbf7b226d637053657276657273223a7b7d7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"  {}\"",
+   "hex": "20c2a07b7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":é}\"",
+   "hex": "7b2261223ac3a97d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"é\\\":1,}\"",
+   "hex": "7b22c3a9223a312c7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 8"
+   ]
+  },
+  {
+   "name": "\"é\"",
+   "hex": "c3a9",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"😀\"",
+   "hex": "f09f9880",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":\\\"😀\\\",}\"",
+   "hex": "7b2261223a22f09f9880222c7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 11"
+   ]
+  },
+  {
+   "name": "\"[😀]\"",
+   "hex": "5bf09f98805d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"line 1 column 2 xyz\"",
+   "hex": "6c696e65203120636f6c756d6e20322078797a",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "\"xx line 7 column 9 yy\"",
+   "hex": "7878206c696e65203720636f6c756d6e2039207979",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"abcdefghij line 3 column 4 klmnop\"",
+   "hex": "6162636465666768696a206c696e65203320636f6c756d6e2034206b6c6d6e6f70",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"a position 12 b\"",
+   "hex": "6120706f736974696f6e2031322062",
+   "directory": false,
+   "errors": [
+    "invalid JSON at position 12"
+   ]
+  },
+  {
+   "name": "\"at position 99 of the text\"",
+   "hex": "617420706f736974696f6e203939206f66207468652074657874",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"end of JSON input\"",
+   "hex": "656e64206f66204a534f4e20696e707574",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"x end of data input\"",
+   "hex": "7820656e64206f66206461746120696e707574",
+   "directory": false,
+   "errors": [
+    "invalid JSON: unexpected end of input"
+   ]
+  },
+  {
+   "name": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"",
+   "hex": "78787878787878787878787878787878787878787878787878787878787878787878787878787878",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"a\\\":1,\\\"b\\\":2,\\\"c\\\":3,\\\"d\\\":4,\\\"e\\\":5,\\\"f\\\":6,\\\"g\\\":7,\\\"h\\\":8 \\\"i\\\":9}\"",
+   "hex": "7b2261223a312c2262223a322c2263223a332c2264223a342c2265223a352c2266223a362c2267223a372c2268223a38202269223a397d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 50"
+   ]
+  },
+  {
+   "name": "\"[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1,]\"",
+   "hex": "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b312c5d",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"{\\\"k\\\":\\\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\\\"}x\"",
+   "hex": "7b226b223a22767676767676767676767676767676767676767676767676767676767676227d78",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 39"
+   ]
+  },
+  {
+   "name": "\"                         #                         \"",
+   "hex": "202020202020202020202020202020202020202020202020202320202020202020202020202020202020202020202020202020",
+   "directory": false,
+   "errors": [
+    "invalid JSON"
+   ]
+  },
+  {
+   "name": "\"[]\"",
+   "hex": "5b5d",
+   "directory": false,
+   "errors": [
+    "MCP declaration must be an object"
+   ]
+  },
+  {
+   "name": "\"1\"",
+   "hex": "31",
+   "directory": false,
+   "errors": [
+    "MCP declaration must be an object"
+   ]
+  },
+  {
+   "name": "\"\\\"s\\\"\"",
+   "hex": "227322",
+   "directory": false,
+   "errors": [
+    "MCP declaration must be an object"
+   ]
+  },
+  {
+   "name": "\"null\"",
+   "hex": "6e756c6c",
+   "directory": false,
+   "errors": [
+    "MCP declaration must be an object"
+   ]
+  },
+  {
+   "name": "\"true\"",
+   "hex": "74727565",
+   "directory": false,
+   "errors": [
+    "MCP declaration must be an object"
+   ]
+  },
+  {
+   "name": "\"{\\\"mcpServers\\\":1}\"",
+   "hex": "7b226d637053657276657273223a317d",
+   "directory": false,
+   "errors": [
+    "\"mcpServers\" must be an object"
+   ]
+  },
+  {
+   "name": "\"{\\\"mcpServers\\\":{\\\"a\\\":{\\\"command\\\":\\\"x\\\"}}}\"",
+   "hex": "7b226d637053657276657273223a7b2261223a7b22636f6d6d616e64223a2278227d7d7d",
+   "directory": false,
+   "errors": []
+  },
+  {
+   "name": "\"{\\\"a\\\":\\\"\\\\ud800\\\"}\"",
+   "hex": "7b2261223a225c7564383030227d",
+   "directory": false,
+   "errors": [
+    "server entry must be an object"
+   ]
+  },
+  {
+   "name": "\"{\\\"__proto__\\\":{\\\"command\\\":\\\"x\\\"}}\"",
+   "hex": "7b225f5f70726f746f5f5f223a7b22636f6d6d616e64223a2278227d7d",
+   "directory": false,
+   "errors": []
+  },
+  {
+   "name": "\"{\\\"a\\\":1e999}\"",
+   "hex": "7b2261223a31653939397d",
+   "directory": false,
+   "errors": [
+    "server entry must be an object"
+   ]
+  },
+  {
+   "name": "invalid UTF-8 byte in a string",
+   "hex": "7b2261223a22ff227d",
+   "directory": false,
+   "errors": [
+    "server entry must be an object"
+   ]
+  },
+  {
+   "name": "invalid UTF-8 byte outside a string",
+   "hex": "7bff7d",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 2"
+   ]
+  },
+  {
+   "name": "truncated UTF-8 sequence",
+   "hex": "7b2261223a22e282",
+   "directory": false,
+   "errors": [
+    "invalid JSON at line 1 column 8"
+   ]
+  },
+  {
+   "name": "the file is a folder",
+   "hex": "",
+   "directory": true,
+   "errors": [
+    "cannot read file (EISDIR)"
+   ]
+  }
+ ]
+}
