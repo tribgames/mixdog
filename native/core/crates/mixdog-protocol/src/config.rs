@@ -53,6 +53,28 @@ pub mod keys {
     pub const TERMINAL_PROFILES: &str = "terminal.profiles";
 }
 
+/// The desktop's own state files that live as config keys here: the file the desktop kept in Node and the key it migrates to. The
+/// desktop profile migration plans each file into its key, and the settings-change signature leaves each key out, because the Node
+/// daemon's stored settings never held them (`ALL` is the one list both read).
+pub mod desktop_files {
+    use super::keys;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct DesktopConfigFile {
+        pub file: &'static str,
+        pub key: &'static str,
+    }
+
+    pub const AGENT_GREETINGS: DesktopConfigFile = DesktopConfigFile { file: "agent-greetings.json", key: keys::AGENTS_GREETED };
+    pub const NOTIFICATION_PREFERENCES: DesktopConfigFile =
+        DesktopConfigFile { file: "notification-preferences.json", key: keys::NOTIFICATIONS };
+    pub const SESSION_AUTO_RETENTION: DesktopConfigFile =
+        DesktopConfigFile { file: "session-auto-retention.json", key: keys::DESKTOP_RETENTION_STATE };
+    pub const REMOTE_ACTIVATED: DesktopConfigFile = DesktopConfigFile { file: "remote-activated.json", key: keys::REMOTE_ACTIVATED_AT };
+
+    pub const ALL: [DesktopConfigFile; 4] = [AGENT_GREETINGS, NOTIFICATION_PREFERENCES, SESSION_AUTO_RETENTION, REMOTE_ACTIVATED];
+}
+
 // ---- `notifications` (the storage half of `notification-preferences.ts`, issue #221) ----
 // A missing or invalid field reads as its default, as the Node loader does.
 

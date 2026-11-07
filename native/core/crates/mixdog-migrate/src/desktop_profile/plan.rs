@@ -5,6 +5,7 @@
 use std::io;
 use std::path::Path;
 
+use mixdog_protocol::config::desktop_files;
 use mixdog_protocol::config::keys;
 use mixdog_store::schema::migration::Contract;
 use mixdog_store::schema::migration::ItemKind;
@@ -79,13 +80,18 @@ const fn kind(file: &'static str, kind: ItemKind, destination: Destination, secr
     }
 }
 
+/// A desktop file that lands in a config key: its file and key are `mixdog_protocol::config::desktop_files`'.
+const fn config_kind(owned: desktop_files::DesktopConfigFile, item: ItemKind, secret: bool, backup: Backup) -> Kind {
+    kind(owned.file, item, Destination::Config(owned.key), secret, backup)
+}
+
 const FILE_KINDS: &[Kind] = &[
     kind("desktop-projects.json", ItemKind::DesktopProjects, Destination::State(StateTable::Projects), false, Backup::Restore(Check::Projects)),
     kind("agent-rooms.json", ItemKind::AgentRooms, Destination::State(StateTable::Rooms), false, Backup::Restore(Check::Rooms)),
-    kind("agent-greetings.json", ItemKind::AgentGreetings, Destination::Config(keys::AGENTS_GREETED), false, Backup::None),
-    kind("notification-preferences.json", ItemKind::NotificationPreferences, Destination::Config(keys::NOTIFICATIONS), false, Backup::Restore(Check::Notifications)),
-    kind("session-auto-retention.json", ItemKind::RetentionState, Destination::Config(keys::DESKTOP_RETENTION_STATE), false, Backup::None),
-    kind("remote-activated.json", ItemKind::RemoteActivated, Destination::Config(keys::REMOTE_ACTIVATED_AT), true, Backup::None),
+    config_kind(desktop_files::AGENT_GREETINGS, ItemKind::AgentGreetings, false, Backup::None),
+    config_kind(desktop_files::NOTIFICATION_PREFERENCES, ItemKind::NotificationPreferences, false, Backup::Restore(Check::Notifications)),
+    config_kind(desktop_files::SESSION_AUTO_RETENTION, ItemKind::RetentionState, false, Backup::None),
+    config_kind(desktop_files::REMOTE_ACTIVATED, ItemKind::RemoteActivated, true, Backup::None),
     kind("remote-access-settings.json", ItemKind::RemoteAccessSettings, Destination::Data("remote/settings.json"), true, Backup::None),
     kind("remote-clients.json", ItemKind::RemoteClients, Destination::Data("remote/clients.json"), true, Backup::None),
     kind("relay-device.json", ItemKind::RelayDevice, Destination::Data("remote/device.json"), true, Backup::Restore(Check::Json)),
@@ -287,4 +293,24 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink) -> Result<()> {
         sink.add_item(item)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The settings-change signature leaves out `desktop_files::ALL`; the migration plans exactly those files into their keys, so a
+    /// file that lands in a config key is never missing from the list the signature reads.
+    #[test]
+    fn the_files_planned_into_config_keys_are_the_desktop_owned_list() {
+        let planned: Vec<(&str, &str)> = FILE_KINDS
+            .iter()
+            .filter_map(|kind| match kind.destination {
+                Destination::Config(key) => Some((kind.file, key)),
+                _ => None,
+            })
+            .collect();
+        let owned: Vec<(&str, &str)> = desktop_files::ALL.iter().map(|owned| (owned.file, owned.key)).collect();
+        assert_eq!(planned, owned);
+    }
 }
