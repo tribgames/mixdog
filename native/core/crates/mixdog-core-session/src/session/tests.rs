@@ -3063,7 +3063,13 @@ async fn a_tool_result_completes_its_call_in_place() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "ls", "op-1").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 3).then_some(())).await;
+    // A turn that opened a tool card is not a no-op, so it ends with its live turn end (`turnDoneItem`,
+    // `isNoOpTurn`): the user row, the reply, the call, then the end.
+    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    assert!(
+        matches!(handle.cell.view.load_full().items.last().map(|item| item.as_ref()), Some(ThreadItem::TurnEnd { .. })),
+        "the turn ends with its live end"
+    );
 
     let call = handle
         .cell
