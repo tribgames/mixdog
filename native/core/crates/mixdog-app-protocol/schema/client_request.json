@@ -9194,7 +9194,7 @@
     "ThreadDeleteParams": {
       "properties": {
         "ifIdle": {
-          "description": "Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → `preconditionFailed`."
+          "description": "Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → the reply `{deleted: false, reason}`, never an error."
         },
         "opId": {
           "type": "string"
@@ -12330,7 +12330,7 @@
       "type": "object"
     },
     {
-      "description": "Delete; `ifIdle` → `preconditionFailed` when not idle.",
+      "description": "Delete; `ifIdle` answers `{deleted: false, reason}` when not idle, never an error.",
       "properties": {
         "id": {
           "$ref": "#/definitions/RequestId"

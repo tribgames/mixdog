@@ -13213,7 +13213,7 @@
     "ThreadDeleteParams": {
       "properties": {
         "ifIdle": {
-          "description": "Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → `preconditionFailed`."
+          "description": "Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → the reply `{deleted: false, reason}`, never an error."
         },
         "opId": {
           "type": "string"

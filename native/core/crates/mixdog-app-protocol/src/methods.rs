@@ -279,7 +279,7 @@ crate::client_request_definitions! {
         mutation: op(Thread),
         origins: [Local, Ssh, Relay],
     },
-    /// Delete; `ifIdle` → `preconditionFailed` when not idle.
+    /// Delete; `ifIdle` answers `{deleted: false, reason}` when not idle, never an error.
     ThreadDelete => "thread/delete" {
         params: v2::thread::ThreadDeleteParams,
         result: JsonValue,
