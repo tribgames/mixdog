@@ -2155,10 +2155,12 @@ impl SessionActor {
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
-        // `acknowledgePendingPromptSettingsNotice` (`ask-turn-settle.mjs:155-156`): only an accepted turn tells the
-        // notice it carried; a failed or interrupted one leaves it pending for the next turn.
-        if let (RunOutcome::Completed(_), Some(revision)) = (&outcome, slot.notice.take())
-            && let Some(change) = mixdog_core_prompt::prompt::notice::acknowledge_change(&self.projected.header, revision)
+        // The reminders the turn carried (`ask-turn-settle.mjs:148-164`: deferred delta, workflow, settings, orchestration
+        // mode, working folder, setup): only an accepted turn tells them; a failed or interrupted one leaves them
+        // pending for the next turn.
+        let carried = slot.notice.take();
+        if matches!(outcome, RunOutcome::Completed(_))
+            && let Some(change) = super::reminders::acknowledge(&self.projected.header, &carried, self.deps.clock.now_ms())
         {
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());

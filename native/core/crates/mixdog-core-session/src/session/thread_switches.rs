@@ -264,10 +264,15 @@ fn workflow_overlay_content(prompt_name: &str, workflow_name: &str, instructions
     lines.join("\n")
 }
 
-/// `orchestrationModeNoticeContent({ mode, carried, loadableTools })`.
-async fn mode_notice_content(surface: &dyn WorkflowSurface, mode: &str, loadable: &[String]) -> Result<String, SurfaceFailure> {
+/// `orchestrationModeNoticeContent({ mode, carried, loadableTools })` over the mode's `instructions`
+/// (`orchestrationInstructions(mode)`). `carried`: the system prompt carries this mode itself.
+pub fn mode_notice_text(mode: &str, carried: bool, loadable: &[String], instructions: &str) -> String {
     let name = mode_name(mode);
-    let lead = format!("This conversation now uses the {name} orchestration mode. The system prompt's Orchestration Mode no longer applies; follow {name}'s below instead.");
+    let lead = if carried {
+        format!("This conversation now uses the {name} orchestration mode, the one the system prompt carries.")
+    } else {
+        format!("This conversation now uses the {name} orchestration mode. The system prompt's Orchestration Mode no longer applies; follow {name}'s below instead.")
+    };
     let mut lines = vec![
         "<system-reminder>".to_owned(),
         "# Orchestration Mode Changed".to_owned(),
@@ -279,14 +284,20 @@ async fn mode_notice_content(surface: &dyn WorkflowSurface, mode: &str, loadable
     }
     lines.push(format!("Agents already started keep running with their own instructions; new delegation follows {name}."));
     lines.push(String::new());
-    lines.push(surface.orchestration_instructions(mode).await?);
+    lines.push(instructions.to_owned());
     lines.push("</system-reminder>".to_owned());
-    Ok(lines.join("\n"))
+    lines.join("\n")
+}
+
+/// `orchestrationModeNoticeContent({ mode, loadableTools })` for a switch made while the prompt keeps the old mode.
+async fn mode_notice_content(surface: &dyn WorkflowSurface, mode: &str, loadable: &[String]) -> Result<String, SurfaceFailure> {
+    Ok(mode_notice_text(mode, false, loadable, &surface.orchestration_instructions(mode).await?))
 }
 
 // ---- the pending deferred-tool delta ------------------------------------------------------------
 
-fn compact_description(value: Option<&Value>) -> String {
+/// `compactDescription(value)`: a delta names a tool; its description is a hint.
+pub fn compact_description(value: Option<&Value>) -> String {
     let text = js_string(value);
     let collapsed = text.split(mixdog_js::is_js_space).filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ");
     let text = mixdog_js::js_trim(&collapsed.replace(['<', '>'], "")).to_owned();
@@ -667,6 +678,13 @@ fn session_mode_is_agent(session: &Header) -> bool {
         Some("coding") => false,
         _ => resolve_session_mode(&Value::Object(session.clone())).0 == "agent",
     }
+}
+
+/// `codingLead(session)` (`agent-profile-fold.mjs`): a Lead of the coding mode, the session whose agents ride the
+/// agent list reminder of every turn.
+pub fn coding_lead(session: &Header) -> bool {
+    let owner = session.get("owner").map(|owner| mixdog_js::js_trim(&mixdog_js::value_to_string(owner)).to_lowercase());
+    truthy(session.get("id")) && truthy(session.get("promptIdentity")) && owner.as_deref() != Some("agent") && !session_mode_is_agent(session)
 }
 
 /// `switchableConversation(session, what)`: `false` without a conversation (the caller's

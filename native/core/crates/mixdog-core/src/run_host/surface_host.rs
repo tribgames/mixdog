@@ -44,6 +44,8 @@ use mixdog_core_session::session::thread_settings::normalize_tool_mode;
 use mixdog_core_session::session::thread_settings::tool_spec_for_mode;
 use mixdog_core_session::session::thread_switches::WorkflowSurface;
 use mixdog_core_prompt::prompt::blocks::SystemBlocks;
+use mixdog_core_session::session::thread_switches::coding_lead;
+use mixdog_core_session::session::thread_switches::current_mode;
 use mixdog_core_session::session::thread_switches::workflow_meta;
 use mixdog_js::js_trim;
 use mixdog_store::agent_mode::session_mode_of;
@@ -103,6 +105,8 @@ use super::tool_surface::truthy;
 use super::tool_surface::filter_disallowed_tools;
 use super::tool_surface::tool_name;
 use super::tool_surface::SurfaceHost as ToolSurfaceHost;
+use super::turn_reminders::AgentEntry;
+use super::turn_reminders::agent_list_entries;
 
 /// A tool as the session layer holds it (Node's tool object): its definition, with `name`, `title`,
 /// `trigger`, `public` (only `false`), `description`, `inputSchema` and `annotations`, each only where
@@ -616,6 +620,23 @@ impl TurnSettings for LeadSurfaceHost {
     /// `refreshDeferredMcpToolCatalog(session)` at a request boundary, a tool call or a `load_tool`.
     async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
         self.fold(thread, false).await.map(|_| ()).map_err(|error| format!("{error:?}"))
+    }
+
+    /// `currentAgents()`: a coding Lead's agent catalog for its workflow and mode, as the prompt would list it
+    /// (`agentListEntries(leadPartsFor(session, leadPromptParts).agentCatalogContext) || []`).
+    async fn current_agents(&self, _thread: &ThreadId, header: &Header) -> Result<Option<Vec<AgentEntry>>, String> {
+        if !coding_lead(header) {
+            return Ok(None);
+        }
+        let workflow_id = header.get("workflow").and_then(|workflow| workflow.get("id")).and_then(Value::as_str).unwrap_or_default();
+        let mode = current_mode(header);
+        let target = self.sources.workflow.target(header, workflow_id, Some(mode.as_str())).await.map_err(String::from)?;
+        Ok(Some(agent_list_entries(&target.agent_catalog_context).unwrap_or_default()))
+    }
+
+    /// `orchestrationInstructions(mode)`.
+    async fn orchestration_instructions(&self, mode: &str) -> Result<String, String> {
+        self.sources.workflow.orchestration_instructions(mode).await.map_err(String::from)
     }
 
     /// The request boundary's `migrateToolExposureAtBoundary`: the migrated header is written once, the thread's own
