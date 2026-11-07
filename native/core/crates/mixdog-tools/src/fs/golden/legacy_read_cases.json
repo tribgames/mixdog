@@ -5622,6 +5622,76 @@
    "output": "stat 'relative/path'"
   },
   {
+   "input": "stat '<WS>/a//../b'",
+   "withCwd": false,
+   "output": "stat '<WS>/a//../b'"
+  },
+  {
+   "input": "stat '<WS>/a//../b'",
+   "withCwd": true,
+   "output": "stat 'b'"
+  },
+  {
+   "input": "stat '<WS>//a/./b'",
+   "withCwd": false,
+   "output": "stat '<WS>//a/./b'"
+  },
+  {
+   "input": "stat '<WS>//a/./b'",
+   "withCwd": true,
+   "output": "stat 'a/b'"
+  },
+  {
+   "input": "stat '<WS>/a/../../outside/c'",
+   "withCwd": false,
+   "output": "stat '<WS>/a/../../outside/c'"
+  },
+  {
+   "input": "stat '<WS>/a/../../outside/c'",
+   "withCwd": true,
+   "output": "stat '<WS>/a/../../outside/c'"
+  },
+  {
+   "input": "stat '<WS>/a/b/../../..'",
+   "withCwd": false,
+   "output": "stat '<WS>/a/b/../../..'"
+  },
+  {
+   "input": "stat '<WS>/a/b/../../..'",
+   "withCwd": true,
+   "output": "stat '<WS>/a/b/../../..'"
+  },
+  {
+   "input": "stat '<WS>/'",
+   "withCwd": false,
+   "output": "stat '<WS>/'"
+  },
+  {
+   "input": "stat '<WS>/'",
+   "withCwd": true,
+   "output": "stat '<WS>/'"
+  },
+  {
+   "input": "stat '<WS>/..'",
+   "withCwd": false,
+   "output": "stat '<WS>/..'"
+  },
+  {
+   "input": "stat '<WS>/..'",
+   "withCwd": true,
+   "output": "stat '<WS>/..'"
+  },
+  {
+   "input": "stat '<WS>/a/../..//ws/d'",
+   "withCwd": false,
+   "output": "stat '<WS>/a/../..//ws/d'"
+  },
+  {
+   "input": "stat '<WS>/a/../..//ws/d'",
+   "withCwd": true,
+   "output": "stat 'd'"
+  },
+  {
    "input": "a \"C:\\Users\\nobody\\f\" and 'D:/other/g'",
    "withCwd": false,
    "output": "a \"C:/Users/nobody/f\" and 'D:/other/g'"
@@ -5630,6 +5700,42 @@
    "input": "a \"C:\\Users\\nobody\\f\" and 'D:/other/g'",
    "withCwd": true,
    "output": "a \"C:/Users/nobody/f\" and 'D:/other/g'"
+  },
+  {
+   "input": "stat '<WSDRIVELOWER>/a.txt'",
+   "withCwd": false,
+   "windowsOnly": true,
+   "output": "stat '<WSDRIVELOWER>/a.txt'"
+  },
+  {
+   "input": "stat '<WSDRIVELOWER>/a.txt'",
+   "withCwd": true,
+   "windowsOnly": true,
+   "output": "stat 'a.txt'"
+  },
+  {
+   "input": "stat '<WSDRIVELOWER>/a//../b'",
+   "withCwd": false,
+   "windowsOnly": true,
+   "output": "stat '<WSDRIVELOWER>/a//../b'"
+  },
+  {
+   "input": "stat '<WSDRIVELOWER>/a//../b'",
+   "withCwd": true,
+   "windowsOnly": true,
+   "output": "stat 'b'"
+  },
+  {
+   "input": "stat '<WS>\\\\sub\\.\\..\\\\a.txt'",
+   "withCwd": false,
+   "windowsOnly": true,
+   "output": "stat '<WS>//sub/./..//a.txt'"
+  },
+  {
+   "input": "stat '<WS>\\\\sub\\.\\..\\\\a.txt'",
+   "withCwd": true,
+   "windowsOnly": true,
+   "output": "stat 'a.txt'"
   }
  ],
  "spellings": [

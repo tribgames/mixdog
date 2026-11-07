@@ -186,6 +186,23 @@ pub(super) fn host_spelling(out: &str, host: Host) -> String {
 pub(super) fn dir_order_key(name: &str) -> Vec<u16> {
     if cfg!(windows) { name.to_uppercase().encode_utf16().collect() } else { name.bytes().map(u16::from).collect() }
 }
+/// The segments of an absolute forward-slash path as `path.resolve` leaves them: a drive keeps its place, repeated
+/// separators and `.` vanish, and `..` removes the previous segment (never the root).
+fn resolve_segments(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let (head, rest) = if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() { path.split_at(2) } else { ("", path) };
+    let mut stack: Vec<&str> = Vec::new();
+    for segment in rest.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                stack.pop();
+            }
+            _ => stack.push(segment),
+        }
+    }
+    format!("{head}/{}", stack.join("/"))
+}
 /// `normalizeErrorMessage`'s `redact` of one absolute path (forward slashes): relative to `cwd`
 /// when under it, else behind the runtime, data, root or home prefix it lies under.
 pub(super) fn redact(raw: &str, cwd: Option<&str>) -> String {
@@ -198,20 +215,9 @@ pub(super) fn redact(raw: &str, cwd: Option<&str>) -> String {
             p.strip_prefix(&format!("{r}/")).map(|_| path[root.len()..].to_owned())
         }
     };
-    // `relative(cwd, fwd)` resolves `.` and `..` first: a path that climbs out of `cwd` is not cwd-relative.
-    let mut segments: Vec<&str> = Vec::new();
-    for segment in fwd.split('/') {
-        match segment {
-            "." => {}
-            ".." if segments.len() > 1 => {
-                segments.pop();
-            }
-            ".." => {}
-            _ => segments.push(segment),
-        }
-    }
-    let resolved = segments.join("/");
-    if let Some(cwd) = cwd.map(|c| c.replace('\\', "/")).filter(|c| !c.is_empty())
+    // `relative(cwd, fwd)` resolves both paths first (`path.resolve`): a path that climbs out of `cwd` is not cwd-relative.
+    let resolved = resolve_segments(&fwd);
+    if let Some(cwd) = cwd.filter(|c| !c.is_empty()).map(|c| resolve_segments(&c.replace('\\', "/")))
         && let Some(rest) = under(cwd.trim_end_matches('/'), &resolved)
         && let Some(rel) = rest.strip_prefix('/')
         && !rel.is_empty()

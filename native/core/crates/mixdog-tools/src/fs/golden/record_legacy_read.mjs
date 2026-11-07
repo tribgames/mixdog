@@ -384,7 +384,7 @@ const TOKENS = {
   '<TESTHOME>': fwdOf(process.env.HOME),
   '<TESTDATA>': fwdOf(process.env.MIXDOG_DATA_DIR),
   '<TESTROOT>': fwdOf(process.env.MIXDOG_ROOT),
-  '<TESTRUNTIME>': fwdOf(process.env.MIXDOG_RUNTIME_ROOT), '<WSPOSIX>': `/${drive}${wsText.slice(2)}`, '<WSCYG>': `/cygdrive/${drive}${wsText.slice(2)}`, '<WSMNT>': `/mnt/${drive}${wsText.slice(2)}` };
+  '<TESTRUNTIME>': fwdOf(process.env.MIXDOG_RUNTIME_ROOT), '<WSDRIVELOWER>': `${drive}${wsText.slice(1)}`, '<WSPOSIX>': `/${drive}${wsText.slice(2)}`, '<WSCYG>': `/cygdrive/${drive}${wsText.slice(2)}`, '<WSMNT>': `/mnt/${drive}${wsText.slice(2)}` };
 // The reverse of `withTokens`, in one pass over the longest value first: `/cygdrive/c/x` and `/mnt/c/x`
 // hold `/c/x`, so a value matched on its own would nest a token inside another's spelling.
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -425,13 +425,29 @@ const MESSAGES = [
   `at ${TOKENS['<TESTHOME>']}/x unquoted`,
   `stat '/just/an/absolute/path'`,
   `stat 'relative/path'`,
+  // What `relative(cwd, p)` resolves before it decides (`path.resolve`): repeated separators, `.`, `..`.
+  `stat '${wsText}/a//../b'`,
+  `stat '${wsText}//a/./b'`,
+  `stat '${wsText}/a/../../outside/c'`,
+  `stat '${wsText}/a/b/../../..'`,
+  `stat '${wsText}/'`,
+  `stat '${wsText}/..'`,
+  `stat '${wsText}/a/../..//ws/d'`,
   `a "C:\\Users\\nobody\\f" and 'D:/other/g'`,
+];
+// A Windows host compares drives and paths without case, and writes `\` for `/`.
+const WINDOWS_MESSAGES = [
+  `stat '${TOKENS['<WSDRIVELOWER>']}/a.txt'`,
+  `stat '${TOKENS['<WSDRIVELOWER>']}/a//../b'`,
+  `stat '${ws}\\\\sub\\.\\..\\\\a.txt'`,
 ];
 const untoken = (s) => tokenize(s, (v) => v);
 const messages = [];
-for (const input of MESSAGES) {
-  for (const cwd of [undefined, ws]) {
-    messages.push({ input: untoken(scrub(input)), withCwd: cwd !== undefined, output: untoken(scrub(normalizeErrorMessage(input, cwd))) });
+for (const [list, windowsOnly] of [[MESSAGES, false], [WINDOWS_MESSAGES, true]]) {
+  for (const input of list) {
+    for (const cwd of [undefined, ws]) {
+      messages.push({ input: untoken(scrub(input)), withCwd: cwd !== undefined, ...(windowsOnly ? { windowsOnly } : {}), output: untoken(scrub(normalizeErrorMessage(input, cwd))) });
+    }
   }
 }
 // `normalizeInputPath` on the spellings of a drive, as a Windows host and (platform stubbed) as WSL.
