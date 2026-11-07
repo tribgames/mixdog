@@ -632,6 +632,8 @@ pub trait TurnGuards: Send + Sync {
     fn note_progress(&self);
     /// The turn now waits on the user (approval denied).
     fn note_user_wait(&self);
+    /// The cycle state `session.todoCheck` holds now, once it exists.
+    fn saved(&self) -> Option<serde_json::Value>;
     /// The hidden stale-list reminder to append after a batch, if any. Reads
     /// the todo list and goal from the session actor.
     async fn stale_reminder(&self, calls: &[ToolCall], results: &[AgentMessage]) -> Option<String>;
@@ -646,6 +648,9 @@ pub struct NoGuards;
 impl TurnGuards for NoGuards {
     fn note_progress(&self) {}
     fn note_user_wait(&self) {}
+    fn saved(&self) -> Option<serde_json::Value> {
+        None
+    }
     async fn stale_reminder(&self, _calls: &[ToolCall], _results: &[AgentMessage]) -> Option<String> {
         None
     }

@@ -536,6 +536,9 @@ pub(crate) struct SessionActor {
     compactions: u32,
     /// The next run's input row is already on screen (a retained retry's `suppressDisplay`).
     retry_hidden: bool,
+    /// The transcript was rewritten (a compaction, a rewind, a clear, a restarted context) since its lineage
+    /// was named: the next turn names a new one (`mintTranscriptEpoch`, `turn-checkpoint.mjs`).
+    transcript_rewritten: bool,
     /// The failed turn's provenance a retry row carries as `meta.provenance` (`retryProvenance`,
     /// `ask-session.mjs:199`, `ask-turn-execute.mjs:27-34`); taken by the next turn start like `retry_hidden`.
     /// `None`: not read yet (a plain `turn/start` carrying the retry flags reads it first);
@@ -653,6 +656,7 @@ impl SessionActor {
             quota_answered: None,
             compactions: 0,
             retry_hidden: false,
+            transcript_rewritten: false,
             retry_provenance: None,
             retry_prior: None,
             runs_begun: 0,
@@ -2559,6 +2563,21 @@ impl SessionActor {
                     None => drop(ack.send(Ok(()))),
                 }
             }
+            ProducerMsg::Header { turn, change, ack } => {
+                if !self.active(&turn) {
+                    let _ = ack.send(Err(RunError::NotApplied));
+                    return;
+                }
+                let header = &self.projected.header;
+                let set: serde_json::Map<String, Value> = change.set.into_iter().filter(|(key, value)| header.get(key) != Some(value)).collect();
+                let unset: Vec<String> = change.unset.into_iter().filter(|key| header.contains_key(key)).collect();
+                if set.is_empty() && unset.is_empty() {
+                    drop(ack.send(Ok(())));
+                    return;
+                }
+                let record = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset }) });
+                self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
+            }
             ProducerMsg::Compacted {
                 turn,
                 compaction,
@@ -2570,6 +2589,7 @@ impl SessionActor {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 }
+                self.transcript_rewritten = true;
                 // A compaction that changed the context drops the provider continuation
                 // (`compaction-runner.mjs:701`).
                 if let Some(reset) = self.provider_state_change(None) {
@@ -2636,6 +2656,7 @@ impl SessionActor {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 }
+                self.transcript_rewritten = true;
                 // The provider continuation described the rows that left.
                 if let Some(reset) = self.provider_state_change(None) {
                     self.accept_record(reset, Class::Normal, Display::None, Vec::new(), Vec::new());
@@ -2692,6 +2713,7 @@ impl SessionActor {
             }
         }
         self.steer_marked.retain(|qid| !taken.contains(qid));
+        self.sync_turn_chain();
         // `if (turn.session?.heldRoute) return out;` (`ask-turn-steering-drain.mjs:48`).
         if !self.route_held() {
             // The rest of the queue: not steered, not claimed by a wake, within the
@@ -2740,6 +2762,7 @@ impl SessionActor {
                     for meta in pending::group_metas(&deliver) {
                         self.cell.turn_chain.raise(Some(meta));
                     }
+                    self.sync_turn_chain();
                     taken.extend(deliver.into_iter().map(|(qid, _)| qid));
                     out.extend(groups);
                 }
@@ -3359,6 +3382,23 @@ impl SessionActor {
         )
     }
 
+    /// One `meta` record setting the keys of `set` that differ from the header, or `None` when all agree.
+    fn header_set_change(&self, set: serde_json::Map<String, Value>) -> Option<Record> {
+        let set: serde_json::Map<String, Value> = set.into_iter().filter(|(key, value)| self.projected.header.get(key) != Some(value)).collect();
+        (!set.is_empty()).then(|| Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) }))
+    }
+
+    /// `stampTurnHop` / `raiseTurnHop` set `session.turnHop` and `session.turnBotChain`, which the session's
+    /// next save writes: the turn's hop and bot chain, as the in-memory turn state holds them now.
+    fn sync_turn_chain(&mut self) {
+        let mut set = serde_json::Map::new();
+        set.insert("turnHop".into(), json!(self.cell.turn_chain.hop()));
+        set.insert("turnBotChain".into(), json!(self.cell.turn_chain.bots()));
+        if let Some(record) = self.header_set_change(set) {
+            self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+        }
+    }
+
     /// Today's `rewindToItem`: the target is a user row; it and everything after it leave the
     /// lineage, and its text goes back to the composer (and out of the Up-arrow list).
     /// The `meta` record that makes the header's `providerState` `state` (`None` deletes the
@@ -3414,6 +3454,7 @@ impl SessionActor {
             reason: RewindReason::Rewind,
             op: self.op_ref(req, Some(&value))?,
         });
+        self.transcript_rewritten = true;
         // The saved request carried the truncated transcript (`session-crud.mjs:475`).
         self.deps.side.forget(&self.id, false);
         let note = self.history_reset(HistoryResetReason::Rewind, previous);
@@ -3439,6 +3480,7 @@ impl SessionActor {
             reason: RewindReason::Clear,
             op: self.op_ref(req, Some(&value))?,
         });
+        self.transcript_rewritten = true;
         // The saved request carried the cleared transcript (`session-crud.mjs:345`).
         self.deps.side.forget(&self.id, false);
         let note = self.history_reset(HistoryResetReason::Clear, None);
@@ -3988,6 +4030,18 @@ impl SessionActor {
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
                 self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
             }
+        }
+        self.sync_turn_chain();
+        // `mintTranscriptEpoch` (`transcript-durability.mjs`): a transcript lineage is named when the first turn
+        // saves, and again when a history rewrite makes the next turn open on a transcript that is not an
+        // extension of the saved one.
+        let named = self.projected.header.get("transcriptEpoch").and_then(Value::as_str).is_some();
+        if !named || self.transcript_rewritten {
+            self.transcript_rewritten = false;
+            let mut set = serde_json::Map::new();
+            set.insert("transcriptEpoch".into(), json!(new_id()));
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+            self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
         let review = super::turn_snapshot::TurnSnapshot::new(self.deps.turn_review.clone(), self.id.as_str(), checkpoint, wake);
         // The retried turn's provenance rides its rebuilt row, so a retry of this retry reads it back.

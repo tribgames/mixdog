@@ -127,6 +127,18 @@ pub struct RunCarry {
     pub repeat: RepeatGuards,
 }
 
+impl RunCarry {
+    /// The carry a session record holds.
+    pub fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
+        Self { repeat: RepeatGuards::from_saved(saved) }
+    }
+
+    /// The record fields the carry is saved under.
+    pub fn to_saved(&self) -> serde_json::Map<String, serde_json::Value> {
+        self.repeat.to_saved()
+    }
+}
+
 /// Retry state of the five rows, each advanced only by the decider.
 pub(crate) struct RetryStates {
     request: RetryState,

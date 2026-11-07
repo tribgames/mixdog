@@ -127,6 +127,16 @@ impl TodoView for HostTodoView {
     fn is_mutation(&self, call: &ToolCall) -> bool {
         is_mutating_call(&call.name, &call.arguments)
     }
+
+    /// `beginUserCycle`, then a finished list stays on screen until the user moves on and then goes the way a
+    /// finished Goal does; an active Goal keeps it for its audit.
+    async fn genuine_prompt(&self) {
+        self.cycles.begin(&self.session_id);
+        if self.todos.read(&self.thread).await.all_closed() && !self.goal_active().await {
+            // `clearTodo`; a failed write leaves the list as it was.
+            let _ = self.todos.update(&self.thread, &mut |_| Ok(TodoList::default())).await;
+        }
+    }
 }
 
 /// The turn guards of one session, with the turn-start step that belongs to them.
@@ -159,16 +169,8 @@ impl SessionGuards {
     /// A finished list stays on screen until the user moves on, then goes the way a finished Goal
     /// does; an active Goal keeps it for its audit.
     pub async fn begin_turn(&self, genuine: bool) {
-        self.guards.begin_turn(genuine);
         self.view.todos.turn_started(&self.view.thread);
-        if !genuine {
-            return;
-        }
-        self.view.cycles.begin(&self.view.session_id);
-        if self.view.todos.read(&self.view.thread).await.all_closed() && !self.view.goal_active().await {
-            // `clearTodo`; a failed write leaves the list as it was.
-            let _ = self.view.todos.update(&self.view.thread, &mut |_| Ok(TodoList::default())).await;
-        }
+        self.guards.start_turn(genuine).await;
     }
 }
 

@@ -639,6 +639,21 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
         Ok(header) => header,
         Err(error) => return RunOutcome::Failed(error),
     };
+    // `refreshSessionBp3Environment` (`ask-turn-execute.mjs`): the first turn of a session whose prompt has not
+    // taken its `# Session` block yet adds it, and the session records that it did.
+    let mut header = header;
+    if header.get("sessionStartMetaInjected") != Some(&Value::Bool(true)) && !mixdog_core_session::session::route_session::has_user_conversation(&prior) {
+        let patch = super::prompt_session::refresh_environment(&header, &mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(&header));
+        for key in &patch.change.unset {
+            header.shift_remove(key);
+        }
+        for (key, value) in &patch.change.set {
+            header.insert(key.clone(), value.clone());
+        }
+        if port.save_header(patch.change).await.is_err() {
+            return failed("the session's prompt could not be saved", Value::Null);
+        }
+    }
     let surface_now = surface.borrow().clone();
     let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, request: &request, injected, notify, progress: tool_progress }).await {
         Ok(assembled) => assembled,
@@ -728,6 +743,7 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
     config.first_request_after = Some(Ticket(0));
     let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(review, gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: Arc::new(port.clone()) })));
     let skills = skills.map(|build| build(SkillContext { gate: gate.clone(), env: tool_env.clone(), cancel: cancel.clone() }));
+    let guard_state = guards.clone();
     let env = RunEnv {
         clock,
         jitter: Arc::new(RandomJitter),
@@ -760,6 +776,18 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
     closing.end_reasoning();
     // No hint is published once the run's outcome is on its way: the run owns the runtime section.
     hints.finish().await;
+    // The guard state that outlives one ask lives on the session record (`session.todoCheck`, `session._repeat*`).
+    {
+        let carry = match &result {
+            Ok(output) => &output.carry,
+            Err(failure) => &failure.carry,
+        };
+        let mut set = carry.to_saved();
+        if let Some(check) = guard_state.saved() {
+            set.insert("todoCheck".into(), check);
+        }
+        let _ = port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }).await;
+    }
     match result {
         Ok(output) => {
             // The loop ends on the terminal answer without committing it (Node's turn commit does):

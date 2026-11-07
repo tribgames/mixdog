@@ -68,6 +68,9 @@ impl TurnGuards for Guards {
     fn note_user_wait(&self) {
         *self.0.lock().expect("waits") += 1;
     }
+    fn saved(&self) -> Option<serde_json::Value> {
+        None
+    }
     async fn stale_reminder(&self, _: &[mixdog_core_api::domain::provider::ToolCall], _: &[mixdog_agent::message::AgentMessage]) -> Option<String> {
         None
     }

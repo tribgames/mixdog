@@ -62,6 +62,11 @@ pub fn create_keys(route: &Map<String, Value>) -> Result<Map<String, Value>, Str
     let mut keys = Map::new();
     let name = preset.and_then(|preset| preset.get("name")).and_then(Value::as_str).filter(|name| !name.is_empty());
     keys.insert("presetName".into(), name.map_or(Value::Null, |name| Value::String(name.to_owned())));
+    // `toolPreset` (`session-lifecycle.mjs`): `opts.tools || presetObj.tools || .. || 'full'`; a new thread has no `opts.tools`.
+    let tools = preset
+        .and_then(|preset| preset.get("tools"))
+        .filter(|tools| !matches!(tools, Value::Null | Value::Bool(false)) && tools.as_str() != Some(""));
+    keys.insert("preset".into(), tools.cloned().unwrap_or_else(|| Value::String("full".into())));
     let wire = if text("provider") == "openai-oauth" { Value::String(uuid::Uuid::now_v7().to_string()) } else { Value::Null };
     keys.insert("codexWireSessionId".into(), wire);
     let percent = mixdog_ai::service::admin_route::clean_context_percent(route.get("contextPercent"));

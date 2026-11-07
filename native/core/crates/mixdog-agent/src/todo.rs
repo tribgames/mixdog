@@ -68,6 +68,9 @@ pub trait TodoView: Send + Sync {
     /// Whether a call changes files, runs commands or mutates a repository
     /// (typed from the tool's annotations by the host).
     fn is_mutation(&self, call: &ToolCall) -> bool;
+    /// A genuine user prompt opened a cycle: the host's side of `beginTodoTurn` (the background-work cycle,
+    /// a finished list's clearing).
+    async fn genuine_prompt(&self);
 }
 
 #[derive(Default)]
@@ -78,6 +81,39 @@ struct Check {
     stale_mutations: u32,
     create_nudged: bool,
     user_wait: bool,
+    /// `session.todoCheck` exists: a genuine prompt opened a cycle, or a check read it (`checkState`).
+    kept: bool,
+}
+
+impl Check {
+    /// `session.todoCheck` as the record holds it; the wait is in memory only (`userWaits`).
+    fn from_saved(saved: &serde_json::Value) -> Self {
+        let count = |key: &str| saved.get(key).and_then(serde_json::Value::as_u64).map_or(0, |n| u32::try_from(n).unwrap_or(u32::MAX));
+        let flag = |key: &str| saved.get(key).and_then(serde_json::Value::as_bool).unwrap_or(false);
+        Self {
+            reminders: count("reminders"),
+            awaiting_progress: flag("awaitingProgress"),
+            audit_asked: flag("auditAsked"),
+            stale_mutations: count("staleMutations"),
+            create_nudged: flag("createNudged"),
+            user_wait: false,
+            kept: saved.is_object(),
+        }
+    }
+
+    fn to_saved(&self) -> Option<serde_json::Value> {
+        if !self.kept {
+            return None;
+        }
+        let mut saved = serde_json::json!({ "reminders": self.reminders, "awaitingProgress": self.awaiting_progress, "auditAsked": self.audit_asked });
+        if self.stale_mutations > 0 {
+            saved["staleMutations"] = self.stale_mutations.into();
+        }
+        if self.create_nudged {
+            saved["createNudged"] = true.into();
+        }
+        Some(saved)
+    }
 }
 
 pub struct TodoGuards {
@@ -100,12 +136,28 @@ impl TodoGuards {
         }
     }
 
+    /// The cycle state the session record carries (`session.todoCheck`), when it has any.
+    pub fn with_saved(self, saved: Option<&serde_json::Value>) -> Self {
+        if let Some(saved) = saved {
+            *lock(&self.check) = Check::from_saved(saved);
+        }
+        self
+    }
+
     /// A turn starts: `genuine` (a real user prompt) opens a new cycle.
     pub fn begin_turn(&self, genuine: bool) {
         let mut check = lock(&self.check);
         check.user_wait = false;
         if genuine {
-            *check = Check::default();
+            *check = Check { kept: true, ..Check::default() };
+        }
+    }
+
+    /// `beginTodoTurn` whole: the cycle state, and what the host does for a genuine prompt.
+    pub async fn start_turn(&self, genuine: bool) {
+        self.begin_turn(genuine);
+        if genuine {
+            self.view.genuine_prompt().await;
         }
     }
 }
@@ -127,6 +179,10 @@ impl TurnGuards for TodoGuards {
         lock(&self.check).user_wait = true;
     }
 
+    fn saved(&self) -> Option<serde_json::Value> {
+        lock(&self.check).to_saved()
+    }
+
     async fn stale_reminder(&self, calls: &[ToolCall], results: &[AgentMessage]) -> Option<String> {
         if self.hidden_agent {
             return None;
@@ -134,6 +190,7 @@ impl TurnGuards for TodoGuards {
         // Read before taking the lock: it is never held across an await.
         let phases = self.view.phases().await;
         let mut check = lock(&self.check);
+        check.kept = true;
         for call in calls {
             if call.name == TODO_TOOL {
                 check.stale_mutations = 0;
@@ -190,6 +247,7 @@ impl TurnGuards for TodoGuards {
         let goal = self.view.goal_active().await;
         let user_waiting = self.view.user_waiting().await;
         let mut check = lock(&self.check);
+        check.kept = true;
         if check.awaiting_progress || check.user_wait || user_waiting {
             return None;
         }
@@ -250,6 +308,26 @@ mod tests {
         fn is_mutation(&self, call: &ToolCall) -> bool {
             call.name == "edit"
         }
+        async fn genuine_prompt(&self) {}
+    }
+
+    /// `session.todoCheck` rides the record: a reminder counted in one turn is still counted in the next
+    /// (an automatic continuation keeps it), and a genuine prompt opens a new cycle.
+    #[tokio::test]
+    async fn the_cycle_state_round_trips_through_the_record() {
+        let view = || Arc::new(View { phases: open_list(), goal: false });
+        let first = TodoGuards::new(view(), false);
+        assert_eq!(first.saved(), None, "no check read yet");
+        first.start_turn(true).await;
+        assert_eq!(first.saved(), Some(serde_json::json!({ "reminders": 0, "awaitingProgress": false, "auditAsked": false })));
+        assert!(first.completion_reminder(false).await.is_some());
+        let saved = first.saved();
+        assert_eq!(saved, Some(serde_json::json!({ "reminders": 1, "awaitingProgress": true, "auditAsked": false })));
+        let next = TodoGuards::new(view(), false).with_saved(saved.as_ref());
+        next.start_turn(false).await;
+        assert!(next.completion_reminder(false).await.is_none(), "the continuation still awaits progress");
+        next.start_turn(true).await;
+        assert_eq!(next.saved(), Some(serde_json::json!({ "reminders": 0, "awaitingProgress": false, "auditAsked": false })));
     }
 
     fn open_list() -> Vec<TodoPhase> {
@@ -319,6 +397,7 @@ mod tests {
             fn is_mutation(&self, _: &ToolCall) -> bool {
                 false
             }
+            async fn genuine_prompt(&self) {}
         }
         let guards = TodoGuards::new(Arc::new(Waiting(View { phases: open_list(), goal: false })), false);
         assert!(guards.completion_reminder(false).await.is_none());
