@@ -5,39 +5,20 @@
       "session": {
         "tools": [
           {
-            "name": "read",
-            "description": "Read a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "edit",
-            "description": "Edit a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "load_tool",
-            "description": "Describe tools",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "call_tool",
-            "description": "Run a tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "call_tool",
+            "hash": "d856b640023cd779"
           }
         ],
         "deferredToolCatalog": [
@@ -72,34 +53,16 @@
             }
           },
           {
-            "name": "web_fetch",
-            "description": "Fetch a web page",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "web_search",
-            "description": "Search the web",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "shell",
-            "description": "Run a command",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
             "name": "hidden_tool",
@@ -127,7 +90,7 @@
           "names": [
             "read"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -145,7 +108,7 @@
           "names": [
             "filesystem"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -187,13 +150,13 @@
           "names": [
             "shell"
           ],
-          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"15b6babee77e9b68\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run a command\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"209a236e6c94d26d\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit/apply_patch; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\\\; $PID is reserved.\"},\"cwd\":{\"type\":\"string\",\"description\":\"Working directory; default the Project. Use it instead of cd/Set-Location.\"},\"timeout_ms\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast.\"},\"wait_ms\":{\"type\":\"integer\",\"minimum\":1000,\"maximum\":600000,\"description\":\"Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000.\"},\"background\":{\"type\":\"boolean\",\"description\":\"Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away.\"}},\"required\":[\"command\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Shell\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":false,\"openWorldHint\":true,\"compressible\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
             "web"
           ],
-          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"13d5c39f6d9b969b\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch the page or docs body of known URLs; to find pages, use web_search.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"URL, or an array of up to 10; loopback and public URLs in separate calls.\"},\"startIndex\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Character offset.\"},\"maxLength\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Default 20000; 0 unlimited.\"}},\"required\":[\"url\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Fetch\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"dd65c93713ccc222\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"One query, or an array run as a batch.\"},\"site\":{\"type\":\"string\",\"description\":\"Domain filter.\"},\"maxResults\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20,\"description\":\"Default 10.\"},\"locale\":{\"type\":\"string\",\"description\":\"e.g. ko-KR.\"},\"contextSize\":{\"type\":\"string\",\"enum\":[\"low\",\"medium\",\"high\"],\"description\":\"Default low.\"}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Search\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -201,7 +164,7 @@
             "mcp__mail__list",
             "nope"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         }
       ],
       "resolve": [
@@ -290,39 +253,20 @@
       "session": {
         "tools": [
           {
-            "name": "read",
-            "description": "Read a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "edit",
-            "description": "Edit a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "load_tool",
-            "description": "Describe tools",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "call_tool",
-            "description": "Run a tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "call_tool",
+            "hash": "d856b640023cd779"
           }
         ],
         "deferredToolCatalog": [
@@ -357,34 +301,16 @@
             }
           },
           {
-            "name": "web_fetch",
-            "description": "Fetch a web page",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "web_search",
-            "description": "Search the web",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "shell",
-            "description": "Run a command",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
             "name": "hidden_tool",
@@ -413,7 +339,7 @@
           "names": [
             "read"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -431,7 +357,7 @@
           "names": [
             "filesystem"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -479,7 +405,7 @@
           "names": [
             "web"
           ],
-          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"13d5c39f6d9b969b\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch the page or docs body of known URLs; to find pages, use web_search.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"URL, or an array of up to 10; loopback and public URLs in separate calls.\"},\"startIndex\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Character offset.\"},\"maxLength\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Default 20000; 0 unlimited.\"}},\"required\":[\"url\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Fetch\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"dd65c93713ccc222\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"One query, or an array run as a batch.\"},\"site\":{\"type\":\"string\",\"description\":\"Domain filter.\"},\"maxResults\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20,\"description\":\"Default 10.\"},\"locale\":{\"type\":\"string\",\"description\":\"e.g. ko-KR.\"},\"contextSize\":{\"type\":\"string\",\"enum\":[\"low\",\"medium\",\"high\"],\"description\":\"Default low.\"}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Search\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -487,7 +413,7 @@
             "mcp__mail__list",
             "nope"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         }
       ],
       "resolve": [
@@ -576,39 +502,20 @@
       "session": {
         "tools": [
           {
-            "name": "read",
-            "description": "Read a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "edit",
-            "description": "Edit a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "load_tool",
-            "description": "Describe tools",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "call_tool",
-            "description": "Run a tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "call_tool",
+            "hash": "d856b640023cd779"
           },
           {
             "name": "broken",
@@ -650,34 +557,16 @@
             }
           },
           {
-            "name": "web_fetch",
-            "description": "Fetch a web page",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "web_search",
-            "description": "Search the web",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "shell",
-            "description": "Run a command",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
             "name": "hidden_tool",
@@ -707,7 +596,7 @@
           "names": [
             "read"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -725,7 +614,7 @@
           "names": [
             "filesystem"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -767,13 +656,13 @@
           "names": [
             "shell"
           ],
-          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"15b6babee77e9b68\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run a command\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"209a236e6c94d26d\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit/apply_patch; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\\\; $PID is reserved.\"},\"cwd\":{\"type\":\"string\",\"description\":\"Working directory; default the Project. Use it instead of cd/Set-Location.\"},\"timeout_ms\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast.\"},\"wait_ms\":{\"type\":\"integer\",\"minimum\":1000,\"maximum\":600000,\"description\":\"Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000.\"},\"background\":{\"type\":\"boolean\",\"description\":\"Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away.\"}},\"required\":[\"command\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Shell\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":false,\"openWorldHint\":true,\"compressible\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
             "web"
           ],
-          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"13d5c39f6d9b969b\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch the page or docs body of known URLs; to find pages, use web_search.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"URL, or an array of up to 10; loopback and public URLs in separate calls.\"},\"startIndex\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Character offset.\"},\"maxLength\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Default 20000; 0 unlimited.\"}},\"required\":[\"url\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Fetch\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"dd65c93713ccc222\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"One query, or an array run as a batch.\"},\"site\":{\"type\":\"string\",\"description\":\"Domain filter.\"},\"maxResults\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20,\"description\":\"Default 10.\"},\"locale\":{\"type\":\"string\",\"description\":\"e.g. ko-KR.\"},\"contextSize\":{\"type\":\"string\",\"enum\":[\"low\",\"medium\",\"high\"],\"description\":\"Default low.\"}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Search\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -781,7 +670,7 @@
             "mcp__mail__list",
             "nope"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         }
       ],
       "resolve": [
@@ -870,39 +759,20 @@
       "session": {
         "tools": [
           {
-            "name": "read",
-            "description": "Read a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "edit",
-            "description": "Edit a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "load_tool",
-            "description": "Describe tools",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "call_tool",
-            "description": "Run a tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "call_tool",
+            "hash": "d856b640023cd779"
           }
         ],
         "deferredToolCatalog": [
@@ -937,34 +807,16 @@
             }
           },
           {
-            "name": "web_fetch",
-            "description": "Fetch a web page",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "web_search",
-            "description": "Search the web",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "shell",
-            "description": "Run a command",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
             "name": "hidden_tool",
@@ -998,7 +850,7 @@
           "names": [
             "read"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -1016,7 +868,7 @@
           "names": [
             "filesystem"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -1058,13 +910,13 @@
           "names": [
             "shell"
           ],
-          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"15b6babee77e9b68\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run a command\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"209a236e6c94d26d\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit/apply_patch; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\\\; $PID is reserved.\"},\"cwd\":{\"type\":\"string\",\"description\":\"Working directory; default the Project. Use it instead of cd/Set-Location.\"},\"timeout_ms\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast.\"},\"wait_ms\":{\"type\":\"integer\",\"minimum\":1000,\"maximum\":600000,\"description\":\"Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000.\"},\"background\":{\"type\":\"boolean\",\"description\":\"Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away.\"}},\"required\":[\"command\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Shell\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":false,\"openWorldHint\":true,\"compressible\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
             "web"
           ],
-          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"13d5c39f6d9b969b\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch the page or docs body of known URLs; to find pages, use web_search.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"URL, or an array of up to 10; loopback and public URLs in separate calls.\"},\"startIndex\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Character offset.\"},\"maxLength\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Default 20000; 0 unlimited.\"}},\"required\":[\"url\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Fetch\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"dd65c93713ccc222\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"One query, or an array run as a batch.\"},\"site\":{\"type\":\"string\",\"description\":\"Domain filter.\"},\"maxResults\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20,\"description\":\"Default 10.\"},\"locale\":{\"type\":\"string\",\"description\":\"e.g. ko-KR.\"},\"contextSize\":{\"type\":\"string\",\"enum\":[\"low\",\"medium\",\"high\"],\"description\":\"Default low.\"}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Search\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -1072,7 +924,7 @@
             "mcp__mail__list",
             "nope"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         }
       ],
       "resolve": [
@@ -1161,39 +1013,20 @@
       "session": {
         "tools": [
           {
-            "name": "read",
-            "description": "Read a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "edit",
-            "description": "Edit a file",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "load_tool",
-            "description": "Describe tools",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "call_tool",
-            "description": "Run a tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "call_tool",
+            "hash": "d856b640023cd779"
           }
         ],
         "deferredToolCatalog": [
@@ -1228,34 +1061,16 @@
             }
           },
           {
-            "name": "web_fetch",
-            "description": "Fetch a web page",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "web_search",
-            "description": "Search the web",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "shell",
-            "description": "Run a command",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
             "name": "hidden_tool",
@@ -1289,7 +1104,7 @@
           "names": [
             "read"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -1307,7 +1122,7 @@
           "names": [
             "filesystem"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -1349,13 +1164,13 @@
           "names": [
             "shell"
           ],
-          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"15b6babee77e9b68\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run a command\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"209a236e6c94d26d\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit/apply_patch; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\\\; $PID is reserved.\"},\"cwd\":{\"type\":\"string\",\"description\":\"Working directory; default the Project. Use it instead of cd/Set-Location.\"},\"timeout_ms\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast.\"},\"wait_ms\":{\"type\":\"integer\",\"minimum\":1000,\"maximum\":600000,\"description\":\"Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000.\"},\"background\":{\"type\":\"boolean\",\"description\":\"Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away.\"}},\"required\":[\"command\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Shell\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":false,\"openWorldHint\":true,\"compressible\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
             "web"
           ],
-          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"13d5c39f6d9b969b\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch the page or docs body of known URLs; to find pages, use web_search.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"URL, or an array of up to 10; loopback and public URLs in separate calls.\"},\"startIndex\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Character offset.\"},\"maxLength\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Default 20000; 0 unlimited.\"}},\"required\":[\"url\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Fetch\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"dd65c93713ccc222\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"items\":{\"type\":\"string\"}}],\"description\":\"One query, or an array run as a batch.\"},\"site\":{\"type\":\"string\",\"description\":\"Domain filter.\"},\"maxResults\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20,\"description\":\"Default 10.\"},\"locale\":{\"type\":\"string\",\"description\":\"e.g. ko-KR.\"},\"contextSize\":{\"type\":\"string\",\"enum\":[\"low\",\"medium\",\"high\"],\"description\":\"Default low.\"}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Mixdog Web Search\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         },
         {
           "names": [
@@ -1363,7 +1178,7 @@
             "mcp__mail__list",
             "nope"
           ],
-          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
         }
       ],
       "resolve": [
@@ -1452,39 +1267,20 @@
     "session": {
       "tools": [
         {
-          "name": "read",
-          "description": "Read a file",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {
-            "readOnlyHint": true
-          }
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         },
         {
-          "name": "edit",
-          "description": "Edit a file",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          }
+          "$tool": "edit",
+          "hash": "cbc04fb64a9b7371"
         },
         {
-          "name": "load_tool",
-          "description": "Describe tools",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          }
+          "$tool": "load_tool",
+          "hash": "cc5a1cecdba77717"
         },
         {
-          "name": "call_tool",
-          "description": "Run a tool",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          }
+          "$tool": "call_tool",
+          "hash": "d856b640023cd779"
         }
       ],
       "deferredToolCatalog": [
@@ -1519,34 +1315,16 @@
           }
         },
         {
-          "name": "web_fetch",
-          "description": "Fetch a web page",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {
-            "readOnlyHint": true
-          }
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "web_search",
-          "description": "Search the web",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {
-            "readOnlyHint": true
-          }
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "shell",
-          "description": "Run a command",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          }
+          "$tool": "shell",
+          "hash": "6106817f821d8614"
         },
         {
           "name": "hidden_tool",
@@ -1610,7 +1388,7 @@
         "names": [
           "read"
         ],
-        "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}",
+        "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"893050d34e86723d\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"file_path\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"array\",\"minItems\":1,\"maxItems\":10,\"items\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"object\",\"properties\":{\"file_path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"minimum\":1},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000}},\"required\":[\"file_path\"],\"additionalProperties\":false}]}}],\"description\":\"Overlapping windows of one file merge. A glob fans out to ≤10 newest files.\"},\"offset\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based start line; default 1; batch default.\"},\"limit\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100000,\"description\":\"Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages.\"},\"pages\":{\"type\":\"string\",\"description\":\"PDF page range \\\"N\\\" or \\\"N-M\\\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count.\"}},\"required\":[\"file_path\"],\"additionalProperties\":false},\"annotations\":{\"title\":\"Read\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false,\"compressible\":false}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}",
         "announced": [
           "mail"
         ],

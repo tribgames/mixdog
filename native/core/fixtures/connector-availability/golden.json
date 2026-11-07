@@ -6,16 +6,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -47,13 +42,8 @@
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -102,16 +92,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -143,13 +128,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -193,16 +173,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -234,13 +209,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -295,16 +265,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -336,13 +301,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -392,16 +352,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -433,13 +388,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -493,16 +443,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -534,13 +479,8 @@
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -589,16 +529,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -630,13 +565,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -680,16 +610,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -721,13 +646,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -785,16 +705,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -826,13 +741,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -888,16 +798,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -929,13 +834,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1003,16 +903,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1044,13 +939,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1110,16 +1000,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1151,13 +1036,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1222,16 +1102,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1263,13 +1138,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1335,16 +1205,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1376,13 +1241,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1438,16 +1298,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -1479,13 +1334,8 @@
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -1534,16 +1384,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1575,13 +1420,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1625,16 +1465,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1666,13 +1501,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1729,16 +1559,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1770,13 +1595,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1831,16 +1651,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1872,13 +1687,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1943,16 +1753,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1984,13 +1789,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2055,16 +1855,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2096,13 +1891,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2158,16 +1948,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -2199,13 +1984,8 @@
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -2254,16 +2034,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2295,13 +2070,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2345,16 +2115,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2386,13 +2151,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2449,16 +2209,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2490,13 +2245,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2551,16 +2301,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2592,13 +2337,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2663,16 +2403,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2704,13 +2439,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2775,16 +2505,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2816,13 +2541,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2878,16 +2598,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -2919,13 +2634,8 @@
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -2974,16 +2684,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3015,13 +2720,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3065,16 +2765,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3106,13 +2801,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3172,16 +2862,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3213,13 +2898,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3276,16 +2956,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3317,13 +2992,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3388,16 +3058,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3429,13 +3094,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3502,16 +3162,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3543,13 +3198,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3605,16 +3255,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -3646,13 +3291,8 @@
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -3701,16 +3341,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3742,13 +3377,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3792,16 +3422,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3833,13 +3458,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3904,16 +3524,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3945,13 +3560,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4015,16 +3625,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4056,13 +3661,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4140,7 +3740,7 @@
       "start": {
         "id": "sess_none",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app"
       },
       "steps": [
         {
@@ -4151,13 +3751,13 @@
           "before": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app"
           },
           "result": null,
           "after": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app"
           }
         },
         {
@@ -4168,13 +3768,13 @@
           "before": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app"
           },
           "result": null,
           "after": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app"
           }
         }
       ]
@@ -4184,27 +3784,17 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           }
         ]
       },
@@ -4217,27 +3807,17 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               }
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               }
             ]
           },
@@ -4245,27 +3825,17 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               }
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               }
             ],
             "agentConnectorTools": []
@@ -4279,27 +3849,17 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               }
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               }
             ],
             "agentConnectorTools": []
@@ -4308,27 +3868,17 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               }
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               }
             ],
             "agentConnectorTools": []
@@ -4341,16 +3891,11 @@
       "start": {
         "id": "sess_a",
         "agent": "lead",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -4382,13 +3927,8 @@
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -4437,16 +3977,11 @@
           "before": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4478,13 +4013,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4528,16 +4058,11 @@
           "after": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4569,13 +4094,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4630,16 +4150,11 @@
           "before": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4671,13 +4186,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4727,16 +4237,11 @@
           "after": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4768,13 +4273,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4828,16 +4328,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -4869,13 +4364,8 @@
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
             "name": "mcp__alpha__list",
@@ -4925,16 +4415,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4966,13 +4451,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -5017,16 +4497,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -5058,13 +4533,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -5122,16 +4592,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -5163,13 +4628,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -5225,16 +4685,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.b1868678eca829ab\\connector-availability-jUtMKz\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-yjY73A\\work\\app",
             "tools": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",
@@ -5266,13 +4721,8 @@
             ],
             "deferredToolCatalog": [
               {
-                "name": "read",
-                "description": "read tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "annotations": {}
+                "$tool": "read",
+                "hash": "6cac43e0095bf55a"
               },
               {
                 "name": "mcp__alpha__list",

@@ -2,2180 +2,2978 @@
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-shared-prefix.mjs",
   "requests": [
     {
-      "expected": {
-        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
-        "body": {
-          "max_tokens": 16384,
-          "messages": [
-            {
-              "content": "Refactor the parser.",
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Reading it.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_1",
-                  "input": {
-                    "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "cache_control": {
-                    "type": "ephemeral"
-                  },
-                  "content": "export function parse() {}",
-                  "tool_use_id": "call_1",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            }
-          ],
-          "model": "claude-sonnet-4-5",
-          "stream": true,
-          "system": [
-            {
-              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-              "type": "text"
-            },
-            {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
-              "text": "\n\nYou are the Lead.",
-              "type": "text"
-            }
-          ],
-          "tools": [
-            {
-              "description": "Read a file",
-              "eager_input_streaming": true,
-              "input_schema": {
-                "properties": {},
-                "type": "object"
-              },
-              "name": "read"
-            }
-          ]
-        }
-      },
       "id": "saved.oauth",
+      "route": "anthropic-oauth",
+      "model": "claude-sonnet-4-5",
+      "tools": [
+        {
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
+        }
+      ],
       "messages": [
         {
-          "content": "You are the Lead.",
-          "role": "system"
+          "role": "system",
+          "content": "You are the Lead."
         },
         {
-          "content": "Refactor the parser.",
-          "role": "user"
+          "role": "user",
+          "content": "Refactor the parser."
         },
         {
-          "content": "Reading it.",
           "role": "assistant",
+          "content": "Reading it.",
           "toolCalls": [
             {
+              "id": "call_1",
+              "name": "read",
               "arguments": {
                 "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
+              }
             }
           ]
         },
         {
-          "content": "export function parse() {}",
           "role": "tool",
-          "toolCallId": "call_1"
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
         }
       ],
-      "model": "claude-sonnet-4-5",
-      "route": "anthropic-oauth",
       "sharedCachePrefixCount": null,
-      "tools": [
-        {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
-        }
-      ]
-    },
-    {
       "expected": {
-        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
         "body": {
+          "model": "claude-sonnet-4-5",
           "max_tokens": 16384,
           "messages": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
+              "role": "user",
+              "content": "Refactor the parser."
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Reading it.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Reading it."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_1",
+                  "name": "read",
                   "input": {
                     "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "content": "export function parse() {}",
+                  "type": "tool_result",
                   "tool_use_id": "call_1",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Now editing.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_2",
-                  "input": {
-                    "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
+                  "content": "export function parse() {}",
                   "cache_control": {
                     "type": "ephemeral"
-                  },
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
-                  "tool_use_id": "call_2",
-                  "type": "tool_result"
+                  }
                 }
-              ],
-              "role": "user"
+              ]
             }
           ],
-          "model": "claude-sonnet-4-5",
           "stream": true,
           "system": [
             {
-              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-              "type": "text"
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
             },
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "\n\nYou are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
           ]
-        }
-      },
+        },
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+      }
+    },
+    {
       "id": "ordinary.oauth",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
       "route": "anthropic-oauth",
-      "sharedCachePrefixCount": null,
+      "model": "claude-sonnet-4-5",
       "tools": [
         {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
-      ]
-    },
-    {
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": null,
       "expected": {
-        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
         "body": {
+          "model": "claude-sonnet-4-5",
           "max_tokens": 16384,
           "messages": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
+              "role": "user",
+              "content": "Refactor the parser."
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Reading it.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Reading it."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_1",
+                  "name": "read",
                   "input": {
                     "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "cache_control": {
-                    "type": "ephemeral"
-                  },
-                  "content": "export function parse() {}",
+                  "type": "tool_result",
                   "tool_use_id": "call_1",
-                  "type": "tool_result"
+                  "content": "export function parse() {}"
                 }
-              ],
-              "role": "user"
+              ]
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Now editing.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Now editing."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_2",
+                  "name": "read",
                   "input": {
                     "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "type": "tool_result",
                   "tool_use_id": "call_2",
-                  "type": "tool_result"
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
                 }
-              ],
-              "role": "user"
+              ]
             }
           ],
-          "model": "claude-sonnet-4-5",
           "stream": true,
           "system": [
             {
-              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-              "type": "text"
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
             },
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "\n\nYou are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
           ]
-        }
-      },
+        },
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+      }
+    },
+    {
       "id": "fork.oauth",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
       "route": "anthropic-oauth",
-      "sharedCachePrefixCount": 4,
+      "model": "claude-sonnet-4-5",
       "tools": [
         {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
-      ]
-    },
-    {
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": 4,
       "expected": {
-        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
         "body": {
+          "model": "claude-sonnet-4-5",
           "max_tokens": 16384,
           "messages": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
+              "role": "user",
+              "content": "Refactor the parser."
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Reading it.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Reading it."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_1",
+                  "name": "read",
                   "input": {
                     "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "content": "export function parse() {}",
+                  "type": "tool_result",
                   "tool_use_id": "call_1",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Now editing.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_2",
-                  "input": {
-                    "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
+                  "content": "export function parse() {}",
                   "cache_control": {
                     "type": "ephemeral"
-                  },
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
-                  "tool_use_id": "call_2",
-                  "type": "tool_result"
+                  }
                 }
-              ],
-              "role": "user"
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Now editing."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_2",
+                  "name": "read",
+                  "input": {
+                    "path": "b"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_2",
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>"
+                }
+              ]
             }
           ],
-          "model": "claude-sonnet-4-5",
           "stream": true,
           "system": [
             {
-              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-              "type": "text"
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
             },
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "\n\nYou are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
           ]
-        }
-      },
+        },
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+      }
+    },
+    {
       "id": "count-zero.oauth",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
       "route": "anthropic-oauth",
-      "sharedCachePrefixCount": 0,
+      "model": "claude-sonnet-4-5",
       "tools": [
         {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
-      ]
-    },
-    {
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": 0,
       "expected": {
-        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
         "body": {
+          "model": "claude-sonnet-4-5",
           "max_tokens": 16384,
           "messages": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
+              "role": "user",
+              "content": "Refactor the parser."
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Reading it.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Reading it."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_1",
+                  "name": "read",
                   "input": {
                     "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "content": "export function parse() {}",
+                  "type": "tool_result",
                   "tool_use_id": "call_1",
-                  "type": "tool_result"
+                  "content": "export function parse() {}"
                 }
-              ],
-              "role": "user"
+              ]
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Now editing.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Now editing."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_2",
+                  "name": "read",
                   "input": {
                     "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "type": "tool_result",
                   "tool_use_id": "call_2",
-                  "type": "tool_result"
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
                 }
-              ],
-              "role": "user"
+              ]
             }
           ],
-          "model": "claude-sonnet-4-5",
           "stream": true,
           "system": [
             {
-              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-              "type": "text"
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
             },
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "\n\nYou are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
           ]
-        }
-      },
+        },
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+      }
+    },
+    {
       "id": "prefix-lowers-empty.oauth",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
       "route": "anthropic-oauth",
-      "sharedCachePrefixCount": 1,
+      "model": "claude-sonnet-4-5",
       "tools": [
         {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
-      ]
-    },
-    {
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": 1,
       "expected": {
-        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
         "body": {
+          "model": "claude-sonnet-4-5",
           "max_tokens": 16384,
           "messages": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
+              "role": "user",
+              "content": "Refactor the parser."
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Reading it.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Reading it."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_1",
+                  "name": "read",
                   "input": {
                     "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "content": "export function parse() {}",
+                  "type": "tool_result",
                   "tool_use_id": "call_1",
-                  "type": "tool_result"
+                  "content": "export function parse() {}"
                 }
-              ],
-              "role": "user"
+              ]
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Now editing.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Now editing."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_2",
+                  "name": "read",
                   "input": {
                     "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "cache_control": {
-                    "type": "ephemeral"
-                  },
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "type": "tool_result",
                   "tool_use_id": "call_2",
-                  "type": "tool_result"
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>"
                 }
-              ],
-              "role": "user"
+              ]
             }
           ],
-          "model": "claude-sonnet-4-5",
           "stream": true,
           "system": [
             {
-              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-              "type": "text"
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
             },
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "\n\nYou are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
           ]
-        }
-      },
+        },
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+      }
+    },
+    {
       "id": "count-equals-length.oauth",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
       "route": "anthropic-oauth",
-      "sharedCachePrefixCount": 7,
+      "model": "claude-sonnet-4-5",
       "tools": [
         {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
-      ]
-    },
-    {
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": 7,
       "expected": {
-        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
         "body": {
+          "model": "claude-sonnet-4-5",
           "max_tokens": 16384,
           "messages": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
+              "role": "user",
+              "content": "Refactor the parser."
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Reading it.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Reading it."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_1",
+                  "name": "read",
                   "input": {
                     "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "content": "export function parse() {}",
+                  "type": "tool_result",
                   "tool_use_id": "call_1",
-                  "type": "tool_result"
+                  "content": "export function parse() {}"
                 }
-              ],
-              "role": "user"
+              ]
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Now editing.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Now editing."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_2",
+                  "name": "read",
                   "input": {
                     "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "type": "tool_result",
                   "tool_use_id": "call_2",
-                  "type": "tool_result"
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
                 }
-              ],
-              "role": "user"
+              ]
             }
           ],
-          "model": "claude-sonnet-4-5",
           "stream": true,
           "system": [
             {
-              "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-              "type": "text"
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
             },
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "\n\nYou are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
           ]
-        }
-      },
+        },
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+      }
+    },
+    {
       "id": "count-beyond-length.oauth",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
       "route": "anthropic-oauth",
-      "sharedCachePrefixCount": 8,
+      "model": "claude-sonnet-4-5",
       "tools": [
         {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
-      ]
-    },
-    {
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": 8,
       "expected": {
-        "betaHeader": "interleaved-thinking-2025-05-14",
         "body": {
+          "model": "claude-sonnet-4-5",
           "max_tokens": 16384,
           "messages": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
+              "role": "user",
+              "content": "Refactor the parser."
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Reading it.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Reading it."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_1",
+                  "name": "read",
                   "input": {
                     "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "cache_control": {
-                    "type": "ephemeral"
-                  },
-                  "content": "export function parse() {}",
+                  "type": "tool_result",
                   "tool_use_id": "call_1",
-                  "type": "tool_result"
+                  "content": "export function parse() {}"
                 }
-              ],
-              "role": "user"
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Now editing."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_2",
+                  "name": "read",
+                  "input": {
+                    "path": "b"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_2",
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>"
+                }
+              ]
             }
           ],
-          "model": "claude-sonnet-4-5",
           "stream": true,
           "system": [
             {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            },
+            {
+              "type": "text",
+              "text": "\n\nYou are the Lead.",
               "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
-              "text": "You are the Lead.",
-              "type": "text"
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
           ]
-        }
-      },
+        },
+        "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+      }
+    },
+    {
       "id": "saved.api",
+      "route": "anthropic",
+      "model": "claude-sonnet-4-5",
+      "tools": [
+        {
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
+        }
+      ],
       "messages": [
         {
-          "content": "You are the Lead.",
-          "role": "system"
+          "role": "system",
+          "content": "You are the Lead."
         },
         {
-          "content": "Refactor the parser.",
-          "role": "user"
+          "role": "user",
+          "content": "Refactor the parser."
         },
         {
-          "content": "Reading it.",
           "role": "assistant",
+          "content": "Reading it.",
           "toolCalls": [
             {
+              "id": "call_1",
+              "name": "read",
               "arguments": {
                 "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
+              }
             }
           ]
         },
         {
-          "content": "export function parse() {}",
           "role": "tool",
-          "toolCallId": "call_1"
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
         }
       ],
-      "model": "claude-sonnet-4-5",
-      "route": "anthropic",
       "sharedCachePrefixCount": null,
-      "tools": [
-        {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
-        }
-      ]
-    },
-    {
       "expected": {
-        "betaHeader": "interleaved-thinking-2025-05-14",
         "body": {
-          "max_tokens": 16384,
-          "messages": [
-            {
-              "content": "Refactor the parser.",
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Reading it.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_1",
-                  "input": {
-                    "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "content": "export function parse() {}",
-                  "tool_use_id": "call_1",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Now editing.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_2",
-                  "input": {
-                    "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "cache_control": {
-                    "type": "ephemeral"
-                  },
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
-                  "tool_use_id": "call_2",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            }
-          ],
           "model": "claude-sonnet-4-5",
-          "stream": true,
+          "max_tokens": 16384,
           "system": [
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "You are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": "Refactor the parser."
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reading it."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_1",
+                  "content": "export function parse() {}",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
-          ]
-        }
-      },
+          ],
+          "stream": true
+        },
+        "betaHeader": "interleaved-thinking-2025-05-14"
+      }
+    },
+    {
       "id": "ordinary.api",
-      "messages": [
+      "route": "anthropic",
+      "model": "claude-sonnet-4-5",
+      "tools": [
         {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
       ],
-      "model": "claude-sonnet-4-5",
-      "route": "anthropic",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
       "sharedCachePrefixCount": null,
-      "tools": [
-        {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
-        }
-      ]
-    },
-    {
       "expected": {
-        "betaHeader": "interleaved-thinking-2025-05-14",
         "body": {
-          "max_tokens": 16384,
-          "messages": [
-            {
-              "content": "Refactor the parser.",
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Reading it.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_1",
-                  "input": {
-                    "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "cache_control": {
-                    "type": "ephemeral"
-                  },
-                  "content": "export function parse() {}",
-                  "tool_use_id": "call_1",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Now editing.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_2",
-                  "input": {
-                    "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
-                  "tool_use_id": "call_2",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            }
-          ],
           "model": "claude-sonnet-4-5",
-          "stream": true,
+          "max_tokens": 16384,
           "system": [
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "You are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": "Refactor the parser."
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reading it."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_1",
+                  "content": "export function parse() {}"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Now editing."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_2",
+                  "name": "read",
+                  "input": {
+                    "path": "b"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_2",
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
-          ]
-        }
-      },
+          ],
+          "stream": true
+        },
+        "betaHeader": "interleaved-thinking-2025-05-14"
+      }
+    },
+    {
       "id": "fork.api",
-      "messages": [
+      "route": "anthropic",
+      "model": "claude-sonnet-4-5",
+      "tools": [
         {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
       ],
-      "model": "claude-sonnet-4-5",
-      "route": "anthropic",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
       "sharedCachePrefixCount": 4,
-      "tools": [
-        {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
-        }
-      ]
-    },
-    {
       "expected": {
-        "betaHeader": "interleaved-thinking-2025-05-14",
         "body": {
-          "max_tokens": 16384,
-          "messages": [
-            {
-              "content": "Refactor the parser.",
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Reading it.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_1",
-                  "input": {
-                    "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "content": "export function parse() {}",
-                  "tool_use_id": "call_1",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Now editing.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_2",
-                  "input": {
-                    "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "cache_control": {
-                    "type": "ephemeral"
-                  },
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
-                  "tool_use_id": "call_2",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            }
-          ],
           "model": "claude-sonnet-4-5",
-          "stream": true,
+          "max_tokens": 16384,
           "system": [
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "You are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": "Refactor the parser."
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reading it."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_1",
+                  "content": "export function parse() {}",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Now editing."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_2",
+                  "name": "read",
+                  "input": {
+                    "path": "b"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_2",
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>"
+                }
+              ]
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
-          ]
-        }
-      },
+          ],
+          "stream": true
+        },
+        "betaHeader": "interleaved-thinking-2025-05-14"
+      }
+    },
+    {
       "id": "count-zero.api",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
       "route": "anthropic",
-      "sharedCachePrefixCount": 0,
+      "model": "claude-sonnet-4-5",
       "tools": [
         {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
-      ]
-    },
-    {
-      "expected": {
-        "betaHeader": "interleaved-thinking-2025-05-14",
-        "body": {
-          "max_tokens": 16384,
-          "messages": [
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Reading it.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_1",
-                  "input": {
-                    "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "content": "export function parse() {}",
-                  "tool_use_id": "call_1",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Now editing.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_2",
-                  "input": {
-                    "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
-                  "tool_use_id": "call_2",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
             }
-          ],
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": 0,
+      "expected": {
+        "body": {
           "model": "claude-sonnet-4-5",
-          "stream": true,
+          "max_tokens": 16384,
           "system": [
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "You are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
             }
           ],
-          "tools": [
-            {
-              "description": "Read a file",
-              "eager_input_streaming": true,
-              "input_schema": {
-                "properties": {},
-                "type": "object"
-              },
-              "name": "read"
-            }
-          ]
-        }
-      },
-      "id": "prefix-lowers-empty.api",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
-        },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
-      "route": "anthropic",
-      "sharedCachePrefixCount": 1,
-      "tools": [
-        {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
-        }
-      ]
-    },
-    {
-      "expected": {
-        "betaHeader": "interleaved-thinking-2025-05-14",
-        "body": {
-          "max_tokens": 16384,
           "messages": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
+              "role": "user",
+              "content": "Refactor the parser."
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Reading it.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Reading it."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_1",
+                  "name": "read",
                   "input": {
                     "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
-                  "content": "export function parse() {}",
+                  "type": "tool_result",
                   "tool_use_id": "call_1",
-                  "type": "tool_result"
+                  "content": "export function parse() {}"
                 }
-              ],
-              "role": "user"
+              ]
             },
             {
+              "role": "assistant",
               "content": [
                 {
-                  "text": "Now editing.",
-                  "type": "text"
+                  "type": "text",
+                  "text": "Now editing."
                 },
                 {
+                  "type": "tool_use",
                   "id": "call_2",
+                  "name": "read",
                   "input": {
                     "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
+                  }
                 }
-              ],
-              "role": "assistant"
+              ]
             },
             {
+              "role": "user",
               "content": [
                 {
+                  "type": "tool_result",
+                  "tool_use_id": "call_2",
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
                   "cache_control": {
                     "type": "ephemeral"
-                  },
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
-                  "tool_use_id": "call_2",
-                  "type": "tool_result"
+                  }
                 }
-              ],
-              "role": "user"
-            }
-          ],
-          "model": "claude-sonnet-4-5",
-          "stream": true,
-          "system": [
-            {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
-              "text": "You are the Lead.",
-              "type": "text"
+              ]
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
-          ]
-        }
-      },
-      "id": "count-equals-length.api",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
+          ],
+          "stream": true
         },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
-      "route": "anthropic",
-      "sharedCachePrefixCount": 7,
-      "tools": [
-        {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
-        }
-      ]
+        "betaHeader": "interleaved-thinking-2025-05-14"
+      }
     },
     {
-      "expected": {
-        "betaHeader": "interleaved-thinking-2025-05-14",
-        "body": {
-          "max_tokens": 16384,
-          "messages": [
+      "id": "prefix-lowers-empty.api",
+      "route": "anthropic",
+      "model": "claude-sonnet-4-5",
+      "tools": [
+        {
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
+        }
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
             {
-              "content": "Refactor the parser.",
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Reading it.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_1",
-                  "input": {
-                    "path": "a"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "content": "export function parse() {}",
-                  "tool_use_id": "call_1",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
-            },
-            {
-              "content": [
-                {
-                  "text": "Now editing.",
-                  "type": "text"
-                },
-                {
-                  "id": "call_2",
-                  "input": {
-                    "path": "b"
-                  },
-                  "name": "read",
-                  "type": "tool_use"
-                }
-              ],
-              "role": "assistant"
-            },
-            {
-              "content": [
-                {
-                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
-                  "tool_use_id": "call_2",
-                  "type": "tool_result"
-                }
-              ],
-              "role": "user"
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
             }
-          ],
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": 1,
+      "expected": {
+        "body": {
           "model": "claude-sonnet-4-5",
-          "stream": true,
+          "max_tokens": 16384,
           "system": [
             {
-              "cache_control": {
-                "ttl": "1h",
-                "type": "ephemeral"
-              },
+              "type": "text",
               "text": "You are the Lead.",
-              "type": "text"
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": "Refactor the parser."
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reading it."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_1",
+                  "content": "export function parse() {}"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Now editing."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_2",
+                  "name": "read",
+                  "input": {
+                    "path": "b"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_2",
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>"
+                }
+              ]
             }
           ],
           "tools": [
             {
-              "description": "Read a file",
-              "eager_input_streaming": true,
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
               "input_schema": {
-                "properties": {},
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
               },
-              "name": "read"
+              "eager_input_streaming": true
             }
-          ]
-        }
-      },
-      "id": "count-beyond-length.api",
-      "messages": [
-        {
-          "content": "You are the Lead.",
-          "role": "system"
+          ],
+          "stream": true
         },
-        {
-          "content": "Refactor the parser.",
-          "role": "user"
-        },
-        {
-          "content": "Reading it.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "a"
-              },
-              "id": "call_1",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "export function parse() {}",
-          "role": "tool",
-          "toolCallId": "call_1"
-        },
-        {
-          "content": "Now editing.",
-          "role": "assistant",
-          "toolCalls": [
-            {
-              "arguments": {
-                "path": "b"
-              },
-              "id": "call_2",
-              "name": "read"
-            }
-          ]
-        },
-        {
-          "content": "handled by the main task",
-          "role": "tool",
-          "toolCallId": "call_2"
-        },
-        {
-          "content": "<side-question>Where is parse?</side-question>",
-          "role": "user"
-        }
-      ],
-      "model": "claude-sonnet-4-5",
+        "betaHeader": "interleaved-thinking-2025-05-14"
+      }
+    },
+    {
+      "id": "count-equals-length.api",
       "route": "anthropic",
-      "sharedCachePrefixCount": 8,
+      "model": "claude-sonnet-4-5",
       "tools": [
         {
-          "description": "Read a file",
-          "inputSchema": {
-            "properties": {},
-            "type": "object"
-          },
-          "name": "read"
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
         }
-      ]
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": 7,
+      "expected": {
+        "body": {
+          "model": "claude-sonnet-4-5",
+          "max_tokens": 16384,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are the Lead.",
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": "Refactor the parser."
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reading it."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_1",
+                  "content": "export function parse() {}"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Now editing."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_2",
+                  "name": "read",
+                  "input": {
+                    "path": "b"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_2",
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>",
+                  "cache_control": {
+                    "type": "ephemeral"
+                  }
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
+              },
+              "eager_input_streaming": true
+            }
+          ],
+          "stream": true
+        },
+        "betaHeader": "interleaved-thinking-2025-05-14"
+      }
+    },
+    {
+      "id": "count-beyond-length.api",
+      "route": "anthropic",
+      "model": "claude-sonnet-4-5",
+      "tools": [
+        {
+          "$tool": "read",
+          "hash": "6cac43e0095bf55a"
+        }
+      ],
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor the parser."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading it.",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "export function parse() {}"
+        },
+        {
+          "role": "assistant",
+          "content": "Now editing.",
+          "toolCalls": [
+            {
+              "id": "call_2",
+              "name": "read",
+              "arguments": {
+                "path": "b"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_2",
+          "content": "handled by the main task"
+        },
+        {
+          "role": "user",
+          "content": "<side-question>Where is parse?</side-question>"
+        }
+      ],
+      "sharedCachePrefixCount": 8,
+      "expected": {
+        "body": {
+          "model": "claude-sonnet-4-5",
+          "max_tokens": 16384,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are the Lead.",
+              "cache_control": {
+                "type": "ephemeral",
+                "ttl": "1h"
+              }
+            }
+          ],
+          "messages": [
+            {
+              "role": "user",
+              "content": "Refactor the parser."
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reading it."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_1",
+                  "content": "export function parse() {}"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Now editing."
+                },
+                {
+                  "type": "tool_use",
+                  "id": "call_2",
+                  "name": "read",
+                  "input": {
+                    "path": "b"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "call_2",
+                  "content": "handled by the main task\n\n<side-question>Where is parse?</side-question>"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "file_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "file_path": {
+                                  "type": "string"
+                                },
+                                "offset": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "limit": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                }
+                              },
+                              "required": [
+                                "file_path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based start line; default 1; batch default."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+                  },
+                  "pages": {
+                    "type": "string",
+                    "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+                  }
+                },
+                "required": [
+                  "file_path"
+                ],
+                "additionalProperties": false
+              },
+              "eager_input_streaming": true
+            }
+          ],
+          "stream": true
+        },
+        "betaHeader": "interleaved-thinking-2025-05-14"
+      }
     }
   ],
   "threads": [
     {
-      "expected": {
-        "mode": "create",
-        "thread": {
-          "type": "create"
-        },
-        "threadBeta": true
-      },
       "id": "thread.ordinary.oauth",
       "route": "anthropic-oauth",
-      "sharedCachePrefixCount": null
-    },
-    {
-      "expected": {
-        "mode": "none",
-        "thread": null,
-        "threadBeta": false
-      },
-      "id": "thread.fork.oauth",
-      "route": "anthropic-oauth",
-      "sharedCachePrefixCount": 4
-    },
-    {
+      "sharedCachePrefixCount": null,
       "expected": {
         "mode": "create",
         "thread": {
           "type": "create"
         },
         "threadBeta": true
-      },
-      "id": "thread.ordinary.api",
-      "route": "anthropic",
-      "sharedCachePrefixCount": null
+      }
     },
     {
+      "id": "thread.fork.oauth",
+      "route": "anthropic-oauth",
+      "sharedCachePrefixCount": 4,
       "expected": {
         "mode": "none",
         "thread": null,
         "threadBeta": false
-      },
+      }
+    },
+    {
+      "id": "thread.ordinary.api",
+      "route": "anthropic",
+      "sharedCachePrefixCount": null,
+      "expected": {
+        "mode": "create",
+        "thread": {
+          "type": "create"
+        },
+        "threadBeta": true
+      }
+    },
+    {
       "id": "thread.fork.api",
       "route": "anthropic",
-      "sharedCachePrefixCount": 4
+      "sharedCachePrefixCount": 4,
+      "expected": {
+        "mode": "none",
+        "thread": null,
+        "threadBeta": false
+      }
     }
   ]
 }

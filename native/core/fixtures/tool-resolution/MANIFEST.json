@@ -3,18 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 613497,
+      "bytes": 112965,
       "path": "golden.json",
-      "sha256": "c4b7a990176b1907162a9c6b89983e9521c875adb218a4801e616dc0352998ad"
+      "sha256": "c2027826f605e9df4b80ec63a2beb787053b81729ac4dd0ffc331e41641c8ea0"
     }
   ],
   "product": {
     "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
-    "commit": "2d55c8aa21f6f41817adc27f7627b6137b3d51a6",
+    "commit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9252,
     "refComparison": {
-      "closestCommit": "2d55c8aa21f6f41817adc27f7627b6137b3d51a6",
+      "closestCommit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-resolution.mjs",
   "set": "tool-resolution",
-  "totalBytes": 613497
+  "totalBytes": 112965
 }

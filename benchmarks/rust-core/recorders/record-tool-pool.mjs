@@ -27,6 +27,7 @@ for (const name of ['MIXDOG_HOME', 'MIXDOG_DATA_DIR', 'HOME', 'USERPROFILE', 'AP
 const { FIXTURES_ROOT, commitStage, stageSet, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const args = parseArgs();
+const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(args);
 const U = (rel) => importFrom(tree, `src/${rel}`);
 
@@ -161,7 +162,7 @@ for (const [name, c] of SURFACE_CASES) {
     tools,
   });
 }
-writeJson(join(stage, 'tool-list.json'), {
+await writeJsonCompact(tree, join(stage, 'tool-list.json'), {
   standalone: names(standaloneDefs.standaloneTools),
   agentTools: [...standaloneDefs.agentToolNames],
   cases: surfaceCases,
@@ -173,7 +174,13 @@ console.log(`tool list: ${surfaceCases.length} cases over ${standaloneDefs.stand
 // (2) the model text of a PreToolUse ask the user answers no, or nobody can answer.
 const resolution = await U('runtime/agent/orchestrator/session/loop/tool-call-resolution.mjs');
 const helpers = await U('runtime/agent/orchestrator/session/loop/tool-helpers.mjs');
-const doc = (name) => ({ name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} }, annotations: {} });
+// The runtime's own tools are the product's definitions (`Shell` / `WebSearch` are case variants of theirs); a
+// connector's tools (`mcp__`) are the recorder's inputs.
+const real = await nodeRealTool(tree);
+const doc = (name) =>
+  name.startsWith('mcp__')
+    ? { name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} }, annotations: {} }
+    : { ...real({ Shell: 'shell', WebSearch: 'web_search' }[name] ?? name), name };
 const bridgeSession = {
   toolExposureMode: 'bridge-v1',
   tools: [doc('read'), doc('load_tool'), doc('call_tool'), doc('Shell')],
@@ -239,7 +246,7 @@ for (const [label, answer] of ASKS) {
 }
 const noUi = await helpers.resolvePreToolAskApproval({ toolName: 'mcp__mail__send', args: {}, cwd: '/work', sessionId: 'sess_main', askReason: CONNECTOR_APPROVAL_REASON, toolApprovalHook: undefined });
 asks.push({ name: 'nobody can answer', answer: null, denial: noUi.denial });
-writeJson(join(stage, 'dispatch.json'), {
+await writeJsonCompact(tree, join(stage, 'dispatch.json'), {
   askTool: 'mcp__mail__send',
   bridgeSession: { eager: names(bridgeSession.tools), deferred: names(bridgeSession.deferredToolCatalog), availableConnectors: bridgeSession.deferredMcpToolNames },
   projections,
@@ -281,18 +288,18 @@ const catalog = await U('runtime/agent/orchestrator/runtime-core/tool-catalog.mj
 const tdoc = (name, description, extra = {}) => ({ name, description, inputSchema: { type: 'object', properties: {} }, ...extra });
 const catalogSession = (extra = {}) => ({
   tools: [
-    tdoc('read', 'Read a file', { annotations: { readOnlyHint: true } }),
-    tdoc('edit', 'Edit a file'),
-    tdoc('load_tool', 'Describe tools'),
-    tdoc('call_tool', 'Run a tool'),
+    real('read'),
+    real('edit'),
+    real('load_tool'),
+    real('call_tool'),
   ],
   deferredToolCatalog: [
     tdoc('mcp__mail__send', 'Send a mail message', { annotations: { destructiveHint: true } }),
     tdoc('mcp__mail__list', 'List mail folders', { annotations: { readOnlyHint: true } }),
     tdoc('mcp__cal__add', 'Add a calendar event'),
-    tdoc('web_fetch', 'Fetch a web page', { annotations: { readOnlyHint: true } }),
-    tdoc('web_search', 'Search the web', { annotations: { readOnlyHint: true } }),
-    tdoc('shell', 'Run a command'),
+    real('web_fetch'),
+    real('web_search'),
+    real('shell'),
     tdoc('hidden_tool', 'Denied here'),
   ],
   deferredMcpToolNames: ['mcp__mail__send', 'mcp__mail__list'],
@@ -349,7 +356,7 @@ const sequenceSteps = [
     hashes: structuredClone(sequenceSession.mcpInstructionHashes ?? null),
   };
 });
-writeJson(join(stage, 'catalog.json'), { cases: catalogCases, sequence: { session: sequenceStart, steps: sequenceSteps } });
+await writeJsonCompact(tree, join(stage, 'catalog.json'), { cases: catalogCases, sequence: { session: sequenceStart, steps: sequenceSteps } });
 console.log(`catalog: ${catalogCases.length} sessions`);
 // --- route-schema.json ---------------------------------------------------------------------------
 // Why a tool is left out of every request on a session's route (provider-tool-exclusions.mjs
@@ -384,7 +391,7 @@ const routeSchema = ROUTE_SESSIONS.map(([name, session]) => ({
   session,
   tools: ROUTE_TOOLS.map((tool) => ({ name: tool.name, reason: exclusions.routeToolExclusionReason(structuredClone(session), structuredClone(tool)) })),
 }));
-writeJson(join(stage, 'route-schema.json'), { tools: ROUTE_TOOLS, sessions: routeSchema });
+await writeJsonCompact(tree, join(stage, 'route-schema.json'), { tools: ROUTE_TOOLS, sessions: routeSchema });
 console.log(`route-schema: ${routeSchema.length} sessions x ${ROUTE_TOOLS.length} tools`);
 commitStage(stage, OUT);
 writeSetManifest(OUT, {

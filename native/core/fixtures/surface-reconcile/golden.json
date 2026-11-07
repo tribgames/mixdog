@@ -1,147 +1,92 @@
 {
   "standalone": [
     {
-      "name": "read",
-      "description": "read tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": true
-      }
+      "$tool": "load_tool",
+      "hash": "cc5a1cecdba77717"
     },
     {
-      "name": "grep",
-      "description": "grep tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": true
-      }
+      "$tool": "Skill",
+      "hash": "367e1633a077263c"
     },
     {
-      "name": "edit",
-      "description": "edit tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "session",
+      "hash": "c9770ad9cf12d9ec"
     },
     {
-      "name": "shell",
-      "description": "shell tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "web_search",
+      "hash": "74a04264feea1e79"
     },
     {
-      "name": "agent",
-      "description": "agent tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "web_fetch",
+      "hash": "ebb9b0f9de03368b"
     },
     {
-      "name": "ask_user",
-      "description": "ask_user tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "memory",
+      "hash": "a42ea86e4a0f8bfa"
     },
     {
-      "name": "session",
-      "description": "session tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "recall",
+      "hash": "5042f0328ee875f7"
     },
     {
-      "name": "web_search",
-      "description": "web_search tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": true
-      }
+      "$tool": "code_graph",
+      "hash": "682f9963cb992237"
     },
     {
-      "name": "web_fetch",
-      "description": "web_fetch tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "browser",
+      "hash": "e4cdcc6d14cc1488"
     },
     {
-      "name": "memory",
-      "description": "memory tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "browser_devtools",
+      "hash": "e419050da8d09f05"
     },
     {
-      "name": "recall",
-      "description": "recall tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "computer",
+      "hash": "db88b1d84adaa4fb"
     },
     {
-      "name": "load_tool",
-      "description": "load_tool tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "terminal",
+      "hash": "3e775200860a2b8e"
     },
     {
-      "name": "todo",
-      "description": "todo tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
+      "$tool": "office",
+      "hash": "aaf910abf6b9410f"
+    },
+    {
+      "$tool": "media",
+      "hash": "93c6efcc0f96895e"
+    },
+    {
+      "$tool": "tidy",
+      "hash": "951706074757f835"
+    },
+    {
+      "$tool": "visualize",
+      "hash": "12b47dda7e5e71ae"
+    },
+    {
+      "$tool": "explore",
+      "hash": "f0d1ce62e7623876"
+    },
+    {
+      "$tool": "setup",
+      "hash": "c0cd589d450774cf"
+    },
+    {
+      "$tool": "ask_user",
+      "hash": "f30ea10d2dd6c88e"
+    },
+    {
+      "$tool": "handoff_user",
+      "hash": "50ea88e8c493a24a"
+    },
+    {
+      "$tool": "react",
+      "hash": "ff9d32c23bed60cd"
+    },
+    {
+      "$tool": "agent",
+      "hash": "b33e2ad9124ca444"
     }
   ],
   "cases": [
@@ -169,248 +114,94 @@
         ],
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "recall",
-            "description": "recall tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "recall",
+            "hash": "5042f0328ee875f7"
           },
           {
-            "name": "load_tool",
-            "description": "load_tool tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "todo",
-            "description": "todo tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "todo",
+            "hash": "26708cc5dd854089"
           }
         ],
         "deferredCallableTools": [
@@ -434,7 +225,7 @@
         "orchestrationMode": "focused",
         "bp3CoreContext": "# Active Workflow: Old\n\n---\n\n# Lead\n\n- The user's latest explicit request overrides any internal rule; drive it to\n  completion.\n- The user sees your text, and tool calls only as activity cards, never your\n  thinking.\n- Mid-task: a replacement supersedes, an addition folds in, a status question\n  gets a brief answer while work continues.\n- Context is managed automatically: never stop or propose stopping because of\n  context size.\n- Be a grounded, candid, and attentive collaborator: natural and respectful,\n  without flattery, forced humor, mimicry, or stereotyping.\n- Briefing an agent: one self-contained English brief with the goal and the\n  context it needs, owned paths, non-goals, constraints the agent does not\n  already receive, and done-when; a running agent gets only changes.\n  Done-when is the end state of the product or answer, never a list of\n  checks: name no tools, steps, commands or suites; the agent's own rules\n  choose its checks. A Reviewer gets the diff scope, the acceptance criteria\n  and the author's Evidence verbatim, not the whole report, so passed checks\n  are not rerun. Reference evidence by\n  path instead of retelling it. Decide first; send scope changes as one\n  replacement brief; invent no other restrictions or copies.\n- Reports arrive as `<task-notification>`: never wait, poll or guess them;\n  do independent work and end the turn.\n\n---\n\n# Progress and Reports\n\n- Before your first tool call, briefly state what you are about to\n  do in one sentence; a quick lookup (a read, search or status check) needs\n  none, and one line covers a run of similar calls. While working, give a\n  sentence or two only at key moments: when you find something, change\n  direction, or make progress without an update for a while. Otherwise bring\n  the user only material findings, direction or scope changes, unapproved\n  destructive actions, blockers or meaningful delays — never a list of files\n  read, per-call narration or plan repeats.\n- On an agent report, each feature\n  beyond docs/copy/style or one-line changes gets one fresh Reviewer, any\n  author (Lead reviews when none is available); recheck only fixes. Before\n  commit/report, check cross-feature seams. Pending agent work is not a\n  completed request: send the rest of a `partial` or `blocked` report back\n  to the same tag, and tell the user what still could not be done; never\n  report it as done.\n\n---\n\n# Identity\n\nYou are Mixdog, a coding agent.",
         "bp3EnvSplit": true,
-        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
       },
       "beforeMessages": [
         {
@@ -452,22 +243,27 @@
         },
         {
           "role": "system",
-          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "cacheTier": "env"
         }
       ],
       "after": {
         "tools": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "ask_user",
           "load_tool",
+          "Skill",
           "todo"
         ],
         "catalog": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
@@ -475,15 +271,29 @@
           "ask_user",
           "session",
           "load_tool",
+          "Skill",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "media",
+          "tidy",
+          "visualize",
+          "setup",
+          "handoff_user",
           "todo"
         ],
         "callable": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "ask_user",
           "load_tool",
+          "Skill",
           "todo"
         ],
         "discovered": [],
@@ -548,248 +358,94 @@
         ],
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "recall",
-            "description": "recall tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "recall",
+            "hash": "5042f0328ee875f7"
           },
           {
-            "name": "load_tool",
-            "description": "load_tool tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "todo",
-            "description": "todo tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "todo",
+            "hash": "26708cc5dd854089"
           }
         ],
         "deferredCallableTools": [
@@ -813,7 +469,7 @@
         "orchestrationMode": "focused",
         "bp3CoreContext": "# Active Workflow: Old\n\n---\n\n# Lead\n\n- The user's latest explicit request overrides any internal rule; drive it to\n  completion.\n- The user sees your text, and tool calls only as activity cards, never your\n  thinking.\n- Mid-task: a replacement supersedes, an addition folds in, a status question\n  gets a brief answer while work continues.\n- Context is managed automatically: never stop or propose stopping because of\n  context size.\n- Be a grounded, candid, and attentive collaborator: natural and respectful,\n  without flattery, forced humor, mimicry, or stereotyping.\n- Briefing an agent: one self-contained English brief with the goal and the\n  context it needs, owned paths, non-goals, constraints the agent does not\n  already receive, and done-when; a running agent gets only changes.\n  Done-when is the end state of the product or answer, never a list of\n  checks: name no tools, steps, commands or suites; the agent's own rules\n  choose its checks. A Reviewer gets the diff scope, the acceptance criteria\n  and the author's Evidence verbatim, not the whole report, so passed checks\n  are not rerun. Reference evidence by\n  path instead of retelling it. Decide first; send scope changes as one\n  replacement brief; invent no other restrictions or copies.\n- Reports arrive as `<task-notification>`: never wait, poll or guess them;\n  do independent work and end the turn.\n\n---\n\n# Progress and Reports\n\n- Before your first tool call, briefly state what you are about to\n  do in one sentence; a quick lookup (a read, search or status check) needs\n  none, and one line covers a run of similar calls. While working, give a\n  sentence or two only at key moments: when you find something, change\n  direction, or make progress without an update for a while. Otherwise bring\n  the user only material findings, direction or scope changes, unapproved\n  destructive actions, blockers or meaningful delays — never a list of files\n  read, per-call narration or plan repeats.\n- On an agent report, each feature\n  beyond docs/copy/style or one-line changes gets one fresh Reviewer, any\n  author (Lead reviews when none is available); recheck only fixes. Before\n  commit/report, check cross-feature seams. Pending agent work is not a\n  completed request: send the rest of a `partial` or `blocked` report back\n  to the same tag, and tell the user what still could not be done; never\n  report it as done.\n\n---\n\n# Identity\n\nYou are Mixdog, a coding agent.",
         "bp3EnvSplit": true,
-        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
       },
       "beforeMessages": [
         {
@@ -831,23 +487,28 @@
         },
         {
           "role": "system",
-          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "cacheTier": "env"
         }
       ],
       "after": {
         "tools": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "ask_user",
+          "Skill",
           "todo",
           "load_tool",
           "call_tool"
         ],
         "catalog": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
@@ -855,22 +516,39 @@
           "ask_user",
           "session",
           "load_tool",
+          "Skill",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "media",
+          "tidy",
+          "visualize",
+          "setup",
+          "handoff_user",
           "todo"
         ],
         "callable": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "ask_user",
+          "Skill",
           "todo"
         ],
         "discovered": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "ask_user",
+          "Skill",
           "todo"
         ],
         "disallowedTools": [
@@ -938,248 +616,94 @@
         ],
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "recall",
-            "description": "recall tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "recall",
+            "hash": "5042f0328ee875f7"
           },
           {
-            "name": "load_tool",
-            "description": "load_tool tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "todo",
-            "description": "todo tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "todo",
+            "hash": "26708cc5dd854089"
           }
         ],
         "deferredCallableTools": [
@@ -1203,7 +727,7 @@
         "orchestrationMode": "focused",
         "bp3CoreContext": "# Active Workflow: Old\n\n---\n\n# Lead\n\n- The user's latest explicit request overrides any internal rule; drive it to\n  completion.\n- The user sees your text, and tool calls only as activity cards, never your\n  thinking.\n- Mid-task: a replacement supersedes, an addition folds in, a status question\n  gets a brief answer while work continues.\n- Context is managed automatically: never stop or propose stopping because of\n  context size.\n- Be a grounded, candid, and attentive collaborator: natural and respectful,\n  without flattery, forced humor, mimicry, or stereotyping.\n- Briefing an agent: one self-contained English brief with the goal and the\n  context it needs, owned paths, non-goals, constraints the agent does not\n  already receive, and done-when; a running agent gets only changes.\n  Done-when is the end state of the product or answer, never a list of\n  checks: name no tools, steps, commands or suites; the agent's own rules\n  choose its checks. A Reviewer gets the diff scope, the acceptance criteria\n  and the author's Evidence verbatim, not the whole report, so passed checks\n  are not rerun. Reference evidence by\n  path instead of retelling it. Decide first; send scope changes as one\n  replacement brief; invent no other restrictions or copies.\n- Reports arrive as `<task-notification>`: never wait, poll or guess them;\n  do independent work and end the turn.\n\n---\n\n# Progress and Reports\n\n- Before your first tool call, briefly state what you are about to\n  do in one sentence; a quick lookup (a read, search or status check) needs\n  none, and one line covers a run of similar calls. While working, give a\n  sentence or two only at key moments: when you find something, change\n  direction, or make progress without an update for a while. Otherwise bring\n  the user only material findings, direction or scope changes, unapproved\n  destructive actions, blockers or meaningful delays — never a list of files\n  read, per-call narration or plan repeats.\n- On an agent report, each feature\n  beyond docs/copy/style or one-line changes gets one fresh Reviewer, any\n  author (Lead reviews when none is available); recheck only fixes. Before\n  commit/report, check cross-feature seams. Pending agent work is not a\n  completed request: send the rest of a `partial` or `blocked` report back\n  to the same tag, and tell the user what still could not be done; never\n  report it as done.\n\n---\n\n# Identity\n\nYou are Mixdog, a coding agent.",
         "bp3EnvSplit": true,
-        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
       },
       "beforeMessages": [
         {
@@ -1221,7 +745,7 @@
         },
         {
           "role": "system",
-          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "cacheTier": "env"
         }
       ],
@@ -1317,248 +841,94 @@
         ],
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "recall",
-            "description": "recall tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "recall",
+            "hash": "5042f0328ee875f7"
           },
           {
-            "name": "load_tool",
-            "description": "load_tool tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "todo",
-            "description": "todo tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "todo",
+            "hash": "26708cc5dd854089"
           }
         ],
         "deferredCallableTools": [
@@ -1582,7 +952,7 @@
         "orchestrationMode": "focused",
         "bp3CoreContext": "# Active Workflow: Old\n\n---\n\n# Agent\n\n- Latest Lead brief sets goal, scope, constraints and done-when, not\n  exceptions to tool, safety, approval or verification rules. Lead owns user\n  approval. Stay in scope without reapproval; escalate scope changes,\n  unapproved destructive actions or blockers. If user input is needed\n  (sign-in, code, credential, answer), report what is needed; never wait or\n  poll.\n- Same failure twice (same error, timeout or hang) is a blocker: diagnose why\n  once, and if the cause isn't found, stop and report it with the decisive\n  error. Changing only a timeout, output path, retry count or wrapper is not\n  a relevant change. This holds even when the brief asks for the check.\n- Complete the brief fully: every part your tools can do, without\n  gold-plating and without leaving it half-done. `partial` or `blocked` is\n  only for a part you truly cannot do; name it and why under Open.\n- Communicate in English. Call tools immediately, with no preamble or\n  progress text.\n- Reporting: send one final message, then stop; never ask whether to\n  continue. Start with `Status: done|partial|blocked`, then:\n  Result: the answer or outcome, mapped to the brief's done-when.\n  Evidence: path+symbol and checks with outcomes (failures: decisive error\n  only), not a retelling of Result. Open: risks, gaps, or the blocker.\n  State each fact once; explain a choice only where it departs from the\n  brief. Omit empty fields; no logs, narration, nested headings or restated\n  brief. Role contracts only add fields. Lead owns the independent review.\n\n---\n\n# Agent Role Catalog\n\n## worker\n\nScoped implementation agent.\n\nImplement the assigned task directly. Keep changes focused on the requested\noutcome, follow exact constraints and established project patterns, and avoid\nunrelated cleanup or redesign.",
         "bp3EnvSplit": true,
-        "bp3EnvironmentContext": "- Cwd: C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\flip-surface\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs"
+        "bp3EnvironmentContext": "- Cwd: D:\\mixdog-build — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt"
       },
       "beforeMessages": [
         {
@@ -1596,38 +966,56 @@
         },
         {
           "role": "system",
-          "content": "- Cwd: C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\flip-surface\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs",
+          "content": "- Cwd: D:\\mixdog-build — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt",
           "cacheTier": "env"
         }
       ],
       "after": {
         "tools": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "load_tool",
-          "todo",
-          "ask_user"
+          "Skill",
+          "ask_user",
+          "todo"
         ],
         "catalog": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "agent",
           "load_tool",
-          "todo",
+          "Skill",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "media",
+          "tidy",
+          "visualize",
+          "setup",
           "ask_user",
-          "session"
+          "session",
+          "todo"
         ],
         "callable": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "ask_user",
           "load_tool",
+          "Skill",
           "todo"
         ],
         "discovered": [],
@@ -1696,248 +1084,94 @@
         ],
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "recall",
-            "description": "recall tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "recall",
+            "hash": "5042f0328ee875f7"
           },
           {
-            "name": "load_tool",
-            "description": "load_tool tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "todo",
-            "description": "todo tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "todo",
+            "hash": "26708cc5dd854089"
           }
         ],
         "deferredCallableTools": [
@@ -1961,7 +1195,7 @@
         "orchestrationMode": "focused",
         "bp3CoreContext": "# Active Workflow: Old\n\n---\n\n# Agent\n\n- Latest Lead brief sets goal, scope, constraints and done-when, not\n  exceptions to tool, safety, approval or verification rules. Lead owns user\n  approval. Stay in scope without reapproval; escalate scope changes,\n  unapproved destructive actions or blockers. If user input is needed\n  (sign-in, code, credential, answer), report what is needed; never wait or\n  poll.\n- Same failure twice (same error, timeout or hang) is a blocker: diagnose why\n  once, and if the cause isn't found, stop and report it with the decisive\n  error. Changing only a timeout, output path, retry count or wrapper is not\n  a relevant change. This holds even when the brief asks for the check.\n- Complete the brief fully: every part your tools can do, without\n  gold-plating and without leaving it half-done. `partial` or `blocked` is\n  only for a part you truly cannot do; name it and why under Open.\n- Communicate in English. Call tools immediately, with no preamble or\n  progress text.\n- Reporting: send one final message, then stop; never ask whether to\n  continue. Start with `Status: done|partial|blocked`, then:\n  Result: the answer or outcome, mapped to the brief's done-when.\n  Evidence: path+symbol and checks with outcomes (failures: decisive error\n  only), not a retelling of Result. Open: risks, gaps, or the blocker.\n  State each fact once; explain a choice only where it departs from the\n  brief. Omit empty fields; no logs, narration, nested headings or restated\n  brief. Role contracts only add fields. Lead owns the independent review.\n\n---\n\n# Agent Role Catalog\n\n## worker\n\nScoped implementation agent.\n\nImplement the assigned task directly. Keep changes focused on the requested\noutcome, follow exact constraints and established project patterns, and avoid\nunrelated cleanup or redesign.",
         "bp3EnvSplit": true,
-        "bp3EnvironmentContext": "- Cwd: C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\flip-surface\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs"
+        "bp3EnvironmentContext": "- Cwd: D:\\mixdog-build — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt"
       },
       "beforeMessages": [
         {
@@ -1975,38 +1209,56 @@
         },
         {
           "role": "system",
-          "content": "- Cwd: C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\flip-surface\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs",
+          "content": "- Cwd: D:\\mixdog-build — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt",
           "cacheTier": "env"
         }
       ],
       "after": {
         "tools": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "load_tool",
-          "todo",
-          "ask_user"
+          "Skill",
+          "ask_user",
+          "todo"
         ],
         "catalog": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "agent",
           "load_tool",
-          "todo",
+          "Skill",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "media",
+          "tidy",
+          "visualize",
+          "setup",
           "ask_user",
-          "session"
+          "session",
+          "todo"
         ],
         "callable": [
+          "explore",
           "grep",
+          "code_graph",
           "read",
           "edit",
           "shell",
           "ask_user",
           "load_tool",
+          "Skill",
           "todo"
         ],
         "discovered": [],
@@ -2075,248 +1327,94 @@
         ],
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "recall",
-            "description": "recall tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "recall",
+            "hash": "5042f0328ee875f7"
           },
           {
-            "name": "load_tool",
-            "description": "load_tool tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "todo",
-            "description": "todo tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "todo",
+            "hash": "26708cc5dd854089"
           }
         ],
         "deferredCallableTools": [
@@ -2340,7 +1438,7 @@
         "orchestrationMode": "focused",
         "bp3CoreContext": "# Active Workflow: Old\n\n---\n\n# Agent\n\n- Latest Lead brief sets goal, scope, constraints and done-when, not\n  exceptions to tool, safety, approval or verification rules. Lead owns user\n  approval. Stay in scope without reapproval; escalate scope changes,\n  unapproved destructive actions or blockers. If user input is needed\n  (sign-in, code, credential, answer), report what is needed; never wait or\n  poll.\n- Same failure twice (same error, timeout or hang) is a blocker: diagnose why\n  once, and if the cause isn't found, stop and report it with the decisive\n  error. Changing only a timeout, output path, retry count or wrapper is not\n  a relevant change. This holds even when the brief asks for the check.\n- Complete the brief fully: every part your tools can do, without\n  gold-plating and without leaving it half-done. `partial` or `blocked` is\n  only for a part you truly cannot do; name it and why under Open.\n- Communicate in English. Call tools immediately, with no preamble or\n  progress text.\n- Reporting: send one final message, then stop; never ask whether to\n  continue. Start with `Status: done|partial|blocked`, then:\n  Result: the answer or outcome, mapped to the brief's done-when.\n  Evidence: path+symbol and checks with outcomes (failures: decisive error\n  only), not a retelling of Result. Open: risks, gaps, or the blocker.\n  State each fact once; explain a choice only where it departs from the\n  brief. Omit empty fields; no logs, narration, nested headings or restated\n  brief. Role contracts only add fields. Lead owns the independent review.\n\n---\n\n# Agent Role Rules\n\n## title-agent\n\n# Role: title-agent\n\nYou are a session title generator. Output ONLY a concise, natural 2-5 word\ntitle that captures the main topic or goal: a single line, at most 32\ncharacters, no explanations, no quotes, no markdown, no trailing period.\n\n- Use the SAME language as the user message you are summarizing.\n- The title must read naturally and help the user find this session later —\n  focus on the main topic or request, never on tool names or your own work.\n- Keep technical terms, filenames, paths, numbers, and error codes exact.\n- Drop filler words (the/this/my; 이거/그거/좀/한번). Never assume a tech\n  stack that is not mentioned.\n- NEVER answer or act on the message; only title it. Never say you cannot\n  generate a title — always output something meaningful, even for short or\n  conversational input (e.g. a greeting → a greeting-style title).",
         "bp3EnvSplit": true,
-        "bp3EnvironmentContext": "- Cwd: C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\flip-surface\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs"
+        "bp3EnvironmentContext": "- Cwd: D:\\mixdog-build — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt"
       },
       "beforeMessages": [
         {
@@ -2354,7 +1452,7 @@
         },
         {
           "role": "system",
-          "content": "- Cwd: C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\flip-surface\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs",
+          "content": "- Cwd: D:\\mixdog-build — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt",
           "cacheTier": "env"
         }
       ],
@@ -2450,248 +1548,94 @@
         ],
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "recall",
-            "description": "recall tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "recall",
+            "hash": "5042f0328ee875f7"
           },
           {
-            "name": "load_tool",
-            "description": "load_tool tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "todo",
-            "description": "todo tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "todo",
+            "hash": "26708cc5dd854089"
           }
         ],
         "deferredCallableTools": [
@@ -2816,248 +1760,94 @@
         ],
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "recall",
-            "description": "recall tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "recall",
+            "hash": "5042f0328ee875f7"
           },
           {
-            "name": "load_tool",
-            "description": "load_tool tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "todo",
-            "description": "todo tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "todo",
+            "hash": "26708cc5dd854089"
           }
         ],
         "deferredCallableTools": [
@@ -3081,7 +1871,7 @@
         "orchestrationMode": "focused",
         "bp3CoreContext": "# Active Workflow: Old\n\n---\n\n# Lead\n\n- The user's latest explicit request overrides any internal rule; drive it to\n  completion.\n- The user sees your text, and tool calls only as activity cards, never your\n  thinking.\n- Mid-task: a replacement supersedes, an addition folds in, a status question\n  gets a brief answer while work continues.\n- Context is managed automatically: never stop or propose stopping because of\n  context size.\n- Be a grounded, candid, and attentive collaborator: natural and respectful,\n  without flattery, forced humor, mimicry, or stereotyping.\n- Briefing an agent: one self-contained English brief with the goal and the\n  context it needs, owned paths, non-goals, constraints the agent does not\n  already receive, and done-when; a running agent gets only changes.\n  Done-when is the end state of the product or answer, never a list of\n  checks: name no tools, steps, commands or suites; the agent's own rules\n  choose its checks. A Reviewer gets the diff scope, the acceptance criteria\n  and the author's Evidence verbatim, not the whole report, so passed checks\n  are not rerun. Reference evidence by\n  path instead of retelling it. Decide first; send scope changes as one\n  replacement brief; invent no other restrictions or copies.\n- Reports arrive as `<task-notification>`: never wait, poll or guess them;\n  do independent work and end the turn.\n\n---\n\n# Progress and Reports\n\n- Before your first tool call, briefly state what you are about to\n  do in one sentence; a quick lookup (a read, search or status check) needs\n  none, and one line covers a run of similar calls. While working, give a\n  sentence or two only at key moments: when you find something, change\n  direction, or make progress without an update for a while. Otherwise bring\n  the user only material findings, direction or scope changes, unapproved\n  destructive actions, blockers or meaningful delays — never a list of files\n  read, per-call narration or plan repeats.\n- On an agent report, each feature\n  beyond docs/copy/style or one-line changes gets one fresh Reviewer, any\n  author (Lead reviews when none is available); recheck only fixes. Before\n  commit/report, check cross-feature seams. Pending agent work is not a\n  completed request: send the rest of a `partial` or `blocked` report back\n  to the same tag, and tell the user what still could not be done; never\n  report it as done.\n\n---\n\n# Identity\n\nYou are Mixdog, a coding agent.",
         "bp3EnvSplit": true,
-        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
       },
       "beforeMessages": [
         {
@@ -3099,7 +1889,7 @@
         },
         {
           "role": "system",
-          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "cacheTier": "env"
         },
         {
@@ -3202,248 +1992,94 @@
         ],
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "grep",
-            "description": "grep tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "grep",
+            "hash": "2757218445762556"
           },
           {
-            "name": "edit",
-            "description": "edit tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "edit",
+            "hash": "cbc04fb64a9b7371"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "agent",
-            "description": "agent tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "agent",
+            "hash": "b33e2ad9124ca444"
           },
           {
-            "name": "ask_user",
-            "description": "ask_user tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "ask_user",
+            "hash": "f30ea10d2dd6c88e"
           },
           {
-            "name": "session",
-            "description": "session tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "session",
+            "hash": "c9770ad9cf12d9ec"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": true
-            }
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "web_fetch",
-            "description": "web_fetch tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "web_fetch",
+            "hash": "ebb9b0f9de03368b"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "recall",
-            "description": "recall tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "recall",
+            "hash": "5042f0328ee875f7"
           },
           {
-            "name": "load_tool",
-            "description": "load_tool tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
           },
           {
-            "name": "todo",
-            "description": "todo tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {
-              "readOnlyHint": false
-            }
+            "$tool": "todo",
+            "hash": "26708cc5dd854089"
           }
         ],
         "deferredCallableTools": [
@@ -3467,7 +2103,7 @@
         "orchestrationMode": "focused",
         "bp3CoreContext": "# Active Workflow: Old\n\n---\n\n# Lead\n\n- The user's latest explicit request overrides any internal rule; drive it to\n  completion.\n- The user sees your text, and tool calls only as activity cards, never your\n  thinking.\n- Mid-task: a replacement supersedes, an addition folds in, a status question\n  gets a brief answer while work continues.\n- Context is managed automatically: never stop or propose stopping because of\n  context size.\n- Be a grounded, candid, and attentive collaborator: natural and respectful,\n  without flattery, forced humor, mimicry, or stereotyping.\n- Briefing an agent: one self-contained English brief with the goal and the\n  context it needs, owned paths, non-goals, constraints the agent does not\n  already receive, and done-when; a running agent gets only changes.\n  Done-when is the end state of the product or answer, never a list of\n  checks: name no tools, steps, commands or suites; the agent's own rules\n  choose its checks. A Reviewer gets the diff scope, the acceptance criteria\n  and the author's Evidence verbatim, not the whole report, so passed checks\n  are not rerun. Reference evidence by\n  path instead of retelling it. Decide first; send scope changes as one\n  replacement brief; invent no other restrictions or copies.\n- Reports arrive as `<task-notification>`: never wait, poll or guess them;\n  do independent work and end the turn.\n\n---\n\n# Progress and Reports\n\n- Before your first tool call, briefly state what you are about to\n  do in one sentence; a quick lookup (a read, search or status check) needs\n  none, and one line covers a run of similar calls. While working, give a\n  sentence or two only at key moments: when you find something, change\n  direction, or make progress without an update for a while. Otherwise bring\n  the user only material findings, direction or scope changes, unapproved\n  destructive actions, blockers or meaningful delays — never a list of files\n  read, per-call narration or plan repeats.\n- On an agent report, each feature\n  beyond docs/copy/style or one-line changes gets one fresh Reviewer, any\n  author (Lead reviews when none is available); recheck only fixes. Before\n  commit/report, check cross-feature seams. Pending agent work is not a\n  completed request: send the rest of a `partial` or `blocked` report back\n  to the same tag, and tell the user what still could not be done; never\n  report it as done.\n\n---\n\n# Identity\n\nYou are Mixdog, a coding agent.",
         "bp3EnvSplit": true,
-        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+        "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
       },
       "beforeMessages": [
         {
@@ -3485,7 +2121,7 @@
         },
         {
           "role": "system",
-          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: .github/ apps/ benchmarks/ changelog/ design/ docs/ LICENSES/ native/ packages/ scripts/ src/ .gitattributes .gitignore .npmignore biome.json CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE NOTICE.md package-lock.json package.json README.md SECURITY.md snapshot.rs\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+          "content": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Cwd entries at startup: cc/ ck/ exec-check/ exec-src/ fixtures/ h-fs/ h-fs2/ h-wsctx/ harness-g-tools/ harness-gmail/ harness-heartbeat/ harness-jobs/ harness-manifest/ harness-shell-cfg/ harness-transport/ harness-tx/ harness-wpch/ harness-wpch2/ harness-wu-home-delivery/ harness-wu-project/ harness-wu-turn-ops/ rec-agent-effects/ rec-automation-setup/ rec-automation-status/ rust-core-target/ sccache/ scratch/ scratch-moved-20261107/ side/ slots/ snap/ tmp/ tools/ ws-ai-svc/ wtops-clippy.txt\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
           "cacheTier": "env"
         }
       ],

@@ -5,22 +5,22 @@
     {
       "bytes": 28073,
       "path": "context-switch.json",
-      "sha256": "3f15f4e6960f004342a2655dcf8a73b4ad3fc81d99b3de01aec650cf334ce908"
+      "sha256": "e347345b436b78f9d9179acbd02c7b45748855c3a1b647b308fe1ee7674c42f3"
     },
     {
       "bytes": 72457,
       "path": "route-set-wire.json",
-      "sha256": "b8e600ee0ba561227eb42ab73245e70edb5be1dabff4e67c59e7258cdfab1ca8"
+      "sha256": "0bf136db082ac6672ef5b8c7d24b92607cb1c87a23b0f4b37c22bada032996fe"
     },
     {
-      "bytes": 144919,
+      "bytes": 145112,
       "path": "session-switches.json",
-      "sha256": "e9bb9a186e9e3dcae45a2d82d708845fdff66f699d01596c711d2af29261c08e"
+      "sha256": "51f00987cc89d616dd981ef9dcefed95769411d283c60fe49d375256152767da"
     },
     {
       "bytes": 35393,
       "path": "settings-scenarios.json",
-      "sha256": "7edc19d25f5dfa32b86ce8eeea523e40c54cc026553fa316fea78d8c6259dc4b"
+      "sha256": "0ab81689a359777331804f1dd323515f7a4e9236518776b74c128a320624f531"
     },
     {
       "bytes": 60,
@@ -54,22 +54,22 @@
     }
   ],
   "product": {
-    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
-    "commit": null,
+    "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
+    "commit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 43481,
+    "files": 9252,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 1,
-      "exact": false,
-      "filesDifferingFromCommit": 34407
+      "closestCommit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
-    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-thread-settings.mjs",
   "set": "thread-settings",
-  "totalBytes": 282038
+  "totalBytes": 282231
 }

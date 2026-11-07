@@ -18,13 +18,16 @@ const NOW = 1_700_000_000_000;
 Date.now = () => NOW;
 const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
+const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'tool-availability');
 const stage = stageSet(finalDir);
 const recorder = 'benchmarks/rust-core/recorders/record-tool-availability.mjs';
 const { stageToolAvailability } = await importFrom(tree, 'src/runtime/agent/orchestrator/runtime-core/tool-availability.mjs');
 
-const doc = (name, description = `${name} tool`) => ({ name, description, inputSchema: { type: 'object', properties: {} }, annotations: {} });
+// The gated tools are the product's definitions.
+const real = await nodeRealTool(tree);
+const doc = (name) => real(name);
 const session = (extra = {}) => ({
   id: 'sess_a',
   tools: [doc('read'), doc('shell'), doc('web_search')],
@@ -34,7 +37,7 @@ const session = (extra = {}) => ({
   disallowedTools: ['get_goal'],
   ...extra,
 });
-const ALL = ['web_search', 'web_fetch', 'memory', 'recall', 'git', 'github', 'browser', 'office', 'media', 'tidy', 'explore'].map((name) => doc(name, `${name} definition`));
+const ALL = ['web_search', 'web_fetch', 'memory', 'recall', 'git', 'github', 'browser', 'office', 'media', 'tidy', 'explore'].map((name) => doc(name));
 
 const CASES = [
   ['no gate moved', session({ disallowedTools: ['get_goal', 'memory'] }), ['memory']],
@@ -50,7 +53,7 @@ const CASES = [
   ['a delegated worker is not folded', session({ owner: 'agent', disallowedTools: ['get_goal', 'memory'] }), []],
   ['names that are no gate are ignored and repeats count once', session(), ['read', 'web_search', 'web_search', 'nothing']],
   ['one gate closes while another opens, over a pending delta', session({ disallowedTools: ['get_goal', 'memory'], pendingDeferredToolDelta: { revision: 3, added: [{ name: 'web_search', description: 'late' }], removed: ['git'] }, deferredToolDeltaRevision: 3 }), ['web_search']],
-  ['a late catalog tool is known', session({ disallowedTools: ['get_goal', 'tidy'], deferredLateToolCatalog: [doc('tidy', 'late tidy')] }), []],
+  ['a late catalog tool is known', session({ disallowedTools: ['get_goal', 'tidy'], deferredLateToolCatalog: [doc('tidy')] }), []],
   ['repeats in the denial list', session({ disallowedTools: ['get_goal', 'memory', 'memory', 'web_search'] }), ['web_search']],
   ['a session without a tool list', { id: 'sess_none', disallowedTools: ['memory'] }, []],
 ];
@@ -64,6 +67,6 @@ const cases = CASES.map(([name, before, featureDenied, defs = ALL]) => {
   });
   return { name, before, featureDenied, definitions: defs, asked, result, after: live };
 });
-writeJson(join(stage, 'golden.json'), { now: NOW, cases });
+await writeJsonCompact(tree, join(stage, 'golden.json'), { now: NOW, cases });
 writeSetManifest(stage, { set: 'tool-availability', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
 commitStage(stage, finalDir);

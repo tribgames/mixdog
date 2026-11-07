@@ -3,28 +3,28 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 691126,
+      "bytes": 495712,
       "path": "golden.json",
-      "sha256": "cd3d72430bf6fd2a608ba24f6ff9db244a811c8a5917576688b2573490c0697e"
+      "sha256": "c7ea25955b295e23f8b9e9d3eca66310e2819cad6738b05dbd21f5a9786f3606"
     }
   ],
   "product": {
-    "appsSha256": "9bd8fb856b7e00e551f02099c8aa5ad3f6450f5e03419b97b2dc9be008094ac1",
-    "commit": "8cf0af37d2e8e062dd6c68507b7b3a7cade6d4b9",
+    "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
+    "commit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9249,
+    "files": 9252,
     "refComparison": {
-      "closestCommit": "8cf0af37d2e8e062dd6c68507b7b3a7cade6d4b9",
+      "closestCommit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
     },
-    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-fold.mjs",
   "set": "mcp-fold",
-  "totalBytes": 691126
+  "totalBytes": 495712
 }

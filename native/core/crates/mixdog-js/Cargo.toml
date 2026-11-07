@@ -16,3 +16,8 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 iana-time-zone = { workspace = true }
+sha2 = { workspace = true, optional = true }
+
+[features]
+# The loader of the tool references recorded goldens carry (`fixture_tools`): a dev-dependency of the crates that replay them.
+fixture-tools = ["dep:sha2"]

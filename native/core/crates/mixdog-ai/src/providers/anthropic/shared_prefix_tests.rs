@@ -23,7 +23,7 @@ use super::effort_tests::tool_of;
 fn recording() -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/providers/anthropic-shared-prefix/cases.json");
     let text = std::fs::read_to_string(path).expect("recorded cases");
-    serde_json::from_str(&text).expect("json")
+    mixdog_js::fixture_tools::parse_golden(&text).expect("json")
 }
 
 fn encode(case: &Value) -> mixdog_core_api::domain::provider::WireRequest {

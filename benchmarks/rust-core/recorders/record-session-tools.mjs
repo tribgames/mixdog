@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson } from './lib/common.mjs';
 
 const cli = parseArgs();
+const { nodeToolDefinitions } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(cli);
 const orch = 'src/runtime/agent/orchestrator/';
 const resolution = await importFrom(tree, `${orch}session/manager/tool-resolution.mjs`);
@@ -19,16 +20,16 @@ const { BUILTIN_TOOLS } = await importFrom(tree, `${orch}tools/builtin/builtin-t
 
 // What the product registers as internal tools (boot/tools.mjs `collectStandaloneToolDefs`):
 // everything the model sees that is neither a built-in nor `todo` / `call_tool`.
-const INTERNAL = [
-  'load_tool', 'Skill', 'session', 'web_search', 'web_fetch', 'local_fetch', 'image_fetch', 'recall', 'memory',
-  'browser', 'browser_devtools', 'computer', 'terminal', 'office', 'media', 'tidy', 'visualize', 'explore', 'setup',
-  'ask_user', 'handoff_user', 'react', 'goal', 'agent',
-];
+// The product's own definitions, as `collectStandaloneToolDefs` collects them (`internalToolDefs`, the
+// `public:false` fetch tools stay registered: `_getMcpTools` leaves them out of every schema itself, and the
+// pool lists only the public ones). `code_graph` is recorded under `pool.codeGraph`.
+const { internalToolDefs } = await nodeToolDefinitions(tree);
+const INTERNAL = internalToolDefs.filter((tool) => tool.public !== false).map((tool) => tool.name).filter((name) => name !== 'code_graph');
 const MCP = { alpha: ['search_docs', 'zeta', 'Beta'], beta: ['fetch', 'web_search_extra'] };
 
 internal.setInternalToolsProvider({
   scopeId: null,
-  tools: INTERNAL.map((name) => ({ name, description: '', inputSchema: { type: 'object', properties: {} }, annotations: {} })),
+  tools: internalToolDefs,
   executor: () => {},
 });
 for (const [server, tools] of Object.entries(MCP)) mcp._registerMcpServerForTest(null, server, tools.map((name) => ({ name })));

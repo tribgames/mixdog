@@ -20,6 +20,7 @@ const NOW = 1_700_000_000_000;
 Date.now = () => NOW;
 const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
+const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'connector-availability');
 const stage = stageSet(finalDir);
@@ -48,7 +49,10 @@ const writePolicies = (agent, step) => {
   put(join(data, 'project-connectors.json'), step.project === undefined ? undefined : step.project === null ? null : { projects: Object.fromEntries(Object.entries(step.project).map(([root, off]) => [root === '$PROJECT' ? project : root, { off }])) });
 };
 
-const doc = (name, description = `${name} tool`) => ({ name, description, inputSchema: { type: 'object', properties: {} }, annotations: {} });
+// `read` is the product's definition; a connector's tools (`mcp__`) are the recorder's inputs.
+const real = await nodeRealTool(tree);
+const doc = (name, description = `${name} tool`) =>
+  name.startsWith('mcp__') ? { name, description, inputSchema: { type: 'object', properties: {} }, annotations: {} } : real(name);
 const base = (extra = {}) => ({
   id: 'sess_a',
   agent: 'worker',
@@ -94,6 +98,6 @@ const cases = SCENARIOS.map(([name, start, steps]) => {
   void agentId;
   return { name, start, steps: out };
 });
-writeJson(join(stage, 'golden.json'), { now: NOW, cases });
+await writeJsonCompact(tree, join(stage, 'golden.json'), { now: NOW, cases });
 writeSetManifest(stage, { set: 'connector-availability', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
 commitStage(stage, finalDir);

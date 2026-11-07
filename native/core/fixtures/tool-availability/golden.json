@@ -7,78 +7,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -99,103 +59,48 @@
       ],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -204,78 +109,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -301,78 +166,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -392,103 +217,48 @@
       ],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -502,78 +272,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -611,78 +341,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -702,103 +392,48 @@
       ],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -810,78 +445,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -910,78 +505,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -1000,103 +555,48 @@
       "featureDenied": [],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -1110,78 +610,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -1204,7 +664,7 @@
           "added": [
             {
               "name": "memory",
-              "description": "memory tool"
+              "description": "Manage standing user preferences and constraints. Save what the user asks you t…"
             }
           ],
           "removed": []
@@ -1219,78 +679,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -1309,103 +729,48 @@
       "featureDenied": [],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": [
@@ -1421,78 +786,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -1509,13 +834,8 @@
         "featureDeniedTools": [],
         "deferredLateToolCatalog": [
           {
-            "name": "office",
-            "description": "office definition",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "office",
+            "hash": "aaf910abf6b9410f"
           }
         ],
         "deferredToolDeltaRevision": 1,
@@ -1526,7 +846,7 @@
           "added": [
             {
               "name": "office",
-              "description": "office definition"
+              "description": "Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files dire…"
             }
           ],
           "removed": []
@@ -1541,78 +861,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -1641,78 +921,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -1738,78 +978,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -1829,103 +1029,48 @@
       "featureDenied": [],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -1934,78 +1079,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -2030,78 +1135,38 @@
         "id": "sess_home_lead",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -2120,103 +1185,48 @@
       "featureDenied": [],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": [
@@ -2230,78 +1240,38 @@
         "id": "sess_home_lead",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -2327,78 +1297,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -2417,103 +1347,48 @@
       "featureDenied": [],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -2522,78 +1397,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -2617,78 +1452,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -2711,103 +1506,48 @@
       "featureDenied": [],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -2819,78 +1559,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -2920,78 +1620,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -3011,103 +1671,48 @@
       "featureDenied": [],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -3121,78 +1726,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -3216,7 +1781,7 @@
           "added": [
             {
               "name": "memory",
-              "description": "memory tool"
+              "description": "Manage standing user preferences and constraints. Save what the user asks you t…"
             }
           ],
           "removed": []
@@ -3230,78 +1795,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -3324,103 +1849,48 @@
       ],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -3434,78 +1904,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -3543,78 +1973,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -3648,103 +2038,48 @@
       ],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -3760,78 +2095,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -3853,7 +2148,7 @@
           "added": [
             {
               "name": "memory",
-              "description": "memory tool"
+              "description": "Manage standing user preferences and constraints. Save what the user asks you t…"
             }
           ],
           "removed": [
@@ -3874,78 +2169,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -3962,116 +2217,56 @@
         ],
         "deferredLateToolCatalog": [
           {
-            "name": "tidy",
-            "description": "late tidy",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "tidy",
+            "hash": "951706074757f835"
           }
         ]
       },
       "featureDenied": [],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -4085,78 +2280,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -4172,13 +2327,8 @@
         ],
         "deferredLateToolCatalog": [
           {
-            "name": "tidy",
-            "description": "late tidy",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "tidy",
+            "hash": "951706074757f835"
           }
         ],
         "featureDeniedTools": [],
@@ -4190,7 +2340,7 @@
           "added": [
             {
               "name": "tidy",
-              "description": "late tidy"
+              "description": "Clean up code across the languages in this project; engine/rule work belongs he…"
             }
           ],
           "removed": []
@@ -4205,78 +2355,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -4299,103 +2409,48 @@
       ],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,
@@ -4410,78 +2465,38 @@
         "id": "sess_a",
         "tools": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           }
         ],
         "deferredToolCatalog": [
           {
-            "name": "read",
-            "description": "read tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "read",
+            "hash": "6cac43e0095bf55a"
           },
           {
-            "name": "shell",
-            "description": "shell tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "shell",
+            "hash": "6106817f821d8614"
           },
           {
-            "name": "web_search",
-            "description": "web_search tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "web_search",
+            "hash": "74a04264feea1e79"
           },
           {
-            "name": "memory",
-            "description": "memory tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "memory",
+            "hash": "a42ea86e4a0f8bfa"
           },
           {
-            "name": "git",
-            "description": "git tool",
-            "inputSchema": {
-              "type": "object",
-              "properties": {}
-            },
-            "annotations": {}
+            "$tool": "git",
+            "hash": "0a7afff68a309089"
           }
         ],
         "deferredCallableTools": [
@@ -4507,7 +2522,7 @@
           "added": [
             {
               "name": "memory",
-              "description": "memory tool"
+              "description": "Manage standing user preferences and constraints. Save what the user asks you t…"
             }
           ],
           "removed": []
@@ -4527,103 +2542,48 @@
       "featureDenied": [],
       "definitions": [
         {
-          "name": "web_search",
-          "description": "web_search definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_search",
+          "hash": "74a04264feea1e79"
         },
         {
-          "name": "web_fetch",
-          "description": "web_fetch definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "web_fetch",
+          "hash": "ebb9b0f9de03368b"
         },
         {
-          "name": "memory",
-          "description": "memory definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "memory",
+          "hash": "a42ea86e4a0f8bfa"
         },
         {
-          "name": "recall",
-          "description": "recall definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "recall",
+          "hash": "5042f0328ee875f7"
         },
         {
-          "name": "git",
-          "description": "git definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "git",
+          "hash": "0a7afff68a309089"
         },
         {
-          "name": "github",
-          "description": "github definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "github",
+          "hash": "bc9ab9dc77efb53f"
         },
         {
-          "name": "browser",
-          "description": "browser definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "browser",
+          "hash": "e4cdcc6d14cc1488"
         },
         {
-          "name": "office",
-          "description": "office definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "office",
+          "hash": "aaf910abf6b9410f"
         },
         {
-          "name": "media",
-          "description": "media definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "media",
+          "hash": "93c6efcc0f96895e"
         },
         {
-          "name": "tidy",
-          "description": "tidy definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "tidy",
+          "hash": "951706074757f835"
         },
         {
-          "name": "explore",
-          "description": "explore definition",
-          "inputSchema": {
-            "type": "object",
-            "properties": {}
-          },
-          "annotations": {}
+          "$tool": "explore",
+          "hash": "f0d1ce62e7623876"
         }
       ],
       "asked": null,

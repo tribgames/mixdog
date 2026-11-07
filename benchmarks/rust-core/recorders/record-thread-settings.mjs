@@ -332,7 +332,9 @@ const SWITCH_WORKFLOWS = {
   gamma: { summary: SUMMARY('gamma', 'Gamma', { delegatesAgents: false }), denied: ['agent'], packContext: 'PACK gamma', orchestrationContext: 'ORCH gamma', agentCatalogContext: 'AGENTS gamma' },
   delta: { summary: SUMMARY('delta', 'Delta'), denied: [], packContext: 'PACK delta', orchestrationContext: 'ORCH delta', agentCatalogContext: '' },
 };
-const STANDALONE = [{ name: 'agent', description: 'Delegate work' }, { name: 'recall', description: 'Recall' }];
+const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
+const realTool = await nodeRealTool(tree);
+const STANDALONE = [realTool('agent'), realTool('recall')];
 // A data folder with no replacement files: the shipped mode texts, as a clean install reads them.
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'ts-switch-data-'));
 const { orchestrationInstructions } = await importFrom(tree, 'src/runtime/agent/orchestrator/runtime-core/orchestration.mjs');
@@ -421,7 +423,7 @@ for (const scenario of SWITCH_SCENARIOS) {
   switchRecorded.push({ name: scenario.name, session: scenario.session ?? null, inFlight: scenario.inFlight === true, steps });
 }
 Date.now = realNow;
-writeJson(join(stage, 'session-switches.json'), { now: NOW, workflows: SWITCH_WORKFLOWS, standalone: STANDALONE, instructions: SWITCH_INSTRUCTIONS, scenarios: switchRecorded });
+await writeJsonCompact(tree, join(stage, 'session-switches.json'), { now: NOW, workflows: SWITCH_WORKFLOWS, standalone: STANDALONE, instructions: SWITCH_INSTRUCTIONS, scenarios: switchRecorded });
 
 const settingsRecorded = [];
 for (const scenario of SETTINGS_SCENARIOS) settingsRecorded.push(await settingsRun(scenario));
