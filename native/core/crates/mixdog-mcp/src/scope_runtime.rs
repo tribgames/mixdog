@@ -387,13 +387,17 @@ impl ScopeRuntime {
     /// Releases every scope `owner` holds (the runtime's teardown, `disconnectAll({ scopeId })`,
     /// `runtime-stops.mjs:24`), exactly once: a scope leaves the table in the step that retires it
     /// on the hub, and the owner can open nothing afterwards. The servers close in the background.
+    /// The runtime scope is the exception ([`McpHub::retire_scope`]): its servers close, but it stays in the
+    /// table and its owner is not closed, so it reads on and a reset connects it again.
     pub fn release(&self, owner: &str) {
         let retired: Vec<(Arc<Cell>, Vec<Arc<McpServer>>)> = {
             let mut table = lock(&self.table);
-            table.closed_owners.insert(owner.to_owned());
+            if owner != RUNTIME_OWNER {
+                table.closed_owners.insert(owner.to_owned());
+            }
             let held: Vec<String> = table.cells.iter().filter(|(_, cell)| *lock(&cell.owner) == owner).map(|(scope, _)| scope.clone()).collect();
             held.into_iter()
-                .filter_map(|scope| table.cells.remove(&scope))
+                .filter_map(|scope| if scope == self.hub.runtime_scope() { table.cells.get(&scope).cloned() } else { table.cells.remove(&scope) })
                 .map(|cell| {
                     let servers = self.hub.retire_scope(&cell.scope);
                     (cell, servers)

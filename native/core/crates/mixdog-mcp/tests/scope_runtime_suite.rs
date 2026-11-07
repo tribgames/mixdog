@@ -157,6 +157,35 @@ async fn a_fan_out_overtaken_by_a_release_cannot_resurrect_the_scope() {
     assert_eq!(configs.resolves(), resolves, "an operation on a released scope resolves nothing");
 }
 
+/// Node's `disconnectAll({ scopeId })` of the runtime's scope drops its servers and voids what is in
+/// flight, and nothing more: the runtime stays readable (`mcpStatus` lists its servers `disconnected`) and
+/// a reset connects it again (`connect.mjs:107`, `:142`). Releasing the runtime scope, by its owner or on the
+/// hub, does the same here; a session scope released for good stays gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_runtime_scope_stays_readable_after_its_servers_are_dropped() {
+    let Rig { runtime, hub, configs, .. } = rig();
+    configs.set(&["alpha"]);
+    let scope = runtime.open_runtime("/w").await.unwrap();
+    let alpha = hub.server_in(&scope, "alpha").unwrap();
+    until(&alpha, ready).await;
+
+    runtime.release("runtime");
+    until(&alpha, closed).await;
+    assert!(hub.servers_in(&scope).is_empty());
+    assert!(!hub.is_released(&scope) && runtime.is_open(&scope));
+    assert_eq!(runtime.runtime_ready().await.as_deref(), Some(scope.as_str()), "a read with no session still finds it");
+
+    // The hub's own `disconnectAll` is the same, and a reset brings the servers back.
+    runtime.run(&scope, Op::Reset).await;
+    let again = hub.server_in(&scope, "alpha").unwrap();
+    until(&again, ready).await;
+    hub.release_scope(&scope).await;
+    until(&again, closed).await;
+    assert!(!hub.is_released(&scope));
+    runtime.run(&scope, Op::Reset).await;
+    until(&hub.server_in(&scope, "alpha").unwrap(), ready).await;
+    assert_eq!(runtime.open_runtime("/w").await, Ok(scope.clone()), "the owner is not closed");
+}
 /// An owner that closes while its scope is still opening (a failed create after the seed, a
 /// session closed at once) leaves no server behind, and the owner opens nothing afterwards.
 #[tokio::test(flavor = "multi_thread")]
