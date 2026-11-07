@@ -423,6 +423,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let quota_store = Arc::new(
         mixdog_core_base::quota_resume::QuotaResumeStore::open(&b.data_dir, b.tokens.durability_io, b.cancel.child_token()).await.map_err(ComposeError::QuotaResume)?,
     );
+    // The `quotaAutoResume` switch going off, by whichever writer, drops every pending resume (Node's `setQuotaAutoResumeEnabled`); held for
+    // the daemon's life and stopped with the daemon's token.
+    let _quota_follow = mixdog_core_agents::setup::QuotaAutoResume::new(config.clone(), quota_store.clone()).follow(b.cancel.child_token());
     // The one `AccountStore` over the data dir: `ProviderAdmin`, the provider layer's default credential files and the selected-account fact share it.
     let credential_io = mixdog_ai::oauth::CredentialIo { read: b.tokens.interactive_io, write: b.tokens.durability_io };
     let account_store = mixdog_ai::accounts::AccountStore::new(b.data_dir.clone(), credential_io);
