@@ -1,0 +1,31 @@
+{
+  "cases": 31,
+  "command": "node benchmarks/rust-core/recorders/record-goal-time-limit.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3623,
+      "path": "golden.json",
+      "sha256": "62c122a4cb4e973083ea467da647d9bfca6518047341c760fb77f1bb463893d7"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b20c78b8dd46733a892afc333a4287898f5ecebd",
+      "commitFilesMissingFromTree": 119,
+      "exact": false,
+      "filesDifferingFromCommit": 137
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-goal-time-limit.mjs",
+  "set": "goal-time-limit",
+  "totalBytes": 3623
+}

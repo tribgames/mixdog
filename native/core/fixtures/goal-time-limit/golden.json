@@ -1,0 +1,188 @@
+{
+  "note": "executeGoalTool create over time_limit_minutes: the budget handed to the Goal store (absent when none), or the refusal text",
+  "cases": [
+    {
+      "args": {}
+    },
+    {
+      "args": {
+        "time_limit_minutes": null
+      }
+    },
+    {
+      "args": {
+        "time_limit_minutes": ""
+      }
+    },
+    {
+      "args": {
+        "time_limit_minutes": 1
+      },
+      "timeLimitMs": 60000
+    },
+    {
+      "args": {
+        "time_limit_minutes": 0.5
+      },
+      "timeLimitMs": 30000
+    },
+    {
+      "args": {
+        "time_limit_minutes": 2.5
+      },
+      "timeLimitMs": 150000
+    },
+    {
+      "args": {
+        "time_limit_minutes": 10080
+      },
+      "timeLimitMs": 604800000
+    },
+    {
+      "args": {
+        "time_limit_minutes": 10080.4
+      },
+      "error": "goal duration exceeds 7 days"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 10081
+      },
+      "error": "goal duration exceeds 7 days"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 20000
+      },
+      "error": "goal duration exceeds 7 days"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 0
+      },
+      "error": "goal time_limit_minutes must be a positive number"
+    },
+    {
+      "args": {
+        "time_limit_minutes": -5
+      },
+      "error": "goal time_limit_minutes must be a positive number"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 0.000005
+      },
+      "timeLimitMs": 0
+    },
+    {
+      "args": {
+        "time_limit_minutes": 0.0000083
+      },
+      "timeLimitMs": 0
+    },
+    {
+      "args": {
+        "time_limit_minutes": "5"
+      },
+      "timeLimitMs": 300000
+    },
+    {
+      "args": {
+        "time_limit_minutes": " 5 "
+      },
+      "timeLimitMs": 300000
+    },
+    {
+      "args": {
+        "time_limit_minutes": "0x10"
+      },
+      "timeLimitMs": 960000
+    },
+    {
+      "args": {
+        "time_limit_minutes": "1e2"
+      },
+      "timeLimitMs": 6000000
+    },
+    {
+      "args": {
+        "time_limit_minutes": "x"
+      },
+      "error": "goal time_limit_minutes must be a positive number"
+    },
+    {
+      "args": {
+        "time_limit_minutes": true
+      },
+      "timeLimitMs": 60000
+    },
+    {
+      "args": {
+        "time_limit_minutes": false
+      },
+      "error": "goal time_limit_minutes must be a positive number"
+    },
+    {
+      "args": {
+        "time_limit_minutes": [
+          2
+        ]
+      },
+      "timeLimitMs": 120000
+    },
+    {
+      "args": {
+        "time_limit_minutes": []
+      },
+      "error": "goal time_limit_minutes must be a positive number"
+    },
+    {
+      "args": {
+        "time_limit_minutes": {}
+      },
+      "error": "goal time_limit_minutes must be a positive number"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 1e+303
+      },
+      "error": "goal duration exceeds 7 days"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 1e+304
+      },
+      "error": "goal duration must be positive"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 1e+305
+      },
+      "error": "goal duration must be positive"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 1e+308
+      },
+      "error": "goal duration must be positive"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 1.7976931348623157e+308
+      },
+      "error": "goal duration must be positive"
+    },
+    {
+      "args": {
+        "time_limit_minutes": -1e+308
+      },
+      "error": "goal time_limit_minutes must be a positive number"
+    },
+    {
+      "args": {
+        "time_limit_minutes": 5e-324
+      },
+      "timeLimitMs": 0
+    }
+  ]
+}
