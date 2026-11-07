@@ -41,6 +41,28 @@ fn tool_call_out(c: &p::ToolCall) -> w::ProxyToolCall {
     w::ProxyToolCall { id: c.id.clone(), name: c.name.clone(), arguments: c.arguments.clone(), native_type: c.native_type.clone() }
 }
 
+fn tool_call_in(c: w::ProxyToolCall) -> p::ToolCall {
+    p::ToolCall { id: c.id, name: c.name, arguments: c.arguments, native_type: c.native_type }
+}
+
+fn progress_out(kind: p::ProgressKind) -> w::ProxyProgress {
+    match kind {
+        p::ProgressKind::Semantic => w::ProxyProgress::Semantic,
+        p::ProgressKind::Reasoning => w::ProxyProgress::Reasoning,
+        p::ProgressKind::Text => w::ProxyProgress::Text,
+        p::ProgressKind::Tool => w::ProxyProgress::Tool,
+    }
+}
+
+fn progress_in(kind: w::ProxyProgress) -> p::ProgressKind {
+    match kind {
+        w::ProxyProgress::Semantic => p::ProgressKind::Semantic,
+        w::ProxyProgress::Reasoning => p::ProgressKind::Reasoning,
+        w::ProxyProgress::Text => p::ProgressKind::Text,
+        w::ProxyProgress::Tool => p::ProgressKind::Tool,
+    }
+}
+
 fn phase_out(ph: p::Phase) -> w::ProxyPhase {
     match ph {
         p::Phase::Commentary => w::ProxyPhase::Commentary,
@@ -374,6 +396,11 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::Citation(value) => w::ProxyEvent::Citation { value: value.clone() },
         E::ServerToolBlock(value) => w::ProxyEvent::ServerToolBlock { value: value.clone() },
         E::ProviderKeepalive => w::ProxyEvent::ProviderKeepalive,
+        E::Progress(kind) => w::ProxyEvent::Progress { kind: progress_out(*kind) },
+        E::ChunkProgress(kind) => w::ProxyEvent::ChunkProgress { kind: kind.map(progress_out) },
+        E::FinalContent(text) => w::ProxyEvent::FinalContent { text: text.clone() },
+        E::ReturnedCalls(calls) => w::ProxyEvent::ReturnedCalls { calls: calls.iter().map(tool_call_out).collect() },
+        E::ThinkingBlocks(value) => w::ProxyEvent::ThinkingBlocks { value: value.clone() },
         E::ProviderState(state) => w::ProxyEvent::ProviderState { state: serde_json::to_value(state).unwrap_or(Value::Null) },
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
@@ -419,12 +446,17 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         w::ProxyEvent::ReasoningReplay { replay } => E::ReasoningReplay(p::ProviderReplay { owner: replay.owner.as_str().into(), items: replay.items }),
         w::ProxyEvent::ToolCallStart { id, name } => E::ToolCallStart { id, name },
         w::ProxyEvent::ToolCallArgsDelta { id, delta } => E::ToolCallArgsDelta { id, delta },
-        w::ProxyEvent::ToolCallDone { call } => E::ToolCallDone(p::ToolCall { id: call.id, name: call.name, arguments: call.arguments, native_type: call.native_type }),
+        w::ProxyEvent::ToolCallDone { call } => E::ToolCallDone(tool_call_in(call)),
         w::ProxyEvent::Usage { usage } => E::Usage(usage_in(usage)),
         w::ProxyEvent::Refusal { text } => E::Refusal(text),
         w::ProxyEvent::Citation { value } => E::Citation(value),
         w::ProxyEvent::ServerToolBlock { value } => E::ServerToolBlock(value),
         w::ProxyEvent::ProviderKeepalive => E::ProviderKeepalive,
+        w::ProxyEvent::Progress { kind } => E::Progress(progress_in(kind)),
+        w::ProxyEvent::ChunkProgress { kind } => E::ChunkProgress(kind.map(progress_in)),
+        w::ProxyEvent::FinalContent { text } => E::FinalContent(text),
+        w::ProxyEvent::ReturnedCalls { calls } => E::ReturnedCalls(calls.into_iter().map(tool_call_in).collect()),
+        w::ProxyEvent::ThinkingBlocks { value } => E::ThinkingBlocks(value),
         w::ProxyEvent::ProviderState { state } => E::ProviderState(serde_json::from_value(state).map_err(|e| format!("invalid providerState: {e}"))?),
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,

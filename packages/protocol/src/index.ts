@@ -2831,7 +2831,7 @@ export type ProxyErrorKind = "overloaded" | "rateLimited" | "quotaExhausted" | "
 /**
  * One stream event of an attempt (`StreamEvent`).
  */
-export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "providerState", state: JsonValue, } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, requestMs: number | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
+export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "progress", kind: ProxyProgress, } | { "type": "chunkProgress", kind: ProxyProgress | null, } | { "type": "finalContent", text: string, } | { "type": "returnedCalls", calls: Array<ProxyToolCall>, } | { "type": "thinkingBlocks", value: JsonValue, } | { "type": "providerState", state: JsonValue, } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, requestMs: number | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
 
 /**
  * A failed call as the sender's retry and recovery read it (the classified `ProviderError`);
@@ -2927,6 +2927,8 @@ export type ProxyPhase = "commentary" | "finalAnswer";
  * What the model picker shows beyond limits and capabilities (``PickerFields``).
  */
 export type ProxyPicker = { releaseDate: string | null, accessPrograms: Array<string> | null, modelParameterOptions: Array<ProxyParameterOption>, parameterVariants: Array<{ [key in string]?: string }>, fastEfforts: Array<string>, serviceTiers: Array<ProxyServiceTier>, additionalSpeedTiers: Array<string>, reasoningOptions: Array<ProxyReasoningOption>, customReasoning: ProxyCustomReasoning | null, tier: string | null, latest: boolean, description: string | null, defaultServiceTier: string | null, defaultModelParameters: { [key in string]?: string }, defaultFast: boolean, supportsMaxMode: boolean, };
+
+export type ProxyProgress = "semantic" | "reasoning" | "text" | "tool";
 
 /**
  * What a server learns of one PC provider: usable or not, and its traits.

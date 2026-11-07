@@ -1582,6 +1582,108 @@
           "type": "object"
         },
         {
+          "description": "Semantic progress of the stream that has no delta event of its own (`StreamEvent::Progress`).",
+          "properties": {
+            "kind": {
+              "$ref": "#/definitions/ProxyProgress"
+            },
+            "type": {
+              "enum": [
+                "progress"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What one wire chunk reports for everything it carries; `null`: transport only (`StreamEvent::ChunkProgress`).",
+          "properties": {
+            "kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProxyProgress"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "enum": [
+                "chunkProgress"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The assistant text the turn returns when it is not what the deltas folded to (`StreamEvent::FinalContent`).",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "finalContent"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The tool calls the turn returns when they are not the ones dispatched live (`StreamEvent::ReturnedCalls`).",
+          "properties": {
+            "calls": {
+              "items": {
+                "$ref": "#/definitions/ProxyToolCall"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "returnedCalls"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "calls",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Anthropic extended-thinking blocks, verbatim and ordered (`StreamEvent::ThinkingBlocks`).",
+          "properties": {
+            "type": {
+              "enum": [
+                "thinkingBlocks"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "state": true,
             "type": {
@@ -1690,6 +1792,15 @@
       "enum": [
         "commentary",
         "finalAnswer"
+      ],
+      "type": "string"
+    },
+    "ProxyProgress": {
+      "enum": [
+        "semantic",
+        "reasoning",
+        "text",
+        "tool"
       ],
       "type": "string"
     },

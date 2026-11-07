@@ -137,6 +137,109 @@ fn a_bad_temperature_is_refused() {
     assert_eq!(request_in(wire), Err(Invalid("invalid temperature -1".into())));
 }
 
+/// The variant's name. No wildcard: a `StreamEvent` variant added without a wire form (and a sample below) stops compiling here.
+fn variant_name(event: &p::StreamEvent) -> &'static str {
+    use p::StreamEvent as E;
+    match event {
+        E::ItemStart { .. } => "ItemStart",
+        E::TextDelta(_) => "TextDelta",
+        E::ReasoningDelta(_) => "ReasoningDelta",
+        E::ReasoningReplay(_) => "ReasoningReplay",
+        E::ToolCallStart { .. } => "ToolCallStart",
+        E::ToolCallArgsDelta { .. } => "ToolCallArgsDelta",
+        E::ToolCallDone(_) => "ToolCallDone",
+        E::Usage(_) => "Usage",
+        E::Refusal(_) => "Refusal",
+        E::Citation(_) => "Citation",
+        E::ServerToolBlock(_) => "ServerToolBlock",
+        E::ProviderKeepalive => "ProviderKeepalive",
+        E::Progress(_) => "Progress",
+        E::ChunkProgress(_) => "ChunkProgress",
+        E::FinalContent(_) => "FinalContent",
+        E::ReturnedCalls(_) => "ReturnedCalls",
+        E::ThinkingBlocks(_) => "ThinkingBlocks",
+        E::ProviderState(_) => "ProviderState",
+        E::Completed { .. } => "Completed",
+    }
+}
+
+const STREAM_EVENT_VARIANTS: [&str; 19] = [
+    "ItemStart",
+    "TextDelta",
+    "ReasoningDelta",
+    "ReasoningReplay",
+    "ToolCallStart",
+    "ToolCallArgsDelta",
+    "ToolCallDone",
+    "Usage",
+    "Refusal",
+    "Citation",
+    "ServerToolBlock",
+    "ProviderKeepalive",
+    "Progress",
+    "ChunkProgress",
+    "FinalContent",
+    "ReturnedCalls",
+    "ThinkingBlocks",
+    "ProviderState",
+    "Completed",
+];
+
+/// The proxy carries a provider stream to a consumer that runs the same loop, so every `StreamEvent` crosses the wire
+/// unchanged, and the new progress, final-content, returned-call and thinking-block events keep their wire form.
+#[test]
+fn every_stream_event_survives_the_wire() {
+    let call = |id: &str| p::ToolCall { id: id.into(), name: "read".into(), arguments: json!({ "path": id }), native_type: None };
+    let mut state = p::ProviderState::default();
+    state.rest.insert("previousResponseId".into(), json!("r1"));
+    let events = [
+        p::StreamEvent::ItemStart { kind: p::ItemKind::Tool, phase: None },
+        p::StreamEvent::ItemStart { kind: p::ItemKind::Text, phase: Some(p::Phase::Commentary) },
+        p::StreamEvent::TextDelta("a".into()),
+        p::StreamEvent::ReasoningDelta("b".into()),
+        p::StreamEvent::ReasoningReplay(p::ProviderReplay { owner: "openai".into(), items: json!([{ "id": "rs1" }]) }),
+        p::StreamEvent::ToolCallStart { id: "c1".into(), name: "read".into() },
+        p::StreamEvent::ToolCallArgsDelta { id: "c1".into(), delta: "{\"p".into() },
+        p::StreamEvent::ToolCallDone(call("c1")),
+        p::StreamEvent::Usage(p::Usage { input_tokens: 3, output_tokens: 1, ..Default::default() }),
+        p::StreamEvent::Refusal("no".into()),
+        p::StreamEvent::Citation(json!({ "url": "u" })),
+        p::StreamEvent::ServerToolBlock(json!({ "type": "server_tool_use" })),
+        p::StreamEvent::ProviderKeepalive,
+        p::StreamEvent::Progress(p::ProgressKind::Semantic),
+        p::StreamEvent::Progress(p::ProgressKind::Reasoning),
+        p::StreamEvent::Progress(p::ProgressKind::Text),
+        p::StreamEvent::Progress(p::ProgressKind::Tool),
+        p::StreamEvent::ChunkProgress(None),
+        p::StreamEvent::ChunkProgress(Some(p::ProgressKind::Tool)),
+        p::StreamEvent::FinalContent("final".into()),
+        p::StreamEvent::ReturnedCalls(vec![call("c1"), p::ToolCall { native_type: Some("custom_tool_call".into()), ..call("c2") }]),
+        p::StreamEvent::ReturnedCalls(Vec::new()),
+        p::StreamEvent::ThinkingBlocks(json!([{ "type": "thinking", "signature": "s" }])),
+        p::StreamEvent::ProviderState(state),
+        p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
+    ];
+    let mut seen: Vec<&str> = events.iter().map(variant_name).collect();
+    seen.sort_unstable();
+    seen.dedup();
+    let mut all = STREAM_EVENT_VARIANTS.to_vec();
+    all.sort_unstable();
+    assert_eq!(seen, all, "a sample for every StreamEvent variant");
+    for event in events {
+        let text = serde_json::to_string(&event_out(&event)).unwrap();
+        assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(event), "{text}");
+    }
+    let wire = |event: p::StreamEvent| serde_json::to_value(event_out(&event)).unwrap();
+    assert_eq!(wire(p::StreamEvent::Progress(p::ProgressKind::Tool)), json!({ "type": "progress", "kind": "tool" }));
+    assert_eq!(wire(p::StreamEvent::ChunkProgress(None)), json!({ "type": "chunkProgress", "kind": null }));
+    assert_eq!(wire(p::StreamEvent::FinalContent("f".into())), json!({ "type": "finalContent", "text": "f" }));
+    assert_eq!(wire(p::StreamEvent::ThinkingBlocks(json!([1]))), json!({ "type": "thinkingBlocks", "value": [1] }));
+    assert_eq!(
+        wire(p::StreamEvent::ReturnedCalls(vec![call("c1")])),
+        json!({ "type": "returnedCalls", "calls": [{ "id": "c1", "name": "read", "arguments": { "path": "c1" }, "nativeType": null }] }),
+    );
+}
+
 #[test]
 fn events_and_failures_survive_the_wire() {
     let usage = p::Usage { input_tokens: 5, output_tokens: 2, cache_read_tokens: 1, raw: Some(json!({ "x": 1 })), cost: Some(p::UsdTicks(7)), ..Default::default() };
