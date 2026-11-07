@@ -1415,6 +1415,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // After `tools(..)` (the pool holds `explore`, which holds the host) and after the last read-only tool is registered: `bind` keeps one snapshot, and Node's
     // `readOnlyFilesystemTools()` (`tool-resolution.mjs:96`) is `code_graph, find, glob, list, grep, read`.
     explorer_host.bind(&tool_pool);
+    tool_pool.extend(memory.tools(Arc::new(crate::memory_callers::ThreadMemoryCallers::new(
+        Arc::new(crate::late_session::LateCallerSessions(late.clone())),
+        mcp.callers.clone(),
+        held_home.clone(),
+    ))));
     // ---- 9. the ready rows --------------------------------------------------------------------
     let ready = ready_rows(
         &process,
