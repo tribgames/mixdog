@@ -169,6 +169,12 @@ impl RetryStates {
         }
     }
 
+    /// The request and stream rows of a new send.
+    pub(crate) fn restart_provider_rows(&mut self, model: &str) {
+        self.request = RetryState::new(RetryClass::Request, model);
+        self.midstream = RetryState::new(RetryClass::Midstream, model);
+    }
+
     pub(crate) fn store(&mut self, state: RetryState) {
         match state.class() {
             RetryClass::Request => self.request = state,

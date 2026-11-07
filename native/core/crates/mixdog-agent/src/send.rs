@@ -150,20 +150,23 @@ fn is_connect_fault(error: &ProviderError) -> bool {
     )
 }
 
-/// The row that governs a failure first: an unreachable network has its own
-/// long ladder; otherwise the request or the stream row.
-fn first_class(error: &ProviderError, midstream: bool) -> RetryClass {
-    if is_connect_fault(error) {
-        RetryClass::Connection
-    } else if midstream {
+/// The row that governs a failure first: the request or the stream row, a connect
+/// failure included (the provider's own `withRetry` covers it before the loop's
+/// outage ladder does, `golden/connect_errors.json`).
+fn first_class(midstream: bool) -> RetryClass {
+    if midstream {
         RetryClass::Midstream
     } else {
         RetryClass::Request
     }
 }
 
-/// Session-level replay once the provider rows are spent: after a transport
-/// failure, a connect failure, or while the server stays unavailable.
+/// Session-level replay once the provider rows are spent: after a stream cut, a
+/// connect failure, or while the server stays unavailable. A transport failure
+/// before any response byte is not replayed by the loop: `sendWithRecovery`
+/// reads the provider's spent ladder (`providerRecoveryExhausted`) as final for
+/// everything but a connect failure and an unavailable server
+/// (`providerRecoveryEnded`, `send-with-recovery.mjs:190`).
 fn escalate(class: RetryClass, error: &ProviderError) -> Option<RetryClass> {
     if !matches!(class, RetryClass::Request | RetryClass::Midstream) {
         return None;
@@ -171,7 +174,7 @@ fn escalate(class: RetryClass, error: &ProviderError) -> Option<RetryClass> {
     if is_connect_fault(error) {
         Some(RetryClass::Connection)
     } else if error.transport.is_some() {
-        Some(RetryClass::Transport)
+        (class == RetryClass::Midstream).then_some(RetryClass::Transport)
     } else if matches!(error.kind, ErrorKind::Overloaded | ErrorKind::Transient) {
         Some(RetryClass::Recovery)
     } else {
@@ -546,7 +549,7 @@ impl Run {
         let split_notice = decide_on.exposure.tool_input_cut;
         decide_on.exposure.tool_input_cut = false;
 
-        let mut class = first_class(&decide_on, midstream);
+        let mut class = first_class(midstream);
         let mut spent: Vec<RetryState> = Vec::new();
         let provider = Arc::clone(&self.provider);
         let policy = request_policy(provider.as_ref(), self.config.retry_529);
@@ -609,6 +612,11 @@ impl Run {
             self.retry.store(state);
         }
         self.retry.store(next.clone());
+        // A loop-level replay is a new send, so the provider's own rows start afresh
+        // (each `sendWithRecovery` call runs a whole `withRetry`).
+        if !matches!(next.class(), RetryClass::Request | RetryClass::Midstream) {
+            self.retry.restart_provider_rows(next.model());
+        }
         if let Some(model) = fallback {
             self.model = model.clone();
             self.retry = RetryStates::new(&model);

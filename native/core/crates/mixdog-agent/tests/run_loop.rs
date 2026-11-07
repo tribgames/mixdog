@@ -116,9 +116,13 @@ struct Scripted {
 
 impl Scripted {
     fn new(script: Vec<Attempt>) -> Arc<Self> {
+        Self::with_policy(script, RetryPolicy::codex_default())
+    }
+
+    fn with_policy(script: Vec<Attempt>, policy: RetryPolicy) -> Arc<Self> {
         Arc::new(Self {
             id: ProviderId::from("scripted"),
-            policy: RetryPolicy::codex_default(),
+            policy,
             keepalive: KeepaliveSchedule::SPEC,
             codec: MockCodec,
             script: Mutex::new(script.into()),
@@ -639,6 +643,10 @@ impl Harness {
         }
     }
 
+    fn with_policy(script: Vec<Attempt>, policy: RetryPolicy) -> Self {
+        Self { provider: Scripted::with_policy(script, policy), ..Self::new(Vec::new()) }
+    }
+
     fn with_tail(mut self, context: mixdog_agent::tail_rules::TailContext) -> Self {
         self.tail = Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context }));
         self
@@ -962,6 +970,67 @@ async fn a_transient_failure_is_retried_through_the_decider_and_the_host_wait() 
         .collect::<Vec<_>>();
     assert_eq!(reconnecting, [(1, 4)]);
     assert_eq!(h.provider.requests().len(), 2);
+}
+
+/// Replays one case of `golden/connect_errors.json`: a send that fails before any response byte, through Node's real
+/// `OpenAICompatProvider.send` and `sendWithRecovery` (`connect-errors/record.mjs`). The provider answers `fault` every
+/// time; the run must make as many attempts as Node did, wait as long between them (provider ladder, then the loop's own
+/// wait, each lap), show the same reconnect stages, and end the way Node's loop did.
+async fn replay_connect_case(name: &str, fault: ProviderError) -> (Harness, Vec<(u32, u32)>) {
+    let golden: JsonValue =
+        serde_json::from_str(&std::fs::read_to_string(golden_dir().join("connect-errors/golden/connect_errors.json")).unwrap()).unwrap();
+    let case = &golden["cases"][name];
+    assert_eq!(case["ended"]["kind"], "threw", "{name}");
+    let laps = case["laps"].as_array().unwrap();
+    let attempts: usize = laps.iter().map(|lap| lap["providerWaitsMs"].as_array().unwrap().len() + 1).sum();
+    let h = Harness::with_policy(
+        (0..attempts).map(|_| Attempt::Reject(fault.clone())).collect(),
+        mixdog_ai::providers::compat::retry::unprofiled(),
+    );
+    let failure = h
+        .run(config(), vec![], vec![AgentMessage::user("go")])
+        .run()
+        .await
+        .expect_err("the send fails as Node's did");
+    assert!(matches!(failure.error, AgentError::Provider(_)), "{name}");
+    assert_eq!(h.provider.requests().len(), attempts, "{name}: attempts");
+    let mut waits = Vec::new();
+    let mut shown = Vec::new();
+    for lap in laps {
+        waits.extend(lap["providerWaitsMs"].as_array().unwrap().iter().map(|ms| Duration::from_millis(ms.as_u64().unwrap())));
+        if let Some(ms) = lap["loopWaitMs"].as_u64() {
+            waits.push(Duration::from_millis(ms));
+            shown.push((lap["shown"]["attempt"].as_u64().unwrap() as u32, lap["shown"]["max"].as_u64().unwrap() as u32));
+        }
+    }
+    assert_eq!(*h.waiter.0.lock().unwrap(), waits, "{name}: waits");
+    let loop_stages = h
+        .observer
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            RunEvent::Stage(Stage::Reconnecting { attempt, max, .. }) if max > 4 => Some((attempt, max)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(loop_stages, shown, "{name}: reconnect stages");
+    (h, loop_stages)
+}
+
+#[tokio::test]
+async fn an_unreachable_network_is_retried_on_the_outage_ladder_then_fails_as_nodes_loop_does() {
+    for (name, fault) in [("refused", TransportFault::Connect { os_code: None }), ("dns", TransportFault::Dns)] {
+        let (_, stages) = replay_connect_case(name, ProviderError::transport(fault, DeliveryState::NotSent)).await;
+        assert_eq!(stages.len(), 13, "{name}");
+    }
+}
+
+#[tokio::test]
+async fn a_reset_or_a_refused_port_before_any_header_is_not_replayed_by_the_loop() {
+    for (name, fault) in [("reset", TransportFault::Reset), ("badPort", TransportFault::Io { os_code: None })] {
+        let (_, stages) = replay_connect_case(name, ProviderError::transport(fault, DeliveryState::NotSent)).await;
+        assert!(stages.is_empty(), "{name}");
+    }
 }
 
 #[tokio::test]
