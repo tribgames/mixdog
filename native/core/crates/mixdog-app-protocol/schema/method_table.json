@@ -737,7 +737,7 @@
         "ssh",
         "relay"
       ],
-      "params": "v2::thread::ThreadOpParams",
+      "params": "v2::thread::ThreadClearParams",
       "result": "JsonValue",
       "scope": {
         "field": "threadId",

@@ -13122,6 +13122,27 @@
       ],
       "type": "object"
     },
+    "ThreadClearParams": {
+      "properties": {
+        "opId": {
+          "type": "string"
+        },
+        "rebuildPrompt": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadClearSessionChangeHistoryParams": {
       "description": "Params of `thread/clearSessionChangeHistory`.",
       "properties": {
@@ -20081,7 +20102,7 @@
     },
     "thread/clear": {
       "params": {
-        "$ref": "#/definitions/ThreadOpParams"
+        "$ref": "#/definitions/ThreadClearParams"
       },
       "result": true
     },

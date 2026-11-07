@@ -1894,6 +1894,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 new_tools: surface_host.clone(), // `thread/start` composes its tools and prompt through it (flip-surface-2, -6)
                 new_place, // the registered Projects (`thread/fork`) and the draft's worktree step (`thread/start`); bound with the workspaces
                 task_workspace, // `thread/start` of `kind: task` begins in it (Node `taskWorkspace()`, `AgentDefinitions::task_workspace`)
+                empty_surface: surface_host.clone(), // `thread/clear` with `rebuildPrompt` rebuilds the emptied thread's surface and prompt through it
                 new_route: late_new_route.clone(), // `thread/start` settles its route first (the draft's pick, else the default) and seats it once created
         snapshots: { let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
                 lanes: mixdog_core_session::session::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io },

@@ -848,6 +848,16 @@ impl super::NewThreadTools for KeepHeader {
     }
 }
 
+/// An emptied thread's surface is always rebuilt (no surface host behind it).
+pub struct NoEmptySurface;
+
+#[async_trait::async_trait]
+impl super::EmptyToolSurface for NoEmptySurface {
+    async fn refresh_empty(&self, _: &ThreadId) -> Result<bool, String> {
+        Ok(true)
+    }
+}
+
 /// A new thread begins with no route of its own (no route service behind it).
 pub struct NoRoute;
 
@@ -1428,6 +1438,7 @@ impl Rig {
             new_tools: Arc::new(KeepHeader),
             surface: mixdog_core_base::surface::SurfaceGeneration::default(),
             new_route: Arc::new(NoRoute),
+            empty_surface: Arc::new(NoEmptySurface),
             task_workspace: Arc::new(FixedTaskWorkspace("/tasks")),
             new_place: Arc::new(RecordingPlace::default()),
             resumed_tools: self.resumed.clone(),

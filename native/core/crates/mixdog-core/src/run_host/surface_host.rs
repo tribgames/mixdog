@@ -32,6 +32,7 @@ use mixdog_core_ports::ports::route::LiveRoute;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::tools_status::SurfaceHost;
 use mixdog_core_ports::ports::tools_status::surface_of_header;
+use mixdog_core_session::session::EmptyToolSurface;
 use mixdog_core_session::session::NewThreadTools;
 use mixdog_core_session::session::agent_registry::LiveSessions;
 use mixdog_core_session::session::session_options::LEAD_DISALLOWED_TOOLS;
@@ -787,6 +788,32 @@ impl LeadSurfaceHost {
 /// A new Lead thread starts as Node's `createSession` + `seedToolSurface` make it: the workflow
 /// the config gives, the tools its spec resolves to (`resolveSessionToolSurface`), the deferred
 /// surface over them, and the session system composed (`composeSessionSystem`) by the same
+/// `refreshEmptySessionToolPolicy`: the same rebuild a turn start gives an empty thread, asked for by `thread/clear`.
+#[async_trait]
+impl EmptyToolSurface for LeadSurfaceHost {
+    async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
+        let s = &self.sources;
+        let described = |error: CoreError| format!("{error:?}");
+        // `invalidatePreSessionToolSurface()` comes first, whether or not the thread admits the refresh.
+        s.surface_generation.bump();
+        // `admitsRefresh`: a running turn, or a conversation, keeps its surface.
+        if s.live.running(thread.as_str()) {
+            return Ok(false);
+        }
+        let messages = s.messages.messages(thread).await.map_err(|error| described(port(thread, error)))?;
+        if has_conversation_messages(&messages) {
+            return Ok(false);
+        }
+        let header = s.threads.header(thread).await.map_err(|error| described(port(thread, error)))?;
+        // `missing-prompt-identity`: an older record is never rebuilt.
+        if !header.get("promptIdentity").is_some_and(Value::is_object) {
+            return Ok(false);
+        }
+        self.settle_empty(thread).await.map_err(described)?;
+        Ok(true)
+    }
+}
+
 /// [`PromptRebuild`] a reconcile uses, so the prompt has one composition path.
 #[async_trait]
 impl NewThreadTools for LeadSurfaceHost {

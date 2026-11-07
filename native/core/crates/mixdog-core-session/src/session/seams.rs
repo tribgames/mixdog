@@ -579,6 +579,15 @@ pub trait NewThreadPlace: Send + Sync + 'static {
     ) -> Result<(), CoreError>;
 }
 
+/// `refreshEmptySessionToolPolicy()` (`tool-policy-refresh.mjs`): an empty, idle Lead thread's tool surface and prompt are
+/// composed again from the settings as they stand now, after `invalidatePreSessionToolSurface()`. `true` is
+/// `appliedToCurrentSession`; `false` is a thread with a turn in flight or a conversation (`admitsRefresh`), or one whose record
+/// has no prompt identity (an older record: rebuilding would guess away custom instructions).
+#[async_trait::async_trait]
+pub trait EmptyToolSurface: Send + Sync + 'static {
+    async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String>;
+}
+
 /// What a room member's thread tells the room it sits in. Each call carries the room id and comes
 /// after the thread's view carries the change.
 pub trait RoomMemberEvents: Send + Sync + 'static {

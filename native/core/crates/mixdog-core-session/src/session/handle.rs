@@ -7,6 +7,7 @@ use std::sync::Weak;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::feed::ResumeWindow;
+use mixdog_app_protocol::v2::thread::ThreadClearParams;
 use mixdog_app_protocol::v2::thread::ThreadForkParams;
 use mixdog_app_protocol::v2::thread::ThreadResumeParams;
 use mixdog_core_api::CoreError;
@@ -488,7 +489,54 @@ impl SessionHandle {
             })
             .await?;
         let summary = created.cell.view.load_full().summary.clone();
-        Ok(Reply::Value(json!({ "thread": summary })))
+        // `inheritFrom`'s answer (`lifecycle/inheritance.mjs`): how many messages the heir carries, and the route it holds.
+        let messages = match created
+            .request(CoreRequest {
+                method: mixdog_core_api::ids::Method("thread/messages/read"),
+                params: json!({ "threadId": created.id }),
+                op: None,
+                ctx: mixdog_core_api::call::CallContext::internal("inheritance"),
+            })
+            .await?
+        {
+            Reply::Value(read) => read.get("messages").and_then(Value::as_array).cloned().unwrap_or_default(),
+            Reply::Subscribe(_) => return Err(CoreError::Internal { incident_id: "inheritance-subscribed".into() }),
+        };
+        let carried = super::inheritance::inheritable(messages).len();
+        let held = created.cell.header.load();
+        Ok(Reply::Value(json!({
+            "thread": summary,
+            "messages": carried,
+            "provider": held.get("provider").cloned().unwrap_or(Value::Null),
+            "model": held.get("model").cloned().unwrap_or(Value::Null),
+        })))
+    }
+
+    /// `thread/clear`. With `rebuildPrompt` (an agent chat's reset, `session-ops.mjs clear`) it is refused while a turn runs, and
+    /// the emptied thread's prompt and tool surface are composed again from the current rules as a new thread's are; the answer
+    /// is `{ promptRebuilt }`, whether that was applied.
+    async fn clear(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let params: ThreadClearParams =
+            serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
+                path: "params".into(),
+                expected: "ThreadClearParams".into(),
+            })?;
+        let rebuild = params.rebuild_prompt == Some(true);
+        if rebuild && self.cell.run.load().is_some() {
+            return Err(mixdog_core_base::support::failed("session", "The session is running a turn; wait for it to finish."));
+        }
+        let reply = self.to_actor(req).await?;
+        if !rebuild {
+            return Ok(reply);
+        }
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let rebuilt = directory
+            .deps
+            .empty_surface
+            .refresh_empty(&self.id)
+            .await
+            .map_err(|message| mixdog_core_base::support::failed("session", message))?;
+        Ok(Reply::Value(json!({ "promptRebuilt": rebuilt })))
     }
 }
 
@@ -582,6 +630,7 @@ impl ThreadHandle for SessionHandle {
         match req.method.as_str() {
             "thread/resume" => self.resume(&req),
             "thread/read" => self.read(&req).await,
+            "thread/clear" => self.clear(req).await,
             "thread/fork" => self.fork(req).await,
             "turn/start" => self.turn_start(req).await,
             "thread/delete" => self.delete(&req).await,

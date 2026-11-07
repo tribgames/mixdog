@@ -273,6 +273,25 @@ for (const capability of THREAD_REQUIRED_CAPABILITIES) {
   });
 }
 
+test('clear asks for the prompt rebuild only with rebuildPrompt, and inheritFrom answers as Node does', async () => {
+  const { calls, lane } = recordingLane(async (method) =>
+    method === 'thread/fork' ? { thread: { id: 'heir-1' }, messages: 3, provider: 'openai', model: 'gpt-5' } : { promptRebuilt: true }
+  );
+  const rebuilt = await lane.invoke('clear', [{ rebuildPrompt: true, archiveAs: 'sess_x' }], 'pane-1');
+  assert.deepEqual(rebuilt.value, { promptRebuilt: true });
+  await lane.invoke('clear', [{ rebuildPrompt: false }], 'pane-1');
+  await lane.invoke('clear', [], 'pane-1');
+  assert.deepEqual(calls, [
+    { method: 'thread/clear', params: { threadId: 'pane-1', rebuildPrompt: true } },
+    { method: 'thread/clear', params: { threadId: 'pane-1' } },
+    { method: 'thread/clear', params: { threadId: 'pane-1' } },
+  ]);
+  calls.length = 0;
+  const inherited = await lane.invoke('inheritFrom', ['src-1', { compact: false }], 'heir-1');
+  assert.deepEqual(inherited.value, { sessionId: 'heir-1', sourceSessionId: 'src-1', messages: 3, provider: 'openai', model: 'gpt-5' });
+  assert.deepEqual(calls, [{ method: 'thread/fork', params: { threadId: 'src-1', intoThreadId: 'heir-1', compact: false } }]);
+});
+
 test('the desktop-only overrides send the ops the spec maps them to', () => {
   assert.deepEqual(routeCapability('getBotOrder', [], undefined), { method: 'config/getBotOrder', params: {} });
   assert.deepEqual(routeCapability('getBotOrder', [], 's1'), {
