@@ -428,6 +428,7 @@ async fn a_new_thread_starts_with_the_tools_node_gives_it() {
         assert_eq!(names(&seeded["deferredDiscoveredTools"]), names(&expect["discovered"]), "{label}: discovered");
         assert_eq!(surface_of_header("full".into(), &seeded).listed, names(&expect["listed"]), "{label}: listed");
         assert_eq!(seeded["cwd"], "/work");
+        assert_eq!(seeded["deferredInitialRefreshPending"], true, "{label}: eligible for the first turn's MCP fold");
         // `createSession` ends with `refreshSessionBp3Environment`: the `# Session` block (folder, model) leads the environment tail.
         let env = SystemBlocks::from_header(&seeded).env.expect("env block");
         assert!(env.starts_with("# Session\nCwd: /work\nModel: ") && env.ends_with("\n\n---\n\ntail"), "{label}: env {env:?}");
@@ -478,6 +479,37 @@ async fn a_just_created_thread_is_not_rebuilt_at_its_first_turn() {
     rig.generation.bump();
     rig.host.reconcile_empty(&thread).await.expect("after a change");
     assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|1|".to_owned(), settings: "r1".to_owned() }));
+}
+
+/// `createSession` denies the feature gates as they stand (`disallowedTools: [...callerDisallowedTools,
+/// ...featureDisallowedTools()]`), whatever the options wrote: a header that names only the caller's denials
+/// starts with the surface Node's recorder gave a session built with the gates in them, and a tool a setting
+/// switches off is not in the announced deferred pool either.
+#[tokio::test]
+async fn a_new_thread_denies_the_gates_as_they_stand() {
+    let g = golden();
+    for case in g["cases"].as_array().expect("cases") {
+        let mode = case["mode"].as_str().expect("mode");
+        let feature_denied = names(&case["featureDenied"]);
+        let rig = rig(&g, Setup { route: case["route"].clone(), feature_denied: feature_denied.clone(), ..setup(mode) });
+        let mut header = Header::new();
+        header.insert("toolSpec".into(), tool_spec_for_mode(mode));
+        header.insert("disallowedTools".into(), json!(LEAD_DISALLOWED_TOOLS));
+        header.insert("cwd".into(), json!("/work"));
+        let seeded = rig.host.seed(&ThreadId::from("t1"), &header).await.expect("seed");
+        let expect = &case["expect"];
+        let label = case["name"].as_str().expect("name");
+        assert_eq!(doc_names(seeded.get("tools")), names(&expect["tools"]), "{label}: tools");
+        assert_eq!(names(&seeded["deferredCallableTools"]), names(&expect["callable"]), "{label}: callable");
+        assert_eq!(names(&seeded["deferredDiscoveredTools"]), names(&expect["discovered"]), "{label}: discovered");
+        assert_eq!(surface_of_header("full".into(), &seeded).listed, names(&expect["listed"]), "{label}: listed");
+        let denied = names(&seeded["disallowedTools"]);
+        let announced = names(&seeded["deferredAnnouncedTools"]);
+        for name in &feature_denied {
+            assert!(denied.contains(name), "{label}: {name} is denied");
+            assert!(!announced.contains(name), "{label}: {name} is not announced");
+        }
+    }
 }
 
 /// `leadRosterRevision` over the slices Node's recorder gave it (`create_goldens/lead.json`).
@@ -661,6 +693,66 @@ async fn a_moved_gate_reaches_a_thread_with_a_conversation() {
     let header = TurnSettings::reconcile(&rig.host, &thread, true).await.expect("turn settings");
     assert!(!names(&header["disallowedTools"]).contains(&"memory".to_owned()));
     assert_eq!(header["promptFoldPending"], true);
+    // Only the MCP fold writes more (the connected names and the late pool a thread never reconciled); the gate has nothing left to write.
+    let patches = rig.threads.patches.lock().unwrap();
+    assert_eq!(patches.len(), 2);
+    let (set, unset) = &patches[1];
+    assert!(unset.is_empty());
+    let mut keys: Vec<&str> = set.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["deferredLateToolCatalog", "deferredMcpToolNames"]);
+}
+
+/// Node's `foldMcpSurface` and the request boundary's reconcile (`fixtures/mcp-fold`, the `turn` cases), over the header
+/// a thread stores: the prompt's deferred-tool block comes out of, and goes back into, the header's blocks.
+fn fold_golden() -> Value {
+    serde_json::from_str(include_str!("../../../../../fixtures/mcp-fold/golden.json")).expect("mcp fold golden")
+}
+
+/// A recorded session as a thread's header: its leading system messages are the header's prompt blocks.
+fn header_of(session: &Value) -> Header {
+    let mut header = session.as_object().expect("session").clone();
+    let messages = header.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
+    header.insert("bp3EnvSplit".into(), Value::Bool(true));
+    SystemBlocks::from_node_messages(&messages).expect("a system prefix").write(&mut header);
+    header
+}
+
+#[test]
+fn the_mcp_fold_follows_node() {
+    let golden = golden();
+    let host = rig(&golden, setup("full")).host;
+    let fold = fold_golden();
+    let mut turns = 0;
+    for case in fold["cases"].as_array().expect("cases").iter().filter(|case| case["suite"] == "turn") {
+        let label = case["name"].as_str().expect("name");
+        let mut header = header_of(&case["before"]);
+        for (n, step) in case["steps"].as_array().expect("steps").iter().enumerate() {
+            let live = step["live"].as_array().expect("live").clone();
+            header = host.folded_surface(&header, &live).expect(label);
+            assert_eq!(header, header_of(&step["after"]), "{label} step {n}");
+            turns += 1;
+        }
+    }
+    assert!(turns > 0);
+}
+
+/// The first turn clears its one-shot flag and writes the fold once: the header afterwards is Node's, and a second
+/// turn start finds nothing more to write.
+#[tokio::test]
+async fn the_first_turn_fold_is_written_once() {
+    let golden = golden();
+    let fold = fold_golden();
+    let case = fold["cases"].as_array().expect("cases").iter().find(|case| case["name"] == "first turn: nothing connected").expect("case");
+    let rig = rig(&golden, Setup { header: header_of(&case["before"]), ..setup("full") });
+    let thread = ThreadId::from("t1");
+    assert_eq!(rig.threads.header.lock().unwrap().get("deferredInitialRefreshPending"), Some(&json!(true)));
+    let want = header_of(&case["steps"][0]["after"]);
+    assert_eq!(rig.host.fold_mcp_surface(&thread).await.expect("fold"), want);
+    assert_eq!(*rig.threads.header.lock().unwrap(), want);
+    assert_eq!(want["deferredInitialRefreshPending"], false);
+    assert_eq!(rig.threads.patches.lock().unwrap().len(), 1);
+    rig.host.fold_mcp_surface(&thread).await.expect("again");
     assert_eq!(rig.threads.patches.lock().unwrap().len(), 1, "nothing left to write");
 }
 

@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-mcp-fold.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 422442,
+      "path": "golden.json",
+      "sha256": "e705462100111354c6057a1437f218fe6f645a1cdf0613318cb0619a81bc040a"
+    }
+  ],
+  "product": {
+    "appsSha256": "9bd8fb856b7e00e551f02099c8aa5ad3f6450f5e03419b97b2dc9be008094ac1",
+    "commit": "c306f33771116790eb3bfb76538cddf98d45343d",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9249,
+    "refComparison": {
+      "closestCommit": "c306f33771116790eb3bfb76538cddf98d45343d",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-mcp-fold.mjs",
+  "set": "mcp-fold",
+  "totalBytes": 422442
+}

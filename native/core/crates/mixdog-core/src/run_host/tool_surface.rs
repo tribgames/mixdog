@@ -105,24 +105,24 @@ pub(super) fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
-fn map_mut(session: &mut Value) -> &mut Map<String, Value> {
+pub(super) fn map_mut(session: &mut Value) -> &mut Map<String, Value> {
     session.as_object_mut().expect("session object")
 }
 
-fn tools_of(session: &Value) -> &[Value] {
+pub(super) fn tools_of(session: &Value) -> &[Value] {
     session.get("tools").and_then(Value::as_array).map_or(&[], Vec::as_slice)
 }
 
 /// Array elements as `clean` strings (`[]` for anything but an array).
-fn clean_list(session: &Value, key: &str) -> Vec<String> {
+pub(super) fn clean_list(session: &Value, key: &str) -> Vec<String> {
     session.get(key).and_then(Value::as_array).map_or_else(Vec::new, |items| items.iter().map(|v| clean(Some(v))).collect())
 }
 
-fn names_value(names: &[String]) -> Value {
+pub(super) fn names_value(names: &[String]) -> Value {
     Value::Array(names.iter().map(|n| Value::String(n.clone())).collect())
 }
 
-fn unique(names: impl IntoIterator<Item = String>) -> Vec<String> {
+pub(super) fn unique(names: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut seen = HashSet::new();
     names.into_iter().filter(|n| seen.insert(n.clone())).collect()
 }
@@ -620,7 +620,7 @@ impl ToolSurface<'_> {
 }
 
 /// The rendered manifest text, or "" when no system message carries one.
-fn rendered_manifest(session: &Value) -> String {
+pub(super) fn rendered_manifest(session: &Value) -> String {
     session
         .get("messages")
         .and_then(Value::as_array)
