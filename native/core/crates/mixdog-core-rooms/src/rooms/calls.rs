@@ -31,22 +31,83 @@ pub struct RoomCall {
     /// The prompt of a relay (the member's own reported work); empty for any other call.
     pub relay: String,
     pub follow: Option<Arc<dyn CallFollow>>,
+    /// The session that asked (`askedBy`); empty for none.
+    pub asked_by: String,
+    /// A turn cut short was already submitted under `id`: never submitted again.
+    used: Arc<AtomicBool>,
+    /// Its watch follows another submission id than its own.
+    followed: Arc<AtomicBool>,
     settled: Arc<Mutex<Option<oneshot::Sender<String>>>>,
+    detail: Arc<Mutex<Option<Settled>>>,
+    /// `onSettled(detail)`: told once, when the call ends.
+    pub on_settled: Option<Arc<dyn Fn(&Settled) + Send + Sync>>,
+}
+
+/// How a call's turn ended, in a session turn's shape (`AgentRoomTurnDetail`): `done` with the
+/// posted words (`content`, empty for a pass), `failed` with `error`, or `cancelled`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Settled {
+    pub status: String,
+    pub error: Option<String>,
+    pub content: Option<String>,
 }
 
 impl RoomCall {
     /// A relay call for `agent_id`, and the receiver of the status its turn ends with.
     pub fn relay(agent_id: &str, prompt: &str, id: &str, hop: u32, follow: Option<Arc<dyn CallFollow>>) -> (Self, oneshot::Receiver<String>) {
+        Self::new(agent_id, id, hop, "", prompt, follow)
+    }
+
+    /// A call for `agent_id`'s turn: `asked_by` asked for it, or `relay` is the member's own
+    /// reported work.
+    pub fn new(agent_id: &str, id: &str, hop: u32, asked_by: &str, relay: &str, follow: Option<Arc<dyn CallFollow>>) -> (Self, oneshot::Receiver<String>) {
         let (sender, receiver) = oneshot::channel();
         let call = Self {
             agent_id: agent_id.to_owned(),
             id: id.to_owned(),
             hop,
-            relay: prompt.to_owned(),
+            relay: relay.to_owned(),
             follow,
+            asked_by: asked_by.to_owned(),
+            used: Arc::new(AtomicBool::new(false)),
+            followed: Arc::new(AtomicBool::new(false)),
             settled: Arc::new(Mutex::new(Some(sender))),
+            detail: Arc::new(Mutex::new(None)),
+            on_settled: None,
         };
         (call, receiver)
+    }
+
+    pub fn is_used(&self) -> bool {
+        self.used.load(Ordering::SeqCst)
+    }
+
+    pub fn mark_used(&self) {
+        self.used.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_followed(&self) -> bool {
+        self.followed.load(Ordering::SeqCst)
+    }
+
+    pub fn set_followed(&self, followed: bool) {
+        self.followed.store(followed, Ordering::SeqCst);
+    }
+
+    /// `onSettled(detail)`: ends the call with the detail's status; a call that ended already
+    /// ignores it and keeps its first detail.
+    pub fn settle_with(&self, detail: &Settled) {
+        let Some(sender) = self.settled.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+        *self.detail.lock().unwrap_or_else(|e| e.into_inner()) = Some(detail.clone());
+        if let Some(told) = &self.on_settled {
+            told(detail);
+        }
+        let _ = sender.send(detail.status.clone());
+    }
+
+    /// The detail the call ended with, when it ended through `settle_with`.
+    pub fn detail(&self) -> Option<Settled> {
+        self.detail.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn is_settled(&self) -> bool {
@@ -55,9 +116,7 @@ impl RoomCall {
 
     /// Ends the call with `status`; a call that ended already ignores it.
     pub fn settle(&self, status: &str) {
-        if let Some(sender) = self.settled.lock().unwrap_or_else(|e| e.into_inner()).take() {
-            let _ = sender.send(status.to_owned());
-        }
+        self.settle_with(&Settled { status: status.to_owned(), error: None, content: None });
     }
 }
 
@@ -84,6 +143,11 @@ pub struct Run {
 }
 
 impl Run {
+    /// The live list the exchange in flight answers: a turn takes its member's calls out of it.
+    pub(crate) fn calls_lock(&self) -> MutexGuard<'_, Vec<RoomCall>> {
+        self.calls.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// The calls still waiting on the exchange in flight.
     pub fn calls(&self) -> Vec<RoomCall> {
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -117,7 +181,7 @@ pub trait CallRunner: Send + Sync {
     /// answered. A request that arrived meanwhile is left in `run` (`interrupted`): the scheduler
     /// runs it next, and the calls the exchange did not settle ride on to it. `Err`: the exchange
     /// failed, and every call not settled yet ends failed.
-    async fn run(&self, room_id: &str, request: &Request, run: &Run) -> Result<(), String>;
+    async fn run(&self, room_id: &str, request: &Request, run: &Arc<Run>) -> Result<(), String>;
 
     /// A request merged into the exchange in flight: abort the member speaking in the room.
     async fn cut_off(&self, room_id: &str);

@@ -79,6 +79,7 @@ use super::config_hosts::ConfigHosts;
 use super::config_hosts::Env;
 use super::config_hosts::ThreadHeaders;
 use super::hop_bindings::HopBindings;
+use super::late::Bound;
 use super::host_seams::ConfigSeams;
 use super::mcp_seams::CatalogSkillsListed;
 use super::mcp_seams::ConfigAllowAll;
@@ -192,7 +193,7 @@ pub struct EarlyIn {
 pub struct EarlyRows {
     pub todos: Arc<ThreadTodos>,
     pub work: Arc<ProcessWork>,
-    pub goals: GoalRuntime,
+    pub goals: Arc<GoalRuntime>,
     pub cycles: Arc<UserCycles>,
 }
 
@@ -202,7 +203,7 @@ pub fn early_rows(input: EarlyIn) -> EarlyRows {
     EarlyRows {
         todos: Arc::new(ThreadTodos::new(input.threads, input.clock)),
         work: Arc::new(ProcessWork::new(input.board, input.exec, cycles.clone())),
-        goals: GoalRuntime::new(GoalConfig::new(input.data_dir.to_string_lossy().into_owned()), GoalEnv::system(input.durability)),
+        goals: Arc::new(GoalRuntime::new(GoalConfig::new(input.data_dir.to_string_lossy().into_owned()), GoalEnv::system(input.durability))),
         cycles,
     }
 }
@@ -238,8 +239,8 @@ pub struct ReadyRows {
 /// The process's one provider registry: `DefaultProviderBuilder` over the builder inputs of `process`, accounted
 /// by pricing, the ledger, the send scope and the account lookup. Built right after `ProcessServices`, so
 /// `ProviderReadiness::new(registry, catalog)` and the settings and feature effects share it with the turn path.
-pub fn provider_registry(process: &ProcessServices) -> Arc<ProviderRegistry> {
-    let builder = Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(super::builder_env::builder_env(process)));
+pub fn provider_registry(process: &ProcessServices, env: mixdog_ai::registry::builder::BuilderEnv) -> Arc<ProviderRegistry> {
+    let builder = Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(env));
     Arc::new(ProviderRegistry::new(builder).with_accounting(super::accounting_scope::accounting_deps(process)))
 }
 
@@ -492,6 +493,40 @@ pub fn config_hosts(input: ConfigHostsIn) -> Arc<ConfigHosts> {
     })
 }
 
+// ---- the late cells' bound() checks -------------------------------------------------------------
+
+impl Bound for LateDirectory {
+    fn cell(&self) -> &'static str {
+        "session directory"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.directory().is_some()
+    }
+}
+
+/// The cell `hook_common` reads the live header through (a closure has no handle of its own).
+pub struct HookCommonCell(pub Arc<LateDirectory>);
+
+macro_rules! view_bound {
+    ($view:ty, $name:literal) => {
+        impl Bound for $view {
+            fn cell(&self) -> &'static str {
+                $name
+            }
+
+            fn is_bound(&self) -> bool {
+                self.0.is_bound()
+            }
+        }
+    };
+}
+
+view_bound!(DirectoryHeaders, "directory headers");
+view_bound!(LateRunStamps, "late run stamps");
+view_bound!(LateThreads, "late threads");
+view_bound!(LateHeaders, "late headers");
+view_bound!(HookCommonCell, "hook common");
 #[cfg(test)]
 mod tests {
     use mixdog_mcp::skill_catalog::SkillRoots;
@@ -602,9 +637,23 @@ mod tests {
     #[tokio::test]
     async fn the_registry_is_built_once_and_shared_with_readiness() {
         let world = world(&[], json!({}), Vec::new()).await;
-        let registry = provider_registry(&world.services);
+        let registry = provider_registry(&world.services, crate::run_host::builder_env::builder_env(&world.services));
         let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), world.services.catalog.clone());
         assert!(Arc::strong_count(&registry) >= 2, "readiness holds the registry the turn path is given");
         drop(readiness);
     }
-}
+
+    /// Every view of the late directory reports itself unbound until the directory is, and the
+    /// composition's check names the first one left over.
+    #[test]
+    fn every_view_of_the_late_directory_is_unbound_until_the_directory_is_bound() {
+        use super::super::late::{Unbound, require};
+        let late = Arc::new(LateDirectory::default());
+        let cells: [&dyn Bound; 6] =
+            [&*late, &DirectoryHeaders(late.clone()), &LateRunStamps(late.clone()), &LateThreads(late.clone()), &LateHeaders(late.clone()), &HookCommonCell(late.clone())];
+        for cell in cells {
+            assert!(!cell.is_bound(), "{}", cell.cell());
+        }
+        assert_eq!(require(&cells), Err(Unbound { cell: "session directory" }));
+        assert_eq!(require(&cells[1..]), Err(Unbound { cell: "directory headers" }));
+    }}

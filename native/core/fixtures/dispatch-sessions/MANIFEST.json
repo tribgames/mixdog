@@ -1,0 +1,30 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-dispatch-sessions.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 9439,
+      "path": "golden.json",
+      "sha256": "6b9c4665b1bc0664e99aaaa7a664dd3cf8509ab5bace4f28c3f93c044d088224"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "caf95d9f8982e1a565e2442c879032b549ef0163",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 4447
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-dispatch-sessions.mjs",
+  "set": "dispatch-sessions",
+  "totalBytes": 9439
+}

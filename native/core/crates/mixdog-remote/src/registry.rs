@@ -68,12 +68,29 @@ struct Inner {
     peers: HashMap<String, Described>,
 }
 
-#[derive(Default)]
 pub struct DeviceRegistry {
     inner: Mutex<Inner>,
+    /// Counts every change of who is attached or what is shown, written after the change is in
+    /// place: what a caller waits on instead of polling [`describe`](Self::describe) and friends.
+    changes: tokio::sync::watch::Sender<u64>,
+}
+
+impl Default for DeviceRegistry {
+    fn default() -> Self {
+        Self { inner: Mutex::default(), changes: tokio::sync::watch::Sender::new(0) }
+    }
 }
 
 impl DeviceRegistry {
+    /// The change counter: it moves after every attach, detach, connect, disconnect and screen report.
+    pub fn watch(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changes.subscribe()
+    }
+
+    fn changed(&self) {
+        self.changes.send_modify(|count| *count += 1);
+    }
+
     fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -86,20 +103,24 @@ impl DeviceRegistry {
         self.inner()
             .peers
             .insert(peer_id.to_owned(), Described { device: device.to_owned(), credential: credential.to_owned(), kind });
+        self.changed();
     }
 
     /// `client-close`, a revoke or the loss of the leg.
     pub fn detach_peer(&self, peer_id: &str) {
         self.inner().peers.remove(peer_id);
+        self.changed();
     }
 
     pub fn detach_all_peers(&self) {
         self.inner().peers.clear();
+        self.changed();
     }
 
     /// The server accepted a local connection.
     pub fn connect_local(&self, connection: u64, device: &str, kind: LocalKind) {
         self.inner().connections.insert(connection, Link::Local { device: device.to_owned(), kind });
+        self.changed();
     }
 
     /// The server accepted the connection a relay peer's bridge opened. It shows nothing until
@@ -108,18 +129,22 @@ impl DeviceRegistry {
         self.inner()
             .connections
             .insert(connection, Link::Relay { peer_id: peer_id.to_owned(), screen: Screen::default() });
+        self.changed();
     }
 
     /// `ui/screenSessions/changed` from `connection`: false when it is no relay connection (the
     /// caller then treats it as the desktop's own report). The set replaces the last one; a
     /// browser id is kept until the phone states another.
     pub fn report_screen(&self, connection: u64, sessions: HashSet<String>, browser_id: Option<&str>) -> bool {
-        let mut inner = self.inner();
-        let Some(Link::Relay { screen, .. }) = inner.connections.get_mut(&connection) else { return false };
-        screen.sessions = sessions;
-        if let Some(id) = browser_id {
-            screen.browser_id = slice_utf16(id, BROWSER_ID_MAX);
+        {
+            let mut inner = self.inner();
+            let Some(Link::Relay { screen, .. }) = inner.connections.get_mut(&connection) else { return false };
+            screen.sessions = sessions;
+            if let Some(id) = browser_id {
+                screen.browser_id = slice_utf16(id, BROWSER_ID_MAX);
+            }
         }
+        self.changed();
         true
     }
 
@@ -147,6 +172,7 @@ impl DeviceRegistry {
 
     pub fn disconnect(&self, connection: u64) {
         self.inner().connections.remove(&connection);
+        self.changed();
     }
 
     /// `None` for a connection the server never registered, or a relay peer no longer paired.

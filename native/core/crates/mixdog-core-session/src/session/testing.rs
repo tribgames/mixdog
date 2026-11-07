@@ -881,11 +881,12 @@ impl mixdog_core_run::run_host::guards::RunningWork for TestWork {
 
 /// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`.
 #[derive(Default)]
-pub struct Deletes(pub Mutex<Vec<String>>);
+pub struct Deletes(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
 
 impl Deletes {
     fn note(&self, step: String) {
         lock(&self.0).push(step);
+        self.1.notify_waiters();
     }
 }
 
@@ -1067,7 +1068,7 @@ impl Rig {
             compaction: self.compaction.clone(),
             cycles: Arc::default(),
             quota: super::quota_lane::SessionQuota {
-                goals: mixdog_core_goal::goal::quota::GoalQuotaResume::new(self.quota.clone(), self.goals.clone()),
+                goals: mixdog_core_goal::goal::quota::GoalQuotaResume::new(self.quota.clone(), Arc::new(self.goals.clone())),
                 auto_resume: Arc::new(|| true),
             },
             lanes: SessionLanes {

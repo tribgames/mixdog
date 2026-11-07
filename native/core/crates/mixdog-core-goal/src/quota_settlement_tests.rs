@@ -45,7 +45,7 @@ async fn settle_and_cancel_sequences_match_node() {
         let dir = tempfile::tempdir().unwrap();
         let lane = mixdog_rt::testing::tokens().durability_io;
         let store = Arc::new(QuotaResumeStore::open(dir.path(), lane, CancellationToken::new()).await.unwrap());
-        let goals = GoalRuntime::new(GoalConfig::new(dir.path().to_string_lossy().into_owned()), GoalEnv::system(lane));
+        let goals = Arc::new(GoalRuntime::new(GoalConfig::new(dir.path().to_string_lossy().into_owned()), GoalEnv::system(lane)));
         let guard = QuotaSettlement::new(GoalQuotaResume::new(store.clone(), goals));
         let (mut session, mut items) = ("sess_a".to_owned(), Vec::<Value>::new());
         let mut auto = true;
@@ -136,7 +136,7 @@ async fn settle_and_cancel_sequences_match_node() {
 async fn fixture(dir: &std::path::Path) -> (Arc<QuotaResumeStore>, Arc<QuotaSettlement>) {
     let lane = mixdog_rt::testing::tokens().durability_io;
     let store = Arc::new(QuotaResumeStore::open(dir, lane, CancellationToken::new()).await.unwrap());
-    let goals = GoalRuntime::new(GoalConfig::new(dir.to_string_lossy().into_owned()), GoalEnv::system(lane));
+    let goals = Arc::new(GoalRuntime::new(GoalConfig::new(dir.to_string_lossy().into_owned()), GoalEnv::system(lane)));
     (store.clone(), Arc::new(QuotaSettlement::new(GoalQuotaResume::new(store, goals))))
 }
 

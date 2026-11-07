@@ -83,14 +83,14 @@ static RUNTIME_MARK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"
 static LISTED_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\(id ([^()]+)\)$", "i"));
 
 /// A name or id as boundary data: brackets and line breaks flattened, harness tags escaped.
-fn label(value: &str) -> String {
+pub(crate) fn label(value: &str) -> String {
     let flat = BREAKS.replace_all_with(value, |_| " ".to_owned());
     let escaped = escape_harness_tags(js_trim(&flat));
     if escaped.is_empty() { "agent".to_owned() } else { escaped }
 }
 
 /// Peer text as boundary data: harness tags escaped, the runtime marker defused, every line prefixed.
-fn data_lines(text: &str) -> Vec<String> {
+pub(crate) fn data_lines(text: &str) -> Vec<String> {
     let defused = RUNTIME_MARK.replace_all_with(&escape_harness_tags(text), |_| "(mixdog-runtime)".to_owned());
     defused.replace("\r\n", "\n").split('\n').map(|line| format!("│ {line}")).collect()
 }

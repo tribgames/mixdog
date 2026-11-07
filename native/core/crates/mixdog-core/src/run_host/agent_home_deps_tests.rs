@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_agents::agents::AgentHomeSessions;
@@ -125,14 +124,19 @@ fn user_texts(view: &Value) -> Vec<String> {
         .collect()
 }
 
-async fn eventually(what: &str, mut probe: impl AsyncFnMut() -> bool) {
-    for _ in 0..1000 {
+/// Waits for `probe` to hold, woken by every step of the thread's actor (the state the probes read
+/// is set inside one); nothing on the clock judges the wait. The signal is registered before each
+/// probe, so a step during the probe is not missed.
+async fn eventually(thread: &mixdog_core_session::session::SessionHandle, mut probe: impl AsyncFnMut() -> bool) {
+    loop {
+        let stepped = thread.stepped().notified();
+        tokio::pin!(stepped);
+        stepped.as_mut().enable();
         if probe().await {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        stepped.await;
     }
-    panic!("{what}: not reached in 5 s");
 }
 
 /// One user turn in the home thread.
@@ -142,7 +146,7 @@ async fn talk(world: &World, id: &str, prompt: &str) {
     let op = OpId::from(uuid::Uuid::now_v7().to_string());
     let params = json!({ "threadId": thread, "opId": op.as_str(), "input": { "prompt": prompt } });
     handle.request(CoreRequest { method: Method("turn/start"), params, op: Some(op), ctx: connection() }).await.expect("turn/start");
-    eventually("the user row", async || user_texts(&read(&world.directory, id).await).len() == 1).await;
+    eventually(&handle, async || user_texts(&read(&world.directory, id).await).len() == 1).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -153,7 +157,8 @@ async fn a_reset_keeps_the_old_conversation_archived_durable_and_restorable() {
     let home = opened["sessionId"].as_str().unwrap().to_owned();
     assert_eq!(home, "sess_home_ada");
     talk(&world, &home, "write a haiku").await;
-    eventually("the turn ends", async || read(&world.directory, &home).await["state"]["runtime"]["busy"] != json!(true)).await;
+    let thread = world.directory.handle(&ThreadId::from(home.as_str())).expect("the home thread is loaded");
+    eventually(&thread, async || read(&world.directory, &home).await["state"]["runtime"]["busy"] != json!(true)).await;
 
     let reset = homes.reset("ada").await.expect("resets");
     assert_eq!(reset["sessionId"], json!(home));
@@ -187,7 +192,8 @@ async fn a_reset_is_refused_while_the_home_thread_runs_a_turn_and_keeps_the_conv
     let homes = AgentHomeSessions::new(world.deps.clone());
     let home = homes.open("ada").await.expect("opens")["sessionId"].as_str().unwrap().to_owned();
     talk(&world, &home, "still working").await;
-    eventually("the turn runs", async || world.deps.turn_in_progress(&ThreadId::from(home.as_str())).await.unwrap()).await;
+    let thread = world.directory.handle(&ThreadId::from(home.as_str())).expect("the home thread is loaded");
+    eventually(&thread, async || world.deps.turn_in_progress(&ThreadId::from(home.as_str())).await.unwrap()).await;
 
     let refused = homes.reset("ada").await.expect_err("a running turn refuses the reset");
     assert!(format!("{refused:?}").contains("wait for it to finish before resetting the conversation"), "{refused:?}");

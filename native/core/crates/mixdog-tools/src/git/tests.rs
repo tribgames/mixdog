@@ -204,7 +204,7 @@ fn scripted_failure(error: &Value) -> ScmFailure {
 
 #[async_trait]
 impl SessionWorktrees for ScriptSessions {
-    fn is_lead(&self, session_id: &str) -> bool {
+    async fn is_lead(&self, session_id: &str) -> bool {
         session_id == self.session
     }
 

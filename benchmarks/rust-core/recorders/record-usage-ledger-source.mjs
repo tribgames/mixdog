@@ -24,15 +24,19 @@ const listing = () => [
   `usage:${count(join(userDir, 'data', 'usage'))}`,
 ];
 const before = listing();
-// Every user directory is replaced before any Mixdog module loads.
-const root = mkdtempSync(join(tmpdir(), 'mixdog-ledger-source-'));
-for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_CONFIG_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
-  process.env[name] = join(root, name.toLowerCase());
-}
+// Every user directory is replaced before any Mixdog module loads, and again for every flow: a flow
+// gets its own root and its own environment (nothing set but the data folder), so each one stands alone.
+let root;
+const enterRoot = () => {
+  root = mkdtempSync(join(tmpdir(), 'mixdog-ledger-source-'));
+  for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_CONFIG_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
+    process.env[name] = join(root, name.toLowerCase());
+  }
+  delete process.env.MIXDOG_USAGE_LEDGER_PATH;
+};
+enterRoot();
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
-delete process.env.MIXDOG_USAGE_LEDGER_PATH;
 delete process.env.NODE_TEST_CONTEXT;
-const dataDir = process.env.MIXDOG_DATA_DIR;
 const ledger = await importFrom(tree, 'src/runtime/shared/llm/usage-ledger.mjs');
 
 // A process that has loaded no price table (this recorder never warms the catalog): the revision
@@ -94,6 +98,7 @@ const envPath = (name) => (name === null ? null : name === '' ? '' : join(root, 
 
 const flows = [];
 for (let c = 0; c < 80; c += 1) {
+  if (c > 0) enterRoot();
   ledger.closeUsageLedgers();
   const seen = new Map();
   const steps = [];
@@ -124,15 +129,16 @@ for (let c = 0; c < 80; c += 1) {
     steps.push(step);
   }
   flows.push({ steps });
+  ledger.closeUsageLedgers();
+  delete process.env.MIXDOG_USAGE_LEDGER_PATH;
+  rmSync(root, { recursive: true, force: true });
 }
-ledger.closeUsageLedgers();
-delete process.env.MIXDOG_USAGE_LEDGER_PATH;
 
 const outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'ai-admin');
 writeJson(join(outDir, 'usage-ledger-source-twin.json'), {
   domain: 'usage-ledger-source-twin',
   recorder: 'benchmarks/rust-core/recorders/record-usage-ledger-source.mjs',
-  defaultPath: rel(join(dataDir, 'usage', 'ledger.sqlite')),
+  defaultPath: rel(join(process.env.MIXDOG_DATA_DIR, 'usage', 'ledger.sqlite')),
   cold,
   flows,
 });
@@ -142,7 +148,6 @@ writeSetManifest(outDir, {
   command: 'node benchmarks/rust-core/recorders/record-usage-ledger-source.mjs --tree <tree>',
   identityTree: tree,
 });
-rmSync(root, { recursive: true, force: true });
 const after = listing();
 if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('the recorder changed the real user directory');
 const all = flows.flatMap((f) => f.steps);

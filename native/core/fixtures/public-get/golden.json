@@ -1,0 +1,1314 @@
+{
+  "node": "v22.20.0",
+  "urls": [
+    {
+      "url": "https://example.com/a.png"
+    },
+    {
+      "url": "http://example.com:8080/x?y=1#z"
+    },
+    {
+      "url": "https://EXAMPLE.com/"
+    },
+    {
+      "url": "https://sub.example.co.uk/a/b"
+    },
+    {
+      "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/img.png?sig=abc"
+    },
+    {
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/x:download?alt=media"
+    },
+    {
+      "url": "http://8.8.8.8/"
+    },
+    {
+      "url": "https://1.1.1.1/dns-query"
+    },
+    {
+      "url": "http://[2606:4700:4700::1111]/"
+    },
+    {
+      "url": "http://[2001:4860:4860::8888]:443/"
+    },
+    {
+      "url": "ftp://example.com/file",
+      "error": {
+        "name": "Error",
+        "message": "Blocked non-HTTP protocol: ftp:",
+        "code": null
+      }
+    },
+    {
+      "url": "file:///etc/passwd",
+      "error": {
+        "name": "Error",
+        "message": "Blocked non-HTTP protocol: file:",
+        "code": null
+      }
+    },
+    {
+      "url": "data:text/plain,hello",
+      "error": {
+        "name": "Error",
+        "message": "Blocked non-HTTP protocol: data:",
+        "code": null
+      }
+    },
+    {
+      "url": "javascript:alert(1)",
+      "error": {
+        "name": "Error",
+        "message": "Blocked non-HTTP protocol: javascript:",
+        "code": null
+      }
+    },
+    {
+      "url": "ws://example.com/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked non-HTTP protocol: ws:",
+        "code": null
+      }
+    },
+    {
+      "url": "wss://example.com/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked non-HTTP protocol: wss:",
+        "code": null
+      }
+    },
+    {
+      "url": "gopher://example.com/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked non-HTTP protocol: gopher:",
+        "code": null
+      }
+    },
+    {
+      "url": "blob:https://example.com/uuid",
+      "error": {
+        "name": "Error",
+        "message": "Blocked non-HTTP protocol: blob:",
+        "code": null
+      }
+    },
+    {
+      "url": "http://user:pass@example.com/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked URL with userinfo credentials: example.com",
+        "code": null
+      }
+    },
+    {
+      "url": "https://user@example.com/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked URL with userinfo credentials: example.com",
+        "code": null
+      }
+    },
+    {
+      "url": "http://:pw@example.com/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked URL with userinfo credentials: example.com",
+        "code": null
+      }
+    },
+    {
+      "url": "http://user:pass@127.0.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked URL with userinfo credentials: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://user@localhost/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked URL with userinfo credentials: localhost",
+        "code": null
+      }
+    },
+    {
+      "url": "http://localhost/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: localhost",
+        "code": null
+      }
+    },
+    {
+      "url": "http://LOCALHOST:8080/x",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: localhost",
+        "code": null
+      }
+    },
+    {
+      "url": "https://localhost:3000",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: localhost",
+        "code": null
+      }
+    },
+    {
+      "url": "http://localhost./"
+    },
+    {
+      "url": "http://foo.localhost/"
+    },
+    {
+      "url": "http://localhost.localdomain/"
+    },
+    {
+      "url": "http://notlocalhost/"
+    },
+    {
+      "url": "http://127.0.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://127.255.255.254/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.255.255.254",
+        "code": null
+      }
+    },
+    {
+      "url": "http://10.0.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 10.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://10.255.255.255/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 10.255.255.255",
+        "code": null
+      }
+    },
+    {
+      "url": "http://0.0.0.0/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 0.0.0.0",
+        "code": null
+      }
+    },
+    {
+      "url": "http://0.1.2.3/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 0.1.2.3",
+        "code": null
+      }
+    },
+    {
+      "url": "http://172.16.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 172.16.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://172.31.255.255/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 172.31.255.255",
+        "code": null
+      }
+    },
+    {
+      "url": "http://172.15.255.255/"
+    },
+    {
+      "url": "http://172.32.0.1/"
+    },
+    {
+      "url": "http://192.168.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 192.168.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://192.168.255.255/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 192.168.255.255",
+        "code": null
+      }
+    },
+    {
+      "url": "http://192.167.0.1/"
+    },
+    {
+      "url": "http://169.254.169.254/latest/meta-data/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 169.254.169.254",
+        "code": null
+      }
+    },
+    {
+      "url": "http://169.254.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 169.254.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://169.253.0.1/"
+    },
+    {
+      "url": "http://100.64.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 100.64.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://100.127.255.255/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 100.127.255.255",
+        "code": null
+      }
+    },
+    {
+      "url": "http://100.63.255.255/"
+    },
+    {
+      "url": "http://100.128.0.1/"
+    },
+    {
+      "url": "http://198.18.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 198.18.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://198.19.255.255/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 198.19.255.255",
+        "code": null
+      }
+    },
+    {
+      "url": "http://198.17.255.255/"
+    },
+    {
+      "url": "http://198.20.0.1/"
+    },
+    {
+      "url": "http://192.0.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 192.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://192.0.2.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 192.0.2.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://192.0.1.1/"
+    },
+    {
+      "url": "http://192.88.99.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 192.88.99.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://192.88.98.1/"
+    },
+    {
+      "url": "http://198.51.100.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 198.51.100.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://198.51.101.1/"
+    },
+    {
+      "url": "http://203.0.113.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 203.0.113.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://203.0.114.1/"
+    },
+    {
+      "url": "http://224.0.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 224.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://239.255.255.255/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 239.255.255.255",
+        "code": null
+      }
+    },
+    {
+      "url": "http://223.255.255.255/"
+    },
+    {
+      "url": "http://240.0.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 240.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://255.255.255.255/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 255.255.255.255",
+        "code": null
+      }
+    },
+    {
+      "url": "http://2130706433/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://0x7f.0.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://0x7f000001/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://127.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://017700000001/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://0177.0.0.1/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://3232235521/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 192.168.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://134744072/"
+    },
+    {
+      "url": "http://[::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [::]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[0:0:0:0:0:0:0:1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fe80::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fe80::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[febf::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [febf::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fe8::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fe8::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fe9::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fe9::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fea::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fea::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[feb::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [feb::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fec0::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fec0::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fc00::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fc00::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fd12:3456::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fd12:3456::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fc::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fc::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fd::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fd::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fc0::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fc0::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fdff::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [fdff::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[ff02::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [ff02::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[ff::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [ff::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[ffff::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [ffff::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[ff00::]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [ff00::]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[2001:db8::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [2001:db8::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[2001:db8:ffff::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [2001:db8:ffff::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[3fff::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [3fff::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[3fff:fff::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [3fff:fff::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[100::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [100::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[100::ffff]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [100::ffff]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[64:ff9b:1::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: [64:ff9b:1::1]",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[fe::1]/"
+    },
+    {
+      "url": "http://[fed::1]/"
+    },
+    {
+      "url": "http://[fb00::1]/"
+    },
+    {
+      "url": "http://[fe7f::1]/"
+    },
+    {
+      "url": "http://[3fff:1000::1]/"
+    },
+    {
+      "url": "http://[2001:db9::1]/"
+    },
+    {
+      "url": "http://[100:0:0:1::1]/"
+    },
+    {
+      "url": "http://[2606:4700::1111]/"
+    },
+    {
+      "url": "http://[::2:0:0:1]/"
+    },
+    {
+      "url": "http://[::ffff:127.0.0.1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::ffff:7f00:1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::ffff:10.1.2.3]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 10.1.2.3",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::ffff:a01:203]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 10.1.2.3",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::ffff:192.168.1.1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 192.168.1.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::ffff:169.254.169.254]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 169.254.169.254",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::ffff:8.8.8.8]/"
+    },
+    {
+      "url": "http://[::ffff:808:808]/"
+    },
+    {
+      "url": "http://[::127.0.0.1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::7f00:1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::10.0.0.1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 10.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[::8.8.8.8]/"
+    },
+    {
+      "url": "http://[::0.0.0.2]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 0.0.0.2",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[64:ff9b::7f00:1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[64:ff9b::127.0.0.1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[64:ff9b::a00:1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 10.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[64:ff9b::808:808]/"
+    },
+    {
+      "url": "http://[64:ff9b::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 0.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[2002:7f00:1::]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[2002:7f00:1::1]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[2002:a00:1::]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 10.0.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[2002:c0a8:1::]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 192.168.0.1",
+        "code": null
+      }
+    },
+    {
+      "url": "http://[2002:808:808::]/"
+    },
+    {
+      "url": "http://[2002:a9fe:a9fe::]/",
+      "error": {
+        "name": "Error",
+        "message": "Blocked request to private address: 169.254.169.254",
+        "code": null
+      }
+    },
+    {
+      "url": "not a url",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "//example.com",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "example.com",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "http://",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "http:///x"
+    },
+    {
+      "url": "http://exa mple.com/",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "http://[::1",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "http://[::1]x/",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "https://%zz/",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "http://example.com:99999/",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "http://256.256.256.256/",
+      "error": {
+        "name": "TypeError",
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL"
+      }
+    },
+    {
+      "url": "http://1.2.3/"
+    }
+  ],
+  "lookups": [
+    {
+      "host": "media.example.com",
+      "addresses": [
+        "8.8.8.8"
+      ]
+    },
+    {
+      "host": "media.example.com",
+      "addresses": [
+        "8.8.8.8",
+        "1.1.1.1"
+      ]
+    },
+    {
+      "host": "media.example.com",
+      "addresses": [
+        "2606:4700::1111"
+      ]
+    },
+    {
+      "host": "media.example.com",
+      "addresses": [
+        "8.8.8.8",
+        "2606:4700::1111"
+      ]
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "8.8.8.8",
+        "10.0.0.5"
+      ],
+      "error": "Blocked request to private address: 10.0.0.5"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "10.0.0.5",
+        "8.8.8.8"
+      ],
+      "error": "Blocked request to private address: 10.0.0.5"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "127.0.0.1"
+      ],
+      "error": "Blocked request to private address: 127.0.0.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "169.254.169.254"
+      ],
+      "error": "Blocked request to private address: 169.254.169.254"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "100.64.0.1"
+      ],
+      "error": "Blocked request to private address: 100.64.0.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "192.0.2.1"
+      ],
+      "error": "Blocked request to private address: 192.0.2.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "0.0.0.0"
+      ],
+      "error": "Blocked request to private address: 0.0.0.0"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "224.0.0.1"
+      ],
+      "error": "Blocked request to private address: 224.0.0.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "8.8.8.8",
+        "::1"
+      ],
+      "error": "Blocked request to private address: ::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "::1"
+      ],
+      "error": "Blocked request to private address: ::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "::"
+      ],
+      "error": "Blocked request to private address: ::"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "fe80::1"
+      ],
+      "error": "Blocked request to private address: fe80::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "fd00::1"
+      ],
+      "error": "Blocked request to private address: fd00::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "fc::1"
+      ],
+      "error": "Blocked request to private address: fc::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "ff02::1"
+      ],
+      "error": "Blocked request to private address: ff02::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "fec0::1"
+      ],
+      "error": "Blocked request to private address: fec0::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "2001:db8::1"
+      ],
+      "error": "Blocked request to private address: 2001:db8::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "3fff::1"
+      ],
+      "error": "Blocked request to private address: 3fff::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "100::1"
+      ],
+      "error": "Blocked request to private address: 100::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "64:ff9b:1::1"
+      ],
+      "error": "Blocked request to private address: 64:ff9b:1::1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "::ffff:127.0.0.1"
+      ],
+      "error": "Blocked request to private address: 127.0.0.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "::ffff:7f00:1"
+      ],
+      "error": "Blocked request to private address: 127.0.0.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "::ffff:10.0.0.1"
+      ],
+      "error": "Blocked request to private address: 10.0.0.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "::ffff:8.8.8.8"
+      ]
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "::7f00:1"
+      ],
+      "error": "Blocked request to private address: 127.0.0.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "64:ff9b::7f00:1"
+      ],
+      "error": "Blocked request to private address: 127.0.0.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "64:ff9b::808:808"
+      ]
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "2002:7f00:1::"
+      ],
+      "error": "Blocked request to private address: 127.0.0.1"
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "2002:808:808::"
+      ]
+    },
+    {
+      "host": "rebind.example.com",
+      "addresses": [
+        "2606:4700::1111",
+        "10.0.0.1"
+      ],
+      "error": "Blocked request to private address: 10.0.0.1"
+    },
+    {
+      "host": "localhost.",
+      "addresses": [
+        "127.0.0.1"
+      ],
+      "error": "Blocked request to private address: 127.0.0.1"
+    },
+    {
+      "host": "localhost.",
+      "addresses": [
+        "::1"
+      ],
+      "error": "Blocked request to private address: ::1"
+    },
+    {
+      "host": "empty.example.com",
+      "addresses": [],
+      "error": "DNS returned no addresses for empty.example.com"
+    }
+  ],
+  "lookup_failures": [
+    {
+      "host": "unreachable.example.com",
+      "code": "ENOTFOUND",
+      "message": "DNS returned no addresses for unreachable.example.com"
+    },
+    {
+      "host": "unreachable.example.com",
+      "code": "ENODATA",
+      "message": "DNS returned no addresses for unreachable.example.com"
+    },
+    {
+      "host": "unreachable.example.com",
+      "code": "EAI_AGAIN",
+      "message": "getaddrinfo EAI_AGAIN unreachable.example.com"
+    }
+  ],
+  "wire": {
+    "redirect": {
+      "status": 302,
+      "location": "/next",
+      "body": "moved",
+      "hasBody": true,
+      "requests": 1,
+      "paths": [
+        "/start"
+      ]
+    },
+    "request": {
+      "method": "GET",
+      "compared": {
+        "user-agent": "undici",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "x-goog-api-key": "k"
+      },
+      "all": [
+        "connection",
+        "x-goog-api-key",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding"
+      ]
+    },
+    "bodies": [
+      {
+        "status": 200,
+        "hasBody": true
+      },
+      {
+        "status": 204,
+        "hasBody": false
+      },
+      {
+        "status": 205,
+        "hasBody": false
+      },
+      {
+        "status": 304,
+        "hasBody": false
+      },
+      {
+        "status": 302,
+        "hasBody": true
+      }
+    ],
+    "cut": {
+      "status": 200,
+      "name": "TypeError",
+      "message": "terminated"
+    },
+    "refused": {
+      "name": "TypeError",
+      "message": "fetch failed"
+    }
+  }
+}

@@ -179,8 +179,12 @@ impl DelegatedApprovalHost {
         QueueHandle { queue }
     }
 
-    pub fn unregister_queue(&self, handle: &QueueHandle) {
-        self.lock().queues.retain(|held| !Arc::ptr_eq(held, &handle.queue));
+    /// `Set.delete`: whether the queue was still registered.
+    pub fn unregister_queue(&self, handle: &QueueHandle) -> bool {
+        let mut registry = self.lock();
+        let before = registry.queues.len();
+        registry.queues.retain(|held| !Arc::ptr_eq(held, &handle.queue));
+        registry.queues.len() != before
     }
 
     /// `registerDelegatedApprovalOpener`.

@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-daemon-log.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 91437,
+      "path": "golden.json",
+      "sha256": "d73cbd6b556051950b78f122e2eeb2bd6f6cc45204f26a0f390386d14c9fb9ab"
+    }
+  ],
+  "product": {
+    "appsSha256": "fafa2dadfb9db84dba5ba512f05574282fe76e530ac5b39b4bb99cc0f396199c",
+    "commit": "ae2d9c053614fe9741d5c1cb918cbf3ebe498e5a",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "ae2d9c053614fe9741d5c1cb918cbf3ebe498e5a",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-daemon-log.mjs",
+  "set": "daemon-log",
+  "totalBytes": 91437
+}

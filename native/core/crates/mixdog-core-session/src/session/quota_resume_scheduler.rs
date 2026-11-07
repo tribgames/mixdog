@@ -400,7 +400,8 @@ pub struct QuotaResumeScheduler {
 }
 
 impl QuotaResumeScheduler {
-    /// `auto_resume` is `quotaAutoResumeEnabled()`: the config's `quotaAutoResume`, on unless off.
+    /// `auto_resume` is `quotaAutoResumeEnabled()`: the sessions' `SessionQuota::auto_resume`
+    /// ([`super::quota_lane::auto_resume_enabled`]).
     pub fn new(
         store: Arc<QuotaResumeStore>,
         host: Arc<dyn ResumeHost>,

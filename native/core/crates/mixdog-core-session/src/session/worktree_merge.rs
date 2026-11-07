@@ -229,7 +229,7 @@ impl Inner {
         let row = row.ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
         let owner = row["ownerSessionId"].as_str().map(str::to_owned);
         if owner.as_deref() != Some(session) {
-            return Err(errors::busy_with("workspace-shared", Some(owner.into_iter().collect()), None, None));
+            return Err(errors::belongs_to_another(owner.into_iter().collect()));
         }
         if self.workspace(session)?.worktree_id.as_deref() == Some(entry_id) {
             return Err(errors::busy_with("folder-in-use", Some(vec![session.to_owned()]), None, None));

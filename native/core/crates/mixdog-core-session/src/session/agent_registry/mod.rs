@@ -22,6 +22,7 @@
 
 mod rows;
 mod flow;
+mod lead_row;
 mod sessions;
 mod workers;
 #[cfg(test)]
@@ -122,6 +123,9 @@ struct State {
     sessions: Vec<Row>,
     /// A legacy tombstone's resolved owner fields, by its identity (`row-reads.mjs` `owners`).
     owners: HashMap<String, Option<Row>>,
+    /// A Lead pool row's worker map as this process last wrote it, until the stored header shows
+    /// it (lead_row.rs).
+    leads: HashMap<String, Row>,
 }
 
 impl State {

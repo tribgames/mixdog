@@ -124,7 +124,7 @@ fn step(rig: &Arc<Rig>, call: &[Value]) -> Value {
         "register" => rig.register(text(1), text(2)),
         "unregister" => {
             let queues = rig.queues.lock().unwrap();
-            rig.host.unregister_queue(&queues[text(1)].1);
+            return json!(rig.host.unregister_queue(&queues[text(1)].1));
         }
         "dispose" => rig.queues.lock().unwrap()[text(1)].0.disposed.store(true, Ordering::SeqCst),
         "opener" => {

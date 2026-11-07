@@ -17,32 +17,28 @@ use crate::accounts::policy::{account_exhausted, quota_reading_fresh, stale_quot
 use crate::accounts::rotation::{AccountRotation, Failed};
 use crate::accounts::{ACCOUNT_PROVIDERS, AccountStore};
 use crate::admission::{Admission, Block, LaneKey, LaneSettings};
+use crate::service::oauth_usage::{OAuthUsage, RouteInfo};
 
-/// What a warm goes to: the provider and roster account holding the entry (empty for a provider
-/// without a roster), the model, and the session asking (for its quota-resume pause).
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct GateTarget {
-    pub provider: String,
-    pub account_id: String,
-    pub model: String,
-    pub session_id: String,
-}
-
-#[async_trait]
-pub trait WarmGate: Send + Sync {
-    /// `cacheWarmAccountBlock`: why a warm may not be sent now, or `None`.
-    async fn block(&self, target: &GateTarget) -> Option<String>;
-    /// `recordCacheWarmRefusal`: feeds a warm's refusal into the shared state a send's would
-    /// reach. A warm the caller aborted is no refusal. An `Err` is a failure to persist it.
-    async fn record_refusal(&self, target: &GateTarget, error: &ProviderError, aborted: bool) -> Result<(), String>;
-}
+pub use mixdog_core_api::domain::cache_warm::{GateTarget, WarmGate};
 
 /// `isOAuthProviderAvailable(name)` behind `providerAvailable`.
 pub trait ProviderSwitch: Send + Sync {
     fn available(&self, provider: &str) -> bool;
 }
 
-/// `quotaResumeEntry(sessionId)`.
+/// `providerAvailable(name)` over the builder's own switch: the composition passes the registry
+/// builder's `gated_off` (`!providerAvailable`, the stored Developer options read live), so the
+/// gate and the registry answer from one reader.
+pub struct GatedOff(pub Arc<dyn Fn(&str) -> bool + Send + Sync>);
+
+impl ProviderSwitch for GatedOff {
+    fn available(&self, provider: &str) -> bool {
+        !(self.0)(provider)
+    }
+}
+
+/// `quotaResumeEntry(sessionId)`: implemented by the quota-resume store itself
+/// (`mixdog_core_base::quota_resume::QuotaResumeStore`).
 pub trait QuotaResumes: Send + Sync {
     fn paused(&self, session_id: &str) -> bool;
 }
@@ -52,6 +48,26 @@ pub trait QuotaResumes: Send + Sync {
 #[async_trait]
 pub trait UsageSnapshots: Send + Sync {
     async fn cached(&self, provider: &str) -> Option<(Vec<Window>, i64)>;
+}
+
+/// `readCachedOAuthUsageSnapshot({ provider, model: '' })` over the process's usage cache. A
+/// provider without a roster is read under its `default` account (`currentProviderAccountId`); a
+/// reading with no quota windows is none (the gate then reports "no fresh quota reading", as it
+/// does for an absent one).
+#[async_trait]
+impl UsageSnapshots for OAuthUsage {
+    async fn cached(&self, provider: &str) -> Option<(Vec<Window>, i64)> {
+        let route = RouteInfo { provider: provider.to_owned(), model: String::new(), account_id: "default".to_owned() };
+        let snapshot = self.read_cached(&route, false).await?;
+        let windows = snapshot
+            .get("quotaWindows")
+            .and_then(serde_json::Value::as_array)?
+            .iter()
+            .map(|raw| serde_json::from_value(raw.clone()).unwrap_or_default())
+            .collect();
+        let cached_at = snapshot.get("cachedAt").and_then(serde_json::Value::as_f64).unwrap_or(0.0) as i64;
+        Some((windows, cached_at))
+    }
 }
 
 /// `readingBlock`: a reading that is missing, stale or not fresh blocks; so does an exhausted one.
@@ -116,6 +132,26 @@ pub struct AccountGate {
 }
 
 impl AccountGate {
+    /// The gate of the process: its admission lanes and roster, the seams only the host knows
+    /// (`isOAuthProviderAvailable`, `quotaResumeEntry`, `readCachedOAuthUsageSnapshot`), and the
+    /// system clock.
+    pub fn new(
+        admission: Arc<Admission>,
+        lane_settings: Arc<dyn Fn(&LaneKey) -> LaneSettings + Send + Sync>,
+        store: AccountStore,
+        rotation: Arc<AccountRotation>,
+        switch: Arc<dyn ProviderSwitch>,
+        resumes: Arc<dyn QuotaResumes>,
+        snapshots: Arc<dyn UsageSnapshots>,
+    ) -> Self {
+        let now_ms = Arc::new(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64)
+        });
+        Self { admission, lane_settings, store, rotation, switch, resumes, snapshots, now_ms }
+    }
+
     fn lane_key(target: &GateTarget) -> LaneKey {
         let account = if target.account_id.is_empty() { "default" } else { target.account_id.as_str() };
         LaneKey::new(ProviderId::from(target.provider.as_str()), account)

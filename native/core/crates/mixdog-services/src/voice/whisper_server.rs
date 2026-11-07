@@ -76,6 +76,29 @@ enum Command {
 /// `finally` after `inflight.delete`).
 struct InFlight(mpsc::Sender<Command>);
 
+/// Tears the child down when a request is abandoned mid-flight (its caller was cancelled), as a
+/// failed request does: a child still working on an abandoned request, or wedged in it, is not
+/// reused. Node aborts the in-flight request when the server is torn down (`inflight` controllers).
+struct TeardownIfDropped(Option<mpsc::Sender<Command>>);
+
+impl TeardownIfDropped {
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for TeardownIfDropped {
+    fn drop(&mut self) {
+        let Some(commands) = self.0.take() else { return };
+        let (reply, _) = oneshot::channel();
+        if let Err(mpsc::error::TrySendError::Full(teardown)) = commands.try_send(Command::Teardown(reply)) {
+            tokio::spawn(async move {
+                let _ = commands.send(teardown).await;
+            });
+        }
+    }
+}
+
 /// A ready child for one request. The actor makes the guard, so a reply nobody receives (the
 /// caller was dropped while it waited) releases the request's usage when the reply is dropped.
 struct Handle {
@@ -345,7 +368,9 @@ impl WhisperEngine for WhisperServer {
         // Queued behind a start in flight, as a lock on the record was; the actor has counted the
         // request as in flight when this answers.
         let handle = self.shared.ask(Command::Handle).await?;
+        let mut abandoned = TeardownIfDropped(Some(self.shared.sender().clone()));
         let result = self.post_inference(&handle.host, handle.port, wav, language).await;
+        abandoned.disarm();
         drop(handle);
         if result.is_err() {
             // The contract is no longer satisfiable on this child; the next ensure_ready
@@ -616,6 +641,28 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         panic!("the abandoned start's child (seen: {seen}) was never released");
+    }
+
+    /// A transcribe dropped while the child is still working on it (its last waiter left) kills the
+    /// child, so a wedged one does not stay behind for the next request.
+    #[tokio::test]
+    async fn a_transcribe_dropped_mid_request_kills_the_child() {
+        let (dir, manager, server, contract) = scripted_server(None);
+        let server = Arc::new(server);
+        manager.hang_inference.store(true, Ordering::SeqCst);
+        server.ensure_ready(&contract).await.unwrap();
+        assert_eq!(manager.servers.lock().unwrap().len(), 1);
+        let wav = dir.path().join("a.wav");
+        std::fs::write(&wav, b"RIFF").unwrap();
+        let request = tokio::spawn({
+            let server = server.clone();
+            async move { server.transcribe(&wav, None).await }
+        });
+        manager.inference_seen.notified().await;
+        request.abort();
+        let _ = request.await;
+        manager.killed.notified().await;
+        assert!(manager.servers.lock().unwrap().is_empty(), "the child outlived its abandoned request");
     }
 
     #[test]

@@ -3,10 +3,13 @@
 pub mod chain;
 pub mod gate;
 pub mod plan;
+pub mod process;
 pub mod send;
 pub mod stores;
 pub mod stream;
 #[cfg(test)]
 mod chain_tests;
+#[cfg(test)]
+mod process_tests;
 
 pub use chain::Warmer;

@@ -1,0 +1,140 @@
+{
+  "reads": [
+    {
+      "name": "no-file",
+      "config": null,
+      "enabled": true
+    },
+    {
+      "name": "empty",
+      "config": {},
+      "enabled": true
+    },
+    {
+      "name": "off",
+      "config": {
+        "quotaResume": {
+          "autoResume": false
+        }
+      },
+      "enabled": false
+    },
+    {
+      "name": "on",
+      "config": {
+        "quotaResume": {
+          "autoResume": true
+        }
+      },
+      "enabled": true
+    },
+    {
+      "name": "section-without-key",
+      "config": {
+        "quotaResume": {
+          "other": 1
+        }
+      },
+      "enabled": true
+    },
+    {
+      "name": "string-false",
+      "config": {
+        "quotaResume": {
+          "autoResume": "false"
+        }
+      },
+      "enabled": true
+    },
+    {
+      "name": "zero",
+      "config": {
+        "quotaResume": {
+          "autoResume": 0
+        }
+      },
+      "enabled": true
+    },
+    {
+      "name": "null",
+      "config": {
+        "quotaResume": {
+          "autoResume": null
+        }
+      },
+      "enabled": true
+    },
+    {
+      "name": "section-null",
+      "config": {
+        "quotaResume": null
+      },
+      "enabled": true
+    },
+    {
+      "name": "section-false",
+      "config": {
+        "quotaResume": false
+      },
+      "enabled": true
+    },
+    {
+      "name": "section-array",
+      "config": {
+        "quotaResume": []
+      },
+      "enabled": true
+    },
+    {
+      "name": "top-level-quotaAutoResume-false",
+      "config": {
+        "quotaAutoResume": false
+      },
+      "enabled": true
+    },
+    {
+      "name": "agent-quotaAutoResume-false",
+      "config": {
+        "agent": {
+          "quotaAutoResume": false
+        }
+      },
+      "enabled": true
+    },
+    {
+      "name": "agent-quotaResume-off",
+      "config": {
+        "agent": {
+          "quotaResume": {
+            "autoResume": false
+          }
+        }
+      },
+      "enabled": true
+    }
+  ],
+  "writes": [
+    {
+      "next": false,
+      "answered": false,
+      "file": {
+        "quotaResume": {
+          "other": 1,
+          "autoResume": false
+        }
+      },
+      "enabled": false
+    },
+    {
+      "next": true,
+      "answered": true,
+      "file": {
+        "quotaResume": {
+          "other": 1,
+          "autoResume": true
+        }
+      },
+      "enabled": true
+    }
+  ]
+}

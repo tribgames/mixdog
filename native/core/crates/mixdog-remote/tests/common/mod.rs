@@ -4,7 +4,6 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
@@ -151,27 +150,13 @@ impl Phone {
 }
 
 async fn frame_for(seen: &mut mpsc::UnboundedReceiver<Value>, id: &str) -> String {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let frame = seen.recv().await.expect("relay closed");
-            if frame["type"] == "frame" && frame["clientId"] == id {
-                return frame["data"].as_str().unwrap().to_owned();
-            }
+    // The relay's channel ends when the relay task does, which fails the test at once; no clock.
+    loop {
+        let frame = seen.recv().await.expect("relay closed");
+        if frame["type"] == "frame" && frame["clientId"] == id {
+            return frame["data"].as_str().unwrap().to_owned();
         }
-    })
-    .await
-    .expect("no frame for the phone")
-}
-
-/// Waits until `condition` holds.
-pub async fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while !condition() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap_or_else(|_| panic!("{what}"));
+    }
 }
 
 /// A runtime over the remote-access files in `dir`, dialing the relay at `ws://127.0.0.1:{port}`.

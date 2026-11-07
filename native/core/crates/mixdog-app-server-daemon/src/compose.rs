@@ -113,6 +113,8 @@ pub enum ComposeError {
     Workspace(mixdog_workspace::error::WsError),
     #[error(transparent)]
     Domains(#[from] DomainsError),
+    #[error("the {cell} was not bound before the server accepted connections")]
+    Unbound { cell: &'static str },
     #[error("creating the state directory: {0}")]
     StateDir(std::io::Error),
     #[error("opening state/core.sqlite: {0:?}")]
@@ -121,6 +123,12 @@ pub enum ComposeError {
     OpGate { scope: &'static str, error: CoreError },
 }
 
+/// Startup check of the late cells: every one bound, or `ComposeError::Unbound` naming the first that
+/// is not. Compose runs it once the directory and the seams that wait for it are bound;
+/// `serving::start` runs it for the local dialer before the listener accepts.
+pub fn verify_bound(cells: &[&dyn mixdog_core::run_host::late::Bound]) -> Result<(), ComposeError> {
+    mixdog_core::run_host::late::require(cells).map_err(|unbound| ComposeError::Unbound { cell: unbound.cell })
+}
 /// Thread directory is still the mock's (empty), so no thread has an op gate; the session core
 /// supplies the real ones.
 struct NoThreadGates;
@@ -153,6 +161,9 @@ pub struct ComposedCore {
     shell_control: Arc<mixdog_tools::exec::ShellControl>,
     stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
     final_barriers: std::sync::Mutex<Vec<(&'static str, crate::lifecycle::Hook)>>,
+    /// The daemon log and the run token it holds: the stop procedure flushes the one, then cancels the other.
+    log: crate::daemon_log::DaemonLog,
+    stop: tokio_util::sync::CancellationToken,
 }
 
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -303,6 +314,11 @@ impl ComposedCore {
             tracing::debug!(step = name, "stopping");
             step.await;
         }
+        // Flushed after every other stop step, as Node does (daemon.mjs:411 awaits flushDaemonLogs after the discovery withdrawal and the
+        // singleton release, just before the exit): Node flushes, it never closes a stream. Then the run token ends (the log's lane jobs hang
+        // on it; Rust-only). A second call finds nothing to run and both are idempotent.
+        self.log.flush().await;
+        self.stop.cancel();
     }
 
     /// The one process manager and durability lane of Tidy, for `TidyTool::new` and
@@ -452,10 +468,14 @@ pub struct ComposeConfig {
     /// The server's host channel (`Outgoing`), built before the core: what the browser and
     /// visualize domains forward their commands through.
     pub host: Arc<dyn HostChannel>,
+    /// The one daemon log, built where the daemon starts (`serve`): the real core hands it to every writer (the quota resume timer, ...).
+    pub log: crate::daemon_log::DaemonLog,
+    /// The daemon's run token, the one `log` holds. The stop procedure cancels it after the last stop step.
+    pub stop: tokio_util::sync::CancellationToken,
 }
 
 pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, host } = config;
+    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, host, log, stop } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -551,6 +571,8 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         shell_control,
         stop_steps: std::sync::Mutex::new(Vec::new()),
         final_barriers: std::sync::Mutex::new(Vec::new()),
+        log,
+        stop,
     })
 }
 
@@ -587,6 +609,8 @@ mod tests {
                 js_runtime: crate::js_runtime::fixture(dir.path()),
                 ort_library: OrtRuntime::NoBinding,
                 host: host.clone(),
+                log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new()),
+                stop: mixdog_rt::CancellationToken::new(),
             },
         )
         .await
@@ -628,6 +652,8 @@ mod tests {
                 js_runtime: crate::js_runtime::fixture(dir.path()),
                 ort_library: OrtRuntime::NoBinding,
                 host: Arc::new(MockHostChannel::default()),
+                log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new()),
+                stop: mixdog_rt::CancellationToken::new(),
             },
         )
         .await.unwrap();
@@ -662,6 +688,26 @@ mod tests {
         }
     }
 
+    /// A cell left unbound fails startup, naming it; once every cell is bound the check passes.
+    #[test]
+    fn startup_fails_when_a_late_cell_is_left_unbound() {
+        use mixdog_core::run_host::late::Bound;
+        struct Cell(&'static str, bool);
+        impl Bound for Cell {
+            fn cell(&self) -> &'static str {
+                self.0
+            }
+            fn is_bound(&self) -> bool {
+                self.1
+            }
+        }
+        let bound = Cell("setup ui surface", true);
+        let left = Cell("local dialer", false);
+        let error = verify_bound(&[&bound, &left]).unwrap_err();
+        assert!(matches!(error, ComposeError::Unbound { cell: "local dialer" }));
+        assert_eq!(verify_bound(&[&bound, &left]).unwrap_err().to_string(), "the local dialer was not bound before the server accepted connections");
+        assert!(verify_bound(&[&bound, &Cell("local dialer", true)]).is_ok());
+    }
     /// The release procedure runs the final barriers in registration order, then (after the
     /// extension host has closed) the stop steps; neither runs twice.
     #[tokio::test]
@@ -675,6 +721,8 @@ mod tests {
                 js_runtime: crate::js_runtime::fixture(dir.path()),
                 ort_library: OrtRuntime::NoBinding,
                 host: Arc::new(mixdog_core_api::mock::MockHostChannel::default()),
+                log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new()),
+                stop: mixdog_rt::CancellationToken::new(),
             },
         )
         .await
@@ -691,5 +739,36 @@ mod tests {
         core.run_final_barriers();
         core.run_stop_steps().await;
         assert_eq!(*order.lock().unwrap(), ["first", "second", "step"]);
+    }
+
+    /// The stop procedure writes the log out before the run token ends: a line a step logs is on disk when it returns.
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "reads the log file the test just had written")]
+    async fn the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let stop = tokio_util::sync::CancellationToken::new();
+        let log = crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
+        log.enable_file_logging();
+        let core = compose(
+            &mixdog_rt::testing::tokens(),
+            ComposeConfig {
+                data_dir: dir.path().to_path_buf(),
+                user_data_dir: dir.path().join("userdata"),
+                js_runtime: crate::js_runtime::fixture(dir.path()),
+                ort_library: OrtRuntime::NoBinding,
+                host: Arc::new(mixdog_core_api::mock::MockHostChannel::default()),
+                log: log.clone(),
+                stop: stop.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        let writer = log.clone();
+        core.on_stop("log a line", async move { writer.log("closing") });
+        assert!(!stop.is_cancelled());
+        core.run_stop_steps().await;
+        assert!(stop.is_cancelled());
+        let text = std::fs::read_to_string(dir.path().join("daemon.log")).unwrap();
+        assert!(text.contains("[daemon] closing"), "{text}");
     }
 }

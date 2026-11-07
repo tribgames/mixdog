@@ -1,0 +1,366 @@
+{
+  "aborts": [
+    {
+      "error": "parent aborted",
+      "name": "before-ask",
+      "sends": 0
+    },
+    {
+      "error": "Session \"<session>\" closed: aborted during call: parent aborted",
+      "name": "during-call",
+      "sends": 1
+    },
+    {
+      "error": "Session \"<session>\" closed: aborted during call: parent aborted",
+      "name": "between-calls",
+      "sends": 1
+    }
+  ],
+  "prepared": [
+    {
+      "name": "cycle1-hidden",
+      "runtimeSpec": {
+        "lane": "agent",
+        "scopeKey": "agent:cycle1-agent:stub:stub-model"
+      },
+      "spec": {
+        "agent": "cycle1-agent",
+        "cwd": null,
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": "read",
+        "preset": {
+          "effort": "low",
+          "id": "maint-cycle1-agent",
+          "model": "stub-model",
+          "name": "MAINT CYCLE1-AGENT",
+          "provider": "stub",
+          "tools": "full",
+          "type": "agent"
+        },
+        "presetName": "maint-cycle1-agent",
+        "schemaAllowedTools": [],
+        "skipRoleReminder": true,
+        "sourceType": "memory-cycle",
+        "taskType": "maintenance"
+      },
+      "stamped": {
+        "agent": "cycle1-agent",
+        "agentTag": null,
+        "autoEffort": "<absent>",
+        "callerDisallowedTools": [],
+        "clientHostPid": null,
+        "closed": false,
+        "contextPercent": null,
+        "contextTokens": "<absent>",
+        "cwd": null,
+        "effort": "low",
+        "fast": false,
+        "lane": "agent",
+        "mcpScopeId": null,
+        "model": "stub-model",
+        "modelParameters": {},
+        "owner": "agent",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": "read",
+        "permissionMode": null,
+        "preset": "full",
+        "presetName": "MAINT CYCLE1-AGENT",
+        "provider": "stub",
+        "schemaAllowedTools": [],
+        "scopeKey": "agent:cycle1-agent:stub:stub-model",
+        "selectedContextWindow": null,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": "memory-cycle",
+        "status": "<absent>",
+        "taskType": "maintenance",
+        "toolPermission": "read",
+        "visibility": null
+      }
+    },
+    {
+      "name": "explore-read-profile",
+      "runtimeSpec": {
+        "lane": "agent",
+        "scopeKey": "agent:explore:stub:stub-model"
+      },
+      "spec": {
+        "agent": "explore",
+        "cwd": "C:\\work\\repo",
+        "ownerSessionId": "sess_parent",
+        "parentSessionId": "sess_parent",
+        "permission": "read",
+        "preset": {
+          "id": "explore",
+          "model": "stub-model",
+          "name": "Explore",
+          "provider": "stub",
+          "tools": "full",
+          "type": "agent"
+        },
+        "presetName": "explore",
+        "schemaAllowedTools": [
+          "code_graph",
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "read"
+        ],
+        "skipRoleReminder": true,
+        "sourceName": "search"
+      },
+      "stamped": {
+        "agent": "explore",
+        "agentTag": null,
+        "autoEffort": "<absent>",
+        "callerDisallowedTools": [],
+        "clientHostPid": null,
+        "closed": false,
+        "contextPercent": null,
+        "contextTokens": "<absent>",
+        "cwd": "C:\\work\\repo",
+        "effort": null,
+        "fast": false,
+        "lane": "agent",
+        "mcpScopeId": null,
+        "model": "stub-model",
+        "modelParameters": {},
+        "owner": "agent",
+        "ownerSessionId": "sess_parent",
+        "parentSessionId": "sess_parent",
+        "permission": "read",
+        "permissionMode": null,
+        "preset": "full",
+        "presetName": "Explore",
+        "provider": "stub",
+        "schemaAllowedTools": [
+          "code_graph",
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "read"
+        ],
+        "scopeKey": "agent:explore:stub:stub-model",
+        "selectedContextWindow": null,
+        "sessionMode": "coding",
+        "sourceName": "search",
+        "sourceType": null,
+        "status": "<absent>",
+        "taskType": null,
+        "toolPermission": "read",
+        "visibility": null
+      }
+    },
+    {
+      "name": "public-agent-full-schema",
+      "runtimeSpec": {
+        "lane": "agent",
+        "scopeKey": "agent:reviewer:stub:stub-model"
+      },
+      "spec": {
+        "agent": "reviewer",
+        "cwd": null,
+        "ownerSessionId": "sess_owner",
+        "parentSessionId": null,
+        "permission": null,
+        "preset": {
+          "autoEffort": false,
+          "fast": true,
+          "model": "stub-model",
+          "modelParameters": {
+            "temperature": 0.2
+          },
+          "name": "Main",
+          "provider": "stub"
+        },
+        "presetName": "Main",
+        "skipRoleReminder": false,
+        "sourceName": "nightly",
+        "sourceType": "scheduler",
+        "taskType": "routine"
+      },
+      "stamped": {
+        "agent": "reviewer",
+        "agentTag": null,
+        "autoEffort": false,
+        "callerDisallowedTools": [],
+        "clientHostPid": null,
+        "closed": false,
+        "contextPercent": null,
+        "contextTokens": "<absent>",
+        "cwd": null,
+        "effort": null,
+        "fast": true,
+        "lane": "agent",
+        "mcpScopeId": null,
+        "model": "stub-model",
+        "modelParameters": {
+          "temperature": 0.2
+        },
+        "owner": "agent",
+        "ownerSessionId": "sess_owner",
+        "parentSessionId": null,
+        "permission": null,
+        "permissionMode": null,
+        "preset": "full",
+        "presetName": "Main",
+        "provider": "stub",
+        "schemaAllowedTools": null,
+        "scopeKey": "agent:reviewer:stub:stub-model",
+        "selectedContextWindow": null,
+        "sessionMode": "coding",
+        "sourceName": "nightly",
+        "sourceType": "scheduler",
+        "status": "<absent>",
+        "taskType": "routine",
+        "toolPermission": null,
+        "visibility": null
+      }
+    },
+    {
+      "name": "context-choice",
+      "runtimeSpec": {
+        "lane": "agent",
+        "scopeKey": "agent:cycle1-agent:stub:stub-model"
+      },
+      "spec": {
+        "agent": "cycle1-agent",
+        "contextPercent": 47,
+        "contextTokens": 64000,
+        "cwd": null,
+        "permission": "read",
+        "preset": {
+          "model": "stub-model",
+          "provider": "stub",
+          "tools": "readonly"
+        },
+        "presetName": "p",
+        "schemaAllowedTools": [],
+        "selectedContextWindow": 64000
+      },
+      "stamped": {
+        "agent": "cycle1-agent",
+        "agentTag": null,
+        "autoEffort": "<absent>",
+        "callerDisallowedTools": [],
+        "clientHostPid": null,
+        "closed": false,
+        "contextPercent": 50,
+        "contextTokens": 64000,
+        "cwd": null,
+        "effort": null,
+        "fast": false,
+        "lane": "agent",
+        "mcpScopeId": null,
+        "model": "stub-model",
+        "modelParameters": {},
+        "owner": "agent",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "permission": "read",
+        "permissionMode": null,
+        "preset": "readonly",
+        "presetName": null,
+        "provider": "stub",
+        "schemaAllowedTools": [],
+        "scopeKey": "agent:cycle1-agent:stub:stub-model",
+        "selectedContextWindow": 64000,
+        "sessionMode": "coding",
+        "sourceName": null,
+        "sourceType": null,
+        "status": "<absent>",
+        "taskType": null,
+        "toolPermission": "read",
+        "visibility": null
+      }
+    },
+    {
+      "error": "Provider \"missing\" not found or not enabled",
+      "name": "unregistered-provider",
+      "spec": {
+        "agent": "cycle1-agent",
+        "cwd": null,
+        "permission": "read",
+        "preset": {
+          "model": "m",
+          "provider": "missing"
+        },
+        "presetName": "p",
+        "schemaAllowedTools": []
+      }
+    },
+    {
+      "error": "createSession: model is required",
+      "name": "no-model",
+      "spec": {
+        "agent": "cycle1-agent",
+        "cwd": null,
+        "permission": "read",
+        "preset": {
+          "provider": "stub"
+        },
+        "presetName": "p",
+        "schemaAllowedTools": []
+      }
+    },
+    {
+      "error": "createSession: provider is required",
+      "name": "no-provider",
+      "spec": {
+        "agent": "cycle1-agent",
+        "cwd": null,
+        "permission": "read",
+        "preset": {
+          "model": "m"
+        },
+        "presetName": "p",
+        "schemaAllowedTools": []
+      }
+    }
+  ],
+  "stampedKeys": [
+    "provider",
+    "model",
+    "preset",
+    "presetName",
+    "effort",
+    "fast",
+    "autoEffort",
+    "modelParameters",
+    "contextPercent",
+    "contextTokens",
+    "selectedContextWindow",
+    "agent",
+    "owner",
+    "sessionMode",
+    "callerDisallowedTools",
+    "mcpScopeId",
+    "scopeKey",
+    "lane",
+    "cwd",
+    "taskType",
+    "agentTag",
+    "permission",
+    "toolPermission",
+    "schemaAllowedTools",
+    "sourceType",
+    "sourceName",
+    "permissionMode",
+    "parentSessionId",
+    "ownerSessionId",
+    "visibility",
+    "clientHostPid",
+    "status",
+    "closed"
+  ],
+  "status": {
+    "afterClose": "closed",
+    "closed": false,
+    "open": true,
+    "runningStatus": "running"
+  }
+}

@@ -72,7 +72,7 @@ fn held(rig: &Rig) -> Arc<tokio::sync::Notify> {
 
 /// `pushNotice(text, tone)` of a hosted runtime: the polished text is a muted notice row of no
 /// turn, shown live and published; the answer is the row id, `null` for a text with nothing left.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_pushed_notice_shows_its_polished_text_as_a_row_of_no_turn() {
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
@@ -101,7 +101,7 @@ async fn a_pushed_notice_shows_its_polished_text_as_a_row_of_no_turn() {
 
 /// `clearSessionChangeHistory` (`integrations.mjs`): refused with Node's text while the session
 /// runs a turn, else `{turns}` of the turn review.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_change_history_is_cleared_only_while_the_session_runs_no_turn() {
     let rig = Rig::new();
     let gate = held(&rig);
@@ -157,7 +157,7 @@ async fn a_side_question_is_answered_from_the_saved_request_with_nodes_texts() {
 
 /// `cancelSide`: aborts the question in flight with `Side question canceled.`; a new question
 /// aborts the previous one.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_side_question_in_flight_is_canceled_by_cancel_side_or_a_newer_question() {
     let rig = Rig::new();
     rig.side.request.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -193,7 +193,7 @@ async fn preflight(directory: &SessionDirectory, params: Value) -> Value {
 /// `inheritancePreflight` (`lifecycle/inheritance.mjs`): the verdict's shape and key order are
 /// Node's, recorded in `golden/inheritance_preflight.json` for the source it measured. The
 /// heir's policy (`limit`, `used`) is the host's; the conversation counted is the source's own.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_preflight_answers_nodes_verdict_for_the_heir_route() {
     let golden: Value = serde_json::from_str(include_str!("golden/inheritance_preflight.json")).expect("golden");
     let rig = Rig::new();
@@ -242,7 +242,7 @@ async fn the_preflight_answers_nodes_verdict_for_the_heir_route() {
 /// turn runs; a `skipped` result is the answer as is, before PostCompact; any other runs
 /// PostCompact, re-marks the Goal reminder `compaction`, re-arms the late tools, recovers the
 /// agent on request and invalidates the context status, then answers the result.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_manual_compaction_follows_the_session_ops_order() {
     let rig = Rig::new();
     let gate = held(&rig);
@@ -279,7 +279,7 @@ async fn a_manual_compaction_follows_the_session_ops_order() {
 /// turn and nothing runs, settles or waits, the failed prompt is replayed as a retry turn, the
 /// resume entry is finished and the answer is `true`; any other key, and a second ask for the
 /// same turn, answer `false`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_failed_turn_is_retried_once_with_its_prompt_and_its_resume_entry_finished() {
     use super::ItemCommit;
     use mixdog_core_api::ids::ItemId;
@@ -395,7 +395,7 @@ fn user_rows(handle: &SessionHandle) -> usize {
 
 /// A retry that names the failed message (a restored Node session) resends it as stored: the
 /// retry turn carries its id and attempt, its input row stays off screen, and the entry ends.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_retained_failed_message_is_resent_hidden_with_its_id_and_attempt() {
     let rig = Rig::new();
     let (handle, key, seen) = quota_failed_thread(&rig, true).await;
@@ -411,7 +411,7 @@ async fn a_retained_failed_message_is_resent_hidden_with_its_id_and_attempt() {
 
 /// `retryBlocked`: a compaction running owns the session first (`commandBusy` /
 /// `autoClearRunning`); the retry is refused and runs once the compaction ended.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_retry_waits_for_a_running_compaction() {
     let rig = Rig::new();
     let (handle, key, seen) = quota_failed_thread(&rig, false).await;
@@ -433,7 +433,7 @@ async fn a_retry_waits_for_a_running_compaction() {
 /// `resumeGoal`: a quota failure that suspended the Goal is retried by reviving that Goal through
 /// the lane's admission; the Goal then continues on its own, the queued resume and the note
 /// of the suspended Goal end, and a second ask for the same turn is refused.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_suspended_goal_is_revived_by_its_retry_and_continues() {
     let rig = Rig::new();
     let seen: Arc<std::sync::Mutex<usize>> = Arc::default();
@@ -484,7 +484,7 @@ async fn a_suspended_goal_is_revived_by_its_retry_and_continues() {
 /// context still starts with what it was planned on; the rows a finished turn appended meanwhile
 /// follow the compacted ones; a running turn, or a context that moved, leave the conversation as
 /// it is.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_manual_compactions_result_is_committed_only_to_the_context_it_was_planned_on() {
     use super::run::Compaction;
     use super::turn_ops::CompactionCommit;
@@ -525,7 +525,7 @@ async fn a_manual_compactions_result_is_committed_only_to_the_context_it_was_pla
 /// A commit that carries the header writes it with the compaction, in the record that counts it:
 /// the caller's `compaction.compactCount` stands (it is not counted twice), and a commit that
 /// carries none counts one more.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_manual_compaction_commit_writes_the_header_it_carries_without_counting_twice() {
     use super::run::Compaction;
     use mixdog_core_api::ids::ItemId;

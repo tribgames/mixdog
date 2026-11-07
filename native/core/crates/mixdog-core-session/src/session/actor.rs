@@ -587,6 +587,8 @@ impl SessionActor {
                 else => break,
             }
             self.pump();
+            #[cfg(any(test, feature = "test-support"))]
+            self.cell.stepped.notify_waiters();
             // An unloaded thread stops once its accepted records are handed off; a deleted one
             // also waits for its turn to end and its mark.
             if self.cell.closed.load(SeqCst)
@@ -3354,6 +3356,7 @@ impl SessionActor {
                 let _ = jobs.send(JobDone::SensitiveMarked);
             }),
         );
+        let caller_watchdog = agent.as_ref().is_some_and(|start| start.turn.caller_watchdog);
         let (agent_turn, agent) = match agent {
             Some(start) => (Some(start.turn.clone()), Some((start.turn.hooks.on_terminal_result.clone(), start.done))),
             None => (None, None),
@@ -3367,7 +3370,7 @@ impl SessionActor {
             }
             None => agent,
         };
-        let unattended = agent.is_some() || super::goal_lane::automatic(&input_body);
+        let unattended = (agent.is_some() && !caller_watchdog) || super::goal_lane::automatic(&input_body);
         self.run = Some(RunSlot {
             turn: turn.clone(),
             input_item: input_iid.clone(),

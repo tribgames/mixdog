@@ -6,7 +6,7 @@
 //
 //   node record_batch.mjs --tree <Node product tree with node_modules>
 import { createHash } from 'node:crypto';
-import { chmodSync, statSync, utimesSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, readdirSync, statSync, utimesSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -15,10 +15,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const argv = process.argv.slice(2);
 const tree = resolve(argv[argv.indexOf('--tree') + 1]);
 const work = mkdtempSync(join(tmpdir(), 'mixdog-batch-golden-'));
+// Every dir Mixdog reads or backs up into is a temp one, set before any Mixdog module loads.
 process.env.MIXDOG_DATA_DIR = join(work, 'data');
+process.env.MIXDOG_HOME = join(work, 'home');
+process.env.HOME = join(work, 'home');
+process.env.USERPROFILE = join(work, 'home');
+process.env.APPDATA = join(work, 'appdata');
+process.env.LOCALAPPDATA = join(work, 'localappdata');
+process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 const importFrom = (rel) => import(pathToFileURL(join(tree, rel)).href);
 const { executeBuiltinTool } = await importFrom('src/runtime/agent/orchestrator/tools/builtin.mjs');
 const { executePatchTool } = await importFrom('src/runtime/agent/orchestrator/tools/patch.mjs');
+const { clearReadDedupSession, resetReadStateAfterCompaction } = await importFrom('src/runtime/agent/orchestrator/session/cache/read-cache.mjs');
 const sharp = createRequire(join(tree, 'package.json'))('sharp');
 const crcTable = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -362,6 +370,16 @@ const SEQUENCES = [
   { name: 'glob-twice', steps: [{ input: R1('many/*.txt') }, { input: R1('many/*.txt') }, { input: R1('g/t*.txt') }, { input: R1('g/t*.txt') }] },
   // Only the change time moves (a permission flip keeps mtime and size): a different file version.
   { name: 'ctime-only-change', steps: [{ input: R1('a.txt') }, { input: R1('a.txt') }, { chmod: 'a.txt' }, { input: R1('a.txt') }, { input: R1('a.txt') }] },
+  // A workspace switch (refreshWorkspacePrompt, src/session-runtime/workspace/transitions.mjs): the
+  // session's result cache and its observed-file snapshots are reset, in memory and on disk, and
+  // other sessions keep theirs.
+  { name: 'switch-rereads-in-full', steps: [{ input: R1('a.txt') }, { input: R1('a.txt') }, { sleepMs: 700 }, { switch: 's1' }, { input: R1('a.txt') }, { input: R1('a.txt') }] },
+  { name: 'switch-before-the-flush', steps: [{ input: R1('a.txt') }, { switch: 's1' }, { sleepMs: 700 }, { files: ['s1'] }, { input: R1('a.txt') }, { input: R1('a.txt') }] },
+  { name: 'switch-keeps-other-sessions', steps: [{ input: R1('a.txt') }, { input: R1('a.txt'), session: 's2' }, { sleepMs: 700 }, { switch: 's1', watch: ['s2'] }, { files: ['s1', 's2'] }, { input: R1('a.txt'), session: 's2' }, { input: R1('a.txt') }] },
+  { name: 'switch-after-a-ranged-read', steps: [{ input: R1('long.txt', { offset: 1, limit: 10 }) }, { sleepMs: 700 }, { switch: 's1' }, { input: R1('long.txt', { offset: 1, limit: 10 }) }, { input: R1('long.txt', { offset: 1, limit: 10 }) }] },
+  { name: 'switch-with-nothing-read', steps: [{ switch: 's1' }, { input: R1('a.txt') }, { input: R1('a.txt') }] },
+  { name: 'switch-twice', steps: [{ input: R1('a.txt') }, { sleepMs: 700 }, { switch: 's1' }, { switch: 's1' }, { input: R1('a.txt') }, { sleepMs: 700 }, { switch: 's1' }, { input: R1('a.txt') }] },
+  { name: 'switch-after-a-patch', steps: [{ input: R1('a.txt') }, { tool: 'apply_patch', input: { patch: '*** Begin Patch\n*** Update File: a.txt\n@@\n-alpha\n+ALPHA\n*** End Patch\n' } }, { sleepMs: 700 }, { switch: 's1' }, { input: R1('a.txt') }, { input: R1('a.txt') }] },
   // apply_patch and the session's memory of the files it touches.
   ...(() => {
     const P = (patch, extra = {}) => ({ tool: 'apply_patch', input: { patch, ...extra } });
@@ -404,6 +422,23 @@ for (const [n, seq] of SEQUENCES.entries()) {
     if (step.sleepMs) {
       await new Promise((r) => setTimeout(r, step.sleepMs));
       steps.push({ sleepMs: step.sleepMs });
+      continue;
+    }
+    // Which of the named sessions have a persisted snapshot file right now.
+    const persisted = (ids) => {
+      const names = readdirSync(join(process.env.MIXDOG_DATA_DIR, 'read-snapshots'));
+      return Object.fromEntries(ids.map((id) => [id, names.includes(`${id}.json`)]));
+    };
+    if (step.files) {
+      steps.push({ files: step.files, persisted: persisted(step.files) });
+      continue;
+    }
+    if (step.switch) {
+      const ids = [step.switch, ...(step.watch ?? [])];
+      const before = persisted(ids);
+      clearReadDedupSession(step.switch);
+      resetReadStateAfterCompaction(step.switch);
+      steps.push({ switch: step.switch, watch: step.watch ?? [], persistedBefore: before, persistedAfter: persisted(ids) });
       continue;
     }
     if (step.chmod) {

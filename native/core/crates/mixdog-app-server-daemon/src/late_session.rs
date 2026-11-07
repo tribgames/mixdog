@@ -14,6 +14,7 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use mixdog_core::run_host::compose_parts::LateDirectory;
+use mixdog_core::run_host::late::Bound;
 use mixdog_core_agents::setup::SetupUiSurface;
 use mixdog_core_api::CoreError;
 use mixdog_protocol::ThreadId;
@@ -42,6 +43,16 @@ impl SetupUiSurface for LateSetupUi {
     }
 }
 
+impl Bound for LateSetupUi {
+    fn cell(&self) -> &'static str {
+        "setup ui surface"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+
 /// `SetupSeams.sessions` over the late directory.
 pub struct LateCallerSessions(pub Arc<LateDirectory>);
 
@@ -56,6 +67,16 @@ impl CallerSessions for LateCallerSessions {
             Some(directory) => mixdog_core_session::session::SessionDirectory::acting_agent(&directory, thread).await,
             None => Err(CoreError::ThreadNotFound { thread_id: thread.clone() }),
         }
+    }
+}
+
+impl Bound for LateCallerSessions {
+    fn cell(&self) -> &'static str {
+        "late caller sessions"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.is_bound()
     }
 }
 

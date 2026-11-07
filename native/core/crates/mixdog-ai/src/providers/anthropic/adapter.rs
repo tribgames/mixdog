@@ -16,10 +16,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use mixdog_core_api::domain::cache_warm::CacheWarmSend;
+use mixdog_core_api::domain::cache_warm::cache_warm_request;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::ErrorResponse;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
@@ -43,6 +46,8 @@ use crate::transport::http::HttpSend;
 
 use crate::warmer::send::{Post, WarmContext, send_cache_warm};
 use crate::warmer::stream::{WarmFailure, WarmUsage};
+use super::fast_mode::CapacityError;
+use super::fast_mode;
 use super::betas::BetaFeatures;
 use super::betas::beta_header;
 use super::codec::ANTHROPIC_VERSION;
@@ -216,34 +221,34 @@ impl AnthropicAdapter {
         self.http.send(request).await
     }
 
+    /// The body to replay at standard speed after `rejected` refused the fast request `body`, when
+    /// the refusal switches fast mode down (`dropFastSpeedAfter`): the same body without `speed`
+    /// (the betas stay). `None` for a request that did not ask for fast speed or a refusal that
+    /// leaves fast mode alone.
+    fn after_fast_refusal(&self, body: &[u8], rejected: &ErrorResponse) -> Option<Vec<u8>> {
+        let mut parsed: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(body).ok()?;
+        if parsed.get("speed").and_then(serde_json::Value::as_str) != Some("fast") {
+            return None;
+        }
+        let message = String::from_utf8_lossy(&rejected.body);
+        let refusal = CapacityError {
+            status: rejected.status.unwrap_or(0),
+            message: &message,
+            headers: &rejected.headers,
+            retry_after_ms: None,
+        };
+        if !self.codec.config().fast_mode.note_capacity_error(&refusal, true, fast_mode::now_ms()).downgraded() {
+            return None;
+        }
+        parsed.shift_remove("speed");
+        serde_json::to_vec(&parsed).ok()
+    }
+
     async fn failure(&self, response: HttpResponse) -> ProviderError {
         match response.read_all().await {
             Ok(rejected) => self.codec.classify(&rejected),
             Err(err) => err,
         }
-    }
-
-    /// Cache-warm mode (`sendCacheWarm`): the request `attempt` would build for `request` (the
-    /// caller made it a warm: output capped at one token), POSTed once and plain: no retry,
-    /// credential replay, fallback model or re-send, no compression, and the stream cut at the
-    /// first content block. The account gate may skip it; the response is read by the warmer's
-    /// stream reader.
-    pub async fn send_cache_warm(
-        &self,
-        request: &ModelRequest,
-        ctx: &WarmContext<'_>,
-        cancel: &CancellationToken,
-        on_usage: &mut (dyn for<'u> FnMut(&'u WarmUsage) + Send),
-    ) -> Result<WarmUsage, WarmFailure> {
-        let wire = self.codec.encode(request).map_err(|e| WarmFailure::new(e.message))?;
-        let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.message))?;
-        let post: Post<'_> = Box::new(move || {
-            Box::pin(async move {
-                let response = self.http.send(self.request_with(&wire, &secret)).await?;
-                if response.is_success() { Ok(response) } else { Err(self.warm_failure(response).await) }
-            })
-        });
-        send_cache_warm(ctx, cancel, post, on_usage).await
     }
 
     /// A refused warm's error, worded as `anthropicQuotaError` words it for both routes.
@@ -303,6 +308,31 @@ impl AnthropicAdapter {
     }
 }
 
+/// Cache-warm mode (`sendCacheWarm`): the request `attempt` would build for the warm of `request`
+/// (output capped at one token), POSTed once and plain: no retry, credential replay, fallback
+/// model or re-send, no compression, and the stream cut at the first content block. The account
+/// gate may skip it; the response is read by the warmer's stream reader.
+#[async_trait]
+impl CacheWarmSend for AnthropicAdapter {
+    async fn send_cache_warm(
+        &self,
+        request: &ModelRequest,
+        ctx: &WarmContext<'_>,
+        cancel: &CancellationToken,
+        on_usage: &mut (dyn for<'u> FnMut(&'u WarmUsage) + Send),
+    ) -> Result<WarmUsage, WarmFailure> {
+        let wire = self.codec.encode(&cache_warm_request(request)).map_err(|e| WarmFailure::new(e.message))?;
+        let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.message))?;
+        let post: Post<'_> = Box::new(move || {
+            Box::pin(async move {
+                let response = self.http.send(self.request_with(&wire, &secret)).await?;
+                if response.is_success() { Ok(response) } else { Err(self.warm_failure(response).await) }
+            })
+        });
+        send_cache_warm(ctx, cancel, post, on_usage).await
+    }
+}
+
 #[async_trait]
 impl ModelListing for AnthropicAdapter {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
@@ -337,16 +367,32 @@ impl ProviderAdapter for AnthropicAdapter {
         Some(self)
     }
 
+    fn cache_warm(&self) -> Option<&dyn CacheWarmSend> {
+        Some(self)
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let wire = self.codec.encode(&request)?;
+        let mut wire = self.codec.encode(&request)?;
         let mut secret = self.credentials.current().await?;
         let mut refreshed = false;
+        let mut speed_dropped = false;
         loop {
             let response = self.post(&wire, &secret).await?;
             if (200..300).contains(&response.status) {
                 return Ok(Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request))));
             }
-            let mut err = self.failure(response).await;
+            let rejected = response.read_all().await?;
+            // A fast-pool refusal (or "Fast mode is not enabled") says nothing about standard-speed
+            // capacity: the cooldown is recorded, `speed` is dropped and the request replayed once
+            // at once, instead of waiting out a window only the fast pool owns.
+            if !speed_dropped
+                && let Some(standard) = self.after_fast_refusal(&wire.body, &rejected)
+            {
+                wire.body = standard;
+                speed_dropped = true;
+                continue;
+            }
+            let mut err = self.codec.classify(&rejected);
             if !refreshed && self.credentials.refreshable(err.status) {
                 refreshed = true;
                 if let Some(next) = self.credentials.after_rejection(&secret).await? {

@@ -121,8 +121,10 @@ fn raw_bound(schema: &Value, lower: bool) -> Bound {
     } else {
         ("maximum", "exclusiveMaximum")
     };
-    let mut out = schema.get(inc).and_then(Value::as_f64).map(|v| (v, false));
-    if let Some(v) = schema.get(exc).and_then(Value::as_f64) {
+    // `Number(x)` of whatever is written: a draft-04 `exclusiveMinimum: true` reads as 1.
+    let number = |key: &str| Some(mixdog_js::to_number_of(schema.get(key))).filter(|n| n.is_finite());
+    let mut out = number(inc).map(|v| (v, false));
+    if let Some(v) = number(exc) {
         out = stronger(out, Some((v, true)), lower);
     }
     out

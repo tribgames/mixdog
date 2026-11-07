@@ -22,7 +22,7 @@ use mixdog_remote::identity::load_or_create_e2ee_identity;
 use serde_json::{Value, json};
 
 mod common;
-use common::{driven_relay, eventually, on_lane, runtime_for};
+use common::{driven_relay, on_lane, runtime_for};
 
 const VERSION: &str = "1.4.6";
 const CRED: &str = "aaaaaaa1";
@@ -107,7 +107,7 @@ async fn a_phone_and_a_direct_connection_receive_the_same_thread_frames() {
     let relay = driven_relay(json!([])).await;
     let runtime = runtime_for(path, relay.port, Arc::new(LocalDialer::new(hub.clone(), accept.clone())));
     runtime.start(true).await.unwrap();
-    eventually("the leg did not open", || runtime.is_connected()).await;
+    runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
     let mut phone = relay.pair_phone(&identity, "p1", CRED).await;
 
     let (accepted, mut direct) = open_relay(&hub, "desk1".to_owned()).unwrap();
@@ -193,7 +193,7 @@ async fn a_phone_is_a_relay_connection_and_methods_outside_that_origin_are_refus
     let relay = driven_relay(json!([])).await;
     let runtime = runtime_for(path, relay.port, Arc::new(LocalDialer::new(hub, accept)));
     runtime.start(true).await.unwrap();
-    eventually("the leg did not open", || runtime.is_connected()).await;
+    runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
     let mut phone = relay.pair_phone(&identity, "p1", CRED).await;
 
     phone.send(

@@ -9,36 +9,7 @@ use serde_json::Value;
 use crate::providers::anthropic::errors::classify_stream_error;
 use crate::transport::link::BodyStream;
 
-/// What one warm reported, in the slots `updateTurnUsage` fills.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct WarmUsage {
-    pub input: f64,
-    pub output: f64,
-    pub cached: f64,
-    pub cache_write: f64,
-    /// The 1-hour-TTL share of the writes, when the provider reported one.
-    pub cache_write_1h: Option<f64>,
-    /// `input + cached + cache write`, once a usage was reported.
-    pub prompt_tokens: Option<f64>,
-    /// A gateway's reported cost.
-    pub cost_usd: Option<f64>,
-}
-
-/// A warm that ended in failure: the error's text, the provider's classified error when the wire
-/// carried one (its status and type reach the lane and roster as a send's would) and the usage
-/// reported before it.
-#[derive(Clone, PartialEq, Debug)]
-pub struct WarmFailure {
-    pub message: String,
-    pub error: Option<ProviderError>,
-    pub usage: Option<WarmUsage>,
-}
-
-impl WarmFailure {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), error: None, usage: None }
-    }
-}
+pub use mixdog_core_api::domain::cache_warm::{WarmFailure, WarmUsage};
 
 fn reported_cost(value: &Value) -> Option<f64> {
     if value.is_null() || value.as_str().is_some_and(|s| mixdog_js::js_trim(s).is_empty()) {

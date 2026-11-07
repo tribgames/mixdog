@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-provider-ready.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3237,
+      "path": "golden.json",
+      "sha256": "f2cfd7304132143140c51761aca88cea46d72636aac4b10b254c18c99fdb8db5"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": "c397510597b76f4ee67778650a58a1570d923480",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "c397510597b76f4ee67778650a58a1570d923480",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-provider-ready.mjs",
+  "set": "provider-ready",
+  "totalBytes": 3237
+}

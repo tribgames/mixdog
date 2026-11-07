@@ -1,0 +1,306 @@
+{
+ "domain": "lead-worker-cwd-twin",
+ "now": 1700000000000,
+ "recorder": "benchmarks/rust-core/recorders/record-lead-worker-cwd.mjs",
+ "scenarios": [
+  {
+   "name": "moves-a-settled-row",
+   "seed": [
+    "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/old\"}",
+    "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242}",
+    "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same\"}",
+    "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+   ],
+   "steps": [
+    {
+     "args": [
+      "lead-a",
+      "/new"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/new\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-a",
+      "  /trimmed  "
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/trimmed\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-a",
+      "/trimmed"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/trimmed\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-nocwd",
+      "/added"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/trimmed\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/added\"}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-same",
+      "/same"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/trimmed\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/added\"}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-same",
+      " /same "
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/trimmed\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/added\"}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-same",
+      "/same/"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/trimmed\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/added\"}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same/\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    },
+    {
+     "args": [
+      "  lead-a  ",
+      "/through-a-padded-id"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/through-a-padded-id\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/added\"}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same/\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-a",
+      "C:\\Users\\a b\\proj"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"C:\\\\Users\\\\a b\\\\proj\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/added\"}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same/\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-a",
+      "/ünïcode/✓"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/ünïcode/✓\"}",
+      "lead-nocwd": "{\"tag\":\"lead:lead-nocwd\",\"sessionId\":\"lead-nocwd\",\"ownerSessionId\":\"lead-nocwd\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/added\"}",
+      "lead-same": "{\"tag\":\"lead:lead-same\",\"sessionId\":\"lead-same\",\"ownerSessionId\":\"lead-same\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/same/\"}",
+      "lead-other": "{\"tag\":\"lead:lead-other\",\"sessionId\":\"lead-other\",\"ownerSessionId\":\"lead-other\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/other\"}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "nothing-to-move",
+   "seed": [
+    "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/old\"}"
+   ],
+   "steps": [
+    {
+     "args": [
+      "unknown",
+      "/x"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/old\"}"
+     }
+    },
+    {
+     "args": [
+      "",
+      "/x"
+     ],
+     "returns": false,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/old\"}"
+     }
+    },
+    {
+     "args": [
+      "   ",
+      "/x"
+     ],
+     "returns": false,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/old\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-a",
+      ""
+     ],
+     "returns": false,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/old\"}"
+     }
+    },
+    {
+     "args": [
+      "lead-a",
+      "   "
+     ],
+     "returns": false,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/old\"}"
+     }
+    },
+    {
+     "args": [
+      "lead:lead-a",
+      "/by-tag"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-a": "{\"tag\":\"lead:lead-a\",\"sessionId\":\"lead-a\",\"ownerSessionId\":\"lead-a\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/old\"}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "a-running-row-keeps-its-status",
+   "seed": [
+    "{\"tag\":\"lead:lead-run\",\"sessionId\":\"lead-run\",\"ownerSessionId\":\"lead-run\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"running\",\"stage\":\"streaming\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":0,\"cwd\":\"/old\",\"turnStartedAt\":\"2023-11-14T22:13:20.000Z\"}"
+   ],
+   "steps": [
+    {
+     "args": [
+      "lead-run",
+      "/moved"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-run": "{\"tag\":\"lead:lead-run\",\"sessionId\":\"lead-run\",\"ownerSessionId\":\"lead-run\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"running\",\"stage\":\"streaming\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":null,\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":0,\"cwd\":\"/moved\",\"turnStartedAt\":\"2023-11-14T22:13:20.000Z\"}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "a-row-with-a-reap-deadline-keeps-it",
+   "seed": [
+    "{\"tag\":\"lead:lead-reap\",\"sessionId\":\"lead-reap\",\"ownerSessionId\":\"lead-reap\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":\"2023-11-14T22:23:20.000Z\",\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/old\"}"
+   ],
+   "steps": [
+    {
+     "args": [
+      "lead-reap",
+      "/moved"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-reap": "{\"tag\":\"lead:lead-reap\",\"sessionId\":\"lead-reap\",\"ownerSessionId\":\"lead-reap\",\"agent\":\"lead\",\"provider\":\"anthropic\",\"model\":\"opus\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":\"2023-11-14T22:13:20.000Z\",\"reapAt\":\"2023-11-14T22:23:20.000Z\",\"finishedAt\":\"2023-11-14T22:13:20.000Z\",\"runtimePid\":4242,\"cwd\":\"/moved\"}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "a-stored-row-is-normalized-by-the-write",
+   "seed": [
+    "{\"sessionId\":\" lead-raw \",\"agent\":\"Lead\",\"cwd\":5,\"extra\":{\"kept\":true}}"
+   ],
+   "steps": [
+    {
+     "args": [
+      " lead-raw ",
+      "/moved"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-raw": "{\"sessionId\":\"lead-raw\",\"agent\":\"lead\",\"cwd\":\"/moved\",\"extra\":{\"kept\":true},\"tag\":\"lead:lead-raw\",\"ownerSessionId\":\"lead-raw\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":null,\"reapAt\":null}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "a-stored-row-without-a-cwd-and-with-blank-fields",
+   "seed": [
+    "{\"sessionId\":\"lead-blank\",\"status\":\"  \",\"stage\":\"\",\"updatedAt\":\" \",\"reapAt\":\"\",\"provider\":\"openai\"}"
+   ],
+   "steps": [
+    {
+     "args": [
+      "lead-blank",
+      "/moved"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-blank": "{\"sessionId\":\"lead-blank\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":null,\"reapAt\":null,\"provider\":\"openai\",\"tag\":\"lead:lead-blank\",\"ownerSessionId\":\"lead-blank\",\"agent\":\"lead\",\"cwd\":\"/moved\"}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "a-row-already-normalized-is-left-alone-on-the-same-cwd",
+   "seed": [
+    "{\"sessionId\":\"lead-raw2\",\"cwd\":\"/same\"}"
+   ],
+   "steps": [
+    {
+     "args": [
+      "lead-raw2",
+      "/same"
+     ],
+     "returns": true,
+     "rows": {
+      "lead-raw2": "{\"sessionId\":\"lead-raw2\",\"cwd\":\"/same\",\"tag\":\"lead:lead-raw2\",\"ownerSessionId\":\"lead-raw2\",\"agent\":\"lead\",\"status\":\"idle\",\"stage\":\"idle\",\"updatedAt\":null,\"reapAt\":null}"
+     }
+    }
+   ]
+  }
+ ]
+}

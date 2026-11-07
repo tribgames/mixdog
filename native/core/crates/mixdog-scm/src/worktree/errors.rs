@@ -278,6 +278,26 @@ pub fn busy_text(message: String) -> ScmFailure {
     failure
 }
 
+/// `WORKTREE_BUSY_JOBS` (`workspace-shared`) with the text of the producer: Node's manager
+/// check (`assertNoOtherSessions`) and its session-level check word the same reason differently.
+fn shared_with(sessions: Vec<String>, message: &str) -> ScmFailure {
+    let mut failure = busy_with("workspace-shared", Some(sessions), None, None);
+    if let ScmFailure::Coded { message: slot, .. } = &mut failure {
+        *slot = Some(message.into());
+    }
+    failure
+}
+
+/// Other sessions reference the worktree (the manager's removal check).
+pub fn shared_by_others(sessions: Vec<String>) -> ScmFailure {
+    shared_with(sessions, "Other sessions retain this worktree; its folder must be kept.")
+}
+
+/// The worktree belongs to a session other than the asking one (the session-level check).
+pub fn belongs_to_another(owners: Vec<String>) -> ScmFailure {
+    shared_with(owners, "This worktree belongs to another session.")
+}
+
 /// The worktree (or project folder) has uncommitted work or an operation in progress.
 pub fn dirty(entry_id: Option<String>, operation: Option<String>, count: Option<u64>, reason: Option<&str>) -> ScmFailure {
     ScmFailure::coded(

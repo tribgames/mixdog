@@ -1,0 +1,160 @@
+{
+  "configs": {
+    "empty": {},
+    "invalid_custom": {
+      "custom-bad": {
+        "type": "custom",
+        "name": "Mine",
+        "baseURL": "https://llm.example.com/v1",
+        "enabled": true,
+        "protocol": "nope",
+        "apiKey": "k",
+        "models": [
+          {
+            "id": "m1"
+          }
+        ]
+      }
+    },
+    "valid": {
+      "custom-ok": {
+        "type": "custom",
+        "name": "Mine",
+        "baseURL": "https://llm.example.com/v1",
+        "enabled": true,
+        "protocol": "openai-chat",
+        "apiKey": "k",
+        "preconnect": false,
+        "models": [
+          {
+            "id": "m1"
+          }
+        ]
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "name": "never_initialized",
+      "initial": false,
+      "steps": []
+    },
+    {
+      "name": "empty_config_refused",
+      "initial": false,
+      "steps": [
+        {
+          "op": "apply",
+          "config": "empty",
+          "outcome": "refused",
+          "ready": false
+        }
+      ]
+    },
+    {
+      "name": "only_invalid_custom_refused",
+      "initial": false,
+      "steps": [
+        {
+          "op": "apply",
+          "config": "invalid_custom",
+          "outcome": "refused",
+          "ready": false
+        }
+      ]
+    },
+    {
+      "name": "valid_config_settles",
+      "initial": false,
+      "steps": [
+        {
+          "op": "apply",
+          "config": "valid",
+          "outcome": "ok",
+          "ready": true
+        }
+      ]
+    },
+    {
+      "name": "a_later_refusal_never_unsettles",
+      "initial": false,
+      "steps": [
+        {
+          "op": "apply",
+          "config": "valid",
+          "outcome": "ok",
+          "ready": true
+        },
+        {
+          "op": "apply",
+          "config": "empty",
+          "outcome": "refused",
+          "ready": true
+        },
+        {
+          "op": "apply",
+          "config": "invalid_custom",
+          "outcome": "refused",
+          "ready": true
+        }
+      ]
+    },
+    {
+      "name": "a_waiter_resolves_at_the_first_applied_config",
+      "initial": false,
+      "steps": [
+        {
+          "op": "wait",
+          "ready": false,
+          "waiter": false
+        },
+        {
+          "op": "apply",
+          "config": "empty",
+          "outcome": "refused",
+          "ready": false,
+          "waiter": false
+        },
+        {
+          "op": "apply",
+          "config": "invalid_custom",
+          "outcome": "refused",
+          "ready": false,
+          "waiter": false
+        },
+        {
+          "op": "apply",
+          "config": "valid",
+          "outcome": "ok",
+          "ready": true,
+          "waiter": true
+        },
+        {
+          "op": "apply",
+          "config": "empty",
+          "outcome": "refused",
+          "ready": true,
+          "waiter": true
+        }
+      ]
+    },
+    {
+      "name": "a_second_valid_config_changes_nothing",
+      "initial": false,
+      "steps": [
+        {
+          "op": "apply",
+          "config": "valid",
+          "outcome": "ok",
+          "ready": true
+        },
+        {
+          "op": "apply",
+          "config": "valid",
+          "outcome": "ok",
+          "ready": true
+        }
+      ]
+    }
+  ]
+}

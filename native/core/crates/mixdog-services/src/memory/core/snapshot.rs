@@ -4,7 +4,8 @@
 //! revision before they query, and the write refuses to replace a newer
 //! revision, so refreshes that finish out of order cannot roll the file back.
 
-use mixdog_js::{js_trim, js_words};
+use mixdog_js::{js_trim, js_words, to_number_of, value_to_string};
+use serde_json::Value;
 use mixdog_rt::DurabilityIo;
 use std::path::{Path, PathBuf};
 
@@ -47,11 +48,68 @@ fn collapse_whitespace(text: &str) -> String {
     js_words(text).collect::<Vec<_>>().join(" ")
 }
 
-/// The stored snapshot, or None when absent, unreadable or of another version.
+/// `finiteNumber(value)`: `Number(value)` when finite, else 0 (also for an absent value).
+fn finite_number(value: Option<&Value>) -> f64 {
+    let number = to_number_of(value);
+    if number.is_finite() { number } else { 0.0 }
+}
+
+/// `a ?? b`: the first value that is neither absent nor null.
+fn first_set<'a>(row: &'a Value, a: &str, b: &str) -> Option<&'a Value> {
+    row.get(a).filter(|v| !v.is_null()).or_else(|| row.get(b).filter(|v| !v.is_null()))
+}
+
+/// `normalizeProjectId`: absent or null is None; otherwise `String(value).trim()`, None when empty.
+fn optional_id(value: Option<&Value>) -> Option<String> {
+    let text = js_trim(&value_to_string(value?)).to_owned();
+    (!text.is_empty()).then_some(text)
+}
+
+/// `normalizeCuratedEntry`: a row with no text is skipped, every other missing or odd field takes
+/// its default (id and time 0, no revision, project or agent). The snake-case spellings count.
+fn normalized_entry(row: &Value) -> Option<SnapshotEntry> {
+    // `String(value || '')`: a falsy value is the empty string.
+    let falsy = |v: &Value| match v {
+        Value::Null => true,
+        Value::Bool(flag) => !flag,
+        Value::Number(number) => number.as_f64().unwrap_or(f64::NAN).is_nan() || number.as_f64() == Some(0.0),
+        Value::String(text) => text.is_empty(),
+        _ => false,
+    };
+    let summary = row.get("summary").filter(|v| !falsy(v)).map_or_else(String::new, value_to_string);
+    let summary = collapse_whitespace(&summary);
+    if summary.is_empty() {
+        return None;
+    }
+    Some(SnapshotEntry {
+        id: finite_number(row.get("id")) as i64,
+        index_revision: first_set(row, "indexRevision", "index_revision").map(value_to_string),
+        summary,
+        project_id: optional_id(first_set(row, "projectId", "project_id")),
+        agent_id: optional_id(first_set(row, "agentId", "agent_id")),
+        updated_at: finite_number(first_set(row, "updatedAt", "updated_at")) as i64,
+    })
+}
+
+/// `readCoreMemoryFile`: the stored snapshot, or None when absent, unreadable, not JSON or of
+/// another version. The file may have been edited by hand or written by an older product, so it
+/// is read as tolerantly as Node reads it: missing or malformed fields take their defaults.
 pub async fn read(lane: DurabilityIo, data_dir: &Path) -> Option<Snapshot> {
     let bytes = fsio::read(lane, &file_path(data_dir)).await.ok()?;
-    let snapshot: Snapshot = serde_json::from_slice(&bytes).ok()?;
-    (snapshot.version == VERSION).then_some(snapshot)
+    let parsed: Value = serde_json::from_str(&String::from_utf8_lossy(&bytes)).ok()?;
+    // `parsed?.version !== 1`: only the number 1 counts, not "1" or true.
+    if parsed.get("version").and_then(Value::as_f64) != Some(f64::from(VERSION)) {
+        return None;
+    }
+    Some(Snapshot {
+        version: VERSION,
+        revision: finite_number(parsed.get("revision")).max(0.0) as u64,
+        updated_at: finite_number(parsed.get("updatedAt")).max(0.0) as i64,
+        curated: parsed
+            .get("curated")
+            .and_then(Value::as_array)
+            .map_or_else(Vec::new, |rows| rows.iter().filter_map(normalized_entry).collect()),
+    })
 }
 
 /// Rebuilds the snapshot from Postgres and writes it unless a newer revision

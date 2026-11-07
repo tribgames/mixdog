@@ -257,8 +257,10 @@ mod tests {
     }
 
     /// A fire behind a running turn waits in the queue (never steered into it); cancelled there it
-    /// leaves the queue and never runs.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    /// leaves the queue and never runs. Time is paused and the runtime has one thread: each wait
+    /// below ends when the tasks have run, never on a deadline measured in real time, so a loaded
+    /// machine cannot change the outcome.
+    #[tokio::test(start_paused = true)]
     async fn a_fire_behind_a_running_turn_waits_and_a_cancel_drops_it_unrun() {
         let rig = Rig::new();
         let hold = Arc::new(tokio::sync::Notify::new());

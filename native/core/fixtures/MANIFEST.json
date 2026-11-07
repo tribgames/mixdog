@@ -209,6 +209,15 @@
       "totalBytes": 108603
     },
     {
+      "command": "node <repo>/benchmarks/rust-core/recorders/record-dispatch-sessions.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "dispatch-sessions/MANIFEST.json",
+      "manifestSha256": "2555b3bcc2e33778fd4200122dd93404a3e43af9e4678f1551d29516313c9d97",
+      "recorder": "benchmarks/rust-core/recorders/record-dispatch-sessions.mjs",
+      "set": "dispatch-sessions",
+      "totalBytes": 9439
+    },
+    {
       "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-domain-seams.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "domain-seams/MANIFEST.json",
@@ -569,6 +578,15 @@
       "totalBytes": 801214
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-quota-auto-resume.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "quota-auto-resume/MANIFEST.json",
+      "manifestSha256": "b650779e8201b494c4e91ba0a2aa3148c2791459ac035906072dd26664a62b22",
+      "recorder": "benchmarks/rust-core/recorders/record-quota-auto-resume.mjs",
+      "set": "quota-auto-resume",
+      "totalBytes": 2361
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-quota-scheduler.mjs --tree <tree>",
       "fileCount": 2,
       "manifest": "quota-scheduler/MANIFEST.json",
@@ -774,6 +792,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-side-question-store.mjs",
       "set": "side-question-store",
       "totalBytes": 29343
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-statusline-route.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "statusline-route/MANIFEST.json",
+      "manifestSha256": "488e7b5621db1ec95abcd48d45af399ae51e88f0ecb7f38b3e1298b65a1df314",
+      "recorder": "benchmarks/rust-core/recorders/record-statusline-route.mjs",
+      "set": "statusline-route",
+      "totalBytes": 72589
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-step-ladder.mjs --tree <tree>",

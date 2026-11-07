@@ -101,12 +101,20 @@ impl UnattendedRuns for UnattendedRunRegistry {
     /// A marked run; else a room member's own session (the room is the run's name); else the
     /// schedule or webhook run stamped on the session's record, with an owner.
     async fn run_of(&self, thread: &ThreadId) -> Option<GateRun> {
+        self.named_run_of(thread).await.map(|(run, _)| run)
+    }
+}
+
+impl UnattendedRunRegistry {
+    /// `unattendedRunOf(thread)` with the run's `name`: the marked name, a room's id, or the stamp's
+    /// `String(stamped.name || '')`.
+    pub async fn named_run_of(&self, thread: &ThreadId) -> Option<(GateRun, String)> {
         let id = thread.as_str();
         if let Some(run) = self.marked.lock().unwrap_or_else(PoisonError::into_inner).get(id) {
-            return Some(GateRun { kind: run.kind, agent_id: run.agent_id.clone() });
+            return Some((GateRun { kind: run.kind, agent_id: run.agent_id.clone() }, run.name.clone()));
         }
         if let Some(member) = room_member_of_session(id) {
-            return Some(GateRun { kind: RunKind::Room, agent_id: member.agent_id });
+            return Some((GateRun { kind: RunKind::Room, agent_id: member.agent_id }, member.room_id));
         }
         let stamp = self.stamps.stamp_of(thread).await?;
         let kind = match stamp.get("kind").and_then(Value::as_str)? {
@@ -116,7 +124,8 @@ impl UnattendedRuns for UnattendedRunRegistry {
         };
         // `stamped.agentId` is any truthy value, read as `String(stamped.agentId)`.
         let owner = stamp.get("agentId").filter(|owner| truthy(Some(owner)))?;
-        Some(GateRun { kind, agent_id: mixdog_js::value_to_string(owner) })
+        let name = stamp.get("name").filter(|name| truthy(Some(name))).map(mixdog_js::value_to_string).unwrap_or_default();
+        Some((GateRun { kind, agent_id: mixdog_js::value_to_string(owner) }, name))
     }
 }
 
@@ -185,5 +194,24 @@ mod tests {
         assert_eq!(run(&registry, "sess_a").await, Some((RunKind::Webhook, "mailer".into())));
         drop(second);
         assert_eq!(run(&registry, "sess_a").await, None);
+    }
+
+    #[tokio::test]
+    async fn a_run_carries_the_name_node_gives_it() {
+        let registry = registry();
+        let name = |id: &str| {
+            let registry = registry.clone();
+            let id = id.to_owned();
+            async move { registry.named_run_of(&ThreadId::from(id)).await.map(|(_, name)| name) }
+        };
+        assert_eq!(name("sess_plain").await, None);
+        // A marked run's name is `String(name)`, a room's is its id, a stamped run's is `String(stamped.name || '')`.
+        let daily = registry.mark("sess_home_mailer", RunKind::Schedule, "mailer", "Daily").unwrap();
+        assert_eq!(name("sess_home_mailer").await.as_deref(), Some("Daily"));
+        drop(daily);
+        let member = mixdog_core_base::rooms::ids::room_member_session_id("abc123", "ann").unwrap();
+        assert_eq!(name(&member).await.as_deref(), Some("abc123"));
+        assert_eq!(name("sess_child").await.as_deref(), Some("Hook"));
+        assert_eq!(name("sess_num").await.as_deref(), Some(""), "a stamp without a name has the empty one");
     }
 }

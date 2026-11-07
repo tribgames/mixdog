@@ -1,0 +1,30 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-quota-auto-resume.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2361,
+      "path": "golden.json",
+      "sha256": "8939b3c4a7e06bb2b0a2e3bc0bd2b149c580e480d40e2316634efcc1967bf442"
+    }
+  ],
+  "product": {
+    "appsSha256": "fafa2dadfb9db84dba5ba512f05574282fe76e530ac5b39b4bb99cc0f396199c",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "ac7f9ed7ca70f5b8d2df80a5a5b56ebc30efee88",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 9248
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-quota-auto-resume.mjs",
+  "set": "quota-auto-resume",
+  "totalBytes": 2361
+}

@@ -15,31 +15,29 @@ use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError,
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use super::chain::{WarmRequest, WarmTarget};
 use super::gate::{GateTarget, WarmGate};
 use super::stream::{WarmFailure, WarmUsage, read_cache_warm_stream};
 use crate::transport::link::{BodyStream, HttpResponse};
 
-/// `PROVIDER_FIRST_BYTE_TIMEOUT_MS` and `PROVIDER_SSE_IDLE_TIMEOUT_MS` as the stall policy
-/// resolved them for the process.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Deadlines {
-    pub first_byte: Duration,
-    pub sse_idle: Duration,
+pub use mixdog_core_api::domain::cache_warm::{Deadlines, WarmContext};
+
+/// What the gate is asked about a warm of `request` on `target`: the roster account that holds the
+/// entry, the provider, the model and the session asking.
+pub fn gate_target(request: &dyn WarmRequest, target: &WarmTarget) -> GateTarget {
+    GateTarget {
+        provider: request.provider_name().to_owned(),
+        account_id: target.account_id.clone(),
+        model: request.model().to_owned(),
+        session_id: request.session_id().to_owned(),
+    }
 }
 
-impl Deadlines {
-    /// The stall policy's defaults (no environment override).
-    pub const DEFAULT: Self = Self { first_byte: Duration::from_millis(60_000), sse_idle: Duration::from_millis(120_000) };
-}
-
-/// What a warm is gated and bounded by.
-#[derive(Clone, Copy)]
-pub struct WarmContext<'a> {
-    pub gate: &'a dyn WarmGate,
-    pub target: &'a GateTarget,
-    pub deadlines: Deadlines,
-    /// Hears a failure to persist the warm's refusal.
-    pub report: &'a (dyn Fn(&str) + Send + Sync),
+/// The deadlines of the process: `PROVIDER_FIRST_BYTE_TIMEOUT_MS` and `PROVIDER_SSE_IDLE_TIMEOUT_MS`
+/// as `stall-policy.mjs` resolves them from the environment `get` reads.
+pub fn deadlines_from_env(get: impl Fn(&str) -> Option<String>) -> Deadlines {
+    let (first_byte_ms, sse_idle_ms) = crate::providers::google::cache::policy::stall_deadlines_ms(get);
+    Deadlines { first_byte: Duration::from_millis(first_byte_ms as u64), sse_idle: Duration::from_millis(sse_idle_ms as u64) }
 }
 
 /// The one POST of a warm: the provider's built request, sent plain. A status that is not a

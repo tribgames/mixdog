@@ -153,6 +153,8 @@ pub(crate) struct BodyConfig<'a> {
     pub official_url: bool,
     /// `disableBetaHeaders` is off.
     pub beta_headers: bool,
+    /// The process-wide fast-mode state: a request is built at fast speed only while it allows.
+    pub fast_mode: &'a super::fast_mode::FastMode,
 }
 
 /// Model families (after `model_key`, with the major version) that take the
@@ -773,7 +775,9 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
             disable_parallel,
         )
     };
-    let fast = request.options.fast && cfg.caps.is_some_and(|c| c.fast_mode);
+    let fast = request.options.fast
+        && cfg.caps.is_some_and(|c| c.fast_mode)
+        && cfg.fast_mode.available(super::fast_mode::now_ms());
 
     let messages_json = Value::Array(messages.iter().map(WireMessage::to_json).collect());
     let fallback = server_fallback(cfg, &request.model, parameters);

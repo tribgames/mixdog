@@ -207,6 +207,9 @@ struct Inner {
     /// Starts, rotations and stops run one at a time; a permit is held across the relay dial.
     gate: tokio::sync::Semaphore,
     bridge: Bridge,
+    /// Whether the relay leg is open, written wherever `State::connected` changes (the leg opening,
+    /// being lost, being closed): what a caller waits on instead of polling `is_connected`.
+    link_up: tokio::sync::watch::Sender<bool>,
 }
 
 #[derive(Clone)]
@@ -387,6 +390,7 @@ impl RemoteRuntime {
                 roster: tokio::sync::OnceCell::new(),
                 gate: tokio::sync::Semaphore::new(1),
                 bridge: Bridge::new(dialer, sink),
+                link_up: tokio::sync::watch::Sender::new(false),
             }
         });
         // The ticker's notification becomes `on_tick` on the runtime's own task.
@@ -602,6 +606,7 @@ impl RemoteRuntime {
             state.native = None;
             (live, state.table.close_all())
         };
+        self.inner.link_up.send_replace(false);
         if let Some(live) = live {
             live.cancel.cancel();
             live.controls.reject_all(&ControlError::Failed("Relay client is closed.".into()));
@@ -974,6 +979,12 @@ impl RemoteRuntime {
         self.inner.state().connected
     }
 
+    /// [`is_connected`](Self::is_connected) as a value that announces its changes: the leg opening,
+    /// being lost or closed.
+    pub fn watch_connected(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.inner.link_up.subscribe()
+    }
+
     /// This PC's relay device id (the `/d/<deviceId>/` route); empty while the relay is off.
     pub fn host_id(&self) -> String {
         self.inner.state().live.as_ref().map(|live| live.device.device_id.clone()).unwrap_or_default()
@@ -1189,6 +1200,7 @@ impl RemoteRuntime {
                 web.reset();
             }
         }
+        self.inner.link_up.send_replace(true);
         let version = self.inner.cfg.app_version.as_ref().map(|(v, r)| (v.as_str(), r.as_deref()));
         for frame in open_envelopes(&name, version, &live.pairing_token) {
             self.inner.cfg.link.send(&frame);
@@ -1206,6 +1218,7 @@ impl RemoteRuntime {
             state.connected = false;
             state.table.close_all()
         };
+        self.inner.link_up.send_replace(false);
         live.controls.reject_all(&ControlError::Failed("Relay disconnected.".into()));
         self.inner.bridge.close_all();
         for peer in peers {

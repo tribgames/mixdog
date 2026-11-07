@@ -8,8 +8,8 @@ use super::*;
 
 impl Inner {
     /// `assertWorktreeMutationAllowed`: only a conversation session changes worktrees.
-    fn assert_mutation_allowed(&self, caller: &str, what: &str) -> Result<(), ScmFailure> {
-        if self.host.attended(caller) {
+    async fn assert_mutation_allowed(&self, caller: &str, what: &str) -> Result<(), ScmFailure> {
+        if self.host.attended(caller).await {
             return Ok(());
         }
         Err(plain(format!(
@@ -153,8 +153,8 @@ impl Inner {
 
 #[async_trait]
 impl SessionWorktrees for SessionWorkspaces {
-    fn is_lead(&self, session_id: &str) -> bool {
-        self.inner.host.is_lead(session_id)
+    async fn is_lead(&self, session_id: &str) -> bool {
+        self.inner.host.is_lead(session_id).await
     }
 
     async fn run(&self, op: SessionOp, caller_session_id: &str, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
@@ -166,7 +166,7 @@ impl SessionWorktrees for SessionWorkspaces {
             SessionOp::Merge { session_id, tx_id } => ("merge", session_id, tx_id),
             SessionOp::Remove { session_id, tx_id, .. } => ("remove", session_id, tx_id),
         };
-        inner.assert_mutation_allowed(caller, &format!("git worktree {what}"))?;
+        inner.assert_mutation_allowed(caller, &format!("git worktree {what}")).await?;
         let target = target.clone().unwrap_or_else(|| caller.to_owned());
         let own_turn = target == caller;
         let tx_id = tx_id.clone();

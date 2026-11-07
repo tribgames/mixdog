@@ -12,6 +12,7 @@ pub mod compose_mcp;
 pub mod compose_domains;
 pub mod late_session;
 pub mod control;
+pub mod daemon_log;
 pub mod discovery;
 pub mod domain_seams;
 pub mod js_runtime;
@@ -73,6 +74,12 @@ pub async fn serve() -> Result<(), ServeError> {
     // gate's decision. Until it lands the idle sweep and the event pipeline are not started: they
     // belong after it, and nothing in this function starts them.
     let outgoing = mixdog_app_server::Outgoing::new();
+    // The daemon's run token and the one daemon log (`<data>/daemon.log`), enabled where the daemon starts, as Node enables its log at
+    // startup. Compose and every writer share the log; the one stop procedure (`ComposedCore::run_stop_steps`) flushes it after the
+    // last step and then cancels the token.
+    let stop = mixdog_rt::CancellationToken::new();
+    let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
+    log.enable_file_logging();
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),
         data_dir,
@@ -80,6 +87,8 @@ pub async fn serve() -> Result<(), ServeError> {
         ort_library,
         // The server that attaches here takes this router with it (`Running::build`).
         host: outgoing.clone(),
+        log,
+        stop,
     };
     let core = std::sync::Arc::new(compose::compose(&tokens, config).await?);
     tracing::info!(mocked = core.mocked_domains().len(), "core composed against mocks");

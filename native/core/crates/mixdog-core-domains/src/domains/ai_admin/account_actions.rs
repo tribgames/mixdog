@@ -79,7 +79,7 @@ fn require_text(args: &Value, field: &str) -> Result<String, PortError> {
 
 /// `publicAccounts`: the roster without its usage, limits and identities. A field the roster
 /// leaves out (`undefined`, which `JSON.stringify` drops) is left out here.
-fn public_accounts(pool: &Value) -> Value {
+pub(super) fn public_accounts(pool: &Value) -> Value {
     let mut out = Obj::new();
     for key in ["selectedId", "auto"] {
         if let Some(value) = pool.get(key) {

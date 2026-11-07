@@ -1,0 +1,31 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-room-turn.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 115612,
+      "path": "golden.json",
+      "sha256": "06acbb8ed4a77cddb76fde4b90440d90569ba72f3662f1b89031417841575c5f"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "4bccf9ad2a2b9a9ebb2a9c2f45a186e527ef31cf",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 43481
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-room-turn.mjs",
+  "set": "room-turn",
+  "totalBytes": 115612,
+  "usageCases": 26
+}

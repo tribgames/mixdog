@@ -223,6 +223,9 @@ impl ProviderAdapter for AccountedAdapter {
     fn native_pdf(&self) -> bool {
         self.inner.native_pdf()
     }
+    fn cache_warm(&self) -> Option<&dyn mixdog_core_api::domain::cache_warm::CacheWarmSend> {
+        self.inner.cache_warm()
+    }
     fn native_documents(&self) -> Option<bool> {
         self.inner.native_documents()
     }

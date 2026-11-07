@@ -201,14 +201,39 @@ pub fn wire_request(
     tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
 ) -> ModelRequest {
     if let Some(text) = tail_reminder {
-        let mut reminder = mixdog_core_api::domain::provider::Message::new(
-            mixdog_core_api::domain::provider::Role::User,
-            mixdog_core_api::domain::provider::Content::Text(text.to_owned()),
-        );
-        reminder.source = Some(mixdog_core_api::domain::provider::MessageSource::TailReminder);
-        messages.push(reminder);
+        messages.push(tail_reminder_message(text));
     }
     ModelRequest { model: model.to_owned(), messages, tools, options }
+}
+
+fn tail_reminder_message(text: &str) -> mixdog_core_api::domain::provider::Message {
+    let mut reminder = mixdog_core_api::domain::provider::Message::new(
+        mixdog_core_api::domain::provider::Role::User,
+        mixdog_core_api::domain::provider::Content::Text(text.to_owned()),
+    );
+    reminder.source = Some(mixdog_core_api::domain::provider::MessageSource::TailReminder);
+    reminder
+}
+
+/// The request as the side-question store keeps it (`captureSideQuestionRequest` takes the
+/// messages before `sendWithRecovery` adds the reminder to its own copy): without the tail
+/// reminder `wire_request` put last. A fork or a cache warm adds the reminder of its own moment.
+pub fn without_tail_reminder(request: &ModelRequest) -> ModelRequest {
+    let mut kept = request.clone();
+    if kept.messages.last().is_some_and(|m| m.source == Some(mixdog_core_api::domain::provider::MessageSource::TailReminder)) {
+        kept.messages.pop();
+    }
+    kept
+}
+
+/// `withTailReminder` over a kept request: its messages plus the reminder `text` (when the rules
+/// give one) as the last, ephemeral message; the same message `wire_request` builds.
+pub fn with_tail_reminder(request: &ModelRequest, text: Option<&str>) -> ModelRequest {
+    let mut sent = request.clone();
+    if let Some(text) = text {
+        sent.messages.push(tail_reminder_message(text));
+    }
+    sent
 }
 
 impl Run {

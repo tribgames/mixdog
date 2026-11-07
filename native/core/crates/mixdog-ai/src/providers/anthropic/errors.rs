@@ -79,19 +79,21 @@ fn lowered_type(value: Option<&Value>) -> Option<String> {
     (!text.is_empty() && text != "error").then(|| text.to_lowercase())
 }
 
-/// `retry-after-ms`, then `retry-after` seconds; zero or negative is no advice.
-fn retry_after(headers: &[(String, String)]) -> Option<Duration> {
-    let millis = header(headers, "retry-after-ms")
-        .map(mixdog_js::string_to_number)
-        .filter(|n| !n.is_nan())
-        .map(|ms| ms.ceil());
-    let millis = millis.or_else(|| {
-        header(headers, "retry-after")
+/// `retryAfterMsFromHeaders`: `retry-after-ms`, then `retry-after` seconds, in ms and uncapped. A
+/// header that is empty, zero, negative or not a finite number is no advice, and the next one is
+/// read (`finitePositive`); the HTTP-date form of `retry-after` is not read.
+pub(super) fn retry_after_ms(headers: &[(String, String)]) -> Option<f64> {
+    let positive = |name: &str| {
+        header(headers, name)
+            .filter(|value| !value.is_empty())
             .map(mixdog_js::string_to_number)
-            .filter(|n| !n.is_nan())
-            .map(|secs| (secs * 1000.0).ceil())
-    })?;
-    (millis.is_finite() && millis > 0.0).then(|| Duration::from_millis(millis as u64))
+            .filter(|n| n.is_finite() && *n > 0.0)
+    };
+    positive("retry-after-ms").or_else(|| positive("retry-after").map(|secs| (secs * 1000.0).ceil()))
+}
+
+fn retry_after(headers: &[(String, String)]) -> Option<Duration> {
+    retry_after_ms(headers).map(|ms| Duration::from_millis(ms.ceil() as u64))
 }
 
 /// `anthropicQuotaError`'s message (`anthropic-oauth-request/initial-status.mjs`): the text a

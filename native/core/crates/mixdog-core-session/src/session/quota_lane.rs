@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_config::config::Config;
 use mixdog_js::value_to_string;
 use mixdog_protocol::ThreadItem;
 use mixdog_app_protocol::v2::thread::TurnInput;
@@ -38,8 +39,22 @@ pub const UNRESUMABLE: &str = "This turn cannot be resumed automatically. Send a
 pub struct SessionQuota {
     /// The queue, with its Goal half.
     pub goals: GoalQuotaResume,
-    /// `quotaAutoResumeEnabled()`: the config's `quotaAutoResume`, on unless set off.
+    /// `quotaAutoResumeEnabled()`: [`auto_resume_enabled`] in production.
     pub auto_resume: Arc<dyn Fn() -> bool + Send + Sync>,
+}
+
+impl SessionQuota {
+    /// The daemon's queue view: the switch is read from `config` at each use, so a settings
+    /// change applies to the next quota stop.
+    pub fn over_config(goals: GoalQuotaResume, config: Config) -> Self {
+        Self { goals, auto_resume: Arc::new(move || auto_resume_enabled(&config)) }
+    }
+}
+
+/// `quotaAutoResumeEnabled()` (`quota-resume-store.mjs`): `readSection('quotaResume')?.autoResume
+/// !== false`, the file's top-level `quotaResume.autoResume`; on unless it is the boolean `false`.
+pub fn auto_resume_enabled(config: &Config) -> bool {
+    config.get("quotaResume.autoResume") != Some(Value::Bool(false))
 }
 
 /// An actor's quota lane: its settlement guard, and its store calls in the order the actor made

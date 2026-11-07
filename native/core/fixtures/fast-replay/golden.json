@@ -1,0 +1,440 @@
+{
+  "scenarios": [
+    {
+      "name": "fast_ok",
+      "model": "claude-opus-4-8",
+      "sends": [
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": "fast",
+              "fastBeta": true,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": true,
+            "disabledReason": null,
+            "cooldownSeconds": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "fast_pool_429_with_a_long_window_replays_at_standard_speed",
+      "model": "claude-opus-4-8",
+      "sends": [
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 429,
+              "contentType": "application/json",
+              "headers": {
+                "retry-after": "3600"
+              },
+              "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"fast pool is out of capacity\"}}"
+            },
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": "fast",
+              "fastBeta": true,
+              "maxTokens": 65536
+            },
+            {
+              "speed": null,
+              "fastBeta": true,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": false,
+            "disabledReason": null,
+            "cooldownSeconds": 3600
+          }
+        }
+      ]
+    },
+    {
+      "name": "fast_pool_529_without_a_window_replays_at_standard_speed",
+      "model": "claude-opus-4-8",
+      "sends": [
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 529,
+              "contentType": "application/json",
+              "headers": {},
+              "body": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
+            },
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": "fast",
+              "fastBeta": true,
+              "maxTokens": 65536
+            },
+            {
+              "speed": null,
+              "fastBeta": true,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": false,
+            "disabledReason": null,
+            "cooldownSeconds": 1800
+          }
+        }
+      ]
+    },
+    {
+      "name": "fast_mode_not_enabled_400_replays_at_standard_speed",
+      "model": "claude-opus-4-8",
+      "sends": [
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 400,
+              "contentType": "application/json",
+              "headers": {},
+              "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Fast mode is not enabled for this organization\"}}"
+            },
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": "fast",
+              "fastBeta": true,
+              "maxTokens": 65536
+            },
+            {
+              "speed": null,
+              "fastBeta": true,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": false,
+            "disabledReason": "fast_mode_not_enabled",
+            "cooldownSeconds": "Infinity"
+          }
+        }
+      ]
+    },
+    {
+      "name": "overage_unavailable_replays_and_switches_fast_off",
+      "model": "claude-opus-4-8",
+      "sends": [
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 429,
+              "contentType": "application/json",
+              "headers": {
+                "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled"
+              },
+              "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"fast pool is out of capacity\"}}"
+            },
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": "fast",
+              "fastBeta": true,
+              "maxTokens": 65536
+            },
+            {
+              "speed": null,
+              "fastBeta": true,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": false,
+            "disabledReason": "org_level_disabled",
+            "cooldownSeconds": "Infinity"
+          }
+        }
+      ]
+    },
+    {
+      "name": "transient_overage_replays_without_a_cooldown",
+      "model": "claude-opus-4-8",
+      "sends": [
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 429,
+              "contentType": "application/json",
+              "headers": {
+                "anthropic-ratelimit-unified-overage-disabled-reason": "out_of_credits"
+              },
+              "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"fast pool is out of capacity\"}}"
+            },
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": "fast",
+              "fastBeta": true,
+              "maxTokens": 65536
+            },
+            {
+              "speed": null,
+              "fastBeta": true,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": true,
+            "disabledReason": null,
+            "cooldownSeconds": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a_cooldown_keeps_the_next_send_at_standard_speed",
+      "model": "claude-opus-4-8",
+      "sends": [
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 429,
+              "contentType": "application/json",
+              "headers": {
+                "retry-after": "3600"
+              },
+              "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"fast pool is out of capacity\"}}"
+            },
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": "fast",
+              "fastBeta": true,
+              "maxTokens": 65536
+            },
+            {
+              "speed": null,
+              "fastBeta": true,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": false,
+            "disabledReason": null,
+            "cooldownSeconds": 3600
+          }
+        },
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": null,
+              "fastBeta": false,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": false,
+            "disabledReason": null,
+            "cooldownSeconds": 3600
+          }
+        }
+      ]
+    },
+    {
+      "name": "a_disabled_fast_mode_keeps_the_next_send_at_standard_speed",
+      "model": "claude-opus-4-8",
+      "sends": [
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 400,
+              "contentType": "application/json",
+              "headers": {},
+              "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Fast mode is not enabled for this organization\"}}"
+            },
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": "fast",
+              "fastBeta": true,
+              "maxTokens": 65536
+            },
+            {
+              "speed": null,
+              "fastBeta": true,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": false,
+            "disabledReason": "fast_mode_not_enabled",
+            "cooldownSeconds": "Infinity"
+          }
+        },
+        {
+          "fast": true,
+          "replies": [
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": null,
+              "fastBeta": false,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": false,
+            "disabledReason": "fast_mode_not_enabled",
+            "cooldownSeconds": "Infinity"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a_send_that_did_not_ask_for_fast_is_never_touched",
+      "model": "claude-opus-4-8",
+      "sends": [
+        {
+          "fast": false,
+          "replies": [
+            {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            }
+          ],
+          "requests": [
+            {
+              "speed": null,
+              "fastBeta": false,
+              "maxTokens": 65536
+            }
+          ],
+          "outcome": {
+            "ok": {
+              "content": "ok"
+            }
+          },
+          "state": {
+            "available": true,
+            "disabledReason": null,
+            "cooldownSeconds": 0
+          }
+        }
+      ]
+    }
+  ]
+}

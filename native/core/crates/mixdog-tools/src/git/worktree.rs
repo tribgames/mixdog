@@ -57,7 +57,7 @@ pub enum SessionOp {
 #[async_trait]
 pub trait SessionWorktrees: Send + Sync {
     /// Whether `session_id` is a Lead session this runtime hosts.
-    fn is_lead(&self, session_id: &str) -> bool;
+    async fn is_lead(&self, session_id: &str) -> bool;
     async fn run(&self, op: SessionOp, caller_session_id: &str, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure>;
 }
 
@@ -98,17 +98,18 @@ impl Env<'_> {
         self.runner.cancel
     }
 
-    fn is_lead(&self) -> bool {
-        self.services.is_some_and(|s| s.sessions.is_lead(&self.session_id))
+    async fn is_lead(&self) -> bool {
+        match self.services {
+            Some(s) => s.sessions.is_lead(&self.session_id).await,
+            None => false,
+        }
     }
 
     /// The services of the Lead session; a caller none claims is no Lead.
-    fn lead(&self, what: &str) -> Result<&Arc<WorktreeServices>, Failure> {
-        self.services.filter(|s| s.sessions.is_lead(&self.session_id)).ok_or_else(|| {
-            plain(format!(
-                "{what} belongs to the Lead session; delegated workers cannot create, change or remove worktrees"
-            ))
-        })
+    async fn lead(&self, what: &str) -> Result<&Arc<WorktreeServices>, Failure> {
+        let refused = || plain(format!("{what} belongs to the Lead session; delegated workers cannot create, change or remove worktrees"));
+        let services = self.services.ok_or_else(refused)?;
+        if services.sessions.is_lead(&self.session_id).await { Ok(services) } else { Err(refused()) }
     }
 }
 
@@ -345,7 +346,7 @@ fn tx_id_of(env: &Env<'_>, discriminator: &str) -> String {
 }
 
 async fn session_op(env: &Env<'_>, op: SessionOp) -> Result<JsonValue, Failure> {
-    let lead = env.lead(&format!("git worktree_action {}", op_name(&op)))?;
+    let lead = env.lead(&format!("git worktree_action {}", op_name(&op))).await?;
     Ok(lead.sessions.run(op, &env.session_id, env.cancel()).await?)
 }
 
@@ -363,7 +364,7 @@ fn op_name(op: &SessionOp) -> &'static str {
 /// Managed rows of the repository at `cwd` (every repository outside one) plus the
 /// repository's other git worktrees: the main checkout and unmanaged ones, flagged.
 async fn list_rows(env: &Env<'_>, cwd: &Path) -> Result<Vec<JsonValue>, Failure> {
-    let lead = env.is_lead();
+    let lead = env.is_lead().await;
     let repo = repository_at(env, cwd).await;
     let managed: Vec<JsonValue> = match env.services {
         Some(s) => s.worktrees.list(repo.as_deref().map(Path::new), &*s.retention, env.cancel()).await?,
@@ -481,7 +482,7 @@ async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     if detach && branch.is_some() {
         return Err(plain("git worktree add: --detach excludes -b/-B"));
     }
-    if !env.is_lead() && !detach {
+    if !env.is_lead().await && !detach {
         return Err(plain(
             "git worktree add belongs to the Lead session; a delegated worker may only make a read-only snapshot: git worktree add --detach <path> [<commit>]",
         ));
@@ -604,7 +605,7 @@ async fn raw_remove(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     if positional.len() != 1 {
         return Err(plain("git worktree remove requires exactly one <path>"));
     }
-    let lead = env.lead("git worktree remove")?;
+    let lead = env.lead("git worktree remove").await?;
     let path = resolve(&plan.cwd, positional[0]);
     // A snapshot goes through its ledger, which refuses while a command still runs in it.
     let wanted = mixdog_scm::locks::path_key(&path);
@@ -649,7 +650,7 @@ fn parse_prune_args(args: &[String]) -> Result<bool, Failure> {
 
 async fn raw_prune(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     let dry_run = parse_prune_args(&plan.args[1..])?;
-    let lead = env.lead("git worktree prune")?;
+    let lead = env.lead("git worktree prune").await?;
     if dry_run {
         let rows = list_rows(env, &plan.cwd).await?;
         let removable: Vec<JsonValue> = rows
@@ -820,7 +821,7 @@ pub(super) async fn execute_worktree_action(input: &Object, work_dir: &Path, env
             merge(&mut out, worktrees_object(rows));
             return Ok(ok_json(out));
         }
-        let lead = env.lead(&format!("git worktree_action {action}"))?;
+        let lead = env.lead(&format!("git worktree_action {action}")).await?;
         let session_id = input
             .get("session_id")
             .and_then(JsonValue::as_str)

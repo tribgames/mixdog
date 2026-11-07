@@ -83,6 +83,11 @@ async fn the_store_matches_node() {
             let label = format!("{name}, step {i}: {op} {}", step["args"]);
             assert_eq!(got, want, "{label}");
             assert_eq!(Value::Array(events.lock().unwrap().clone()), step["events"], "{label} notifications");
+            if op == "entry" {
+                // The warm gate pauses a session exactly when Node's `quotaResumeEntry` is truthy.
+                let id = step["args"]["sessionId"].as_str().unwrap_or_default();
+                assert_eq!(mixdog_ai::warmer::gate::QuotaResumes::paused(&store, id), !step["value"].is_null(), "{label} paused");
+            }
             if let Some(text) = step.get("file") {
                 last = text.as_str().map(str::to_owned);
             }

@@ -509,6 +509,14 @@ impl QuotaResumeStore {
     }
 }
 
+/// The cache-warm gate's pause check (`quotaResumeEntry(sessionId)` is truthy): a session with a
+/// queued quota resume is not warmed. The store's own `entry`, no second reader.
+impl mixdog_ai::warmer::gate::QuotaResumes for QuotaResumeStore {
+    fn paused(&self, session_id: &str) -> bool {
+        self.entry(session_id).is_some()
+    }
+}
+
 /// `isAgentOnlySession`: whether a session record belongs to a delegated agent child (declared
 /// agent-only visibility, or a legacy non-Lead agent-owned child with a distinct parent). Such a
 /// session never owns a quota resume: the Lead decides retries.

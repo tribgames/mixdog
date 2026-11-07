@@ -17,6 +17,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
+use mixdog_rt::CancellationToken;
+use mixdog_rt::LaneToken;
 use mixdog_secrets::SecretError;
 use mixdog_secrets::SecretStore;
 use serde_json::Value;
@@ -115,7 +117,11 @@ impl SecretChanges {
         // concurrent writer.
         let path = self.path.clone();
         let (entry, entry_token) = (account.to_owned(), token.clone());
-        let _ = on_lane(self.config.lanes.write, move |lane| {
+        // `submit_wait`, not `submit`: a full or busy write lane (a worker may sit inside the marker
+        // lock another process holds) must make this write wait for room, not refuse it at once, or
+        // the announcement would be dropped without ever reaching the lock. It wakes when the lane
+        // frees a slot; nothing polls.
+        let job = LaneToken::submit_wait(self.config.lanes.write, &CancellationToken::new(), move |lane| {
             mixdog_statefile::update_json(
                 lane,
                 &path,
@@ -127,6 +133,9 @@ impl SecretChanges {
             )
         })
         .await;
+        if let Ok(job) = job {
+            let _ = job.await;
+        }
         // This process already holds the new value, so its own change is recorded as applied.
         let applied = with_change(&self.seen(), account, &token, deleted);
         *self.seen() = applied;

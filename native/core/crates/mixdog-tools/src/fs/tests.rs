@@ -1163,6 +1163,26 @@ async fn reading_text_and_batches_matches_the_recorded_node_cases() {
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), doc["cases"].as_array().unwrap().len(), failures.join("\n"));
 }
 
+/// A snapshot store that keeps its files in memory.
+#[derive(Default)]
+struct MemorySnapshots(std::sync::Mutex<Vec<(String, String)>>);
+
+impl SnapshotPersist for MemorySnapshots {
+    fn load(&self, scope: &str) -> Option<String> {
+        self.0.lock().unwrap().iter().find(|(s, _)| s == scope).map(|(_, json)| json.clone())
+    }
+    fn scopes(&self) -> Vec<String> {
+        self.0.lock().unwrap().iter().map(|(s, _)| s.clone()).collect()
+    }
+    fn save(&self, scope: &str, json: Option<&str>) {
+        let mut files = self.0.lock().unwrap();
+        files.retain(|(s, _)| s != scope);
+        if let Some(json) = json {
+            files.push((scope.to_owned(), json.to_owned()));
+        }
+    }
+}
+
 /// What the file tools remember between calls, replayed from the recorded sequences: a repeated
 /// read, a read after an edit or a patch, another session, a changed file, and a cache that has
 /// outlived its 30 seconds (on a clock the test moves).
@@ -1177,7 +1197,17 @@ async fn the_session_memory_answers_repeated_reads_as_node_does() {
         let cwd = root.as_path().to_string_lossy().replace('\\', "/");
         let now = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
         let clock = Arc::clone(&now);
-        let state = Arc::new(ReadState::with_clock(None, Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst))));
+        let store = Arc::new(MemorySnapshots::default());
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let persistence = Persistence::new(store.clone(), lane);
+        let state = Arc::new(ReadState::with_clock(Some(persistence), Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst))));
+        let persisted = |ids: Vec<&str>| -> JsonValue {
+            let held = store.scopes();
+            JsonValue::Object(ids.into_iter().map(|id| (id.to_owned(), JsonValue::Bool(held.iter().any(|s| s == id)))).collect())
+        };
+        let ids_of = |step: &JsonValue, key: &str| -> Vec<String> {
+            step[key].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+        };
         let resizer = recorded_resizer(&doc);
         let remembering = ReadTool::new(None, Some(resizer.clone())).with_state(Arc::clone(&state));
         let forgetting = ReadTool::new(None, Some(resizer));
@@ -1187,6 +1217,39 @@ async fn the_session_memory_answers_repeated_reads_as_node_does() {
         for (n, step) in sequence["steps"].as_array().unwrap().iter().enumerate() {
             if let Some(ms) = step.get("sleepMs").and_then(JsonValue::as_u64) {
                 now.fetch_add(ms, std::sync::atomic::Ordering::SeqCst);
+                // Node's 500 ms flush timer fires inside a sleep this long.
+                if ms >= 500 {
+                    state.flush_all().await;
+                }
+                continue;
+            }
+            // Which of the named sessions have a persisted snapshot file right now.
+            if step.get("files").is_some() {
+                state.settle().await;
+                let ids = ids_of(step, "files");
+                let got = persisted(ids.iter().map(String::as_str).collect());
+                if got != step["persisted"] {
+                    failures.push(format!("{name} step {n} files\n  want {}\n  got  {got}", step["persisted"]));
+                }
+                continue;
+            }
+            // A workspace switch: the session's snapshots go from memory and from disk, and the
+            // sessions watched alongside it keep theirs.
+            if let Some(session) = step.get("switch").and_then(JsonValue::as_str) {
+                let mut ids = vec![session.to_owned()];
+                ids.extend(ids_of(step, "watch"));
+                let names = || ids.iter().map(String::as_str).collect::<Vec<_>>();
+                state.settle().await;
+                let before = persisted(names());
+                state.forget_session(session);
+                state.settle().await;
+                let after = persisted(names());
+                if before != step["persistedBefore"] || after != step["persistedAfter"] {
+                    failures.push(format!(
+                        "{name} step {n} switch {session}\n  want {} -> {}\n  got  {before} -> {after}",
+                        step["persistedBefore"], step["persistedAfter"]
+                    ));
+                }
                 continue;
             }
             if let Some(path) = step.get("chmod").and_then(JsonValue::as_str) {

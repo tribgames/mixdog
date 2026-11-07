@@ -71,6 +71,16 @@ impl StatePublisher for LatePublisher {
 #[derive(Default)]
 pub struct LateDialer(OnceLock<LocalDialer>);
 
+impl mixdog_core::run_host::late::Bound for LateDialer {
+    fn cell(&self) -> &'static str {
+        "local dialer"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+
 impl LateDialer {
     /// `accept` hands an accepted connection to the server's drive loop (`spawn_drive`).
     pub fn bind(&self, hub: ConnectionHub, accept: Accept) -> Result<(), &'static str> {

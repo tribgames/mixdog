@@ -854,6 +854,40 @@ impl ResultReuse for ToolResultReuse {
     }
 }
 
+/// The result caches of the runs that are live now, by session. A run's cache is built with the run,
+/// so a workspace change inside a turn that is still running (`ownTurn`) would otherwise leave that
+/// run the old root's entries: Node's `refreshWorkspacePrompt` calls `clearReadDedupSession(id)`
+/// (`read-cache.mjs:297`: the read cache and the scoped cache of the session).
+#[derive(Default)]
+pub struct LiveReuses {
+    live: Mutex<std::collections::HashMap<String, Vec<std::sync::Weak<ToolResultReuse>>>>,
+}
+
+impl LiveReuses {
+    fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Vec<std::sync::Weak<ToolResultReuse>>>> {
+        self.live.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Remembers the cache of a run that starts; the ones that ended are dropped from the table.
+    pub fn track(&self, reuse: &Arc<ToolResultReuse>) {
+        let mut live = self.lock();
+        live.retain(|_, runs| {
+            runs.retain(|run| run.strong_count() > 0);
+            !runs.is_empty()
+        });
+        live.entry(reuse.session_id.clone()).or_default().push(Arc::downgrade(reuse));
+    }
+
+    /// `clearReadDedupSession(session_id)`: every live run of the session starts with empty read and
+    /// scoped caches.
+    pub fn clear_session(&self, session_id: &str) {
+        let runs: Vec<Arc<ToolResultReuse>> = self.lock().get(session_id).map(|runs| runs.iter().filter_map(std::sync::Weak::upgrade).collect()).unwrap_or_default();
+        for run in runs {
+            run.purge();
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
@@ -972,6 +1006,31 @@ mod tests {
         let bad = call("grep", json!({"pattern": "z", "head_limit": -1}));
         r.store_with_roots(&bad, "x", "t3", None).await;
         assert!(r.lookup(&bad, true).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn clearing_a_session_empties_the_caches_of_its_live_runs_only() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "one").unwrap();
+        let live = LiveReuses::default();
+        let mine = Arc::new(reuse(dir.path(), 0));
+        let other = Arc::new(ToolResultReuse::new(io(), "sess_2", dir.path(), false, Arc::new(Fixed(0))));
+        live.track(&mine);
+        live.track(&other);
+        let read = call("read", json!({"path": "a.txt"}));
+        let list = call("list", json!({}));
+        for r in [&mine, &other] {
+            r.store_with_roots(&read, "one", "t1", None).await;
+            r.store_with_roots(&list, "a.txt", "t2", None).await;
+        }
+        live.clear_session("sess_1");
+        assert!(mine.lookup(&read, true).await.is_none(), "the read cache is cleared");
+        assert!(mine.lookup(&list, true).await.is_none(), "so is the scoped cache");
+        assert!(other.lookup(&read, true).await.is_some() && other.lookup(&list, true).await.is_some(), "another session keeps its entries");
+        // A run that ended is forgotten, not kept alive.
+        drop(mine);
+        live.track(&other);
+        assert!(!live.lock().contains_key("sess_1"));
     }
 
     #[test]

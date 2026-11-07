@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
-use mixdog_rt::DurabilityIo;
+use mixdog_rt::{DurabilityIo, Scope, Scoped};
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 use super::language::{detect_device_language, normalize_whisper_language};
 use super::runtime::{RuntimeManifest, VoiceRuntime, VoiceRuntimeInfo, resolve_voice_runtime, voice_runtime_info};
@@ -248,8 +249,23 @@ impl VoicePipeline {
     }
 
     /// `Ok(None)` is a skipped file (over a gate) or a legitimately empty transcript; every real
-    /// failure is an error so the caller can retry and mark the failure.
-    pub async fn transcribe(&self, audio: &Path, attachment_id: Option<&str>) -> Result<Option<String>, VoiceError> {
+    /// failure is an error so the caller can retry and mark the failure. Node accepts any audio and
+    /// bounds nothing by time, so the wait ends only by the caller's `cancel`: callers of the same
+    /// attachment share one run, and the run (and its whisper request) is cancelled when the last
+    /// of them has left.
+    pub async fn transcribe(
+        self: &Arc<Self>,
+        audio: &Path,
+        attachment_id: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<String>, VoiceError> {
+        match Scope::new().cancel(cancel).run(self.transcribe_gated(audio, attachment_id)).await {
+            Scoped::Done(result) => result,
+            Scoped::Cancelled | Scoped::DeadlineExceeded => Err(VoiceError("transcribe: cancelled".into())),
+        }
+    }
+
+    async fn transcribe_gated(self: &Arc<Self>, audio: &Path, attachment_id: Option<&str>) -> Result<Option<String>, VoiceError> {
         let settings = self.settings();
         let max_bytes = settings.max_file_size_mb * 1024.0 * 1024.0;
         if max_bytes > 0.0 {
@@ -270,19 +286,21 @@ impl VoicePipeline {
             }
         }
         let Some(id) = attachment_id else {
-            return self.transcribe_uncached(audio, None).await;
+            return Arc::clone(self).transcribe_uncached(audio.to_owned(), None).await;
         };
         if let Some(text) = self.transcripts.lock().unwrap().get(id).cloned() {
             return Ok(Some(text));
         }
-        self.transcribing.run(id, self.transcribe_uncached(audio, Some(id))).await
+        let (this, audio, key) = (Arc::clone(self), audio.to_owned(), id.to_owned());
+        self.transcribing.run(id, move || this.transcribe_uncached(audio, Some(key))).await
     }
 
-    async fn transcribe_uncached(&self, audio: &Path, attachment_id: Option<&str>) -> Result<Option<String>, VoiceError> {
+    async fn transcribe_uncached(self: Arc<Self>, audio: PathBuf, attachment_id: Option<String>) -> Result<Option<String>, VoiceError> {
+        let attachment_id = attachment_id.as_deref();
         let settings = self.settings();
         let (runtime, contract) = self.contract(&settings).await?;
         let language = self.language(&settings);
-        let wav = self.ensure_wav(audio, attachment_id, &runtime, &settings).await?;
+        let wav = self.ensure_wav(&audio, attachment_id, &runtime, &settings).await?;
         self.engine.ensure_ready(&contract).await?;
         let text = self.engine.transcribe(&wav, Some(&language)).await?;
         let text = mixdog_js::js_trim(&text);
@@ -296,7 +314,7 @@ impl VoicePipeline {
     }
 
     async fn ensure_wav(
-        &self,
+        self: &Arc<Self>,
         audio: &Path,
         attachment_id: Option<&str>,
         runtime: &VoiceRuntime,
@@ -316,13 +334,13 @@ impl VoicePipeline {
         let key = attachment_id.map_or_else(|| wav.to_string_lossy().into_owned(), str::to_owned);
         let ffmpeg = runtime.ffmpeg_path.clone().expect("installed implies ffmpeg");
         let threads = settings.whisper_threads();
+        let (tools, lane, audio, converted) = (Arc::clone(&self.tools), self.lane, audio.to_owned(), wav.clone());
+        let (sample_rate, channels) = (settings.sample_rate, settings.channels);
         self.converting
-            .run(&key, async {
-                self.tools
-                    .convert_to_wav(&ffmpeg, audio, &wav, settings.sample_rate, settings.channels, threads)
-                    .await?;
-                let converted = wav.clone();
-                on_lane(self.lane, move || pad_wav(&converted)).await.map_err(|e| VoiceError(e.to_string()))?
+            .run(&key, move || async move {
+                tools.convert_to_wav(&ffmpeg, &audio, &converted, sample_rate, channels, threads).await?;
+                let padded = converted.clone();
+                on_lane(lane, move || pad_wav(&padded)).await.map_err(|e| VoiceError(e.to_string()))?
             })
             .await?;
         if let Some(id) = attachment_id {
@@ -432,9 +450,9 @@ pub(crate) mod tests {
         }
     }
 
-    fn pipeline(dir: &Path, section: Value, tools: FakeTools, engine: FakeEngine) -> (VoicePipeline, Arc<FakeTools>, Arc<FakeEngine>) {
+    fn pipeline(dir: &Path, section: Value, tools: FakeTools, engine: FakeEngine) -> (Arc<VoicePipeline>, Arc<FakeTools>, Arc<FakeEngine>) {
         let (tools, engine) = (Arc::new(tools), Arc::new(engine));
-        let p = VoicePipeline::new(dir.to_owned(), manifest(), Arc::new(Fixed(section)), engine.clone(), tools.clone(), mixdog_rt::testing::tokens().durability_io);
+        let p = Arc::new(VoicePipeline::new(dir.to_owned(), manifest(), Arc::new(Fixed(section)), engine.clone(), tools.clone(), mixdog_rt::testing::tokens().durability_io));
         (p, tools, engine)
     }
 
@@ -442,7 +460,7 @@ pub(crate) mod tests {
     async fn missing_runtime_is_a_user_actionable_error_and_prepare_reports_it() {
         let dir = tempfile::tempdir().unwrap();
         let (p, _, engine) = pipeline(dir.path(), json!({}), FakeTools::default(), FakeEngine::default());
-        let err = p.transcribe(&dir.path().join("a.ogg"), None).await.unwrap_err();
+        let err = p.transcribe(&dir.path().join("a.ogg"), None, &CancellationToken::new()).await.unwrap_err();
         assert!(err.0.starts_with("voice runtime not installed (missing: binary + model + ffmpeg)"));
         let prepared = p.prepare_transcription().await;
         assert_eq!(prepared["ready"], false);
@@ -456,12 +474,63 @@ pub(crate) mod tests {
         let audio = dir.path().join("a.ogg");
         std::fs::write(&audio, b"audio").unwrap();
         let (p, tools, engine) = pipeline(dir.path(), json!({}), FakeTools::default(), FakeEngine { text: " hello \n".into(), ..Default::default() });
-        let first = p.transcribe(&audio, Some("att")).await.unwrap();
-        let second = p.transcribe(&audio, Some("att")).await.unwrap();
+        let first = p.transcribe(&audio, Some("att"), &CancellationToken::new()).await.unwrap();
+        let second = p.transcribe(&audio, Some("att"), &CancellationToken::new()).await.unwrap();
         assert_eq!((first.as_deref(), second.as_deref()), (Some("hello"), Some("hello")));
         assert_eq!(tools.converts.load(Ordering::SeqCst), 1);
         assert_eq!(engine.runs.load(Ordering::SeqCst), 1);
         assert_eq!(p.prepare_transcription().await, json!({"ready": true}));
+    }
+
+    /// An engine that holds every transcription until `gate` opens.
+    struct Gated {
+        gate: Arc<tokio::sync::Notify>,
+        runs: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl WhisperEngine for Gated {
+        async fn ensure_ready(&self, _: &ServerContract) -> Result<(), VoiceError> {
+            Ok(())
+        }
+        async fn transcribe(&self, _: &Path, _: Option<&str>) -> Result<String, VoiceError> {
+            self.runs.fetch_add(1, Ordering::SeqCst);
+            self.gate.notified().await;
+            Ok("after".into())
+        }
+    }
+
+    /// The caller that started the run cancels while another waits on the same attachment: the
+    /// canceller gets the cancelled error at once and the other still gets the transcript, from the
+    /// one run.
+    #[tokio::test]
+    async fn a_caller_cancelling_leaves_the_run_to_the_other_waiter() {
+        let dir = tempfile::tempdir().unwrap();
+        install(dir.path());
+        let audio = dir.path().join("a.ogg");
+        std::fs::write(&audio, b"audio").unwrap();
+        let engine = Arc::new(Gated { gate: Arc::default(), runs: AtomicUsize::new(0) });
+        let p = Arc::new(VoicePipeline::new(dir.path().to_owned(), manifest(), Arc::new(Fixed(json!({}))), engine.clone(), Arc::new(FakeTools::default()), mixdog_rt::testing::tokens().durability_io));
+        let (first, second) = (CancellationToken::new(), CancellationToken::new());
+        let leader = tokio::spawn({
+            let (p, audio, cancel) = (p.clone(), audio.clone(), first.clone());
+            async move { p.transcribe(&audio, Some("att"), &cancel).await }
+        });
+        while p.transcribing.waiters("att") < 1 {
+            tokio::task::yield_now().await;
+        }
+        let follower = tokio::spawn({
+            let (p, audio, cancel) = (p.clone(), audio.clone(), second.clone());
+            async move { p.transcribe(&audio, Some("att"), &cancel).await }
+        });
+        while p.transcribing.waiters("att") < 2 {
+            tokio::task::yield_now().await;
+        }
+        first.cancel();
+        assert_eq!(leader.await.unwrap().unwrap_err(), VoiceError("transcribe: cancelled".into()));
+        engine.gate.notify_one();
+        assert_eq!(follower.await.unwrap().unwrap().as_deref(), Some("after"));
+        assert_eq!(engine.runs.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -471,17 +540,17 @@ pub(crate) mod tests {
         let audio = dir.path().join("a.ogg");
         std::fs::write(&audio, vec![0u8; 2 * 1024 * 1024]).unwrap();
         let (p, _, engine) = pipeline(dir.path(), json!({"transcription": {"maxFileSizeMB": 1}}), FakeTools::default(), FakeEngine::default());
-        assert_eq!(p.transcribe(&audio, None).await.unwrap(), None);
+        assert_eq!(p.transcribe(&audio, None, &CancellationToken::new()).await.unwrap(), None);
         let (p, _, _) = pipeline(
             dir.path(),
             json!({"transcription": {"maxDurationSec": 10}}),
             FakeTools { duration: Some(11.0), ..Default::default() },
             FakeEngine::default(),
         );
-        assert_eq!(p.transcribe(&audio, None).await.unwrap(), None);
+        assert_eq!(p.transcribe(&audio, None, &CancellationToken::new()).await.unwrap(), None);
         assert_eq!(engine.runs.load(Ordering::SeqCst), 0);
         let (p, _, engine) = pipeline(dir.path(), json!({}), FakeTools::default(), FakeEngine { text: "  ".into(), ..Default::default() });
-        assert_eq!(p.transcribe(&audio, Some("e")).await.unwrap(), None);
+        assert_eq!(p.transcribe(&audio, Some("e"), &CancellationToken::new()).await.unwrap(), None);
         assert_eq!(engine.runs.load(Ordering::SeqCst), 1);
     }
 }

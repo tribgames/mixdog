@@ -448,7 +448,7 @@ fn a_message_names_its_originals_and_loses_the_ones_not_claimed() {
     assert_eq!(images["3"], image(None));
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_turn_claims_the_originals_it_names_before_it_is_submitted() {
     use super::testing::Rig;
     let rig = Rig::new();

@@ -52,6 +52,7 @@ use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
 
+mod fast_replay;
 mod warm;
 
 // ---------------------------------------------------------------------------

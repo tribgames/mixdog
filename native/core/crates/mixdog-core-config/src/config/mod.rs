@@ -14,6 +14,7 @@
 
 pub mod agent_routes;
 mod agent_store;
+mod canonical;
 mod browser_permissions;
 mod network_proxy_store;
 pub mod patch;
@@ -215,7 +216,8 @@ async fn on_lane<L: LaneToken, R: Send + 'static>(
 }
 
 impl Config {
-    /// Opens the file (absent = empty document). An unreadable or non-object file is an error:
+    /// Opens the file (absent = empty document; the document is the canonical one, so a retired
+    /// key of an old install is never seen). An unreadable or non-object file is an error:
     /// a later write must never overwrite a document that could not be read. Publishes the
     /// current subtrees; the returned warnings are those of the opened document.
     pub async fn open(
@@ -454,6 +456,8 @@ impl Shared {
         let current = self.doc.load_full();
         let mut next = (*current).clone();
         change(&mut next)?;
+        // `writeAll`: a save writes the canonical document, whatever the edit put back.
+        let next = canonical::canonicalize(next);
         if next == *current {
             return Ok(Applied::default());
         }
@@ -677,7 +681,7 @@ fn read_file(_lane: &InLane<InteractiveIo>, path: &Path) -> Result<Doc, ConfigEr
         Err(error) => return Err(error.into()),
     };
     match mixdog_statefile::parse_json_text(&bytes) {
-        Ok(Value::Object(doc)) => Ok(doc),
+        Ok(Value::Object(doc)) => Ok(canonical::canonicalize(doc)),
         Ok(_) => Err(ConfigError::Parse("the top level is not an object".into())),
         Err(error) => Err(ConfigError::Parse(error.to_string())),
     }

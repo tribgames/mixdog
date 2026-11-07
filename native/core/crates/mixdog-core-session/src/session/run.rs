@@ -490,19 +490,23 @@ impl ApprovalGate for RunPort {
     /// own abort. A thread that closes first resolves it `interrupted`.
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
         let interrupted = || ApprovalResolution::Interrupted { at: 0 };
-        let (reply, rx) = oneshot::channel();
+        let (reply, mut rx) = oneshot::channel();
         let msg = Ctl::Approval { turn: self.turn.clone(), ask, reply };
         // The control lane, not the producer lane (RL §6.2): back-pressure on the producers
         // cannot hold an approval.
         let asked = self
             .scoped(async {
                 self.ctl.send(msg).await.map_err(|_| RunError::Closed)?;
-                rx.await.map_err(|_| RunError::Closed)
+                (&mut rx).await.map_err(|_| RunError::Closed)
             })
             .await;
         match asked {
             Ok(resolution) => resolution,
-            Err(RunError::Cancelled) => ApprovalResolution::Cancelled { at: 0 },
+            // The scope prefers the cancel arm, so a resolution the actor sent before it fired the
+            // token (a close resolves the approval `Interrupted`, then aborts the run: Node's
+            // `closeSession` order) is still waiting in the channel. It is taken here, whenever
+            // this task happens to be polled, so the outcome does not depend on scheduling.
+            Err(RunError::Cancelled) => rx.try_recv().unwrap_or(ApprovalResolution::Cancelled { at: 0 }),
             Err(_) => interrupted(),
         }
     }
@@ -585,5 +589,21 @@ mod cancel_tests {
         assert!(matches!(ctl.recv().await, Some(Ctl::Approval { .. })));
         cancel.cancel();
         assert!(matches!(asking.await.unwrap(), ApprovalResolution::Cancelled { .. }));
+    }
+
+    /// A close resolves the pending approval `Interrupted` and then fires the run's token. The
+    /// request task is not polled between the two (a current-thread runtime, so this holds on
+    /// every schedule): it must still answer with the resolution that was sent first.
+    #[tokio::test]
+    async fn an_approval_resolved_before_the_cancel_keeps_its_resolution() {
+        let (port, _actor, mut ctl, cancel) = port(4);
+        let asking = tokio::spawn({
+            let port = port.clone();
+            async move { port.request(ask()).await }
+        });
+        let Some(Ctl::Approval { reply, .. }) = ctl.recv().await else { panic!("the approval is on the control lane") };
+        reply.send(ApprovalResolution::Interrupted { at: 7 }).expect("the request still waits");
+        cancel.cancel();
+        assert!(matches!(asking.await.unwrap(), ApprovalResolution::Interrupted { at: 7 }));
     }
 }

@@ -1,0 +1,789 @@
+{
+  "modelsdev": {
+    "anthropic": {
+      "models": {
+        "claude-opus-4-8": {
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          }
+        }
+      }
+    },
+    "xai": {
+      "models": {
+        "grok-4.20": {
+          "cost": {
+            "input": 1.25,
+            "output": 2.5,
+            "cache_read": 0.2,
+            "tiers": [
+              {
+                "input": 2.5,
+                "output": 5,
+                "cache_read": 0.4,
+                "tier": {
+                  "type": "context",
+                  "size": 200000
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "prices": [
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00000625,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00000625,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00000625,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00001,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00001,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00001,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": true,
+      "fastPriced": true,
+      "ttlMs": 300000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": 0.000001,
+        "write": 0.0000125,
+        "output": 0.00005
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": true,
+      "fastPriced": true,
+      "ttlMs": 300000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": 0.000001,
+        "write": 0.0000125,
+        "output": 0.00005
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": true,
+      "fastPriced": true,
+      "ttlMs": 300000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": 0.000001,
+        "write": 0.0000125,
+        "output": 0.00005
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": true,
+      "fastPriced": true,
+      "ttlMs": 3600000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": 0.000001,
+        "write": 0.00002,
+        "output": 0.00005
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": true,
+      "fastPriced": true,
+      "ttlMs": 3600000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": 0.000001,
+        "write": 0.00002,
+        "output": 0.00005
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "fast": true,
+      "fastPriced": true,
+      "ttlMs": 3600000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": 0.000001,
+        "write": 0.00002,
+        "output": 0.00005
+      }
+    },
+    {
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00000625,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00000625,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00000625,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00001,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00001,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-8",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": 5e-7,
+        "write": 0.00001,
+        "output": 0.000025
+      }
+    },
+    {
+      "provider": "xai",
+      "model": "grok-4.20",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": 2.0000000000000002e-7,
+        "write": null,
+        "output": 0.0000025
+      }
+    },
+    {
+      "provider": "xai",
+      "model": "grok-4.20",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": 2.0000000000000002e-7,
+        "write": null,
+        "output": 0.0000025
+      }
+    },
+    {
+      "provider": "xai",
+      "model": "grok-4.20",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": 4.0000000000000003e-7,
+        "write": null,
+        "output": 0.000005
+      }
+    },
+    {
+      "provider": "xai",
+      "model": "grok-4.20",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": 2.0000000000000002e-7,
+        "write": 0.0000025,
+        "output": 0.0000025
+      }
+    },
+    {
+      "provider": "xai",
+      "model": "grok-4.20",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": 2.0000000000000002e-7,
+        "write": 0.0000025,
+        "output": 0.0000025
+      }
+    },
+    {
+      "provider": "xai",
+      "model": "grok-4.20",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": 4.0000000000000003e-7,
+        "write": 0.000005,
+        "output": 0.000005
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "zz-unpriced",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": null,
+        "write": null,
+        "output": null
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "zz-unpriced",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": null,
+        "write": null,
+        "output": null
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "zz-unpriced",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 300000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": null,
+        "write": null,
+        "output": null
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "zz-unpriced",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 1000,
+      "prices": {
+        "read": null,
+        "write": null,
+        "output": null
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "zz-unpriced",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 70000,
+      "prices": {
+        "read": null,
+        "write": null,
+        "output": null
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "zz-unpriced",
+      "fast": false,
+      "fastPriced": false,
+      "ttlMs": 3600000,
+      "promptTokens": 250000,
+      "prices": {
+        "read": null,
+        "write": null,
+        "output": null
+      }
+    }
+  ],
+  "rows": [
+    {
+      "name": "subscription provider, owner session",
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-8",
+      "session": {
+        "id": "s1",
+        "ownerSessionId": "owner-1"
+      },
+      "account": "acct-1",
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 1,
+        "cachedTokens": 69000,
+        "cacheWriteTokens": 0
+      },
+      "startedAt": 4000003540000,
+      "recordedAt": 4000003540000,
+      "row": {
+        "ts": 4000003540000,
+        "day": "2096-10-02",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "kind": "oauth",
+        "sessionId": "s1",
+        "ownerSessionId": "owner-1",
+        "sourceType": "cache-warm",
+        "input": 12,
+        "output": 1,
+        "cacheRead": 69000,
+        "cacheWrite": 0,
+        "costUsd": 0.034585,
+        "costSource": "subscription",
+        "rates": "{\"requestedModel\":\"claude-opus-4-8\",\"pricingModel\":\"claude-opus-4-8\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"models.dev\",\"inputCostPerM\":5,\"outputCostPerM\":25,\"cacheReadCostPerM\":0.5,\"cacheWriteCostPerM\":6.25}",
+        "responseId": "",
+        "account": "acct-1",
+        "origin": "live",
+        "durationMs": 0,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "status": "completed",
+        "attempts": 1,
+        "ttftMs": null,
+        "elapsedMs": 0,
+        "id": "<req>"
+      }
+    },
+    {
+      "name": "parent session when there is no owner",
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-8",
+      "session": {
+        "id": "s1",
+        "parentSessionId": "parent-1"
+      },
+      "account": "acct-1",
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 1,
+        "cachedTokens": 69000,
+        "cacheWriteTokens": 0
+      },
+      "startedAt": 4000003540000,
+      "recordedAt": 4000003540000,
+      "row": {
+        "ts": 4000003540000,
+        "day": "2096-10-02",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "kind": "oauth",
+        "sessionId": "s1",
+        "ownerSessionId": "parent-1",
+        "sourceType": "cache-warm",
+        "input": 12,
+        "output": 1,
+        "cacheRead": 69000,
+        "cacheWrite": 0,
+        "costUsd": 0.034585,
+        "costSource": "subscription",
+        "rates": "{\"requestedModel\":\"claude-opus-4-8\",\"pricingModel\":\"claude-opus-4-8\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"models.dev\",\"inputCostPerM\":5,\"outputCostPerM\":25,\"cacheReadCostPerM\":0.5,\"cacheWriteCostPerM\":6.25}",
+        "responseId": "",
+        "account": "acct-1",
+        "origin": "live",
+        "durationMs": 0,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "status": "completed",
+        "attempts": 1,
+        "ttftMs": null,
+        "elapsedMs": 0,
+        "id": "<req>"
+      }
+    },
+    {
+      "name": "no owner and no parent",
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "session": {
+        "id": "s1"
+      },
+      "account": "acct-1",
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 1,
+        "cachedTokens": 69000,
+        "cacheWriteTokens": 0
+      },
+      "startedAt": 4000003540000,
+      "recordedAt": 4000003540000,
+      "row": {
+        "ts": 4000003540000,
+        "day": "2096-10-02",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "kind": "api",
+        "sessionId": "s1",
+        "sourceType": "cache-warm",
+        "input": 12,
+        "output": 1,
+        "cacheRead": 69000,
+        "cacheWrite": 0,
+        "costUsd": 0.034585,
+        "costSource": "catalog",
+        "rates": "{\"requestedModel\":\"claude-opus-4-8\",\"pricingModel\":\"claude-opus-4-8\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"models.dev\",\"inputCostPerM\":5,\"outputCostPerM\":25,\"cacheReadCostPerM\":0.5,\"cacheWriteCostPerM\":6.25}",
+        "responseId": "",
+        "account": "",
+        "origin": "live",
+        "durationMs": 0,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "status": "completed",
+        "attempts": 1,
+        "ttftMs": null,
+        "elapsedMs": 0,
+        "id": "<req>"
+      }
+    },
+    {
+      "name": "an API key route is priced from the catalog",
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "session": {
+        "id": "s1"
+      },
+      "account": "acct-1",
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 1,
+        "cachedTokens": 69000,
+        "cacheWriteTokens": 800,
+        "cacheWrite1hTokens": 300
+      },
+      "startedAt": 4000003540000,
+      "recordedAt": 4000003540000,
+      "row": {
+        "ts": 4000003540000,
+        "day": "2096-10-02",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "kind": "api",
+        "sessionId": "s1",
+        "sourceType": "cache-warm",
+        "input": 12,
+        "output": 1,
+        "cacheRead": 69000,
+        "cacheWrite": 800,
+        "costUsd": 0.04071,
+        "costSource": "catalog",
+        "rates": "{\"requestedModel\":\"claude-opus-4-8\",\"pricingModel\":\"claude-opus-4-8\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"models.dev\",\"cacheWrite1hTokens\":300,\"inputCostPerM\":5,\"outputCostPerM\":25,\"cacheReadCostPerM\":0.5,\"cacheWriteCostPerM\":6.25,\"cacheWrite1hCostPerM\":10}",
+        "responseId": "",
+        "account": "",
+        "origin": "live",
+        "durationMs": 0,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "status": "completed",
+        "attempts": 1,
+        "ttftMs": null,
+        "elapsedMs": 0,
+        "id": "<req>"
+      }
+    },
+    {
+      "name": "no account routing",
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "session": {
+        "id": "s1"
+      },
+      "account": "",
+      "usage": {
+        "inputTokens": 5,
+        "outputTokens": 1,
+        "cachedTokens": 69000,
+        "cacheWriteTokens": 0
+      },
+      "startedAt": 4000003540000,
+      "recordedAt": 4000003540000,
+      "row": {
+        "ts": 4000003540000,
+        "day": "2096-10-02",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "kind": "api",
+        "sessionId": "s1",
+        "sourceType": "cache-warm",
+        "input": 5,
+        "output": 1,
+        "cacheRead": 69000,
+        "cacheWrite": 0,
+        "costUsd": 0.03455,
+        "costSource": "catalog",
+        "rates": "{\"requestedModel\":\"claude-opus-4-8\",\"pricingModel\":\"claude-opus-4-8\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"models.dev\",\"inputCostPerM\":5,\"outputCostPerM\":25,\"cacheReadCostPerM\":0.5,\"cacheWriteCostPerM\":6.25}",
+        "responseId": "",
+        "account": "",
+        "origin": "live",
+        "durationMs": 0,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "status": "completed",
+        "attempts": 1,
+        "ttftMs": null,
+        "elapsedMs": 0,
+        "id": "<req>"
+      }
+    },
+    {
+      "name": "the send takes time",
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "session": {
+        "id": "s1"
+      },
+      "account": "acct-1",
+      "usage": {
+        "inputTokens": 5,
+        "outputTokens": 1,
+        "cachedTokens": 69000,
+        "cacheWriteTokens": 0
+      },
+      "startedAt": 4000003540000,
+      "recordedAt": 4000003541500,
+      "row": {
+        "ts": 4000003541500,
+        "day": "2096-10-02",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "kind": "api",
+        "sessionId": "s1",
+        "sourceType": "cache-warm",
+        "input": 5,
+        "output": 1,
+        "cacheRead": 69000,
+        "cacheWrite": 0,
+        "costUsd": 0.03455,
+        "costSource": "catalog",
+        "rates": "{\"requestedModel\":\"claude-opus-4-8\",\"pricingModel\":\"claude-opus-4-8\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"models.dev\",\"inputCostPerM\":5,\"outputCostPerM\":25,\"cacheReadCostPerM\":0.5,\"cacheWriteCostPerM\":6.25}",
+        "responseId": "",
+        "account": "",
+        "origin": "live",
+        "durationMs": 1500,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "status": "completed",
+        "attempts": 1,
+        "ttftMs": null,
+        "elapsedMs": 0,
+        "id": "<req>"
+      }
+    },
+    {
+      "name": "an unpriced model",
+      "provider": "anthropic",
+      "model": "zz-unpriced",
+      "session": {
+        "id": "s1"
+      },
+      "account": "acct-1",
+      "usage": {
+        "inputTokens": 5,
+        "outputTokens": 1,
+        "cachedTokens": 69000,
+        "cacheWriteTokens": 0
+      },
+      "startedAt": 4000003540000,
+      "recordedAt": 4000003540000,
+      "row": {
+        "ts": 4000003540000,
+        "day": "2096-10-02",
+        "provider": "anthropic",
+        "model": "zz-unpriced",
+        "kind": "api",
+        "sessionId": "s1",
+        "sourceType": "cache-warm",
+        "input": 5,
+        "output": 1,
+        "cacheRead": 69000,
+        "cacheWrite": 0,
+        "costUsd": null,
+        "costSource": "unpriced",
+        "rates": "{\"requestedModel\":\"zz-unpriced\",\"pricingModel\":\"zz-unpriced\",\"pricingProvider\":\"anthropic\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+        "responseId": "",
+        "account": "",
+        "origin": "live",
+        "durationMs": 0,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "status": "completed",
+        "attempts": 1,
+        "ttftMs": null,
+        "elapsedMs": 0,
+        "id": "<req>"
+      }
+    },
+    {
+      "name": "a failed warm is billed from its partial usage",
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "session": {
+        "id": "s1"
+      },
+      "account": "acct-1",
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 0,
+        "cachedTokens": 5,
+        "cacheWriteTokens": 0
+      },
+      "startedAt": 4000003540000,
+      "recordedAt": 4000003540000,
+      "row": {
+        "ts": 4000003540000,
+        "day": "2096-10-02",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "kind": "api",
+        "sessionId": "s1",
+        "sourceType": "cache-warm",
+        "input": 2,
+        "output": 0,
+        "cacheRead": 5,
+        "cacheWrite": 0,
+        "costUsd": 0.000013,
+        "costSource": "catalog",
+        "rates": "{\"requestedModel\":\"claude-opus-4-8\",\"pricingModel\":\"claude-opus-4-8\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"models.dev\",\"inputCostPerM\":5,\"outputCostPerM\":25,\"cacheReadCostPerM\":0.5,\"cacheWriteCostPerM\":6.25}",
+        "responseId": "",
+        "account": "",
+        "origin": "live",
+        "durationMs": 0,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "status": "completed",
+        "attempts": 1,
+        "ttftMs": null,
+        "elapsedMs": 0,
+        "id": "<req>"
+      }
+    }
+  ]
+}

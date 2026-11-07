@@ -258,7 +258,7 @@ async fn no_session_answers_the_empty_path() {
     assert!(!stored.contains_key("workflowOverlay"));
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn an_idle_conversation_takes_the_switch_now_and_keeps_its_boundary() {
     let world = world().await;
     world.rig.set_script(answer_then_wait());
@@ -295,7 +295,7 @@ async fn an_idle_conversation_takes_the_switch_now_and_keeps_its_boundary() {
     assert_eq!(world.anchor("sess_a").await["meta"]["orchestrationModeSwitches"][0]["to"], "none");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_running_turn_holds_the_choice_for_the_next_one() {
     let world = world().await;
     world.rig.set_script(answer_then_wait());
@@ -328,7 +328,7 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
     assert_eq!(world.switches.apply_pending_switches(&ThreadId::from("sess_b")).await, Ok(None));
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn only_a_coding_session_with_a_prompt_switches() {
     let world = world().await;
     world.rig.set_script(answer_then_wait());
@@ -424,7 +424,7 @@ async fn a_context_switch_makes_the_calls_that_name_the_thread_left_and_drops_th
 }
 /// The session left: a scratch one is tombstoned, any other stays resumable; both have their
 /// memory ingested and their work stopped.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_session_left_is_closed_as_node_closes_it() {
     let world = world().await;
     let cases = recording("context-switch.json");

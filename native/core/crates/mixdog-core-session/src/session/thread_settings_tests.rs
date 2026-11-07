@@ -275,7 +275,7 @@ fn message(error: &CoreError) -> String {
 /// every session's `favoriteAt` and `archivedAt` after each step, archive stamps that never
 /// repeat, a restore that brings back only the sub-agent sessions its archive took, and
 /// `thread/archived` / `thread/unarchived` for a change of the session's own state.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn favorites_and_archives_replay_the_desktops_metadata() {
     let golden = golden();
     let world = world().await;
@@ -363,7 +363,7 @@ async fn a_read_lands_on_the_header_and_answers_whether_it_moved() {
 
 /// `setToolMode`: the normalized mode always; an empty idle session takes its tool spec, one
 /// running a turn keeps its surface.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_tool_mode_reaches_only_an_empty_idle_session() {
     let world = world().await;
     world.session("sess_empty", json!({ "toolSpec": "full" })).await;

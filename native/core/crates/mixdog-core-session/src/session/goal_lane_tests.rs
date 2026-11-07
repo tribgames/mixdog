@@ -217,7 +217,7 @@ fn holding_counted(rig: &Rig) -> (Arc<tokio::sync::Notify>, tokio::sync::watch::
 
 /// `goal-facade-api.mjs` `goalContinuation`: the continuation carries the session's todo list,
 /// and it waits while the session waits on an agent or an awaited background job.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_continuation_carries_the_todo_list_and_waits_on_background_work() {
     use mixdog_tools::state::todo::{TodoList, TodoPhase, TodoStatus, TodoTask};
     let rig = Rig::new();
@@ -269,7 +269,7 @@ async fn a_continuation_carries_the_todo_list_and_waits_on_background_work() {
 /// revision rides the queue as a hidden prompt behind a running turn, and marks the reminder
 /// (which resets the continuation rules) when the thread is idle. A delivered revision is not
 /// delivered twice.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_deadline_warning_is_queued_behind_a_turn_and_marks_the_reminder_when_idle() {
     let rig = Rig::new();
     let (gate, mut finished) = holding_counted(&rig);
@@ -305,7 +305,7 @@ async fn a_deadline_warning_is_queued_behind_a_turn_and_marks_the_reminder_when_
 /// `deliverGoalCloseout`: the Goal that reaches its duration while a turn runs queues one
 /// `goal-closeout` entry for it (`next`, hidden, discarded on abort); an idle thread with queued
 /// user work marks the reminder instead; a closeout already queued is kept, not duplicated.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_deadline_closeout_is_queued_when_the_goal_reaches_its_duration() {
     let rig = Rig::new();
     let gate = holding(&rig);
@@ -332,7 +332,7 @@ async fn the_deadline_closeout_is_queued_when_the_goal_reaches_its_duration() {
 
 /// A user prompt that removes a queued closeout of a Goal at its duration marks the reminder
 /// (`archiveCompletedGoalOnUserInput`).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_user_prompt_dropping_the_closeout_marks_the_reminder() {
     let rig = Rig::new();
     let gate = holding(&rig);
@@ -383,7 +383,7 @@ fn sources(seen: &Mutex<Vec<Value>>) -> Vec<String> {
 
 /// `shouldRunGoalContinuation` for a queued closeout (`drain.mjs`): it runs while the lane's
 /// Goal is still the one at its duration, and is dropped once that Goal is no longer there.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_queued_closeout_runs_only_while_its_goal_is_at_its_duration() {
     for still_due in [true, false] {
         let rig = Rig::new();
@@ -413,7 +413,7 @@ async fn a_queued_closeout_runs_only_while_its_goal_is_at_its_duration() {
 
 /// `shouldRunGoalContinuation` for a queued continuation: the runtime decides again when the
 /// entry comes up, and a `run: false` drops it without rescheduling.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_queued_continuation_runs_only_if_the_runtime_still_decides_to_run() {
     let rig = Rig::new();
     let (gate, seen) = recording(&rig);
@@ -434,7 +434,7 @@ async fn a_queued_continuation_runs_only_if_the_runtime_still_decides_to_run() {
 
 /// Node's `state.busy` is cleared when the turn closes, before its Goal settlement: a deadline
 /// warning that lands while the turn settles marks the reminder, as on an idle thread.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_deadline_warning_during_the_settlement_marks_the_reminder() {
     let rig = Rig::new();
     let (gate, seen) = recording(&rig);
@@ -459,7 +459,7 @@ async fn a_deadline_warning_during_the_settlement_marks_the_reminder() {
 
 /// `markGoalReminder(reason)` marks the session's pending Goal reminder
 /// (`markPendingGoalReminder`): one more revision each time, with the reason and `updatedAt`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_goal_reminder_marks_the_sessions_pending_reminder() {
     let rig = Rig::new();
     // The active Goal continues as a turn, and a turn that completes carries the pending
@@ -490,7 +490,7 @@ async fn a_goal_reminder_marks_the_sessions_pending_reminder() {
 /// A turn takes the pending Goal reminder into its tail (`snapshotPendingGoalReminder`) and the
 /// marker goes once that turn completed (`acknowledgePendingGoalReminder`); a mark made while a
 /// turn runs is not that turn's, so it survives the turn's end.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_completed_turn_carries_the_pending_reminder_and_clears_it() {
     let rig = Rig::new();
     let gate = Arc::new(tokio::sync::Notify::new());
@@ -527,7 +527,7 @@ async fn a_completed_turn_carries_the_pending_reminder_and_clears_it() {
 /// `canDeliverSteeringEntry`: the terminal boundary of a running turn steers the queued closeout
 /// of the Goal at its duration; once the runtime's Goal is no longer at it, the entry leaves the
 /// queue without reaching the model.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_queued_closeout_is_steered_only_while_its_goal_is_at_its_duration() {
     use super::run::{DrainRequest, DrainStage, Priority};
     for still_due in [true, false] {
@@ -574,7 +574,7 @@ async fn a_queued_closeout_is_steered_only_while_its_goal_is_at_its_duration() {
 /// `cancelQueuedGoalContinuations({ keepCloseoutFor })`: the kept closeout takes the text of
 /// the Goal now (`entry.content = goalDeadlineReached(..)`) in place: one `update` record of
 /// the same queue entry, no second entry.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_kept_closeout_takes_the_goals_text_in_place() {
     let rig = Rig::new();
     let gate = holding(&rig);
@@ -672,7 +672,7 @@ async fn a_suppressed_entry_a_turn_takes_in_paints_no_row() {
 /// The `/goal` route: `thread/goal/set` carries the request, `clear` and `control` map to
 /// `goalControl`'s actions; the answer is the runtime's, a refusal is its message, an `edit`
 /// marks the reminder and a `pause` cancels the running turn.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_goal_route_serves_goal_control() {
     let rig = Rig::new();
     let spy = Spy::new(&rig);
