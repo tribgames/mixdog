@@ -427,6 +427,7 @@ impl HooksStatus for HookStatus {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
     use super::*;
     use crate::domain_seams::golden;

@@ -1223,6 +1223,16 @@ impl ThreadDirectory for SessionDirectory {
                 super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
                 // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
                 let id = ThreadId::from(new_id());
+                // The route the thread begins on is settled first: the tools and the prompt below are
+                // composed for it, as Node composes the session from `rt.route`.
+                let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
+                let route = self.inner.deps.new_route.adopt(&id, pick.as_ref()).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
+                // The route keys only a created record carries (`presetName`, the wire id, the preset's chain …);
+                // the route's own fields are seated once the thread exists.
+                let created = super::new_route::create_keys(&route).map_err(|message| mixdog_core_base::support::failed("route", message))?;
+                for (key, value) in created {
+                    header.insert(key, value);
+                }
                 let header = self.inner.deps.new_tools.seed(&id, &header).await.map_err(|message| {
                     mixdog_core_base::support::failed("session", format!("session: tools: {message}"))
                 })?;
@@ -1237,6 +1247,18 @@ impl ThreadDirectory for SessionDirectory {
                         params: req.params.clone(),
                     })
                     .await?;
+                self.inner.deps.new_route.seat(&handle.id).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
+                // `contextTokens` is on a created record only when set; the seat writes the route's, null when none.
+                if handle.cell.header.load().get("contextTokens") == Some(&Value::Null) {
+                    handle
+                        .request(CoreRequest {
+                            method: Method("thread/header/patch"),
+                            params: json!({ "threadId": handle.id, "set": {}, "unset": ["contextTokens"] }),
+                            op: None,
+                            ctx: CallContext::internal("route"),
+                        })
+                        .await?;
+                }
                 let mut result = json!({ "thread": handle.cell.view.load_full().summary });
                 if let Some(input) = params.initial_input {
                     let turn = handle

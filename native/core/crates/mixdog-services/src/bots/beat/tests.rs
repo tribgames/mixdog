@@ -486,6 +486,9 @@ async fn a_halt_is_at_once_and_the_wait_ends_with_the_check_running() {
     r.settings.enabled.store(false, Ordering::SeqCst);
     r.settings.held.store(true, Ordering::SeqCst);
     let running = Arc::new(start_mixy_heartbeat(r.hb.clone(), Duration::from_millis(100), Duration::from_millis(400)));
+    for _ in 0..32 {
+        tokio::task::yield_now().await; // both timers register at the start, not 10 ms into the first step
+    }
     run_for(&r, 100).await;
     assert_eq!(asked(&r), 1, "the first check runs and waits inside its settings read");
     run_for(&r, 300).await;

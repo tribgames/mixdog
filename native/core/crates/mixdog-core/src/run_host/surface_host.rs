@@ -34,6 +34,10 @@ use mixdog_core_ports::ports::tools_status::surface_of_header;
 use mixdog_core_session::session::NewThreadTools;
 use mixdog_core_session::session::agent_registry::LiveSessions;
 use mixdog_core_session::session::session_options::LEAD_DISALLOWED_TOOLS;
+use mixdog_core_session::session::session_options::write_lead_record;
+use mixdog_core_session::session::thread_switches::WorkflowTarget;
+use sha2::Digest as _;
+use sha2::Sha256;
 use mixdog_core_session::session::thread_settings::has_conversation_messages;
 use mixdog_core_session::session::thread_settings::normalize_tool_mode;
 use mixdog_core_session::session::thread_settings::tool_spec_for_mode;
@@ -548,10 +552,12 @@ impl NewThreadTools for LeadSurfaceHost {
             model_standalone_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect()
         };
         extra.extend(s.mcp.tools(&cwd).iter().map(tool_doc));
-        // `composeSessionSystem`: a Lead's identity is the default one (no caller prompt, no skips, no agent).
+        // `composeSessionSystem`: a Lead's identity is the default one (no caller prompt, no skips), of the `lead` agent
+        // (`sessionOptions`: `agent: homeAgent || 'lead'`).
         let mut identified = header.clone();
         identified.insert("id".to_owned(), json!(thread.as_str()));
-        identified.insert("promptIdentity".to_owned(), json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": null }));
+        identified.insert("promptIdentity".to_owned(), json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": "lead" }));
+        let roster = roster_revision(&target);
         let request = RebuildRequest {
             header: identified,
             target,
@@ -570,8 +576,21 @@ impl NewThreadTools for LeadSurfaceHost {
         land_prompt(&mut session, composed)?;
         let mut seeded = session.as_object().cloned().ok_or_else(|| "the seeded session is not an object".to_owned())?;
         seeded.shift_remove("messages");
+        // `buildSessionRecord`'s remaining fields, and the stamps of the profile and bot roster the prompt was composed from.
+        write_lead_record(&mut seeded, s.clock.now_ms(), std::process::id());
+        seeded.insert("agentRosterRevision".to_owned(), json!(roster));
         Ok(seeded)
     }
+}
+
+/// `leadRosterRevision(parts)` (`role-instructions.mjs:413`): the bot roster a Lead's prompt lists (its
+/// agent catalog and Mixy's contact catalog), as one hash.
+fn roster_revision(target: &WorkflowTarget) -> String {
+    let mut hash = Sha256::new();
+    for slice in [&target.agent_catalog_context, &target.contact_catalog_context] {
+        hash.update(format!("{slice}\0"));
+    }
+    hash.finalize().iter().take(12).map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// The session's system messages after the deferred surface's manifest step, back into the

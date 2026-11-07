@@ -824,6 +824,20 @@ impl super::NewThreadTools for KeepHeader {
     }
 }
 
+/// A new thread begins with no route of its own (no route service behind it).
+pub struct NoRoute;
+
+#[async_trait::async_trait]
+impl super::NewThreadRoute for NoRoute {
+    async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, serde_json::Value>>) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+
+    async fn seat(&self, _: &ThreadId) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 /// The rooms whose members' handed-off questions moved, and the member approvals resolved
 /// (`room:approval`), in order.
 #[derive(Default)]
@@ -1330,6 +1344,7 @@ impl Rig {
             runs: self.runs.clone(),
             surfaces: Arc::new(HeaderSurfaces),
             new_tools: Arc::new(KeepHeader),
+            new_route: Arc::new(NoRoute),
             resumed_tools: self.resumed.clone(),
             room_members: self.room_members.clone(),
             wakes: self.wakes.clone(),

@@ -1,6 +1,10 @@
 //! What `executeCodeGraphTool` wraps around every answer (`code-graph/dispatch.mjs`): the warning
 //! about files the graph could not index, then the output budget (`capLineOrientedToolOutput`
 //! with `_codeGraphBudgetFooter`, `shared/tool-output-limit.mjs`).
+#![allow(
+    clippy::disallowed_methods,
+    reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)"
+)]
 
 use std::path::{Path, PathBuf};
 

@@ -15,6 +15,7 @@ use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::JsonValue;
 use serde_json::json;
 use tokio::sync::Semaphore;
@@ -189,7 +190,7 @@ impl WebService {
         }
     }
 
-    async fn web_search(&self, args: &JsonValue, cancel: &CancellationToken) -> ToolOutcome {
+    async fn web_search(&self, args: &JsonValue, thread: &ThreadId, cancel: &CancellationToken) -> ToolOutcome {
         let input = search_args(args)?;
         let listed_alone = input.listed && input.queries.len() == 1;
         let mut queries: Vec<String> = Vec::new();
@@ -207,7 +208,7 @@ impl WebService {
             max_results: input.max_results,
         };
         if let [only] = queries.as_slice() {
-            return match self.search.search(&one(only.clone()), cancel).await {
+            return match self.search.search(&one(only.clone()), thread, cancel).await {
                 Ok(payload) => Ok(text_output(format_results(&payload))),
                 Err(message) => Err(unavailable("web_search", format!("Web search failed: {message}"))),
             };
@@ -216,7 +217,7 @@ impl WebService {
         let (gate, one) = (&gate, &one);
         let sections: Vec<(String, bool)> = join_all(queries.iter().map(|query| async move {
             let _turn = gate.acquire().await;
-            let result = self.search.search(&one(query.clone()), cancel).await;
+            let result = self.search.search(&one(query.clone()), thread, cancel).await;
             let (text, failed) = match result {
                 Ok(payload) => (format_results(&payload), false),
                 Err(message) => (format!("Web search failed: {message}"), true),
@@ -472,7 +473,7 @@ web_tool!(
     }),
     true,
     false,
-    |service, ctx, args| service.web_search(&args, &ctx.cancel).await
+    |service, ctx, args| service.web_search(&args, &ctx.thread_id, &ctx.cancel).await
 );
 
 web_tool!(

@@ -224,6 +224,7 @@ mod tests {
     /// One timer slot: armed once, cleared when it fires, never armed while closing.
     #[tokio::test(start_paused = true)]
     async fn the_slot_is_armed_once_and_cleared_when_it_fires() {
+        mixdog_rt::testing::tokens();
         let closing = Arc::new(AtomicBool::new(false));
         let warmup = SetupWarmup::new(300, {
             let closing = closing.clone();
@@ -232,6 +233,7 @@ mod tests {
         warmup.schedule_default();
         warmup.schedule_default();
         assert!(warmup.pending());
+        tokio::task::yield_now().await; // the timer task registers its deadline before time moves
         tokio::time::advance(Duration::from_millis(299)).await;
         tokio::task::yield_now().await;
         assert!(warmup.pending(), "not before the delay");

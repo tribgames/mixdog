@@ -27,6 +27,7 @@ use super::render::BrowserRenderer;
 use mixdog_core_api::domain::ext::BrowserHold;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use mixdog_core_api::ids::ThreadId;
 use super::search::NativeSearchRequest;
 use super::search::NativeWebSearch;
 use super::ssrf::AddressPolicy;
@@ -238,10 +239,10 @@ struct Routes(Vec<SearchCandidate>);
 
 #[async_trait]
 impl SearchRoutes for Routes {
-    async fn candidates(&self) -> Result<Vec<SearchCandidate>, String> {
+    async fn candidates(&self, _thread: &ThreadId) -> Result<Vec<SearchCandidate>, String> {
         Ok(self.0.clone())
     }
-    async fn no_candidate_message(&self) -> String {
+    async fn no_candidate_message(&self, _thread: &ThreadId) -> String {
         "no route".to_string()
     }
 }
@@ -273,6 +274,7 @@ fn candidate(provider: &str, family: SearchFamily) -> SearchCandidate {
 
 fn request(site: Option<&str>) -> NativeSearchRequest {
     NativeSearchRequest {
+        thread: ThreadId::from("t"),
         query: "q".into(),
         site: site.map(str::to_string),
         locale: None,

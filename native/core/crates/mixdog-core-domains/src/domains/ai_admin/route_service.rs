@@ -19,6 +19,7 @@ use mixdog_tools::orch::util::PortError;
 use serde_json::{Value, json};
 
 use super::chain::{RouteFacts, resolve_chain_entry};
+use super::model_list::ModelListService;
 use mixdog_core_config::config::Config;
 use mixdog_core_ports::ports::route::FollowOptions;
 use mixdog_core_ports::ports::route::Followed;
@@ -84,7 +85,7 @@ fn text(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-fn port(e: PortError) -> String {
+pub fn port(e: PortError) -> String {
     match e {
         PortError::Failed { message, .. } | PortError::Unavailable { message, .. } | PortError::Refused { message, .. } => message,
         PortError::NotFound { message, .. } => message,
@@ -103,6 +104,8 @@ pub struct RouteService {
     pub facts: Arc<dyn RouteFacts>,
     pub writer: Arc<dyn RouteWriter>,
     pub session: Arc<dyn SessionFollow>,
+    /// `collectProviderModels`: the rows `model/list` answers, availability applied.
+    pub models: Arc<ModelListService>,
 }
 
 impl RouteService {
@@ -325,6 +328,48 @@ impl RouteService {
             }
             None => live(),
         })
+    }
+
+    /// A new task's draft route (`configureDraft`'s `setRoute(pick, { applyToCurrentSession: true,
+    /// keepMainModel: false })`): an explicit main-model choice, adopted as the live route of the
+    /// thread-to-be before its record is composed. Fast mode the route cannot hold is refused.
+    pub async fn adopt_draft(&self, thread: &ThreadId, draft: &Obj) -> Result<(), String> {
+        let options = SetRouteOptions { keep_main_model: Some(false), ..SetRouteOptions::default() };
+        self.adopt_route(thread, draft, &options, None).await?;
+        if draft.get("fast") == Some(&Value::Bool(true)) && self.writer.route(thread).get("fast") != Some(&Value::Bool(true)) {
+            let named = |key: &str| draft.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+            return Err(format!("fast mode is not available for {}/{}", named("provider"), named("model")));
+        }
+        Ok(())
+    }
+
+    /// The route a new task runs on when its draft names none: the live route the config resolved
+    /// to, with the effort and Fast facts of its model (`prepareRoute`'s `refreshRouteEffort`). A
+    /// route without a model is refused before anything is created, with the text Node's
+    /// `resolveMissingRouteModelForFirstTurn` throws (`route-resolution.mjs:28-35`; no code, a
+    /// plain `Error`): `collectProviderModels()` answers no row (providers that are not available
+    /// list nothing, `row-hydration.mjs:107`), or it does and the user has not chosen one (never
+    /// auto-picked).
+    pub async fn ready_default(&self, thread: &ThreadId) -> Result<(), String> {
+        if clean(self.writer.route(thread).get("model")).is_empty() {
+            return Err(if self.models.rows(false, false).await.is_empty() {
+                "No provider models available. Open /providers to sign in, then /model to choose a model.".to_owned()
+            } else {
+                "No model selected. Choose a model with /model first.".to_owned()
+            });
+        }
+        self.writer.refresh_route_effort(thread, None, true, None).await.map_err(port)?;
+        Ok(())
+    }
+
+    /// The created, empty thread takes the live route onto its header (`updateSessionInPlace`, the
+    /// follow of an `applyToCurrentSession` selection); a route without a model writes nothing.
+    pub async fn seat_route(&self, thread: &ThreadId) -> Result<(), String> {
+        if clean(self.writer.route(thread).get("model")).is_empty() {
+            return Ok(());
+        }
+        let follow = FollowOptions { apply_to_current_session: true, lease: Some(self.session.open_lease(thread, None)), ..FollowOptions::default() };
+        self.session.follow(thread, &follow).await.map(|_| ()).map_err(port)
     }
 
     /// `continueSessionInModel(sessionId, next)`: the quota escape hatch. The selection is adopted

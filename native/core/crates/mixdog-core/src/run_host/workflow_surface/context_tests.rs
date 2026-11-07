@@ -50,3 +50,19 @@ async fn the_summary_and_the_pack_block_equal_nodes() {
         assert_eq!(context_block_from_pack(active.as_ref()), got.pack_context, "{name}");
     }
 }
+
+/// The shipped packs are `<package root>/src/workflows` (`mixdogRoot()` is the `src` folder): over this
+/// repository's own tree the default workflow is the built-in pack a Node session records.
+#[tokio::test]
+async fn the_shipped_default_pack_is_read_from_the_src_folder() {
+    let lane = mixdog_rt::testing::tokens().interactive_io;
+    let package_root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).expect("the repository root");
+    let data = tempfile::tempdir().expect("sandbox");
+    let packs = WorkflowPacks::new(lane, WorkflowPaths { root: package_root.join("src"), data: data.path().to_path_buf() });
+    let got = packs.active("default", true).await.expect("the lane ran the read");
+    assert_eq!(
+        got.summary.to_string(),
+        r#"{"id":"default","name":"Default","description":"Handle tasks as requested.","source":"built-in","delegatesAgents":true}"#
+    );
+    assert!(got.pack_context.starts_with("# Active Workflow: Default \u{2014} Handle tasks as requested.\n\nAn explicit request is the approval within its scope"), "{}", got.pack_context);
+}

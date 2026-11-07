@@ -39,6 +39,9 @@ const HEARTBEAT_MODEL_TOOL_NAMES: [&str; 3] = ["session", "setup", "load_tool"];
 /// `LEAD_DISALLOWED_TOOLS` (`tool-defs.mjs:228`).
 pub const LEAD_DISALLOWED_TOOLS: [&str; 4] = ["get_goal", "create_goal", "set_goal_tasks", "update_goal"];
 
+/// `CODING_LEAD_PROFILE_REVISION` (`role-instructions.mjs:384`).
+const CODING_LEAD_PROFILE_REVISION: &str = "coding-lead";
+
 /// The header key of `autoWakeCompletions: false` (Node's `onCompletionQueued: null`).
 pub const AUTO_WAKE_COMPLETIONS: &str = "autoWakeCompletions";
 /// The header key of the session's memory switch (`MIXDOG_FEATURE_MEMORY`).
@@ -113,6 +116,56 @@ pub fn write_header(options: &ThreadSessionOptions, header: &mut Header) {
     }
 }
 
+/// The record fields `buildSessionRecord` (`session-record.mjs:121`), `sessionOriginFields` (`:57`) and
+/// the store's save defaults (`store/serialize.mjs:111`) give a user's Lead that no option
+/// decides: `sessionOptions` (`session-options.mjs:47`) with no `sessionProfile` makes it the
+/// `lead` agent on the `cli` lane, owned by `cli`, source `main`, started by this process; the counters
+/// begin at zero and the lifecycle at generation 0, open. `pid` is `process.pid`, which is both the
+/// runtime's `mcpPid` and, with no session profile, the `clientHostPid`.
+///
+/// A key the header already holds (a caller allowlist) is left as it is. Not written here: the route's
+/// fields (provider, model, windows, cache), the MCP scope (the daemon's hub is the default scope) and
+/// the title, which a first turn sets.
+pub fn write_lead_record(header: &mut Header, now_ms: i64, pid: u32) {
+    let lead_fields = [
+        ("agent", json!("lead")),
+        ("owner", json!("cli")),
+        ("lane", json!("cli")),
+        ("sourceName", json!("main")),
+        ("clientHostPid", json!(pid)),
+        ("mcpPid", json!(pid)),
+        ("scopeKey", Value::Null),
+        ("desktopSession", Value::Null),
+        ("taskType", Value::Null),
+        ("agentTag", Value::Null),
+        ("permission", Value::Null),
+        ("toolPermission", Value::Null),
+        ("permissionMode", Value::Null),
+        ("schemaAllowedTools", Value::Null),
+        ("parentSessionId", Value::Null),
+        ("ownerSessionId", Value::Null),
+        ("visibility", Value::Null),
+        ("profileId", Value::Null),
+        ("skipInstructionFiles", json!(false)),
+        ("providerCacheOptsOverride", json!(false)),
+        // Resolved and pinned before the first request: null marks a session created under the per-model wire table.
+        ("wireRoute", Value::Null),
+        ("lastHeartbeatAt", Value::Null),
+        ("lastUsedAt", json!(now_ms)),
+        ("totalInputTokens", json!(0)),
+        ("totalOutputTokens", json!(0)),
+        ("totalToolCalls", json!(0)),
+        ("tokensCumulative", json!(0)),
+        ("generation", json!(0)),
+        ("closed", json!(false)),
+        // A coding Lead embeds no profile file, so its stamp is a constant (`agentProfileRevision`).
+        ("agentProfileRevision", json!(CODING_LEAD_PROFILE_REVISION)),
+    ];
+    for (key, value) in lead_fields {
+        header.entry(key).or_insert(value);
+    }
+}
+
 /// `approvalMode: "implicit"`: the session has no approval surface.
 pub fn approval_implicit(header: &Header) -> bool {
     header.get("approvalMode").and_then(Value::as_str) == Some("implicit")
@@ -168,6 +221,36 @@ mod tests {
                 "Error: tool \"web_search\" is disabled in settings by the user. Do not retry unless the user turns it back on."
             )
         );
+    }
+
+    /// The record of a user's Lead (`create_goldens/lead.json`, recorded from Node's `sessionOptions`,
+    /// `buildSessionRecord` and `sessionOriginFields` by `record.mjs`): every field it lists, but the
+    /// roster stamp (the prompt's), is what `write_header` + `write_lead_record` leave in the header.
+    #[test]
+    fn a_lead_record_has_the_fields_node_gives_it() {
+        const PID: u32 = 4242;
+        const NOW: i64 = 1_700_000_000_000;
+        let golden: Value = serde_json::from_str(include_str!("create_goldens/lead.json")).expect("golden");
+        let mut header = Header::new();
+        write_header(&ThreadSessionOptions::default(), &mut header);
+        write_lead_record(&mut header, NOW, PID);
+        for (key, expected) in golden["record"].as_object().expect("record") {
+            match (key.as_str(), expected.as_str()) {
+                ("agentRosterRevision", _) => assert!(header.get(key).is_none(), "{key} is the prompt's"),
+                (_, Some("<pid>")) => assert_eq!(header[key.as_str()], json!(PID), "{key}"),
+                (_, Some("<ts>")) => assert_eq!(header[key.as_str()], json!(NOW), "{key}"),
+                _ => assert_eq!(&header[key.as_str()], expected, "{key}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_lead_record_keeps_the_schema_allowlist_a_profile_wrote() {
+        let mut header = Header::new();
+        write_header(&headless(), &mut header);
+        write_lead_record(&mut header, 1, 1);
+        assert_eq!(header["schemaAllowedTools"], json!(HEADLESS_MODEL_TOOL_NAMES));
+        assert_eq!(header["sourceType"], "exec");
     }
 
     #[test]

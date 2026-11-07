@@ -1,0 +1,67 @@
+{
+  "name": "memory",
+  "title": "Memory",
+  "annotations": {
+    "title": "Memory",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  },
+  "description": "Manage standing user preferences and constraints. Save what the user asks you to remember and report its exact text and scope; an entry you propose yourself, or one whose scope is unclear, waits for the user's approval. Load memory-management for curation policy; stored history uses recall.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "op": {
+        "type": "string",
+        "enum": [
+          "add",
+          "edit",
+          "delete",
+          "list"
+        ],
+        "description": "Manage user-curated standing memory only. list defaults to active entries; include_inactive:true also shows archived entries. Generated conversation history belongs to recall."
+      },
+      "id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "edit/delete: per-project memory index from list, paired with project_id and index_revision."
+      },
+      "index_revision": {
+        "type": "string",
+        "description": "Required for edit/delete: exact scope version returned by list. Indices compact after deletion or movement; stale versions are rejected. Read the list again, never guess."
+      },
+      "include_inactive": {
+        "type": "boolean",
+        "description": "list only: default false returns active standing memories. Set true to also inspect archived user-curated records."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "list page size; default 50."
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "list continuation offset; default 0."
+      },
+      "summary": {
+        "type": "string",
+        "description": "Durable content; required for add and edit. The internal title is derived from its first 40 characters."
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Pool: omit for the current Project, \"common\" for common memory, or a Project slug; \"*\" is list only."
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent memory instead of project_id: \"self\" is your own pool, read and injected only for you; an unattended run writes only there. The representative agent (lead) may list or delete another agent's by its id."
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "op"
+    ]
+  }
+}

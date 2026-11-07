@@ -40,6 +40,7 @@ pub mod domain_seams;
 pub mod js_runtime;
 pub mod event_pipeline;
 pub mod held_requests;
+pub mod memory_callers;
 pub mod hook_rule_setup;
 pub mod setup_status;
 pub mod lifecycle;
