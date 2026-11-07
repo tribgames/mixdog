@@ -1,0 +1,30 @@
+{
+  "command": "node --import <resolver for the tree's TS sources and packages> <repo>/benchmarks/rust-core/recorders/record-delete-idle.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8453,
+      "path": "golden.json",
+      "sha256": "79cc6295b5df9f93baf9ece1ea11d5dd1d84264d87c3c72588cf6e707eb64714"
+    }
+  ],
+  "product": {
+    "appsSha256": "56b676acc51f98793410ef1e39d9174c9dbd807ec928f673353cfc9b26fd7022",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 8814,
+    "refComparison": {
+      "closestCommit": "4c34c618329f936e27ef2fcb7e39088b752cfcc6",
+      "commitFilesMissingFromTree": 446,
+      "exact": false,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "5cdc856dd5029974664ecc2a9deebf6d10c4549688e85621a553a1fb4b7801b0",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-delete-idle.mjs",
+  "set": "delete-idle",
+  "totalBytes": 8453
+}

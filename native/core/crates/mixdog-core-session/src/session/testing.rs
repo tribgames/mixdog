@@ -1155,9 +1155,18 @@ impl super::agent_activity::AgentStatus for TestAgents {
 }
 
 /// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`; the
-/// sessions whose MCP scope was released are kept apart, in order.
+/// sessions whose MCP scope was released are kept apart, in order. The last three are what the
+/// idle delete asks of its runtime: the session it has current, whether the caller gave no
+/// `isHostedBusy` guard, and whether a hosting runtime holds input for the session.
 #[derive(Default)]
-pub struct Deletes(pub Mutex<Vec<String>>, pub tokio::sync::Notify, pub Mutex<Vec<String>>);
+pub struct Deletes(
+    pub Mutex<Vec<String>>,
+    pub tokio::sync::Notify,
+    pub Mutex<Vec<String>>,
+    pub Mutex<Option<String>>,
+    pub Mutex<bool>,
+    pub Mutex<bool>,
+);
 
 impl Deletes {
     fn note(&self, step: String) {
@@ -1194,6 +1203,12 @@ impl super::delete::DeleteSeams for Deletes {
     }
     fn thread_deleted(&self, thread: &ThreadId) {
         self.note(format!("thread/deleted:{thread}"));
+    }
+    fn current_session(&self) -> Option<String> {
+        lock(&self.3).clone()
+    }
+    fn hosted_busy(&self, _: &str) -> Option<bool> {
+        (!*lock(&self.4)).then(|| *lock(&self.5))
     }
 }
 

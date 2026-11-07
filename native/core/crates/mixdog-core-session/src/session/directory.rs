@@ -129,6 +129,8 @@ pub(crate) struct DirInner {
     loads: std::sync::atomic::AtomicU64,
     /// Creates in flight (`getSessionCreatePromise()`): the idle probes of the background warm-ups read it.
     creating: std::sync::atomic::AtomicUsize,
+    /// The threads' turn starts against the idle-only delete (`turn-gate.mjs`).
+    gate: Arc<super::turn_gate::TurnGate>,
     /// `onGoalStatusChange`: each change goes to its loaded thread's Goal lane.
     goal_events: Mutex<Option<mixdog_core_goal::goal::Subscription>>,
     /// What each runtime's teardown does for the agents its session owns (`OwnerTeardown`).
@@ -211,6 +213,7 @@ impl SessionDirectory {
             opens: Default::default(),
             loads: Default::default(),
             creating: Default::default(),
+            gate: Default::default(),
             goal_events: Mutex::new(None),
             owner_teardown: std::sync::OnceLock::new(),
             _prune: prune.drop_guard(),
@@ -249,6 +252,12 @@ impl SessionDirectory {
     /// The concrete handle of a loaded thread.
     pub fn handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         self.inner.loaded(id)
+    }
+
+    /// The turn gate, for the tests that hold a start's admission or a delete's fence.
+    #[cfg(test)]
+    pub(crate) fn turn_gate(&self) -> &Arc<super::turn_gate::TurnGate> {
+        self.inner.gate()
     }
 
     /// The loaded thread a run belongs to: a run exists only while its thread is loaded.
@@ -659,6 +668,10 @@ impl DirInner {
         &self.deps
     }
 
+    pub(crate) fn gate(&self) -> &Arc<super::turn_gate::TurnGate> {
+        &self.gate
+    }
+
     /// A session's header: the live one of a loaded thread, else the stored record read on the io
     /// lane. `None` when the session is unknown or deleted.
     pub(super) async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
@@ -984,6 +997,8 @@ impl DirInner {
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),
             closed: Default::default(),
+            turn_held: Default::default(),
+            turn_pending: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]

@@ -915,6 +915,8 @@ impl SessionActor {
                 else => break,
             }
             self.pump();
+            self.cell.turn_held.store(self.turn_held(), SeqCst);
+            self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
@@ -965,7 +967,9 @@ impl SessionActor {
             seen = Some(word);
         }
         if idle {
-            let refusal = if self.turn_busy() {
+            let refusal = if self.turn_pending() {
+                Some("turn-waiting")
+            } else if self.turn_held() {
                 Some("busy")
             } else if !self.projected.queue.is_empty() {
                 Some("queued")
@@ -2708,7 +2712,18 @@ impl SessionActor {
     /// A turn runs, is starting (its input row's facts being read), is settling, or a dequeued
     /// Goal entry is being checked.
     fn turn_busy(&self) -> bool {
-        self.run.is_some() || self.starting || self.settling || self.goal_checking || self.quota_pending.is_some()
+        self.turn_held() || self.turn_pending()
+    }
+
+    /// A turn runs, is starting or is settling: what Node's ask lock is held for.
+    fn turn_held(&self) -> bool {
+        self.run.is_some() || self.starting || self.settling
+    }
+
+    /// A turn is about to start (a dequeued Goal entry is checked, a quota resume is pending):
+    /// Node's turn waiting for the ask lock.
+    fn turn_pending(&self) -> bool {
+        self.goal_checking || self.quota_pending.is_some()
     }
 
     /// Node's `state.busy`: set when `runTurn` begins, cleared when the turn closes, before its

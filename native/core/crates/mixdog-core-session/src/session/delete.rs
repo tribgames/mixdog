@@ -9,6 +9,7 @@
 //! openable and never deleted twice.
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering::SeqCst;
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
@@ -130,6 +131,17 @@ pub trait DeleteSeams: Send + Sync {
     async fn release_deleted_worktree(&self, session_id: &str);
     /// `thread/deleted` on the app feed.
     fn thread_deleted(&self, thread: &ThreadId);
+    /// `getSession()?.id`: the session the runtime serving the idle delete has current. A daemon
+    /// thread is never its runtime's current one, so there is none unless the embedder has one.
+    fn current_session(&self) -> Option<String> {
+        None
+    }
+    /// The idle delete's `isHostedBusy(id)`: whether a runtime hosting the session holds input
+    /// for it. `None`: the caller gave no such guard (`unguarded`). A daemon thread is its own
+    /// host, and its queued input is the `queued` check, so there is a guard and it is idle.
+    fn hosted_busy(&self, _session_id: &str) -> Option<bool> {
+        Some(false)
+    }
 }
 
 /// `readSessionSidebarState()`'s flags for one session. The desktop's archived and favorite
@@ -143,24 +155,63 @@ pub(crate) fn sidebar_flag(header: &mixdog_store::schema::record::Header, key: &
 /// The reason the idle delete closes with.
 pub const AUTO_DELETE_REASON: &str = "desktop-auto-delete";
 
-/// `idleRefusal` before the close: a running turn or queued input (`busy`, `queued`; the
-/// close asks the thread again), a session the catalog does not list (`missing`), or one
-/// whose `lastUsedAt` moved since the caller looked (`changed`). A daemon thread is never the
-/// runtime's current one and has no ask lock apart from its turn, so `current` and
-/// `turn-waiting` never apply; once closed, nothing can move it, so the checks before the
-/// mark are the close's.
+/// Whether the thread's turn holds what Node's ask lock is held for (`tryAcquireSessionLock`
+/// refuses): a turn runs, starts or settles.
+fn ask_lock_held(directory: &super::directory::DirInner, thread: &ThreadId) -> bool {
+    directory.loaded_handle(thread).is_some_and(|handle| handle.cell.run.load().is_some() || handle.cell.turn_held.load(SeqCst))
+}
+
+/// What `idleRefusal` reads of the thread before its record: the live state of the session.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Live {
+    /// The session is the one the runtime has current.
+    pub current: bool,
+    /// A turn is about to start (a turn waiting for the ask lock).
+    pub turn_pending: bool,
+    /// A turn runs, starts or is not settled.
+    pub turn_running: bool,
+    /// Input waits in the session's own queue.
+    pub queued: bool,
+    /// A runtime hosting the session holds input for it.
+    pub hosted_busy: bool,
+}
+
+/// `idleRefusal`'s live checks, in Node's order.
+pub(crate) fn live_refusal(live: &Live) -> Option<&'static str> {
+    if live.current {
+        Some("current")
+    } else if live.turn_pending {
+        Some("turn-waiting")
+    } else if live.turn_running {
+        Some("busy")
+    } else if live.queued || live.hosted_busy {
+        Some("queued")
+    } else {
+        None
+    }
+}
+
+/// `idleRefusal` before the close, in Node's order: the session the runtime has current
+/// (`current`), a turn about to start (`turn-waiting`), a running or settling turn or queued
+/// input (`busy`, `queued`; the close asks the thread again), a session the catalog does not
+/// list (`missing`), or one whose `lastUsedAt` moved since the caller looked (`changed`). Once
+/// closed, nothing can move the thread, so the checks before the mark are the close's.
 async fn idle_refusal(
     directory: &super::directory::DirInner,
     thread: &ThreadId,
     expected: &serde_json::Value,
 ) -> Result<Result<super::seams::SessionMeta, &'static str>, CoreError> {
-    if let Some(handle) = directory.loaded_handle(thread) {
-        if handle.cell.run.load().is_some() {
-            return Ok(Err("busy"));
-        }
-        if !handle.cell.queued.load().is_empty() {
-            return Ok(Err("queued"));
-        }
+    let deps = directory.deps();
+    let handle = directory.loaded_handle(thread);
+    let live = Live {
+        current: deps.deletion.current_session().is_some_and(|current| current == thread.as_str()),
+        turn_pending: handle.as_ref().is_some_and(|handle| handle.cell.turn_pending.load(SeqCst)),
+        turn_running: handle.as_ref().is_some_and(|handle| handle.cell.run.load().is_some() || handle.cell.turn_held.load(SeqCst)),
+        queued: handle.as_ref().is_some_and(|handle| !handle.cell.queued.load().is_empty()),
+        hosted_busy: deps.deletion.hosted_busy(thread.as_str()) == Some(true),
+    };
+    if let Some(refusal) = live_refusal(&live) {
+        return Ok(Err(refusal));
     }
     let Some(meta) = directory.deps().store.session_meta(thread).await? else {
         return Ok(Err("missing"));
@@ -182,11 +233,31 @@ pub(crate) async fn delete_session_if_idle(
 ) -> Result<serde_json::Value, CoreError> {
     let refuse = |reason: &str| Ok(serde_json::json!({ "deleted": false, "reason": reason }));
     let id = mixdog_js::js_trim(id);
-    if !is_session_id(id) {
+    // The service (`deleteIdleSession`): no target is `invalid`, and the turn gate closes the
+    // thread to turn starts for the whole delete unless one is being admitted (or another idle
+    // delete holds it): `turn-starting`.
+    if id.is_empty() {
         return refuse("invalid");
     }
     let thread = ThreadId::from(id);
+    let Some(_closed_to_starts) = directory.gate().fence(&thread) else {
+        return refuse("turn-starting");
+    };
+    // The runtime (`deleteSessionIfIdle`).
+    if !is_session_id(id) {
+        return refuse("invalid");
+    }
     let deps = directory.deps().clone();
+    if deps.deletion.hosted_busy(id).is_none() {
+        return refuse("unguarded");
+    }
+    if deps.deletion.current_session().is_some_and(|current| current == id) {
+        return refuse("current");
+    }
+    // The ask lock a turn holds is taken before the archive and favorite flags are read.
+    if ask_lock_held(directory, &thread) {
+        return refuse("busy");
+    }
     // A session that is not there has no archive mark.
     let Some(handle) = directory.delete_target(&thread).await? else {
         return refuse("not-archived");
@@ -203,9 +274,12 @@ pub(crate) async fn delete_session_if_idle(
         Err(reason) => return refuse(reason),
     };
     let reason = mixdog_agent::cancel::close_session_reason(id, AUTO_DELETE_REASON);
-    let hold = match directory.close_for_delete(&thread, &reason, true, None).await? {
-        Ok(hold) => hold,
-        Err(refusal) => return refuse(refusal),
+    // A close that could not be carried out (the thread is closing) landed nothing: `close-failed`.
+    let hold = match directory.close_for_delete(&thread, &reason, true, None).await {
+        Ok(Ok(hold)) => hold,
+        Ok(Err(refusal)) => return refuse(refusal),
+        Err(CoreError::ThreadClosing { .. }) => return refuse("close-failed"),
+        Err(error) => return Err(error),
     };
     let closed = Closed { reason: AUTO_DELETE_REASON, header: hold.header(), at_ms: deps.clock.now_ms() };
     if !remove(directory, &thread, meta.cwds, hold, closed).await {

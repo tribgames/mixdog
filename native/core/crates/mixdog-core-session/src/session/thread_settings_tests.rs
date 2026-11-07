@@ -35,6 +35,7 @@ use crate::session::seams::RunOutcome;
 use crate::session::testing::Rig;
 use crate::session::testing::lock;
 use crate::session::tests::eventually;
+use crate::session::tests::eventually_on;
 use crate::session::tests::turn;
 use crate::session::worktree::worktree_tests;
 
@@ -474,6 +475,77 @@ async fn a_project_move_of_an_unlisted_session_is_refused() {
     world.session("sess_move", json!({})).await;
     let refused = world.call(METADATA_UPDATE, json!({ "threadId": "sess_move", "projectPath": "" }), 1).await.unwrap_err();
     assert!(message(&refused).contains("Session is not available."), "{refused:?}");
+}
+
+/// The desktop host's `setSessionProject` as `fixtures/delete-idle/golden.json` recorded it
+/// (`record-delete-idle.mjs`).
+fn recorded_moves() -> Vec<Value> {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/delete-idle/golden.json")).expect("golden.json");
+    golden["moves"].as_array().expect("moves").clone()
+}
+
+/// A move reaches the host's refusals once the session is listed, the target is a registered
+/// Project and the session is not already there; they are the recorded ones in the recorded order.
+#[test]
+fn the_project_move_refusals_replay_the_desktop_host() {
+    for case in recorded_moves() {
+        let name = case["name"].as_str().expect("name");
+        let (place, target) = (case["where"].as_str().expect("where"), case["target"].as_str().expect("target"));
+        let reaches = case["listed"] == true && target != "elsewhere" && place != target;
+        if !reaches {
+            match name {
+                "unlisted" => assert_eq!(json!(SESSION_UNAVAILABLE), case["error"], "{name}"),
+                // The registry's own refusal, before the host's.
+                "not-registered" => assert!(case["error"].is_string(), "{name}"),
+                _ => assert_eq!(case["moved"], json!([]), "{name}: a session already there stays put"),
+            }
+            continue;
+        }
+        let live = |key: &str| case["live"][key] == true;
+        let working = case["working"] == true || live("busy") || live("commandBusy");
+        match project_move_refusal(working, place == "worktree") {
+            Some(refusal) => assert_eq!(json!(refusal), case["error"], "{name}"),
+            None => assert_eq!(case["moved"].as_array().map(Vec::len), Some(1), "{name}"),
+        }
+    }
+}
+
+/// What makes a session working to the host: its own turn in flight (the catalog row's
+/// `leadWorking`), the runtime state's `busy`, a compaction running (`commandBusy`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_working_in_any_way_the_host_counts_is_not_moved() {
+    use mixdog_app_protocol::v2::thread::ThreadRuntime;
+    use mixdog_core_ports::ports::threads::Section;
+
+    for case in recorded_moves() {
+        let name = case["name"].as_str().expect("name");
+        if !["lead-working", "live-busy", "live-command-busy"].contains(&name) {
+            continue;
+        }
+        let world = world().await;
+        world.rig.store.listed.store(true, Ordering::SeqCst);
+        world.rig.set_script(Arc::new(|run| {
+            Box::pin(async move {
+                run.cancel.cancelled().await;
+                RunOutcome::Interrupted
+            })
+        }));
+        world.session("sess_working", json!({})).await;
+        let handle = world.directory.handle(&ThreadId::from("sess_working")).expect("loaded");
+        let stepped = &handle.cell.stepped;
+        if name == "lead-working" {
+            turn(&handle, "work", "op-working").await;
+            eventually_on(&[stepped], || handle.cell.run.load().is_some().then_some(())).await;
+        } else {
+            let runtime = ThreadRuntime { busy: case["live"]["busy"] == true, command_busy: case["live"]["commandBusy"] == true, ..ThreadRuntime::default() };
+            handle.set_section(Section::Runtime(runtime)).await.expect("section");
+            let id = ThreadId::from("sess_working");
+            eventually_on(&[stepped], || world.directory.runtime_facts(&id).filter(|facts| facts.busy || facts.command_busy).map(|_| ())).await;
+        }
+        let repo = world.workspace.repo.to_string_lossy().into_owned();
+        let refused = world.call(METADATA_UPDATE, json!({ "threadId": "sess_working", "projectPath": repo }), 1).await.unwrap_err();
+        assert!(message(&refused).contains(case["error"].as_str().expect("error")), "{name}: {refused:?}");
+    }
 }
 
 /// `noteArchived` and `forget` over `desktop.retentionState`: after every step of

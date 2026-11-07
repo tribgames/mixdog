@@ -128,6 +128,7 @@ mod state;
 pub mod store;
 mod surface;
 pub mod terminal_host;
+mod turn_gate;
 pub mod transcript;
 pub mod transcript_export;
 pub mod turn_snapshot;
@@ -163,6 +164,8 @@ mod tests;
 mod goal_lane_tests;
 #[cfg(test)]
 mod turn_admission_tests;
+#[cfg(test)]
+mod delete_idle_tests;
 #[cfg(test)]
 mod assembly_tests;
 
