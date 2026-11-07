@@ -8,16 +8,18 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_ai::service::admin_route::{Obj, ensure_provider_enabled, window_meta_of};
+use mixdog_core_api::domain::provider::{ModelListing, ModelRecord, ProviderError};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_tools::orch::util::PortError;
 use serde_json::{Value, json};
+use tokio::sync::Notify;
 
 use super::chain::RouteFacts;
 use super::model_list::ModelListService;
 use super::model_list_tests::Offline;
 use super::route_service::{FastValue, RouteService, SessionFollow, SetRouteOptions};
-use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
+use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelSource, ModelsDevSource};
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::service::admin_models::developer_option_for_provider;
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
@@ -240,6 +242,57 @@ async fn a_default_route_with_no_model_is_refused_with_the_texts_node_throws() {
     let (service, _writer, log, _dir) = rig(&case).await;
     service.ready_default(&thread).await.expect("a route with a model is readied");
     assert_eq!(log.lock().unwrap().refreshes.len(), 1);
+}
+
+/// A provider listing held open by the test: it says it was asked, then answers nothing once released.
+struct Gated {
+    asked: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+#[async_trait]
+impl ModelListing for Gated {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        self.asked.notify_one();
+        self.release.notified().await;
+        Ok(Vec::new())
+    }
+}
+
+/// `route-resolution.mjs:28-30` (`route-resolution.test.mjs` "a model chosen while the catalog is
+/// read is taken, not refused"): the model lands while the catalog read is held open, so the live
+/// route read again afterwards has one and the refusal never happens. The gate is the listing
+/// itself: the model is chosen only once the read is under way, and the read finishes only after.
+#[tokio::test]
+async fn a_model_chosen_while_the_catalog_is_read_is_taken_not_refused() {
+    let thread = ThreadId::from("t");
+    let case = json!({ "config": {}, "live": { "provider": "anthropic-oauth", "model": "" } });
+    let (mut service, writer, log, dir) = rig(&case).await;
+    let (asked, release) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+    let tokens = mixdog_rt::testing::tokens();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let source = ModelSource::new(serde_json::from_value(json!("openai-oauth")).unwrap(), Arc::new(Gated { asked: asked.clone(), release: release.clone() }));
+    let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), vec![source], ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await);
+    service.models = Arc::new(ModelListService {
+        catalog,
+        config: service.config.clone(),
+        primary_provider: Arc::new(String::new),
+        unsupported: Arc::new(UnsupportedEfforts::default()),
+    });
+    let pick = async {
+        asked.notified().await;
+        *writer.route.lock().unwrap() = obj(&json!({ "provider": "anthropic-oauth", "model": "claude-x" }));
+        release.notify_one();
+    };
+    let (ready, ()) = tokio::join!(service.ready_default(&thread), pick);
+    ready.expect("a model chosen during the catalog read stands");
+    assert_eq!(log.lock().unwrap().refreshes.len(), 1, "the chosen route is readied");
+
+    // Still no model once the read is done: refused, as before.
+    *writer.route.lock().unwrap() = obj(&case["live"]);
+    release.notify_one();
+    let refused = service.ready_default(&thread).await.expect_err("still no model");
+    assert!(refused.starts_with("No provider models available"), "{refused}");
 }
 
 #[tokio::test]
