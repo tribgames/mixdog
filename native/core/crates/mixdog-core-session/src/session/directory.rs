@@ -898,6 +898,9 @@ impl DirInner {
 
     /// A new thread: its `session` record is its first durable write; the reply follows it.
     pub(crate) async fn create(&self, spec: CreateSpec) -> Result<Arc<SessionHandle>, CoreError> {
+        // The create settling, whichever way, is a busy-state change (`rt.wakeDeferredWarmups`):
+        // a warm parked on it re-checks.
+        let _settled = super::prewarm_signals::WakeOnDrop(self.deps.code_graph_prewarm.clone());
         let id = spec.id.unwrap_or_else(|| ThreadId::from(new_id()));
         let invalid = |path: &str| CoreError::InvalidParams {
             path: path.into(),

@@ -248,6 +248,13 @@ impl WorkspaceHost for SessionWorkspaceHost {
             return Err(error);
         }
         self.lock().remove(session_id);
+        // `applyResolvedCwd` warms the code graph on every apply, the same folder included
+        // (`cwd-apply.mjs:73`, `:85-90`).
+        if let Some(handle) = self.directory.handle(&ThreadId::from(session_id))
+            && let Err(error) = handle.cwd_applied(moves)
+        {
+            tracing::warn!("code-graph warm for the applied cwd not scheduled: {error}");
+        }
         let (threads, id) = (self.threads.clone(), ThreadId::from(session_id));
         let marker = self.marker.clone();
         let session = session_id.to_owned();

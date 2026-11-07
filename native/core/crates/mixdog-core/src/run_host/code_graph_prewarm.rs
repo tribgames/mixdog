@@ -153,6 +153,27 @@ impl CodeGraphPrewarm {
     }
 }
 
+/// `SessionDeps.code_graph_prewarm`: the sessions' events reach the one timer. `lazy` is
+/// `codeGraphPrewarmLazy` (`runtime-tunables.mjs`).
+pub struct SessionPrewarm {
+    pub prewarm: Arc<CodeGraphPrewarm>,
+    pub lazy: bool,
+}
+
+impl mixdog_core_session::session::prewarm_signals::CodeGraphPrewarmSignals for SessionPrewarm {
+    fn schedule(&self, delay: Option<Duration>, reason: &'static str) {
+        self.prewarm.schedule(delay, reason);
+    }
+
+    fn wake(&self) {
+        self.prewarm.wake();
+    }
+
+    fn lazy(&self) -> bool {
+        self.lazy
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicBool;

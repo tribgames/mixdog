@@ -49,6 +49,9 @@ pub(crate) enum Ctl {
     RetryStorage,
     /// A tool-policy input outside the thread changed (a setting, a connector policy).
     RefreshSurface,
+    /// A workspace change applied the session's cwd (`applyResolvedCwd`), `changed` when the
+    /// folder moved: the code-graph warm follows.
+    CwdApplied { changed: bool },
     /// The last subscriber left: an idle thread unloads.
     Unsubscribed,
     /// The thread's tombstone landed (`closeSession`): no Goal continues it, and once its turn

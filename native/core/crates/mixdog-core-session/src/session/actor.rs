@@ -411,6 +411,10 @@ pub(crate) struct SessionActor {
     book: ApprovalBook,
     ops: OpTable,
     run: Option<RunSlot>,
+    /// `rt.codeGraphFirstTurnPrewarmDone`: the runtime's first turn armed the code-graph warm.
+    first_turn_prewarm_done: bool,
+    /// The running turn is that first turn and has not shown visible output yet.
+    turn_prewarm_armed: bool,
     steer_marked: Vec<QueuedId>,
     /// Which completions showed a live card (Node's per-session execution dedup).
     cards: super::cards::CardGate,
@@ -549,6 +553,8 @@ impl SessionActor {
             book: ApprovalBook::default(),
             ops: OpTable::default(),
             run: None,
+            first_turn_prewarm_done: false,
+            turn_prewarm_armed: false,
             steer_marked: Vec::new(),
             cards: Default::default(),
             listened: Default::default(),
@@ -615,6 +621,8 @@ impl SessionActor {
         // A thread opened for a caller that never attaches a feed (a worker, a headless run) has
         // no last unsubscribe to unload it: it starts on the idle clock.
         self.arm_idle_evict();
+        // `applyResolvedCwd` of the opened session's cwd (`resume.mjs:158`): unchanged.
+        self.cwd_applied(false);
         // The runtime's status pass is registered dirty and runs once at load, one settle beat
         // later (`session-status-scheduler.mjs` `register`), publishing the agent status it reads.
         // There is no periodic pass: Node dropped the 2 s pulse for change marks (858b0b2d2), and
@@ -774,6 +782,29 @@ impl SessionActor {
             || self.run.is_some()
             || !self.projected.queue.is_empty()
             || !self.projected.approvals.is_empty())
+    }
+
+    /// `applyResolvedCwd`'s code-graph warm (`cwd-apply.mjs:85-90`): none in lazy mode before the
+    /// runtime's first turn armed its own; otherwise at once for a changed folder, after the
+    /// configured delay for the same one.
+    fn cwd_applied(&self, changed: bool) {
+        let prewarm = &self.deps.code_graph_prewarm;
+        if prewarm.lazy() && !self.first_turn_prewarm_done {
+            return;
+        }
+        if changed {
+            prewarm.schedule(Some(std::time::Duration::ZERO), "cwd-change");
+        } else {
+            prewarm.schedule(None, "cwd");
+        }
+    }
+
+    /// `turn.armHeavyRuntimeWarmup('first-visible')` on visible output (text, reasoning, a tool):
+    /// the first turn's warm, once.
+    fn visible_progress(&mut self) {
+        if std::mem::take(&mut self.turn_prewarm_armed) {
+            self.deps.code_graph_prewarm.schedule(Some(std::time::Duration::ZERO), "first-visible");
+        }
     }
 
     /// The idle clock of a thread nobody watched starts over.
@@ -1745,6 +1776,7 @@ impl SessionActor {
                 let _ = self.ch.dur_tx.try_send(ToDurability::Retry);
             }
             Ctl::RefreshSurface => self.refresh_surface(),
+            Ctl::CwdApplied { changed } => self.cwd_applied(changed),
             Ctl::Unsubscribed => self.try_unload(),
             Ctl::Closed => {
                 self.tombstoned = true;
@@ -1817,6 +1849,9 @@ impl SessionActor {
             return;
         };
         self.cell.publish_run(None);
+        // `setActiveTurnCount(-1)`: the parked warmups re-check.
+        self.turn_prewarm_armed = false;
+        self.deps.code_graph_prewarm.wake();
         // An ended turn has no working messages left (`liveTurnMessages` ends with the turn).
         self.cell.turn_messages.send_replace(Default::default());
         self.steer_marked.clear();
@@ -2208,6 +2243,9 @@ impl SessionActor {
                 if !self.active(&turn) {
                     return;
                 }
+                if matches!(item, ThreadItem::ToolCall { .. }) {
+                    self.visible_progress();
+                }
                 let note = Note::new(
                     "item/started",
                     &ItemNotificationParams {
@@ -2219,6 +2257,8 @@ impl SessionActor {
                 self.accept_view(Change::ItemStarted { turn, item }, vec![note]);
             }
             ProducerMsg::Delta { item, text, method, params } => {
+                // Text or reasoning: visible output (`isVisibleStreamProgress`).
+                self.visible_progress();
                 let note = Note { method, params };
                 self.accept_view(Change::Delta { item, text }, vec![note]);
             }
@@ -3608,6 +3648,10 @@ impl SessionActor {
         // `onGoalTurnStarted`: the turn takes the Goal's open clock segment.
         let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
         self.goal_call(Box::pin(async move { JobDone::GoalSeen(goals.turn_started(&thread).await.ok()) }));
+        // `heavyRuntimeWarmupArm()` (`turn-open.mjs:22`): the runtime's first turn arms the warm;
+        // `setActiveTurnCount(+1)` wakes the parked warmups.
+        self.turn_prewarm_armed = !std::mem::replace(&mut self.first_turn_prewarm_done, true);
+        self.deps.code_graph_prewarm.wake();
         self.cell.publish_run(Some(Arc::new(ActiveRun {
             turn: turn.clone(),
             cancel: cancel.clone(),

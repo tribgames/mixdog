@@ -61,6 +61,9 @@ mod route_exclusions;
 pub mod route_session;
 pub mod agent_evidence;
 pub mod agent_activity;
+pub mod prewarm_signals;
+#[cfg(test)]
+mod prewarm_signals_tests;
 #[cfg(test)]
 mod agent_activity_tests;
 pub mod dispatch_sessions;
@@ -267,6 +270,8 @@ pub struct SessionDeps {
     /// The agent tool's status for a session, published as its `agents` section when a job of
     /// the session is added or finishes (`agent_activity.rs`).
     pub agent_status: Arc<dyn agent_activity::AgentStatus>,
+    /// The code-graph prewarm this session's events schedule and wake (`prewarm_signals.rs`).
+    pub code_graph_prewarm: Arc<dyn prewarm_signals::CodeGraphPrewarmSignals>,
     /// The agent-status sources this session's actor emits (an approval wait, a stored record).
     pub agent_signals: Arc<dyn agent_activity::AgentSignals>,
     pub cycles: Arc<mixdog_core_run::run_host::guards::UserCycles>,
