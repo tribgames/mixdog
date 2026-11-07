@@ -32,7 +32,8 @@ const defined = (params: Record<string, unknown>, threadId: string | undefined):
   Object.fromEntries(Object.entries({ threadId, ...params }).filter(([, value]) => value !== undefined));
 
 // Actions whose Rust op exists under another namespace or name than `<namespace>/<action>` (operations_map.json:
-// `getBotOrder`/`setBotOrder` → `config/*`, `setAgentRoute` → `route/set{agentId, route}`) and that the TUI lacks.
+// `getBotOrder`/`setBotOrder` → `config/*`, `setAgentRoute` → `route/set{agentId, route}`) and that the TUI lacks, plus the
+// seven the gap analysis closed (desktop-gaps-1: queue edits, review reads, `setModel`).
 const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
   getBotOrder: (_args, { threadId }) => ({ method: 'config/getBotOrder', params: defined({}, threadId) }),
   setBotOrder: ([order], { threadId }) => ({ method: 'config/setBotOrder', params: defined({ order }, threadId) }),
@@ -40,6 +41,42 @@ const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
     method: 'route/set',
     params: defined({ agentId, route }, threadId),
   }),
+  prioritizeQueued: ([selectedId], { threadId }) => ({
+    method: 'turn/steer',
+    params: defined({ queuedId: selectedId }, threadId),
+  }),
+  restoreQueued: ([currentText, selectedId], { threadId }) => ({
+    method: 'thread/queue/delete',
+    params: defined({ queuedId: selectedId, currentText, restore: true }, threadId),
+  }),
+  getSessionReviewDiff: (_args, { threadId }) => ({
+    method: 'review/diff/get',
+    params: defined({ scope: 'session' }, threadId),
+  }),
+  getSessionReviewFilePatch: ([file, oldPath], { threadId }) => ({
+    method: 'review/diff/get',
+    params: defined({ scope: 'session', path: file, oldPath }, threadId),
+  }),
+  // `refresh`/`poll` are dropped: Node's `readTurnReview` ignores them.
+  getTurnReviewDiff: ([options], { threadId }) => {
+    const { summary, known } = (options ?? {}) as { summary?: unknown; known?: unknown };
+    return {
+      method: 'review/diff/get',
+      params: defined({ scope: 'turn', summary: summary === true ? true : undefined, known }, threadId),
+    };
+  },
+  getTurnReviewFilePatch: ([file], { threadId }) => ({
+    method: 'review/diff/get',
+    params: defined({ scope: 'turn', path: file }, threadId),
+  }),
+  getTurnChanges: ([options], { threadId }) => {
+    const { checkpointId, patch, file } = (options ?? {}) as { checkpointId?: unknown; patch?: unknown; file?: unknown };
+    return {
+      method: 'review/diff/get',
+      params: defined({ scope: 'turn', checkpointId, patch, path: file }, threadId),
+    };
+  },
+  setModel: ([model], { threadId }) => ({ method: 'route/set', params: defined({ route: { model } }, threadId) }),
 };
 
 /** The core request for `capability(...args)` issued by the surface that paints `sessionId` (none = control session).
@@ -69,6 +106,8 @@ export const THREAD_REQUIRED_CAPABILITIES: ReadonlySet<string> = new Set([
   'goalControl',
   'compact',
   'clear',
+  'prioritizeQueued',
+  'restoreQueued',
 ]);
 
 /** The capabilities served by the core's `mcp/*` and `connector/*` ops: the same set as Node's `MCP_ACTIONS`
@@ -99,7 +138,7 @@ const startedThreadId = (started: unknown): string => {
 export function createCapabilityLane({
   protocol,
 }: {
-  protocol: Pick<ProtocolConnection, 'call' | 'snapshot' | 'onEvent'>;
+  protocol: Pick<ProtocolConnection, 'call' | 'snapshot' | 'onEvent' | 'noteUserInput'>;
 }): CapabilityLane {
   const request = (method: string, params: unknown): Promise<unknown> =>
     protocol.call(method, params).catch((error: unknown) => {
@@ -130,6 +169,11 @@ export function createCapabilityLane({
     return pending;
   };
   const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
+    // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request; it has no value.
+    if (capability === 'noteUserInput') {
+      protocol.noteUserInput(args[0] as number);
+      return undefined;
+    }
     let thread = sessionId;
     if (!thread && (THREAD_REQUIRED_CAPABILITIES.has(capability) || MCP_CAPABILITIES.has(capability))) {
       // An action with no op fails here, before a thread is started for it.
