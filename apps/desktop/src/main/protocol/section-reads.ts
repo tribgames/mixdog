@@ -23,6 +23,11 @@ import { markdownDefaultViewSetting } from '../../shared/editor-settings';
 export interface OperationHost {
   /** Whether this PC's OS shows notifications; asked only when the caller did not say. */
   pcNotificationsSupported(): Promise<boolean>;
+  /** What this PC's own window shows (theme, UI language), or null when unknown: published as
+   *  `hostState.displayPreferences` wherever Node announced a desktop settings change. */
+  readDisplayPreferences(): Promise<unknown>;
+  /** Raises an event for this process's own windows, as the Node service's broadcast reached them. */
+  emitDesktopEvent(name: string, value: unknown): void;
   /** The machine's name, for a PC that has set no remote-access name. */
   hostName(): string;
 }
@@ -32,9 +37,9 @@ export const DEFAULT_OPERATION_HOST: Pick<OperationHost, 'hostName'> = { hostNam
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-/** The held value of `(section, key)`. A section the store lacks is "not set", as an absent config subtree is. */
+/** The held value of `(section, key)`. A section the store lacks is "not set", as an absent config subtree is. The lane
+ *  reads only after the connection's first snapshot (`whenSynced`); a link that is down since keeps its last values. */
 function held(snapshot: DesktopSectionsSnapshot, section: string, key: string | null): unknown {
-  if (snapshot.status !== 'ready') throw new Error('The core connection is not ready.');
   return snapshot.entries.find((entry) => entry.section === section && entry.key === key)?.value;
 }
 
@@ -153,4 +158,26 @@ export async function notificationPreferencesState(
 export function visualizeRemoteViewing(snapshot: DesktopSectionsSnapshot, args: readonly unknown[]): boolean {
   const shown = record(held(snapshot, 'hostState', 'remoteViewing')).sessionIds;
   return Array.isArray(shown) && shown.includes(String(args[0] || ''));
+}
+
+/** A member of the core's `remote` section, as Node's remote-access handler returned it (`remoteAccessInfo` is the
+ *  section's `info`, ...). Activation, which Node's `activate` argument did as a side effect of reading, is the user's
+ *  explicit `remoteAccess/setEnabled` / `pairCode`. A section the core has not pushed is an error, never an empty answer. */
+export function remoteAccessMember(snapshot: DesktopSectionsSnapshot, member: string): unknown {
+  const entry = snapshot.entries.find((candidate) => candidate.section === 'remote' && candidate.key === null);
+  if (!entry) {
+    throw Object.assign(new Error('The core has not pushed section remote.'), { code: 'sectionUnavailable' });
+  }
+  const members = record(entry.value);
+  if (!(member in members)) throw new TypeError(`The remote section has no ${member}.`);
+  return members[member];
+}
+
+/** `termActivity`: Node answered `[{id, state}]` of the tabs with a known state; the section is `{<tabId>: state}`. */
+export function termActivity(snapshot: DesktopSectionsSnapshot): { id: string; state: unknown }[] {
+  const entry = snapshot.entries.find((candidate) => candidate.section === 'terminalActivity' && candidate.key === null);
+  if (!entry) {
+    throw Object.assign(new Error('The core has not pushed section terminalActivity.'), { code: 'sectionUnavailable' });
+  }
+  return Object.entries(record(entry.value)).map(([id, state]) => ({ id, state }));
 }

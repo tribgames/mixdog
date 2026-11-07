@@ -58,6 +58,10 @@ export interface ProtocolConnection {
   start(): Promise<void>;
   readonly status: DesktopProtocolStatus;
   snapshot(): DesktopSectionsSnapshot;
+  /** Settles when the connect handshake (`start`: open, `initialize`, the app subscription) has folded the first
+   *  snapshot: resolved then, rejected with the handshake's own error when it failed. A read of the held sections
+   *  issued before that waits here; there is no timeout of its own. */
+  whenSynced(): Promise<void>;
   /** Registers a window; returns its removal. A window attached after `start` is told the current status. */
   attach(window: ProtocolWindow): () => void;
   call(method: string, params: unknown): Promise<unknown>;
@@ -101,6 +105,14 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
   let status: DesktopProtocolStatus = 'reconnecting';
   let lastActivityAt = Number.NEGATIVE_INFINITY;
   let unsubscribeClient: (() => void) | null = null;
+  let resolveSynced!: () => void;
+  let rejectSynced!: (error: unknown) => void;
+  const synced = new Promise<void>((resolve, reject) => {
+    resolveSynced = resolve;
+    rejectSynced = reject;
+  });
+  // A failed handshake reaches every reader that awaits `whenSynced`; one nobody awaits must not be an unhandled rejection.
+  synced.catch(() => undefined);
 
   const broadcast = (push: DesktopSectionsPush): void => {
     for (const window of [...windows]) window.push(push);
@@ -130,54 +142,65 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     await connected().call(isViewed ? 'system/ports/subscribe' : 'system/ports/unsubscribe', {});
   };
 
+  const handshake = async (): Promise<void> => {
+    const opened = await open();
+    client = opened;
+    status = toStatus(opened.status.state);
+    relay = createSectionRelay({
+      store: opened.store,
+      sectionNames: SECTION_NAMES,
+      send: broadcast,
+      ...(defer ? { defer } : {}),
+    });
+    unsubscribeStore = opened.store.subscribe((change) => {
+      if (change.type === 'appSnapshot' && awaitingAppSnapshot) {
+        awaitingAppSnapshot = false;
+        relay?.reconnected();
+        return;
+      }
+      // The core refused to restore the app subscription: the store keeps the previous app state whole, and no
+      // snapshot is coming to wait for.
+      if (change.type === 'subscription' && (change as { feedId?: string }).feedId === 'app' && (change as { state?: string }).state === 'lost') {
+        awaitingAppSnapshot = false;
+        return;
+      }
+      if (change.type !== 'section' || change.section === undefined) return;
+      const entry = opened.store.section(change.section, change.key ?? null);
+      for (const watcher of [...(sectionWatchers.get(change.section) ?? [])]) watcher(entry);
+    });
+    unsubscribeClient = opened.on((event) => {
+      for (const listener of [...eventListeners]) listener(event);
+      if (event.type === 'status') {
+        const next = toStatus((event as { status: { state: string } }).status.state);
+        const wasReady = status === 'ready';
+        status = next;
+        if (next === 'ready' && !wasReady) {
+          awaitingAppSnapshot = true;
+          restoreScopedFeeds(opened);
+        }
+        relay?.status(next);
+      } else if (event.type === 'notification') {
+        const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
+        for (const window of [...windows]) window.notification(method, params);
+      }
+    });
+    await opened.subscribeApp();
+  };
+
   return {
     get status() {
       return status;
     },
+    whenSynced: () => synced,
     async start() {
       if (client) return;
-      const opened = await open();
-      client = opened;
-      status = toStatus(opened.status.state);
-      relay = createSectionRelay({
-        store: opened.store,
-        sectionNames: SECTION_NAMES,
-        send: broadcast,
-        ...(defer ? { defer } : {}),
-      });
-      unsubscribeStore = opened.store.subscribe((change) => {
-        if (change.type === 'appSnapshot' && awaitingAppSnapshot) {
-          awaitingAppSnapshot = false;
-          relay?.reconnected();
-          return;
-        }
-        // The core refused to restore the app subscription: the store keeps the previous app state whole, and no
-        // snapshot is coming to wait for.
-        if (change.type === 'subscription' && (change as { feedId?: string }).feedId === 'app' && (change as { state?: string }).state === 'lost') {
-          awaitingAppSnapshot = false;
-          return;
-        }
-        if (change.type !== 'section' || change.section === undefined) return;
-        const entry = opened.store.section(change.section, change.key ?? null);
-        for (const watcher of [...(sectionWatchers.get(change.section) ?? [])]) watcher(entry);
-      });
-      unsubscribeClient = opened.on((event) => {
-        for (const listener of [...eventListeners]) listener(event);
-        if (event.type === 'status') {
-          const next = toStatus((event as { status: { state: string } }).status.state);
-          const wasReady = status === 'ready';
-          status = next;
-          if (next === 'ready' && !wasReady) {
-            awaitingAppSnapshot = true;
-            restoreScopedFeeds(opened);
-          }
-          relay?.status(next);
-        } else if (event.type === 'notification') {
-          const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
-          for (const window of [...windows]) window.notification(method, params);
-        }
-      });
-      await opened.subscribeApp();
+      try {
+        await handshake();
+      } catch (error) {
+        rejectSynced(error);
+        throw error;
+      }
+      resolveSynced();
     },
     snapshot: () => (relay ? relay.snapshot(status) : { status, entries: [] as DesktopSectionEntry[] }),
     attach(window) {

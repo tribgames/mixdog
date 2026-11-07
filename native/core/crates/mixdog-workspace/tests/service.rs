@@ -74,6 +74,7 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
         sources: vec![Arc::new(FixedSource(base.join("export.bin")))],
         code_graph: Some(Arc::new(EchoGraph)),
         turn_review,
+        releases: mixdog_workspace::release::FolderReleases::new(),
     })
     .unwrap();
     futures_block(service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None)).unwrap();

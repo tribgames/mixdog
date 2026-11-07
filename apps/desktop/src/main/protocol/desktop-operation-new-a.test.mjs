@@ -57,10 +57,35 @@ test('settings reads come from the held config sections and send nothing', async
   assert.deepEqual(calls, []);
 });
 
-test('an absent config subtree reads as Node reads an empty one; a connection that is not ready refuses', async () => {
+test('an absent config subtree reads as Node reads an empty one', async () => {
   assert.equal(await lane([]).lane.invoke('readMarkdownDefaultView', []), 'preview');
   assert.equal((await lane([]).lane.invoke('readSettings', [])).keepAwake, true);
-  await assert.rejects(lane(CONFIG, {}, 'reconnecting').lane.invoke('readSettings', []), /not ready/);
+});
+
+test('a read that arrives before the first snapshot waits for the handshake instead of failing', async () => {
+  let entries = [];
+  let settle;
+  const synced = new Promise((resolve, reject) => (settle = { resolve, reject }));
+  const l = createOperationLane({
+    protocol: { snapshot: () => ({ status: 'ready', entries }), whenSynced: () => synced, notify() {}, call: async () => ({}) },
+  });
+  let answered;
+  const reads = ['readSettings', 'readZoom', 'listConversationNotifications'].map((name) =>
+    l.invoke(name, []).then((value) => (answered = [name, value]))
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(answered, undefined, 'nothing is answered from an empty store while the handshake runs');
+  entries = CONFIG;
+  settle.resolve();
+  await Promise.all(reads);
+  assert.equal((await l.invoke('readSettings', [])).keepAwake, false, 'read from the snapshot the handshake folded');
+  // A handshake that failed is every waiting read's failure.
+  const failed = createOperationLane({
+    protocol: { snapshot: () => ({ status: 'reconnecting', entries: [] }), whenSynced: () => Promise.reject(new Error('core refused')), notify() {}, call: async () => ({}) },
+  });
+  await assert.rejects(failed.invoke('readZoom', []), /core refused/);
+  // After the first snapshot a link that went down keeps answering from its last values.
+  assert.equal((await lane(CONFIG, {}, 'reconnecting').lane.invoke('readSettings', [])).keepAwake, false);
 });
 
 test('conversation overrides in force exclude expired mutes and invalid entries', async () => {
@@ -106,8 +131,31 @@ test('ignored deletions answer undefined and send nothing; refused ones are unkn
     await assert.rejects(l.invoke(name, []), { code: 'unknownMethod' }, name);
   }
   assert.deepEqual([calls, notified], [[], []]);
-  // the six of desktop-ops-new-a and visualizeRemoteViewing (desktop-ops-gaps-5r)
-  assert.equal(SECTION_READ_DESKTOP_OPERATIONS.length, 7);
+  // one table: the six of desktop-ops-new-a, visualizeRemoteViewing (desktop-ops-gaps-5r), and the five remote-access
+  // members and termActivity (desktop-ops-new-b-1)
+  assert.equal(SECTION_READ_DESKTOP_OPERATIONS.length, 13);
+});
+
+test('the remote-access and terminal-activity reads come from the held sections, as Node returned them', async () => {
+  const remote = entry('remote', null, {
+    info: { enabled: true },
+    settings: { name: 'Desk' },
+    claims: [{ id: 'c1' }],
+    controllerKeys: [{ key: 'k' }],
+    owedKeys: [],
+  });
+  const { lane: l, calls } = lane([remote, entry('terminalActivity', null, { t1: 'working', t2: 'idle' })]);
+  assert.deepEqual(await l.invoke('remoteAccessInfo', []), { enabled: true });
+  assert.deepEqual(await l.invoke('remoteAccessSettings', []), { name: 'Desk' });
+  assert.deepEqual(await l.invoke('remoteAccessListClaims', []), [{ id: 'c1' }]);
+  assert.deepEqual(await l.invoke('remoteAccessControllerKeys', []), [{ key: 'k' }]);
+  assert.deepEqual(await l.invoke('remoteAccessOwedControllerKeys', []), []);
+  assert.deepEqual(await l.invoke('termActivity', []), [{ id: 't1', state: 'working' }, { id: 't2', state: 'idle' }]);
+  assert.deepEqual(calls, []);
+  // A section the core has not pushed is an error, never an empty answer.
+  await assert.rejects(lane([]).lane.invoke('remoteAccessInfo', []), { code: 'sectionUnavailable' });
+  await assert.rejects(lane([]).lane.invoke('termActivity', []), { code: 'sectionUnavailable' });
+  await assert.rejects(lane([entry('remote', null, {})]).lane.invoke('remoteAccessInfo', []), /no info/);
 });
 
 test('browserRemoteOpen is the notification host/browser/surface', async () => {

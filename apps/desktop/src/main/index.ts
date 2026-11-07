@@ -604,6 +604,10 @@ const connectionDependencies: DesktopConnectionDependencies = {
     return allowed === null || allowed.includes(provider);
   },
   allowedProviders: (connection) => allowedProvidersForHost(connection.id),
+  operationHost: () => ({
+    pcNotificationsSupported: () => Promise.resolve(Notification.isSupported()),
+    readDisplayPreferences: () => readHostWindowDisplayPreferences(mainWindow, app.getLocale()),
+  }),
   // Read when a server connection is created, which is after this PC's own connection exists.
   localProtocol: () => localConnection.protocol,
   onDiagnostic: (connection, event, data) => {
@@ -1411,6 +1415,19 @@ const hostRole = createLocalHostRole({
     diagnostics?.write('host-claim-failed', { message: error instanceof Error ? error.message : String(error) }),
 });
 hostRoleReady = true;
+// Paired browsers that have not chosen a theme or language follow this PC's window: its preferences are the core's
+// `hostState.displayPreferences`, sent whenever the link comes up and, by the operation lane, whenever a desktop
+// setting change is announced.
+localProtocol.onEvent((event) => {
+  if (event.type !== 'status' || (event as { status: { state: string } }).status.state !== 'ready') return;
+  void readHostWindowDisplayPreferences(mainWindow, app.getLocale())
+    .then((value) => localProtocol.call('host/state/set', { key: 'displayPreferences', value }))
+    .catch((error: unknown) =>
+      diagnostics?.write('display-preferences-publish-failed', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    );
+});
 // The core's open requests (browser surface, terminal run, visualize open) reach the window as Node's own flows did.
 const sendToMainWindow = (channel: string, request: unknown): void => {
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;

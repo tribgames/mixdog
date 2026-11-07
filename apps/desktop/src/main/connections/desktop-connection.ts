@@ -35,6 +35,7 @@ import { createServiceTerminalHost } from './terminal-host';
 import { createCapabilityLane } from '../protocol/capability-route';
 import { withSectionCapabilities } from '../protocol/section-capability-lane';
 import { createOperationLane } from '../protocol/desktop-operation-route';
+import type { OperationHost } from '../protocol/section-reads';
 import type { ProtocolConnection } from '../protocol/connection';
 import { createCoreModelProxy } from '../protocol/model-proxy-relay';
 
@@ -107,6 +108,9 @@ export interface DesktopConnectionDependencies {
   /** The host's provider consent: may this server's turns use `provider`
    *  with this PC's sign-in? Absent, or a host without a list: all may. */
   isProviderAllowed?(connection: ConnectionIdentity, provider: string): boolean;
+  /** What only this process answers for the renderer's desktop operations: `pcNotificationsSupported`,
+   *  `readDisplayPreferences`, `hostName` (protocol/section-reads.ts `OperationHost`). */
+  operationHost?(): Partial<Omit<OperationHost, 'emitDesktopEvent'>>;
   /** The providers the host lets this server use (`allowedProvidersForHost`): null = every one enabled here, [] = none. */
   allowedProviders?(connection: ConnectionIdentity): string[] | null;
   /** This PC's own core connection, where a server core's proxied model calls run (`modelProxy/run`). */
@@ -322,7 +326,12 @@ function createServiceClient({
             protocol,
             snapshot: () => client.getSnapshot(),
           }),
-          operationLane: createOperationLane({ protocol }),
+          // What only this process knows (the OS's notification support, the window's theme, its windows' event feed)
+          // is handed to the lane.
+          operationLane: createOperationLane({
+            protocol,
+            host: { ...deps.operationHost?.(), emitDesktopEvent: (name, value) => client.emitDesktopEvent(name, value) },
+          }),
         }
       : {}),
     connect: () => {

@@ -79,6 +79,7 @@ async fn idle_run(idle: Duration) {
         sources: Vec::new(),
         code_graph: None,
         turn_review: None,
+        releases: mixdog_workspace::release::FolderReleases::new(),
     })
     .unwrap();
     service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None).await.unwrap();

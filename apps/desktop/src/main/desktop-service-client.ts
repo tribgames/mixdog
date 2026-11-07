@@ -1073,6 +1073,11 @@ export class DesktopServiceClient implements DesktopService {
     const lane = this.options.capabilityLane;
     return lane ? lane.read(requests) : this.invokeRead('readCapabilities', [requests]);
   }
+  /** An event this process raises for its own windows, as the Node service's broadcast reached them (a core connection
+   *  has no Node service to send it). */
+  emitDesktopEvent(name: string, value: unknown): void {
+    for (const listener of [...this.desktopEventListeners]) listener({ name, value });
+  }
   invokeDesktopOperation(method: string, args: unknown[] = []): Promise<unknown> {
     const lane = this.options.operationLane;
     if (lane) return lane.invoke(method, args);

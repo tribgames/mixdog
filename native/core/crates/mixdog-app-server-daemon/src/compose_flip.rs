@@ -1404,8 +1404,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .map_err(|e| ComposeError::StateDir(std::io::Error::other(e)))?
             .map_err(|e| ComposeError::StateDir(std::io::Error::other(format!("{e:?}"))))?;
     }
+    // The one "a folder is going away" hook set: `project/delete` (workspace) and worktree removal run it; the language servers
+    // and the terminals (`TerminalService`) register in it.
+    let folder_releases = mixdog_workspace::release::FolderReleases::new();
     let worktrees = Arc::new(
         mixdog_scm::worktree::manager::Worktrees::new(scm.clone(), b.data_dir.clone())
+            .with_root_cleanup(Arc::new(mixdog_scm::worktree::release::FolderReleaseCleanup::new(folder_releases.clone())))
             .with_settings(Arc::new(mixdog_core_config::config::ConfigWorktreeSettings::new(config.clone())))
             .with_activity(Arc::new(mixdog_scm::worktree::activity::Activity::new(&b.data_dir))),
     );
@@ -2189,6 +2193,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         sources: composed.transfer_sources.clone(),
         code_graph: Some(Arc::new(mixdog_tools::code_graph::WorkspaceCodeGraph::new(code_graph.clone(), b.tokens.maintenance_io))), // code-graph-adapter-1: the SAME `Arc<CodeGraphTool>` the pool registers
         turn_review: Some(turn_review.clone() as Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>),
+        releases: folder_releases.clone(),
     })
     .map_err(ComposeError::Workspace)?;
     workspace.spawn_idle_sweeper(); // abandoned uploads go at their idle deadline, as Node's per-upload timer
