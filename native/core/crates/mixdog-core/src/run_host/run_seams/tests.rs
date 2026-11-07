@@ -109,6 +109,16 @@ async fn the_other_seams_answer_from_the_config_and_the_agent_store() {
     assert!(plain.effort.is_none() && plain.limits.is_none() && plain.text_only.is_none());
 }
 
+/// Node's full config always has a `compaction` section (`config.mjs:367`, `{}`), so a stored config without one still seeds the
+/// installed session from the empty section: `onModelChange` and `summaryMode` appear, the resolved buffer keys go
+/// (`stored-header` of every `real-turn-harness` scenario).
+#[tokio::test]
+async fn an_installed_session_follows_the_empty_compaction_section_of_a_config_without_one() {
+    let (_dir, seams) = seams(Some(json!({ "agent": {} })), HashMap::new()).await;
+    let header = header(json!({ "compaction": { "auto": true, "bufferTokens": 0, "bufferRatio": 0, "lastStage": "pre_send_check" } }));
+    let got = seams.synced_compaction(&header, true).expect("the session follows the empty section");
+    assert_eq!(got, json!({ "auto": true, "lastStage": "pre_send_check", "onModelChange": true, "summaryMode": "smart" }));
+}
 /// A session is installed on the saved compaction settings unless the caller injected its own configuration:
 /// the recorded `install` cases (`fixtures/agent/compact/record_usage.mjs`, Node's `usesInjectedConfig` gate).
 #[tokio::test]
