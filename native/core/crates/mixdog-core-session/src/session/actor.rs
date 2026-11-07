@@ -144,6 +144,8 @@ mod turn_ops;
 
 /// The header key of the session's saved provider state (Node `session.providerState`).
 const PROVIDER_STATE: &str = "providerState";
+/// What the desktop host throws when the runtime refuses a rename (`session-host-lifecycle.ts:228`).
+const SESSION_NOT_AVAILABLE: &str = "Session is not available.";
 
 /// How long a thread nobody ever watched may sit quiet before it unloads (`idleEvictMs` of
 /// `session-service.mjs`: `MIXDOG_SESSION_IDLE_EVICT_MS`, default 5 minutes).
@@ -3730,9 +3732,20 @@ impl SessionActor {
 
     fn name_set(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
         let params: ThreadNameSetParams = parse(&req.params, "ThreadNameSetParams")?;
+        // `updateSessionManualTitle` (`session-crud.mjs:103-115`) writes nothing and answers `false` for a closed session, a
+        // title that is empty once normalized, and the title the user already gave; the desktop host turns that `false` into
+        // `Session is not available.` (`session-host-lifecycle.ts:228`), the text the window shows.
+        let title = super::session_title::normalize_title(&params.title);
+        let header = &self.projected.header;
+        let user_titled = header.get("title").and_then(Value::as_str) == Some(title.as_str())
+            && header.get("titleLocked") == Some(&Value::Bool(true))
+            && header.get("titleSource").and_then(Value::as_str) == Some("user");
+        if header.get("closed") == Some(&Value::Bool(true)) || title.is_empty() || user_titled {
+            return Err(CoreError::DomainError { domain: "thread".into(), code: None, message: Some(SESSION_NOT_AVAILABLE.into()), detail: None });
+        }
         let value = json!({});
         let mut set = serde_json::Map::new();
-        set.insert("title".into(), Value::String(params.title));
+        set.insert("title".into(), Value::String(title));
         // A name the user gave, with the keys Node's `updateSessionManualTitle` writes (`session-crud.mjs`):
         // no generated, model or retired-home title replaces it.
         set.insert("titleLocked".into(), Value::Bool(true));

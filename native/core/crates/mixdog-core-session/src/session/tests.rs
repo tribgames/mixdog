@@ -2728,11 +2728,11 @@ async fn the_real_store_reopens_a_thread_and_appends_after_it() {
         ))
         .await
         .expect("name/set");
-    // The index answers the metadata with the raw title, without loading anything.
+    // The index answers the metadata with the stored (normalized) title, without loading anything.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let meta = loop {
         let meta = first.session_meta(&id).await.expect("meta");
-        if meta.as_ref().is_some_and(|m| m.title.as_deref() == Some("  Haiku  ")) {
+        if meta.as_ref().is_some_and(|m| m.title.as_deref() == Some("Haiku")) {
             break meta.expect("listed");
         }
         assert!(tokio::time::Instant::now() < deadline, "meta not indexed: {meta:?}");
@@ -3536,4 +3536,51 @@ async fn a_cancel_whose_store_write_fails_still_disarms_the_pending_resume() {
     }
     assert_eq!(outcome, Ok(FireOutcome::Stale), "the cancelled resume does not fire");
     assert!(!rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")), "and the failed turn was not replayed");
+}
+
+/// A user's rename as Node's runtime answers it (`record-session-rename.mjs` → `session-rename-twin.json`,
+/// `updateSessionManualTitle`): every case's outcome and the title keys left on the session are Node's, and a refusal is the
+/// text the desktop host shows for it (`Session is not available.`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rename_is_refused_and_leaves_the_session_as_nodes_runtime_does() {
+    let twin: Value = serde_json::from_str(include_str!("../../../../fixtures/desktop/settings/session-rename-twin.json")).unwrap();
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let kept = |header: &serde_json::Map<String, Value>| {
+        json!({
+            "title": header.get("title").cloned().unwrap_or(Value::Null),
+            "titleLocked": header.get("titleLocked").cloned().unwrap_or(Value::Null),
+            "titleSource": header.get("titleSource").cloned().unwrap_or(Value::Null),
+            "stamped": header.get("titleUpdatedAt").is_some_and(|stamp| stamp.as_i64().is_some_and(|stamp| stamp > 0)),
+        })
+    };
+    let mut refused = 0;
+    for (index, case) in twin["cases"].as_array().unwrap().iter().enumerate() {
+        let label = format!("case {index} {} {:?}", case["state"], case["title"]);
+        let handle = start_thread(&directory).await;
+        let patch = json!({ "threadId": handle.id, "set": case["initial"], "unset": [] });
+        handle
+            .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
+            .await
+            .expect("plant");
+        let before = handle.live_header().header();
+        let op = format!("op-rename-{index}");
+        let answer = handle.request(request("thread/name/set", json!({ "threadId": handle.id, "opId": op, "title": case["title"] }), &op)).await;
+        let after = handle.live_header().header();
+        let node = &case["runtime"];
+        match (answer, node["returned"].as_bool().unwrap()) {
+            (Ok(_), true) => {
+                let want = &node["kept"];
+                let got = kept(&after);
+                assert_eq!((&got["title"], &got["titleLocked"], &got["titleSource"], &got["stamped"]), (&want["title"], &want["titleLocked"], &want["titleSource"], &want["stamped"]), "{label}");
+            }
+            (Err(CoreError::DomainError { message: Some(message), code: None, .. }), false) => {
+                refused += 1;
+                assert_eq!(&*message, "Session is not available.", "{label}");
+                assert_eq!(after, before, "{label}: a refused rename writes nothing");
+            }
+            (answer, returned) => panic!("{label}: got {answer:?}, Node returned {returned}"),
+        }
+    }
+    assert!(refused > 15, "the twin refuses {refused} renames");
 }
