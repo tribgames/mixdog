@@ -260,9 +260,6 @@ struct PortSink {
     terminal: Mutex<Option<(u32, u64)>>,
 }
 
-/// `TURN_DONE_VERBS` (`tui/session/labels.mjs`).
-const DONE_VERBS: [&str; 8] = ["Thought", "Reasoned", "Mapped", "Checked", "Solved", "Composed", "Synthesized", "Wrapped"];
-
 /// What `beginTurn` (`tui/session/turn.mjs`) gave the turn, as its assistant rows and its completion take it.
 struct TurnStamp {
     /// `attemptId` and the route fields of the input row's `meta.transcript`
@@ -277,20 +274,18 @@ struct TurnStamp {
 }
 
 impl TurnStamp {
-    fn of(input_body: &Value, prior: &[Value], asked_at: i64) -> Option<Self> {
+    fn of(input_body: &Value, verb: &'static str, asked_at: i64) -> Option<Self> {
         let transcript = input_body.pointer("/meta/transcript")?.as_object()?;
         let text = |key: &str| transcript.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
         let carried = ["attemptId", "modelId", "model", "provider", "agent"]
             .into_iter()
             .filter_map(|key| text(key).map(|value| (key.to_owned(), json!(value))))
             .collect();
-        // `stats.turns`: the turns this thread finished before, each recorded as a completion on its last reply.
-        let finished = prior.iter().filter(|row| row.pointer("/meta/transcript/completion").is_some()).count();
         Some(Self {
             carried,
             started_at: transcript.get("at").and_then(Value::as_i64).filter(|at| *at != 0).unwrap_or(asked_at),
             checkpoint_id: text("checkpointId").map(str::to_owned),
-            verb: DONE_VERBS[(finished * 5 + 2) % DONE_VERBS.len()],
+            verb,
         })
     }
 }
@@ -596,12 +591,19 @@ impl RunObserver for PortObserver {
                 self.progress.stream_delta(StreamKind::Tool);
                 let _ = self.out.send(Shown::ToolStream);
             }
+            // Node's syncContextDisplayFields (context-state.mjs:116): the window the status shows and the compaction trigger, once known (> 0).
+            // A send that compacts nothing also records its check (`compactTelemetry(ctx, 'pre_send_check')`).
+            RunEvent::ContextPressure { will_compact, trigger_tokens, context_window, messages, tools, reactive, .. } => {
+                let positive = |tokens: u64| i64::try_from(tokens).ok().filter(|tokens| *tokens > 0);
+                let window = context_window.and_then(positive);
+                let context = mixdog_app_protocol::v2::thread::ThreadContext { context_window: window, display_context_window: window, auto_compact_token_limit: positive(trigger_tokens), ..Default::default() };
+                let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Context(context)));
+                if !will_compact {
+                    let _ = self.out.send(Shown::Check(mixdog_core_session::session::run::SendCheck { messages, tools, reactive }));
+                }
+            }
             // The context section is the route's window choice (`runtime.contextPercent`, exact `contextTokens` only for a
             // non-default window), never the usage reading: usage reaches clients as `thread/tokenUsage/updated`.
-            // A send that compacts nothing records its check (`compactTelemetry(ctx, 'pre_send_check')`).
-            RunEvent::ContextPressure { will_compact: false, messages, tools, reactive, .. } => {
-                let _ = self.out.send(Shown::Check(mixdog_core_session::session::run::SendCheck { messages, tools, reactive }));
-            }
             RunEvent::Stage(Stage::ModelFallback { model }) => {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
@@ -693,7 +695,7 @@ async fn drive(
     search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
     run: RunStart,
 ) -> RunOutcome {
-    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, skill_selection: routine_selection, input: submitted, input_item, .. } = run;
+    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, .. } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
     let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, Value::Object(header.clone()), progress.subscribe(), cancel.clone());
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
@@ -776,7 +778,7 @@ async fn drive(
     };
     let live = LiveTurnPublisher::new(turn_messages);
     let streaming = Arc::new(Mutex::new(None));
-    let stamp = TurnStamp::of(&input_body, &prior, clock.now_ms());
+    let stamp = TurnStamp::of(&input_body, verb, clock.now_ms());
     let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone(), blobs, on_tool_result, stamp);
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
     let mut messages = system_messages(&header);

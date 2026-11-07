@@ -1,8 +1,9 @@
-//! The live end of a failed turn: Node's `turnDoneItem` (`src/tui/session/turn.mjs:573-601`), built from what the run
-//! showed while it ran, not from the durable completion (`failedTurnCompletion`, `ask-turn-failure.mjs:26-45`) the
-//! history restores from. The two share the failure record (`turnFailureRecord`) and the turn's own identity; the
-//! live row adds the stream's counters (`finalOutputTokens`, `accumulatedThinkingMs`, `cards.toolCards`) and stamps
-//! the close time, where the completion stamps the start.
+//! The live end of a turn: Node's `turnDoneItem` (`src/tui/session/turn.mjs:573-601`), built from what the run
+//! showed while it ran, not from the durable completion (`failedTurnCompletion`, `ask-turn-failure.mjs:26-45`;
+//! `attachAssistantTranscriptCompletion`, `ask-turn-settle.mjs`) the history restores from. The two share the
+//! turn's own identity (and for a failure the failure record, `turnFailureRecord`); the live row adds the stream's
+//! counters (`finalOutputTokens`, `accumulatedThinkingMs`, `cards.toolCards`) and stamps the close time, where the
+//! completion stamps the start.
 
 use std::collections::HashSet;
 
@@ -22,6 +23,14 @@ use super::failure_record::Facts;
 /// call, to hide a built-in skill load before its result exists. `None`: the status could not be read.
 pub trait BuiltinSkills: Send + Sync + 'static {
     fn names(&self) -> Option<HashSet<String>>;
+}
+
+/// `TURN_DONE_VERBS` (`tui/session/labels.mjs`).
+const DONE_VERBS: [&str; 8] = ["Thought", "Reasoned", "Mapped", "Checked", "Solved", "Composed", "Synthesized", "Wrapped"];
+
+/// `pickDoneVerb(turn)`: the verb of the turn that follows `turn` closed ones (`stats.turns`).
+pub fn done_verb(turn: usize) -> &'static str {
+    DONE_VERBS[(turn * 5 + 2) % DONE_VERBS.len()]
 }
 
 /// JavaScript truthiness of a call field.
@@ -135,6 +144,12 @@ impl LiveCounts {
         self.end_thinking(now);
     }
 
+    /// `isNoOpTurn` of a turn that finished normally (`publishTurnClose`, `turn.mjs:615-624`): no tool card, no
+    /// result content and no assistant output, so the turn is not marked with an end.
+    pub(crate) fn is_no_op(&self, result: &str) -> bool {
+        self.tool_cards == 0 && self.reply_units == 0 && js_trim(result).is_empty()
+    }
+
     fn end_thinking(&mut self, now: i64) {
         if let Some(since) = self.segment_since.take() {
             self.thinking_ms += (now - since).max(0);
@@ -166,10 +181,20 @@ pub(crate) fn route_meta(provider: &str, model: &str) -> Map<String, Value> {
     meta
 }
 
-/// `turnDoneItem` of a failed turn, as the row Node's transcript holds, keys in Node's order. `record` is the
-/// `turnFailureRecord` of the failure (the turn's `failureDetail`, `failureDiagnostic`, `quota`, `errorKind`).
-/// `facts.raw` is the turn's `meta.transcript`, of which Node's `routeMeta` is all but `at` and `messageId`.
-pub(crate) fn live_end_row(counts: &LiveCounts, facts: &Facts<'_>, route: &Map<String, Value>, record: &Map<String, Value>, id: &str) -> Map<String, Value> {
+/// `turnDoneItem` of a turn that ended with `status` (`turnOutcome`), as the row Node's transcript holds, keys in
+/// Node's order. `final_assistant` is the turn's last reply (`stream.currentAssistantId`, set when the turn finished
+/// normally). `record` is the `turnFailureRecord` of a failure (the turn's `failureDetail`, `failureDiagnostic`,
+/// `quota`, `errorKind`), empty for another end. `facts.raw` is the turn's `meta.transcript`, of which Node's
+/// `routeMeta` is all but `at` and `messageId`.
+pub(crate) fn live_end_row(
+    counts: &LiveCounts,
+    facts: &Facts<'_>,
+    route: &Map<String, Value>,
+    status: &str,
+    final_assistant: Option<&str>,
+    record: &Map<String, Value>,
+    id: &str,
+) -> Map<String, Value> {
     let mut row = Map::new();
     row.insert("kind".into(), json!("turndone"));
     row.insert("id".into(), json!(id));
@@ -177,7 +202,10 @@ pub(crate) fn live_end_row(counts: &LiveCounts, facts: &Facts<'_>, route: &Map<S
         row.insert("checkpointId".into(), json!(checkpoint));
     }
     row.insert("elapsedMs".into(), json!((facts.now - facts.started()).max(0)));
-    row.insert("status".into(), json!("failed"));
+    row.insert("status".into(), json!(status));
+    if let Some(reply) = final_assistant {
+        row.insert("finalAssistantId".into(), json!(reply));
+    }
     row.insert("outputTokens".into(), json!(counts.final_output_tokens()));
     row.insert("thinkingElapsedMs".into(), json!(if counts.thought { counts.thinking_ms } else { 0 }));
     row.insert("toolCount".into(), json!(counts.tool_cards));

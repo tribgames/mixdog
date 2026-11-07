@@ -73,6 +73,8 @@ pub mod prewarm_signals;
 mod prewarm_signals_tests;
 #[cfg(test)]
 mod agent_activity_tests;
+#[cfg(test)]
+mod toast_tests;
 pub mod dispatch_sessions;
 pub mod search_backfill;
 pub mod secret_input;
@@ -92,7 +94,9 @@ pub mod runtime_facts;
 mod channel_notification_tests;
 pub mod failure_record;
 mod live_end;
+mod stats;
 pub use self::live_end::BuiltinSkills;
+pub use self::live_end::done_verb;
 pub mod turn_warm;
 #[cfg(test)]
 mod pending_read_tests;

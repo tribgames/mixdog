@@ -245,6 +245,8 @@ pub(crate) enum JobDone {
     PromptFlushed { list: Option<Vec<String>>, unwritten: Vec<String> },
     /// A wait of the prompt-history appends ended.
     PromptRetryDue(u64),
+    /// A toast's time ran out (pushToast's timer).
+    ToastExpired(String),
     ApprovalId {
         turn: TurnId,
         ask: ApprovalAsk,
@@ -417,6 +419,8 @@ struct RunSlot {
     transcript: Value,
     /// What the turn's stream and cards counted, for the live end of a failure.
     live: super::live_end::LiveCounts,
+    /// `completionVerb` (`pickDoneVerb(stats.turns)` at `beginTurn`).
+    verb: &'static str,
 }
 
 /// What a failed turn's close reads of its run ([`SessionActor::close_failed`]).
@@ -433,6 +437,27 @@ struct FailedClose<'a> {
     transcript: &'a Value,
     live: &'a mut super::live_end::LiveCounts,
 }
+
+/// What a finished turn's close reads of its run ([`SessionActor::close_done`]).
+struct DoneClose<'a> {
+    /// `turnOutcome`: `done` or `cancelled`.
+    status: &'static str,
+    /// The turn's own `completionVerb`.
+    verb: &'static str,
+    /// `turn.askResult.content`: what the run's final result says.
+    result: &'a str,
+    /// The route the turn started with (`turn.routeMeta`).
+    route_meta: &'a serde_json::Map<String, Value>,
+    /// The turn's last model row: the final reply, whose completion names the turn's verb.
+    last: Option<&'a ItemRecord>,
+    started_at: i64,
+    /// The input row's `meta.transcript` (`transcriptMeta`).
+    transcript: &'a Value,
+    live: &'a mut super::live_end::LiveCounts,
+}
+
+/// `pushToast`'s default `ttlMs` (`notice-surface.mjs:10`).
+const TOAST_TTL: std::time::Duration = std::time::Duration::from_millis(3000);
 
 pub(crate) struct ActorChannels {
     pub ctl_rx: mpsc::Receiver<Ctl>,
@@ -470,6 +495,10 @@ pub(crate) struct SessionActor {
     room_approvals_resolved: Vec<String>,
     /// The running turn is that first turn and has not shown visible output yet.
     turn_prewarm_armed: bool,
+    /// `stats.turns`: the turns this thread closed with an end (`publishTurnClose`), which `pickDoneVerb` reads.
+    turns_closed: usize,
+    /// state.stats (usage totals), folded from each model call's usage event.
+    stats: super::stats::SessionStats,
     steer_marked: Vec<QueuedId>,
     /// Which completions showed a live card (Node's per-session execution dedup).
     cards: super::cards::CardGate,
@@ -504,6 +533,8 @@ pub(crate) struct SessionActor {
     goal_deferred: bool,
     /// The last Goal runtime call: each waits for the one before.
     goal_tail: Option<tokio::task::JoinHandle<()>>,
+    /// The expiry timer of each toast in the queue (`toastTimers`), by toast id: `thread/clear` and the thread's close cancel them.
+    toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
     /// The prompt-history appends not on disk yet, and their write-behind and retry (`prompt-history-store.mjs`).
     prompt_appends: prompt_history::AppendQueue,
     /// Answered once the deleted thread's turn ended.
@@ -626,6 +657,8 @@ impl SessionActor {
             room_questions_moved: false,
             room_approvals_resolved: Vec::new(),
             turn_prewarm_armed: false,
+            turns_closed: 0,
+            stats: Default::default(),
             steer_marked: Vec::new(),
             cards: Default::default(),
             listened: Default::default(),
@@ -642,6 +675,7 @@ impl SessionActor {
             idle_evict_at: None,
             goal_deferred: false,
             goal_tail: None,
+            toast_timers: std::collections::HashMap::new(),
             prompt_appends: Default::default(),
             delete_closed: None,
             delete_mark: None,
@@ -737,6 +771,8 @@ impl SessionActor {
                 break;
             }
         }
+        // `dispose` (`dispose.mjs:23`).
+        self.cancel_toast_timers();
         self.deps.runtime_hooks.stopped(&self.id);
         self.deps.snapshots.runtime_stopped(&self.id);
     }
@@ -1029,7 +1065,14 @@ impl SessionActor {
                 if !shown {
                     return (encoded, Vec::new(), Vec::new());
                 }
-                let shown = deps.transcript.items(lane, row);
+                // The final reply's completion restores as a `done` end in history; live, the turn's close shows its
+                // own end ([`Self::close_done`]), so this one is not shown.
+                let shown: Vec<Shown> = deps
+                    .transcript
+                    .items(lane, row)
+                    .into_iter()
+                    .filter(|shown| !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. })))
+                    .collect();
                 // An update's frame carries the merged item: it is built at release.
                 let notes = shown
                     .iter()
@@ -1100,6 +1143,14 @@ impl SessionActor {
                 }
                 let next = self.prompt_appends.flushed(unwritten);
                 self.run_prompt_step(next);
+            }
+            // A timer cancelled after it fired (its job already queued) finds no owner: its toast is gone.
+            JobDone::ToastExpired(id) => {
+                if self.toast_timers.remove(&id).is_some() {
+                    let mut toasts = self.projected.sections.runtime.as_ref().map(|runtime| runtime.toasts.clone()).unwrap_or_default();
+                    toasts.retain(|toast| toast.get("id").and_then(Value::as_str) != Some(id.as_str()));
+                    self.accept_view(Change::Section(Section::Toasts(toasts)), Vec::new());
+                }
             }
             JobDone::PromptRetryDue(epoch) => {
                 if let Some(batch) = self.prompt_appends.due(epoch) {
@@ -1527,7 +1578,7 @@ impl SessionActor {
                         }
                     }
                     Shown::Update(update) => {
-                        if let Some(merged) = self.acked.shown(update.id()) {
+                        if let Some(merged) = self.acked.shown_for(update) {
                             notes.push(item_completed(&self.id, row, &merged));
                         }
                     }
@@ -1635,9 +1686,9 @@ impl SessionActor {
         }
         let t = &self.id;
         match section {
-            Section::Runtime(_) | Section::ProgressHint(_) => self.runtime_note(),
-            Section::Route(v) => note("thread/route/updated", t, v),
-            Section::Context(v) => note("thread/context/updated", t, v),
+            Section::Runtime(_) | Section::ProgressHint(_) | Section::Toasts(_) => self.runtime_note(),
+            Section::Route(_) => note("thread/route/updated", t, self.acked.route()),
+            Section::Context(_) => note("thread/context/updated", t, self.acked.context()),
             Section::Todo(v) => note("thread/todo/updated", t, v),
             Section::Goal(Some(v)) => Note::new(
                 "thread/goal/updated",
@@ -2071,10 +2122,24 @@ impl SessionActor {
         self.settling = true;
         match error {
             Some(error) => {
-                let failed = FailedClose { error, start_provider: &slot.provider, route_meta: &slot.route_meta, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &slot.transcript, live: &mut slot.live };
+                // `transcriptMeta` carries the turn's `completionVerb` (`beginTurn`), which the failure's end and completion name.
+                let mut transcript = slot.transcript.clone();
+                transcript["completionVerb"] = json!(slot.verb);
+                let failed = FailedClose { error, start_provider: &slot.provider, route_meta: &slot.route_meta, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &transcript, live: &mut slot.live };
                 self.close_failed(&turn, failed, settle);
             }
-            None => self.settle_goal(settle),
+            None => {
+                let ended = match &outcome {
+                    RunOutcome::Completed(result) => Some(("done", result.content.as_str())),
+                    RunOutcome::Interrupted => Some(("cancelled", "")),
+                    RunOutcome::Failed(_) => None,
+                };
+                if let Some((status, result)) = ended {
+                    let done = DoneClose { status, verb: slot.verb, result, route_meta: &slot.route_meta, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &slot.transcript, live: &mut slot.live };
+                    self.close_done(&turn, done);
+                }
+                self.settle_goal(settle);
+            }
         }
         // `acknowledgePendingGoalReminder`: only an accepted turn clears the marker it carried.
         if let (RunOutcome::Completed(_), Some(revision)) = (&outcome, slot.goal_reminder)
@@ -2187,6 +2252,8 @@ impl SessionActor {
     fn close_failed(&mut self, turn: &TurnId, failed: FailedClose<'_>, settle: Value) {
         let now = self.deps.clock.now_ms();
         failed.live.close(now);
+        self.turns_closed += 1;
+        self.publish_stats();
         // `session.provider || raw.provider`, `session.model || raw.modelId` (`failedTurnCompletion`).
         let header = |key: &str| self.projected.header.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
         let raw = |key: &str| failed.transcript.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
@@ -2211,11 +2278,51 @@ impl SessionActor {
                 return self.settle_goal(settle);
             }
         };
-        let row = super::live_end::live_end_row(failed.live, &facts, failed.route_meta, &live_record, &new_id());
+        // `failTurn` (`turn.mjs:570`): the failure's text is a toast of the transcript's owner, besides the end.
+        let detail = live_record.get("detail").and_then(Value::as_str).map(super::live_rows::polish_notice_text).unwrap_or_default();
+        self.push_toast(&detail, "error", Some("transcript"));
+        let row = super::live_end::live_end_row(failed.live, &facts, failed.route_meta, "failed", None, &live_record, &new_id());
         let end = super::transcript::live_end(row, turn.as_str());
         let amend = failed.last.and_then(|last| self.amend_last_with(last, super::failure_record::failed_completion(&record, &facts)));
         self.show_live_then(turn.clone(), end, None, amend, vec![Effect::TurnClosed { turn: turn.clone(), settle }]);
     }
+    /// A finished or stopped turn's close (`publishTurnClose`): the turn's end is shown live, built from what the run
+    /// showed (`turnDoneItem`, `turn.mjs:573`), unless a turn that finished normally did nothing (`isNoOpTurn`). The
+    /// final reply's commit shows no end of its own ([`Self::submit_encode`]): history restores one from the reply's
+    /// completion, which the live end replaces here. A `done` end takes the verb its reply's completion records
+    /// (`pickDoneVerb`, stamped when the reply committed), else the turn's own; a `cancelled` end has no reply.
+    /// `reclaimed` (the stopped turn's prompt handed back to the composer, `abort.mjs:65`) suppresses the end in Node;
+    /// the core's `turn/interrupt` never hands a prompt back (`restorePrompt` is not acted on), so it is never set.
+    fn close_done(&mut self, turn: &TurnId, done: DoneClose<'_>) {
+        let now = self.deps.clock.now_ms();
+        done.live.close(now);
+        let finished = done.status == "done";
+        if finished && done.live.is_no_op(done.result) {
+            return;
+        }
+        self.turns_closed += 1;
+        self.publish_stats();
+        let reply = done.last.filter(|_| finished).and_then(|last| {
+            let Slot::Inline(body) = &last.body else { return None };
+            if body.get("role").and_then(Value::as_str) != Some("assistant") {
+                return None;
+            }
+            let completion = body.pointer("/meta/transcript/completion")?;
+            Some((last.iid.as_str().to_owned(), completion.get("verb").and_then(Value::as_str).map(str::to_owned)))
+        });
+        let mut raw = done.transcript.clone();
+        raw["completionVerb"] = json!(reply.as_ref().and_then(|(_, verb)| verb.as_deref()).unwrap_or(done.verb));
+        let facts = super::failure_record::Facts {
+            raw: &raw,
+            started_at: done.started_at,
+            now,
+            attempt_id: new_id(),
+            route: super::failure_record::Route { provider: "", model: "" },
+        };
+        let row = super::live_end::live_end_row(done.live, &facts, done.route_meta, done.status, reply.as_ref().map(|(id, _)| id.as_str()), &serde_json::Map::new(), &new_id());
+        self.show_live(turn.clone(), super::transcript::live_end(row, turn.as_str()), None);
+    }
+
     /// `onGoalTurnSettled` (`turnOutcome`): the Goal runtime closes the turn's clock segment and reads its
     /// outcome; the next queued entry waits for the answer.
     fn settle_goal(&mut self, settle: Value) {
@@ -2860,6 +2967,42 @@ impl SessionActor {
         }
     }
 
+    /// `pushToast` (`notice-surface.mjs`): a transient notice of the session, shown in the runtime section's `toasts` for `TOAST_TTL` and then removed. Empty text is no toast.
+    fn push_toast(&mut self, text: &str, tone: &str, owner: Option<&str>) {
+        let text = mixdog_js::js_trim(text);
+        if text.is_empty() {
+            return;
+        }
+        let id = new_id();
+        let mut toast = json!({ "id": id, "text": text, "tone": tone });
+        if let Some(owner) = owner {
+            toast["owner"] = json!(owner);
+        }
+        let mut toasts = self.projected.sections.runtime.as_ref().map(|runtime| runtime.toasts.clone()).unwrap_or_default();
+        toasts.push(toast);
+        self.accept_view(Change::Section(Section::Toasts(toasts)), Vec::new());
+        let jobs = self.jobs_tx.clone();
+        let expiring = id.clone();
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep(TOAST_TTL).await;
+            let _ = jobs.send(JobDone::ToastExpired(expiring));
+        });
+        self.toast_timers.insert(id, timer.abort_handle());
+    }
+
+    /// `clearToastTimers` (`notice-surface.mjs:125`): no toast in the queue expires after this.
+    fn cancel_toast_timers(&mut self) {
+        for (_, timer) in self.toast_timers.drain() {
+            timer.abort();
+        }
+    }
+
+    /// The stats section: the totals as they stand, with the turns the session closed (set({ stats })).
+    fn publish_stats(&mut self) {
+        let context = mixdog_app_protocol::v2::thread::ThreadContext { stats: Some(self.stats.json(self.turns_closed)), ..Default::default() };
+        self.accept_view(Change::Section(Section::Context(context)), Vec::new());
+    }
+
     /// A run's live-only line or notification (`RunPort::notice`, `usage`, `compact_event`).
     fn run_shown(&mut self, turn: TurnId, shown: RunShown) {
         match shown {
@@ -2878,6 +3021,8 @@ impl SessionActor {
                 }
                 let now = self.deps.clock.now_ms();
                 let usage = super::live_rows::usage_delta(self.id.as_str(), &report, now);
+                // `applyTurnUsageDelta`: the same event moves the session's stats (`applyUsageDelta`, `syncContextStats`).
+                self.stats.fold(&usage);
                 // `onUsageDelta`: the call's metrics and the provider's reading go to the header.
                 self.usage_incremental = true;
                 let books = self.deps.compaction.books(&self.id, &self.projected.header);
@@ -2888,6 +3033,7 @@ impl SessionActor {
                     &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage },
                 );
                 self.accept_view(Change::Barrier, vec![note]);
+                self.publish_stats();
             }
             RunShown::Check(check) => {
                 if let Some(books) = self.deps.compaction.books(&self.id, &self.projected.header) {
@@ -3560,8 +3706,10 @@ impl SessionActor {
                 tracing::warn!("a quota resume was superseded in memory but its entry was not removed: {error:?}");
             }
         });
+        // A cleared session starts with no toasts (`emptySessionPatch`), and none of the old ones expires (`beginTuiReset`, `session-reset.mjs:50`).
+        self.cancel_toast_timers();
         Ok(Plan {
-            kind: PlanKind::Records(records, Vec::new()),
+            kind: PlanKind::Records(records, vec![Change::Section(Section::Toasts(Vec::new()))]),
             value,
             after: Some(true),
             prompt: None,
@@ -4172,6 +4320,7 @@ impl SessionActor {
             started_at: self.deps.clock.now_ms(),
             transcript: input_body.pointer("/meta/transcript").cloned().unwrap_or(Value::Null),
             live: Default::default(),
+            verb: super::live_end::done_verb(self.turns_closed),
         });
         // `onGoalTurnStarted`: the turn takes the Goal's open clock segment.
         let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
@@ -4247,6 +4396,7 @@ impl SessionActor {
             skill_selection,
             goal_reminder,
             unattended,
+            verb: super::live_end::done_verb(self.turns_closed),
             thread: self.id.clone(),
             turn: turn.clone(),
             input,

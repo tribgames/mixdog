@@ -726,9 +726,17 @@ impl ThreadSettings {
 
     /// `setEffort(value, { sessionOnly })`: the live route afterwards.
     async fn set_effort(&self, thread: &ThreadId, value: &str, options: Option<&Value>) -> Result<Value, CoreError> {
-        self.open(thread).await?;
+        let handle = self.open(thread).await?;
         let session_only = options.and_then(|options| options.get("sessionOnly")) == Some(&Value::Bool(true));
-        self.parts.effort.set_effort(thread, value, session_only).await.map_err(|message| failed(DOMAIN, message))
+        let done = self.parts.effort.set_effort(thread, value, session_only).await.map_err(|message| failed(DOMAIN, message))?;
+        // `runtime.effort` is route state (`effectiveEffort || effort`): the route section carries the live route's value.
+        let route = self.parts.effort.route(thread);
+        let effort = route.get("effort").and_then(Value::as_str).filter(|effort| !effort.is_empty()).map(str::to_owned);
+        let effort_options = route.get("effortOptions").and_then(Value::as_array).cloned();
+        handle
+            .set_section(mixdog_core_ports::ports::threads::Section::Route(mixdog_app_protocol::v2::thread::ThreadRoute { effort, effort_options, ..Default::default() }))
+            .await?;
+        Ok(done)
     }
 
     /// `setToolMode(mode)`: the normalized mode, which the thread keeps (`toolMode`, Node's

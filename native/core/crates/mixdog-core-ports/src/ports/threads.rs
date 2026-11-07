@@ -74,6 +74,8 @@ pub fn port_error(error: CoreError) -> PortError {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Section {
     Runtime(ThreadRuntime),
+    /// The `toasts` of the runtime section alone: the whole queue as it stands. The session publishes it (a toast is pushed and expires there); the rest of the section stays as it was.
+    Toasts(Vec<Value>),
     /// `progressHint` of the runtime section alone (`None` removes it): the rest of the section stays as it was. Producers of a hint (the running tool, the voice install) publish this, never a whole `Runtime`.
     ProgressHint(Option<Value>),
     Route(ThreadRoute),

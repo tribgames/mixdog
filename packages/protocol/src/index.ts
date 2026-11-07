@@ -3500,7 +3500,7 @@ export type ThreadClearSessionChangeHistoryParams = { opId: OpId, threadId?: Thr
 
 export type ThreadCompactStartParams = { threadId: ThreadId, opId: OpId, options?: JsonValue, };
 
-export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, };
+export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, contextWindow?: number, displayContextWindow?: number, autoCompactTokenLimit?: number, stats?: JsonValue, };
 
 /**
  * Params of `thread/contextStatus`.
@@ -3767,13 +3767,13 @@ typing?: JsonValue,
  */
 handoffQuestions?: Array<JsonValue>, };
 
-export type ThreadRoute = { sessionProvider?: string, sessionModel?: string, fast?: boolean, fastCapable?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, selectedContextWindow?: number, };
+export type ThreadRoute = { sessionProvider?: string, sessionModel?: string, fast?: boolean, fastCapable?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, selectedContextWindow?: number, effort?: string, provider?: string, model?: string, turnEffort?: string, effortOptions?: Array<JsonValue>, };
 
 export type ThreadRuntime = { busy: boolean, commandBusy: boolean, thinking?: JsonValue, spinner?: JsonValue, commandStatus?: JsonValue, progressHint?: JsonValue, activeTools?: JsonValue, storage?: StorageState, 
 /**
  * Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.
  */
-waitingOnProviderSince?: number, };
+waitingOnProviderSince?: number, clientHostPid?: number, toasts: Array<JsonValue>, };
 
 export type ThreadSearchParams = { query: string, };
 

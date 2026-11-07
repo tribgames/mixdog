@@ -313,6 +313,8 @@ pub enum RunEvent {
         used_tokens: u64,
         trigger_tokens: u64,
         boundary_tokens: u64,
+        /// The session's window (policy.contextWindow), when it states one.
+        context_window: Option<u64>,
         will_compact: bool,
         /// The request about to go out, for the check's telemetry (`compactTelemetry`): its
         /// transcript, its tools, and whether a context-overflow retry is pending.

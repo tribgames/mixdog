@@ -344,6 +344,7 @@ impl Run {
             used_tokens: pressure,
             trigger_tokens: policy.trigger_tokens,
             boundary_tokens: policy.boundary_tokens,
+            context_window: policy.context_window,
             will_compact: should,
             messages: self.messages.clone(),
             tools: self.request_tools(),

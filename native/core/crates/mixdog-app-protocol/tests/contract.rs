@@ -614,6 +614,37 @@ fn drain_open_requested_and_new_tab_on_the_wire() {
     assert!(claimed.is_ok());
 }
 
+/// Node's route values `effort`, `provider`, `model`, `turnEffort` and `effortOptions` (`runtime-facade.mjs:62,93`) ride
+/// the route section: on the wire, and in the `ThreadRoute` definition of both schemas, not in `ModelSelection`.
+#[test]
+fn a_route_section_carries_the_efforts_and_the_selected_route() {
+    use mixdog_app_protocol::ServerNotification;
+    let route = json!({
+        "sessionProvider": "anthropic-oauth", "sessionModel": "m", "fast": false, "fastCapable": false, "autoEffort": true,
+        "modelParameters": {}, "effort": "high", "provider": "anthropic-oauth", "model": "m", "turnEffort": "low",
+        "effortOptions": ["low", "high"]
+    });
+    let wire = json!({"method": "thread/route/updated", "params": {"threadId": "t", "value": route}});
+    let decoded = serde_json::from_value::<ServerNotification>(wire.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), wire, "no route value is dropped on the wire");
+
+    let keys = ["effort", "provider", "model", "turnEffort", "effortOptions"];
+    for name in ["client_methods.json", "server_notification.json"] {
+        let file = mixdog_app_protocol::export::generate().into_iter().find(|f| f.name == name).unwrap();
+        let schema: Value = serde_json::from_str(&file.content).unwrap();
+        let route = &schema["definitions"]["ThreadRoute"]["properties"];
+        for key in keys {
+            assert!(route.get(key).is_some(), "{name}: ThreadRoute lacks {key}");
+        }
+        assert!(
+            schema["definitions"]["ModelSelection"]["properties"].get("effortOptions").is_none(),
+            "{name}: effortOptions is a route value, not a model selection's"
+        );
+    }
+    // The checked-in goldens say the same (a duplicate key is lost by a parse, so the text is counted).
+    let golden = std::fs::read_to_string(golden_path(FileKind::Schema, "client_methods.json")).unwrap();
+    assert_eq!(golden.matches("\"effortOptions\"").count(), 1, "effortOptions appears once in client_methods.json");
+}
 /// CCR settlements visible on the wire.
 #[test]
 fn ccr_shapes() {

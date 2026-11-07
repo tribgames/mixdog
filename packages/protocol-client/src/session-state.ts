@@ -40,12 +40,12 @@ export interface SessionFold {
 type SectionDef = { readonly stateKey: string; readonly fields: readonly string[] } | { readonly stateKey: string; readonly field: string };
 
 const SECTIONS: Readonly<Record<string, SectionDef>> = {
-  'thread/runtime/updated': { stateKey: 'runtime', fields: ['busy', 'commandBusy', 'thinking', 'spinner', 'commandStatus', 'progressHint', 'activeTools'] },
+  'thread/runtime/updated': { stateKey: 'runtime', fields: ['busy', 'commandBusy', 'thinking', 'spinner', 'commandStatus', 'progressHint', 'activeTools', 'clientHostPid', 'toasts'] },
   'thread/route/updated': {
     stateKey: 'route',
-    fields: ['sessionProvider', 'sessionModel', 'fast', 'fastCapable', 'autoEffort', 'modelParameters', 'selectedContextWindow'],
+    fields: ['sessionProvider', 'sessionModel', 'fast', 'fastCapable', 'autoEffort', 'modelParameters', 'selectedContextWindow', 'effort', 'provider', 'model', 'turnEffort', 'effortOptions'],
   },
-  'thread/context/updated': { stateKey: 'context', fields: ['contextPercent', 'contextTokens', 'contextDefaultPercent'] },
+  'thread/context/updated': { stateKey: 'context', fields: ['contextPercent', 'contextTokens', 'contextDefaultPercent', 'contextWindow', 'displayContextWindow', 'autoCompactTokenLimit', 'stats'] },
   'thread/agents/updated': { stateKey: 'agents', fields: ['agentWorkers', 'agentJobs'] },
   'thread/workflow/updated': {
     stateKey: 'workflow',
