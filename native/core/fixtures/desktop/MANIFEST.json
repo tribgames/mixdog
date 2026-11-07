@@ -6,7 +6,7 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 49,
+  "fileCount": 51,
   "files": [
     {
       "bytes": 43749,
@@ -82,6 +82,11 @@
       "bytes": 313717,
       "path": "settings/agent-home-api-twin.json",
       "sha256": "2a0f6bb9003c2493e8b7378d98b54f4030ecb651b5e2f5515bddb79bbc08e4b9"
+    },
+    {
+      "bytes": 325962,
+      "path": "settings/agent-lifecycle-twin.json",
+      "sha256": "e36a5eff5de228cf241fdc3d07ed6a30786a8f6b03f5e8081a425616e2b3b140"
     },
     {
       "bytes": 124399,
@@ -179,6 +184,11 @@
       "sha256": "627f392c26ebb7da075dfcd34fe6a61cea23b586a74179c6df064f8d33aea67b"
     },
     {
+      "bytes": 29721,
+      "path": "settings/session-rename-twin.json",
+      "sha256": "60e48f7db6d2e0e41c257635db784c07f0038bbff853bb2a6d9baa9777656415"
+    },
+    {
       "bytes": 117955,
       "path": "settings/setup-dispatch-twin.json",
       "sha256": "53f7801b11f9de300941259871aca935fcd1801855476e15f56d32148e26af90"
@@ -272,5 +282,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 42775383
+  "totalBytes": 43131066
 }
