@@ -529,6 +529,8 @@ pub struct McpInputs {
     pub extensions: Arc<crate::compose_domains::ConfigExtensions>,
     /// The host `compose_domains` gave the `PluginsService` (`PluginSeams.host`).
     pub extension_host: Arc<LateExtensionHost>,
+    /// The folder a task in a Project runs in (`skills/skillsStatus{options:{projectPath}}`), bound once the workspace exists.
+    pub project_workspaces: Arc<crate::project_workspaces::LateProjectWorkspaces>,
     /// The `PluginsService` `compose_domains` registered.
     pub plugins: Arc<dyn DomainService>,
     /// The config service (`config/getWorkflowPack`): `WorkflowConfig`.
@@ -604,6 +606,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         settings,
         ext_config,
         host,
+        inputs.project_workspaces.clone(),
         tokens.maintenance_io,
         tokens.durability_io,
         data_dir.clone(),
@@ -969,6 +972,7 @@ mod tests {
             tool_modules,
             extensions: extensions.clone(),
             extension_host: late,
+            project_workspaces: Arc::default(),
             plugins: Arc::new(mixdog_core_api::mock::MockDomain::serving(&[])),
             workflow: Arc::new(mixdog_core_api::mock::MockDomain::serving(&[])),
             secret_store: Arc::new(Memory(Default::default())),
