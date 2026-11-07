@@ -1884,6 +1884,8 @@ fn the_chat_decoder_reports_the_progress_kinds_node_s_consumer_does() {
 /// recorded `_wsErrLabel('xai')` over the socket (`golden/stream_progress.json`).
 #[test]
 fn a_cut_compat_responses_stream_says_what_node_says() {
+    use crate::providers::compat::responses::CompatResponsesCodec;
+    use mixdog_core_api::domain::keepalive::TransportKind;
     let golden = crate::providers::progress_golden::golden();
     let ws_label = golden["labels"]["xaiWs"].as_str().expect("label");
     for (transport, expected) in [
