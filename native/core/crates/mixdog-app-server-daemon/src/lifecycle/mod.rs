@@ -25,6 +25,7 @@ pub(crate) mod testing;
 mod tests;
 
 pub use handle::ActivityGuard;
+pub use handle::CallGuard;
 pub use handle::ConnectionGuard;
 pub use handle::Lifecycle;
 pub use handle::LifecycleConfig;

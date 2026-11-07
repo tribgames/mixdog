@@ -1,0 +1,942 @@
+{
+ "domain": "stall-thresholds",
+ "recorder": "benchmarks/rust-core/recorders/record-stall-thresholds.mjs",
+ "cases": [
+  {
+   "env": null,
+   "rows": [
+    {
+     "agent": null,
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "reviewer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "heavy-worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 420,
+     "abort": 420,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "maintainer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "lead",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "writer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "explore-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "cycle1-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 300,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "title-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 90,
+     "warn": 90,
+     "abort": 90,
+     "firstByteAbort": 90
+    },
+    {
+     "agent": "recap-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "advisor",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "no-such-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    }
+   ]
+  },
+  {
+   "env": "120",
+   "rows": [
+    {
+     "agent": null,
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "reviewer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "heavy-worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "maintainer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "lead",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "writer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "explore-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "cycle1-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 300,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "title-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 90,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "recap-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "advisor",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    },
+    {
+     "agent": "no-such-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 120,
+     "abort": 120,
+     "firstByteAbort": 120
+    }
+   ]
+  },
+  {
+   "env": "900",
+   "rows": [
+    {
+     "agent": null,
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "reviewer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "heavy-worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "maintainer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "lead",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "writer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "explore-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "cycle1-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 300,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "title-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 90,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "recap-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "advisor",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "no-such-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 900,
+     "abort": 900,
+     "firstByteAbort": 300
+    }
+   ]
+  },
+  {
+   "env": "5",
+   "rows": [
+    {
+     "agent": null,
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "reviewer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "heavy-worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "maintainer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "lead",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "writer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "explore-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "cycle1-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 300,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "title-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 90,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "recap-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "advisor",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    },
+    {
+     "agent": "no-such-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 5,
+     "abort": 5,
+     "firstByteAbort": 5
+    }
+   ]
+  },
+  {
+   "env": "abc",
+   "rows": [
+    {
+     "agent": null,
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "reviewer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "heavy-worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 420,
+     "abort": 420,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "maintainer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "lead",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "writer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "explore-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "cycle1-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 300,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "title-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 90,
+     "warn": 90,
+     "abort": 90,
+     "firstByteAbort": 90
+    },
+    {
+     "agent": "recap-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "advisor",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "no-such-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    }
+   ]
+  },
+  {
+   "env": "0",
+   "rows": [
+    {
+     "agent": null,
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "reviewer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "heavy-worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 420,
+     "abort": 420,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "maintainer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "lead",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "writer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "explore-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "cycle1-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 300,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "title-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 90,
+     "warn": 90,
+     "abort": 90,
+     "firstByteAbort": 90
+    },
+    {
+     "agent": "recap-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "advisor",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "no-such-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    }
+   ]
+  },
+  {
+   "env": "-30",
+   "rows": [
+    {
+     "agent": null,
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "reviewer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "heavy-worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 420,
+     "abort": 420,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "maintainer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "lead",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "writer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "explore-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "cycle1-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 300,
+     "warn": 300,
+     "abort": 300,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "title-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 90,
+     "warn": 90,
+     "abort": 90,
+     "firstByteAbort": 90
+    },
+    {
+     "agent": "recap-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "advisor",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    },
+    {
+     "agent": "no-such-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 600,
+     "abort": 600,
+     "firstByteAbort": 300
+    }
+   ]
+  },
+  {
+   "env": "45s",
+   "rows": [
+    {
+     "agent": null,
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "reviewer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "heavy-worker",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "maintainer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "lead",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "writer",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "explore-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "cycle1-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 300,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "title-agent",
+     "hidden": true,
+     "stallCapIdleSeconds": 90,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "recap-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "advisor",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    },
+    {
+     "agent": "no-such-agent",
+     "hidden": false,
+     "stallCapIdleSeconds": null,
+     "warn": 45,
+     "abort": 45,
+     "firstByteAbort": 45
+    }
+   ]
+  }
+ ]
+}

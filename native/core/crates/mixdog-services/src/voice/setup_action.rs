@@ -54,7 +54,7 @@ mod tests {
     use async_trait::async_trait;
     use tokio::sync::Notify;
 
-    use super::super::pipeline::tests::{FakeEngine, FakeTools, install, manifest};
+    use super::super::pipeline::tests::{FakeEngine, FakeTools, install, install_whisper, manifest};
     use super::super::pipeline::{VoicePipeline, VoiceSettingsSource};
     use super::super::setup::{Missing, VoiceEnabledStore, VoiceInstaller};
     use super::*;
@@ -97,6 +97,8 @@ mod tests {
                 gate.notified().await;
             }
             if let Some(error) = self.fail {
+                // The runtime is fetched first; it is the model's checksum that fails.
+                install_whisper(&self.dir);
                 return Err(error.to_owned());
             }
             install(&self.dir);

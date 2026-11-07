@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-provider-refusal.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3799,
+      "path": "golden.json",
+      "sha256": "d7ef36e11ee6fc8a44a0826e8d7b7189d1573d58f1b4ee0f073e07f1aca71d6f"
+    }
+  ],
+  "product": {
+    "appsSha256": "3079841c30e6ff1ec56d1f9e6d33dfb6c8bc0fa1d52458a07f7b533896b376ac",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "ebdcca97de789757ba048e43d8b2a42ed028fa09",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 2
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-provider-refusal.mjs",
+  "set": "provider-refusal",
+  "totalBytes": 3799
+}

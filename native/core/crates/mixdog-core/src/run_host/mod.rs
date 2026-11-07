@@ -15,6 +15,7 @@ pub mod ladder_sources;
 pub mod hop_bindings;
 pub mod quota_usage;
 pub mod home_directory;
+pub mod quota_history;
 #[cfg(test)]
 mod fixture_fs;
 #[cfg(test)]
@@ -100,6 +101,7 @@ pub mod thread_todos;
 pub mod directory_sessions;
 pub mod room_list;
 pub mod next_request_source;
+pub mod warm_ports;
 pub mod inheritance_fit;
 pub mod compact_hooks;
 pub mod heartbeat_parts;
@@ -114,6 +116,10 @@ pub mod agent_activity;
 pub mod agent_inputs;
 pub mod late;
 pub mod code_graph_prewarm;
+pub mod group_usage_tokens;
+pub mod pool_inputs;
+pub mod shell_jobs;
+pub mod turn_liveness;
 pub mod late_chats;
 pub mod late_routine_sessions;
 pub mod workflow_surface;

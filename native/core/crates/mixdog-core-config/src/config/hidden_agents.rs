@@ -126,8 +126,7 @@ mod tests {
 
     #[test]
     fn the_stall_caps_are_what_node_read_off_the_internal_agents() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-watchdog/golden.json");
-        let golden: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/agent-watchdog/golden.json")).unwrap();
         let caps = golden["stallCaps"].as_object().unwrap();
         assert!(!caps.is_empty());
         for (name, recorded) in caps {
@@ -152,8 +151,7 @@ mod tests {
 
     #[test]
     fn a_hidden_agent_is_what_node_merged_from_the_asset_and_the_frontmatter() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-world/golden.json");
-        let golden: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/agent-world/golden.json")).unwrap();
         for case in golden["hiddenAgents"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
             let want = (!case["agent"].is_null()).then(|| case["agent"].clone());

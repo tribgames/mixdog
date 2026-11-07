@@ -41,13 +41,23 @@ fn grok_billing_reads_credit_totals_and_unified_percent() {
         w.to_string(),
         r#"{"label":"W","source":"grok-build-billing","usedPct":25,"usedCredits":50,"limitCredits":200,"remainingCredits":150,"resetAt":1900000000000}"#
     );
-    let unified = serde_json::json!({"isUnifiedBillingUser": true, "creditUsagePercent": {"val": 140}});
+    let unified = serde_json::json!({"isUnifiedBillingUser": true, "currentPeriod": {"type": "USAGE_PERIOD_TYPE_MONTHLY"}, "creditUsagePercent": {"val": 140}});
     assert_eq!(
         credit_window_from_billing(&unified, NOW).unwrap().to_string(),
         r#"{"label":"M","source":"grok-build-billing","usedPct":100}"#
     );
     assert!(credit_window_from_billing(&serde_json::json!({"x": 1}), NOW).is_none());
-    let cap = serde_json::json!({"onDemandCap": {"val": 10}, "onDemandUsed": 4, "billingPeriodStart": "2030-01-01T00:00:00Z", "billingPeriodEnd": "2030-01-08T00:00:00Z"});
+    // Node throws on an absent, blank or non-string period type, whatever else the answer holds.
+    for typeless in [
+        serde_json::json!({"isUnifiedBillingUser": true}),
+        serde_json::json!({"currentPeriod": {"type": "  "}, "monthlyLimit": 100, "used": 5}),
+        serde_json::json!({"currentPeriod": {"type": 7}, "monthlyLimit": 100, "used": 5}),
+    ] {
+        assert!(credit_window_from_billing(&typeless, NOW).is_none(), "{typeless}");
+    }
+    // `currentPeriod?.type ?? current_period?.type`: a period without a type defers to the other spelling.
+    let deferred = serde_json::json!({"currentPeriod": {"end": 1_900_000_000}, "current_period": {"type": "USAGE_PERIOD_TYPE_WEEKLY"}, "weeklyLimit": 10, "used": 1});
+    assert_eq!(credit_window_from_billing(&deferred, NOW).unwrap()["label"], "W");    let cap = serde_json::json!({"currentPeriod": {"type": "OTHER"}, "onDemandCap": {"val": 10}, "onDemandUsed": 4, "billingPeriodStart": "2030-01-01T00:00:00Z", "billingPeriodEnd": "2030-01-08T00:00:00Z"});
     assert_eq!(
         balance_from_grok_billing(&cap, NOW).to_string(),
         r#"{"source":"grok-build-on-demand","period":"weekly","budgetCredits":10,"spentCredits":4,"remainingCredits":6}"#

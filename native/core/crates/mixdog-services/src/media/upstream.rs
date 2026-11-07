@@ -7,6 +7,8 @@
 use std::sync::LazyLock;
 
 use base64::Engine as _;
+use base64::alphabet;
+use base64::engine::general_purpose::{GeneralPurpose, NO_PAD};
 use mixdog_js::{js_trim, slice_utf16, to_number, value_to_string};
 use regex::Regex;
 use serde_json::Value;
@@ -183,8 +185,12 @@ pub fn node_base64(text: &str) -> Vec<u8> {
     if clean.len() % 4 == 1 {
         clean.pop();
     }
-    base64::engine::general_purpose::STANDARD_NO_PAD.decode(clean).unwrap_or_default()
+    NODE_BASE64.decode(clean).unwrap_or_default()
 }
+
+/// Unpadded, and the bits left over after the last whole byte are dropped whatever they are
+/// (`"ab"` is `0x69`), as Node's decoder drops them.
+const NODE_BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, NO_PAD.with_decode_allow_trailing_bits(true));
 
 /// `decodeBase64Media(value, label)`.
 pub fn decode_base64_media(value: &Value, label: &str) -> Result<Vec<u8>, LaneError> {

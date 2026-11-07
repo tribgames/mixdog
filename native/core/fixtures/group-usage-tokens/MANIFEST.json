@@ -1,0 +1,18 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-group-usage-tokens.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7342,
+      "path": "golden.json",
+      "sha256": "d7ec1ddbe929bbd8d7abb8659df9402cbb26e574436b64bda92a739a55c18a43"
+    }
+  ],
+  "product": {
+    "tree": "product tree loaded by the recorder",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-group-usage-tokens.mjs",
+  "set": "group-usage-tokens",
+  "totalBytes": 7342
+}

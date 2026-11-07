@@ -45,8 +45,8 @@ fn release_events(events: &[String]) -> Vec<&str> {
 fn the_last_client_leaving_an_idle_core_stops_it_with_no_grace() {
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();
-    let first = fx.lifecycle.connection();
-    let second = fx.lifecycle.connection();
+    let first = fx.lifecycle.connection(ClientKind::Session);
+    let second = fx.lifecycle.connection(ClientKind::Session);
     drop(first);
     assert!(!fx.recorder.has_exited(), "one client is still attached");
     drop(second);
@@ -67,7 +67,7 @@ fn the_release_tells_the_core_node_s_text_of_the_cause_before_its_first_step() {
     // The last client leaving is Node's self-shutdown with no live session clients (`daemon.mjs:1245`).
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();
-    drop(fx.lifecycle.connection());
+    drop(fx.lifecycle.connection(ClientKind::Session));
     fx.recorder.wait_exit();
     let events = fx.recorder.events();
     assert_eq!(release_reason(&events), ["no live session clients"]);
@@ -87,21 +87,91 @@ fn a_signal_s_name_is_the_reason_the_trigger_noted() {
 }
 
 #[test]
-fn every_cause_has_its_node_text() {
-    let text = |cause: ReleaseCause| cause.node_text();
-    assert_eq!(text(ReleaseCause::Stop(StopReason::NoClients)), "no live session clients");
-    assert_eq!(text(ReleaseCause::Stop(StopReason::Update)), "daemon replacement");
-    assert_eq!(text(ReleaseCause::Stop(StopReason::FastDeploy)), "daemon replacement");
-    assert_eq!(text(ReleaseCause::Stop(StopReason::Quit)), "IPC shutdown");
-    assert_eq!(text(ReleaseCause::Fenced(FenceReason::LockFileReplaced)), "owner lock file was deleted or replaced");
-    assert_eq!(text(ReleaseCause::Fenced(FenceReason::LockLost)), "lockLost", "a fence Node has no text for keeps its own name");
+fn the_last_client_of_each_registry_names_node_s_text() {
+    // `daemon.mjs:1245`, `:917`, `:1159`.
+    for (kind, text) in [
+        (ClientKind::Session, "no live session clients"),
+        (ClientKind::Channel, "no live channel clients"),
+        (ClientKind::Remote, "remote clients changed"),
+    ] {
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        drop(fx.lifecycle.connection(kind));
+        fx.recorder.wait_exit();
+        assert_eq!(release_reason(&fx.recorder.events()), [text]);
+    }
+}
+
+#[test]
+fn the_work_that_lets_the_core_stop_names_node_s_recheck_text() {
+    // `daemon.mjs:543`, `:556`, `:1065`: the deferred self-shutdown, by what settled.
+    for (settled, text) in [
+        (None, "busy service work settled"),
+        (Some(SERVICE_CALLS_SETTLED), "service calls settled"),
+        (Some(MEMORY_AGENT_ACTIVITY_CHANGED), "memory agent activity changed"),
+    ] {
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let client = fx.lifecycle.connection(ClientKind::Session);
+        let work = match settled {
+            Some(settled) => fx.lifecycle.begin_activity_settling(turn(), settled),
+            None => fx.lifecycle.begin_activity(turn()),
+        };
+        drop(client);
+        assert!(!fx.recorder.has_exited(), "the work keeps the core alive");
+        drop(work);
+        fx.recorder.wait_exit();
+        assert_eq!(release_reason(&fx.recorder.events()), [text]);
+    }
+}
+
+#[test]
+fn a_replacement_names_the_build_it_is_for() {
+    // `daemon.mjs:589`.
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    fx.lifecycle.stop_noting(StopMode::WhenIdle, StopReason::Update, None, "daemon replacement by revision/build 7/1.5.0").unwrap();
+    fx.recorder.wait_exit();
+    assert_eq!(release_reason(&fx.recorder.events()), ["daemon replacement by revision/build 7/1.5.0"]);
+}
+
+#[test]
+fn a_refused_stop_leaves_no_text_behind() {
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let _work = fx.lifecycle.begin_activity(turn());
+    fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+    // Draining already: an abort without its token is refused, and its text must not stick to the release that follows.
+    assert!(fx.lifecycle.stop_noting(StopMode::AbortConfirmed, StopReason::Quit, None, "stale").is_err());
+    fx.lifecycle.note_trigger("SIGINT");
+    drop(_work);
+    fx.recorder.wait_exit();
+    assert_eq!(release_reason(&fx.recorder.events()), ["SIGINT"]);
+}
+
+#[test]
+fn a_lost_owner_lock_names_its_file() {
+    // `daemon.mjs:655`.
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    fx.lifecycle.fence_lock_file(std::path::Path::new("/data/daemon-owner.lock"));
+    fx.recorder.wait_exit();
+    assert_eq!(release_reason(&fx.recorder.events()), ["owner lock file /data/daemon-owner.lock was deleted or replaced"]);
+}
+
+#[test]
+fn the_causes_without_a_fact_to_carry_read_as_node_has_them() {
+    // `Quit` and `UserStop` have no Node counterpart of their own; the parent's IPC message (`daemon.mjs:1311`) is the nearest.
+    assert_eq!(ReleaseCause::Stop(StopReason::Quit).node_text(), "IPC shutdown");
+    assert_eq!(ReleaseCause::Stop(StopReason::UserStop).node_text(), "IPC shutdown");
+    assert_eq!(ReleaseCause::Fenced(FenceReason::LockLost).node_text(), "lockLost", "a fence Node has no text for keeps its own name");
 }
 
 #[test]
 fn work_keeps_an_unattended_core_alive_until_it_ends() {
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();
-    let client = fx.lifecycle.connection();
+    let client = fx.lifecycle.connection(ClientKind::Session);
     let work = fx.lifecycle.begin_activity(turn());
     drop(client);
     assert!(!fx.recorder.has_exited());
@@ -115,7 +185,7 @@ fn goals_schedules_and_channels_keep_it_alive() {
     for kind in [ActivityKind::Goal, ActivityKind::Schedule, ActivityKind::Channel] {
         let fx = fixture();
         fx.lifecycle.set_serving().unwrap();
-        let client = fx.lifecycle.connection();
+        let client = fx.lifecycle.connection(ClientKind::Session);
         let keeper = fx.lifecycle.begin_activity(ActivityInfo { kind, thread_id: None, turn_id: None, title: "k".into() });
         drop(client);
         assert!(!fx.recorder.has_exited(), "{kind:?}");
@@ -128,7 +198,7 @@ fn goals_schedules_and_channels_keep_it_alive() {
 fn an_update_stop_waits_for_running_work_and_nothing_times_it() {
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();
-    let _client = fx.lifecycle.connection();
+    let _client = fx.lifecycle.connection(ClientKind::Session);
     let work = fx.lifecycle.begin_activity(turn());
     fx.lifecycle.hold(true).unwrap();
     assert!(*fx.lifecycle.hold_gate().borrow());
@@ -233,7 +303,7 @@ fn status_snapshot_is_lock_free_and_orders_by_sequence() {
     let fx = fixture();
     let before = fx.lifecycle.status().seq_of_snapshot;
     fx.lifecycle.set_serving().unwrap();
-    let _client = fx.lifecycle.connection();
+    let _client = fx.lifecycle.connection(ClientKind::Session);
     let after = fx.lifecycle.status();
     assert!(after.seq_of_snapshot > before);
     assert_eq!(after.clients, 1);
@@ -243,7 +313,7 @@ fn status_snapshot_is_lock_free_and_orders_by_sequence() {
 fn concurrent_sessions_register_and_end_without_losing_the_count() {
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();
-    let _client = fx.lifecycle.connection();
+    let _client = fx.lifecycle.connection(ClientKind::Session);
     let threads: Vec<_> = (0..8)
         .map(|_| {
             let lifecycle = Arc::clone(&fx.lifecycle);

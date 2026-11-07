@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_core_config::config::Config;
+use mixdog_rt::LaneToken as _;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 use super::provider_status::{ProviderRoster, ProvidersStatus, QuotaAutoResumeSetting};
 use crate::domains::ai_account::collaborators::ProviderSetup;
@@ -123,7 +125,15 @@ async fn the_quota_switch_is_on_unless_the_config_says_false() {
         (json!({ "quotaResume": { "autoResume": false } }), false),
     ] {
         let path = dir.path().join("mixdog-config.json");
-        std::fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap()).unwrap();
+        let bytes = serde_json::to_vec(&json!({ "agent": agent })).unwrap();
+        let file = path.clone();
+        tokens
+            .durability_io
+            .submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &file, &bytes, &mixdog_statefile::Opts::default()))
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         assert_eq!(QuotaAutoResumeSetting::enabled(&config), want, "{agent}");
     }

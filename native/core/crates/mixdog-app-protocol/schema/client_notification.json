@@ -73,6 +73,21 @@
       ],
       "type": "object"
     },
+    "ModelProxyHeartbeatParams": {
+      "description": "Electron → server core: these `model/proxy/execute` requests are still being run; the first beat of a request claims it, each renews its lease.",
+      "properties": {
+        "requestIds": {
+          "items": {
+            "$ref": "#/definitions/RequestId"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "requestIds"
+      ],
+      "type": "object"
+    },
     "ModelProxyRunCancelParams": {
       "description": "Electron → its local core: stop the `modelProxy/run` run `run_id` (the abort of a `model/proxy/cancel`).",
       "properties": {
@@ -940,6 +955,25 @@
         },
         "params": {
           "$ref": "#/definitions/ModelProxyEventParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The PC still runs these `model/proxy/execute` requests (every 5 s); the first claims a request.",
+      "properties": {
+        "method": {
+          "enum": [
+            "model/proxy/heartbeat"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ModelProxyHeartbeatParams"
         }
       },
       "required": [

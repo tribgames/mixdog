@@ -117,6 +117,14 @@ fn role_abort_seconds(agent: Option<&str>) -> Option<i64> {
     }
 }
 
+/// `resolveAgentStallThresholds(agent, env).warn`, in milliseconds (the status row's `stallWarnMs`). An
+/// agent stall notifies only at its abort deadline, so warn is abort: `STALL_TIMEOUT_S` when set, else
+/// the hidden agent's own `stallCap.idleSeconds`, else the role's workflow budget, else the base 600.
+pub fn stall_warn_ms(agent: AgentKind<'_>, env: Env<'_>) -> i64 {
+    let configured = agent.stall_cap_idle_seconds.filter(|seconds| *seconds > 0).or_else(|| role_abort_seconds(agent.name)).unwrap_or(DEFAULT_STALL_ABORT_S);
+    threshold_seconds(env).unwrap_or(configured) * 1000
+}
+
 /// `resolveAgentWatchdogPolicy(agent, overrides)`.
 pub fn resolve_policy(agent: AgentKind<'_>, overrides: Overrides, env: Env<'_>) -> WatchdogPolicy {
     // The module-level stall thresholds.
@@ -200,6 +208,11 @@ pub fn stopped_jobs_note(stopped: &[String], stopping: &[String]) -> Option<Stri
     }
     (!notes.is_empty()).then(|| notes.join(" "))
 }
+
+/// `resolveAgentStallThresholds(..).warn` against Node's run (`fixtures/stall-thresholds/golden.json`).
+#[cfg(test)]
+#[path = "watchdog_stall_tests.rs"]
+mod stall_tests;
 
 #[cfg(test)]
 mod tests {

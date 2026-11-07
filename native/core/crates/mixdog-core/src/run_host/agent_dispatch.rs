@@ -445,10 +445,22 @@ struct Options {
     brief: bool,
 }
 
+/// What a registered run holds until it leaves the table (see [`RunWatch::started`]).
+pub type RunHold = Box<dyn Send + Sync>;
+
+/// The runs of the dispatch as the daemon counts them: Node's broker calls `onActivityChanged` as a dispatch enters and leaves its
+/// in-flight table (`agent-dispatch-broker.mjs:120-131`), and the daemon reads `snapshot().inFlight` as busy memory agents and
+/// rechecks its self-shutdown on each change (`daemon.mjs:449`, `:1064`).
+pub trait RunWatch: Send + Sync {
+    /// A run entered the table; the hold is dropped when it left (after the table no longer lists it).
+    fn started(&self) -> RunHold;
+}
+
 /// `createInlineAgentDispatch`: the run table in front of the dispatcher.
 pub struct InlineAgentDispatch {
     runner: Arc<dyn ChildRunner>,
     world: Arc<dyn HostWorld>,
+    watch: Arc<dyn RunWatch>,
     runs: Mutex<HashMap<String, Cancel>>,
     /// `agentDispatchers`: a dispatcher is made once per agent, with the first payload's options.
     dispatchers: Mutex<HashMap<String, Options>>,
@@ -458,6 +470,8 @@ pub struct InlineAgentDispatch {
 struct Registered<'a> {
     host: &'a InlineAgentDispatch,
     id: String,
+    /// Dropped after `drop` has taken the run out of the table.
+    _hold: RunHold,
 }
 
 impl Drop for Registered<'_> {
@@ -467,8 +481,8 @@ impl Drop for Registered<'_> {
 }
 
 impl InlineAgentDispatch {
-    pub fn new(runner: Arc<dyn ChildRunner>, world: Arc<dyn HostWorld>) -> Self {
-        Self { runner, world, runs: Mutex::default(), dispatchers: Mutex::default() }
+    pub fn new(runner: Arc<dyn ChildRunner>, world: Arc<dyn HostWorld>, watch: Arc<dyn RunWatch>) -> Self {
+        Self { runner, world, watch, runs: Mutex::default(), dispatchers: Mutex::default() }
     }
 
     /// `agentDispatch(payload, { signal })`.
@@ -484,7 +498,7 @@ impl InlineAgentDispatch {
                 return Err(format!("agent dispatch {} is already running", payload.dispatch_id));
             }
             runs.insert(payload.dispatch_id.clone(), controller.clone());
-            Registered { host: self, id: payload.dispatch_id.clone() }
+            Registered { host: self, id: payload.dispatch_id.clone(), _hold: self.watch.started() }
         };
         self.world.assert_open(Some(&controller))?;
         self.world.prepare_providers(&controller).await?;

@@ -22,6 +22,7 @@ use std::time::Instant;
 
 pub mod cancel;
 pub mod exec;
+pub mod gate;
 pub mod lanes;
 pub mod liveness;
 pub mod scoped;
@@ -31,6 +32,10 @@ pub mod tokens;
 
 pub use cancel::CancelSource;
 pub use cancel::CancelView;
+pub use gate::Gate;
+pub use gate::GateCancelled;
+pub use gate::GateGuard;
+pub use gate::KeyedGate;
 pub use scoped::Scope;
 pub use scoped::Scoped;
 pub use serial::ChainGuard;

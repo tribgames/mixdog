@@ -73,6 +73,10 @@ fn now_ms() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
+fn cancelled() -> StoreError {
+    StoreError("the grant store is closing".into())
+}
+
 fn io_error(error: std::io::Error) -> StoreError {
     StoreError(error.to_string())
 }
@@ -271,17 +275,15 @@ fn read_audit_lines(
     Ok(rows)
 }
 
-#[allow(
-    clippy::disallowed_types,
-    reason = "`writes` is held across the lane job awaits on purpose: it orders whole read-modify-writes"
-)]
 pub struct FileGrantStore {
     grants_path: PathBuf,
     audit_path: PathBuf,
     interactive: InteractiveIo,
     durability: DurabilityIo,
-    /// Orders grant read-modify-writes.
-    writes: tokio::sync::Mutex<()>,
+    /// Orders grant read-modify-writes; a waiter leaves on `cancel`.
+    writes: mixdog_rt::Gate,
+    /// Ends every wait for the writer order ([`Self::close`]).
+    cancel: mixdog_rt::CancellationToken,
     /// Epoch ms stamped on a grant or audit line that carries none.
     clock: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
@@ -292,8 +294,12 @@ impl FileGrantStore {
         Self::with_clock(dir, interactive, durability, Arc::new(now_ms))
     }
 
+    /// Shutdown: callers queued for the writer order end with an error.
+    pub fn close(&self) {
+        self.cancel.cancel();
+    }
+
     /// [`Self::new`] stamping with `clock` (epoch ms) instead of the wall clock.
-    #[allow(clippy::disallowed_types, reason = "builds the `writes` lock; see the struct")]
     pub fn with_clock(
         dir: impl Into<PathBuf>,
         interactive: InteractiveIo,
@@ -307,7 +313,8 @@ impl FileGrantStore {
             audit_path: dir.join(AUDIT_FILE),
             interactive,
             durability,
-            writes: tokio::sync::Mutex::new(()),
+            writes: mixdog_rt::Gate::new(),
+            cancel: mixdog_rt::CancellationToken::new(),
         })
     }
 
@@ -320,7 +327,7 @@ impl FileGrantStore {
             Read::Table(table) => Ok(table),
             Read::Missing => Ok(GrantTable::default()),
             Read::Corrupt => {
-                let _order = self.writes.lock().await;
+                let _order = self.writes.enter(&self.cancel).await.map_err(|_| cancelled())?;
                 let path = self.grants_path.clone();
                 run(self.durability, move |lane| load_locked(lane, &path)).await
             }
@@ -333,7 +340,7 @@ impl FileGrantStore {
         &self,
         change: impl FnOnce(&mut GrantTable) -> (R, bool) + Send + 'static,
     ) -> Result<R, StoreError> {
-        let _order = self.writes.lock().await;
+        let _order = self.writes.enter(&self.cancel).await.map_err(|_| cancelled())?;
         let path = self.grants_path.clone();
         run(self.durability, move |lane| {
             let mut outcome = None;
@@ -527,7 +534,7 @@ mod tests {
         std::fs::write(&path, "{ torn").expect("write");
         let store = store_in(dir.path());
         // A writer holds the order while the reader looks at the damaged file.
-        let order = store.writes.lock().await;
+        let order = store.writes.enter(&store.cancel).await.expect("writer order");
         let reader = {
             let store = store.clone();
             tokio::spawn(async move { store.mode_for("bot", &comment(), false).await })

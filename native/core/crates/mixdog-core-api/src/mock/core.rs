@@ -79,6 +79,17 @@ pub struct MockCore {
     media: MockHostMedia,
     lifecycle: watch::Sender<CoreState>,
     closed: Mutex<Vec<ConnectionId>>,
+    /// Requests admitted and not yet finished ([`CoreHandle::request_started`] guards alive).
+    requests: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// One admitted request of the mock core: counted while it lives.
+struct MockRequest(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for MockRequest {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 impl MockCore {
@@ -97,7 +108,13 @@ impl MockCore {
             media: MockHostMedia::default(),
             lifecycle: watch::Sender::new(CoreState::Serving),
             closed: Mutex::new(Vec::new()),
+            requests: Arc::default(),
         }
+    }
+
+    /// The requests the server admitted that have not finished.
+    pub fn requests_in_flight(&self) -> usize {
+        self.requests.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The connections the server reported closed, in order (one entry per close).
@@ -165,6 +182,11 @@ impl CoreHandle for MockCore {
 
     fn connection_closed(&self, connection: ConnectionId) {
         lock(&self.closed).push(connection);
+    }
+
+    fn request_started(&self) -> crate::handle::RequestGuard {
+        self.requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::new(MockRequest(self.requests.clone()))
     }
 }
 

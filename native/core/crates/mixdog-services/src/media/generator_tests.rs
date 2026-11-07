@@ -260,13 +260,15 @@ async fn a_lane_without_an_adapter_is_refused() {
 
 #[tokio::test]
 async fn a_pinned_account_is_the_credential_file_of_the_whole_job() {
+    // An account id is a UUID (`requireAccountId`); anything else is refused before the job runs.
+    const WORK: &str = "3f2a7c1e-9b4d-4e6a-8c10-5d7e2a9b1f44";
     let rig = rig();
-    let work = rig.data.path().join("provider-accounts").join("openai-oauth").join("work.json");
-    rig.generator.generate(request("openai-oauth", "image", "gpt-image-2", "work")).await.unwrap_err();
+    let work = rig.data.path().join("provider-accounts").join("openai-oauth").join(format!("{WORK}.json"));
+    rig.generator.generate(request("openai-oauth", "image", "gpt-image-2", WORK)).await.unwrap_err();
     assert_eq!(rig.codex_files.lock().unwrap().first(), Some(&Some(work)));
     // The OAuth stores of the other lanes are asked about the same account's file.
-    let grok = rig.data.path().join("provider-accounts").join("grok-oauth").join("work.json");
-    rig.generator.generate(request("grok-oauth", "image", "grok-imagine-image", "work")).await.unwrap_err();
+    let grok = rig.data.path().join("provider-accounts").join("grok-oauth").join(format!("{WORK}.json"));
+    rig.generator.generate(request("grok-oauth", "image", "grok-imagine-image", WORK)).await.unwrap_err();
     assert_eq!(rig.stores.0.lock().unwrap().first(), Some(&Some(grok)));
     // No pin: the provider's own file.
     let rig = rig_unpinned().await;

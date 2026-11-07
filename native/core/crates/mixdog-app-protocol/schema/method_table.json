@@ -10325,6 +10325,11 @@
     },
     {
       "delivery": null,
+      "method": "model/proxy/heartbeat",
+      "params": "ModelProxyHeartbeatParams"
+    },
+    {
+      "delivery": null,
       "method": "modelProxy/cancel",
       "params": "ModelProxyRunCancelParams"
     },

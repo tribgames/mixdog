@@ -425,18 +425,24 @@ pub(crate) mod tests {
         }
     }
 
+    fn put(dir: &Path, rel: &str, bytes: &[u8]) {
+        let p = dir.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, bytes).unwrap();
+    }
+
+    /// The whisper runtime alone: what an install leaves behind when the model then fails.
+    pub fn install_whisper(dir: &Path) {
+        put(dir, "voice-runtime/active-version", b"whisper-1.10.1-vulkan");
+        put(dir, "voice-runtime/whisper-1.10.1-vulkan/Release/whisper-cli", b"x");
+        put(dir, &format!("voice-runtime/whisper-1.10.1-vulkan/Release/{SERVER_NAME}"), b"x");
+    }
+
     pub fn install(dir: &Path) {
-        let put = |rel: &str, bytes: &[u8]| {
-            let p = dir.join(rel);
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, bytes).unwrap();
-        };
-        put("voice-runtime/active-version", b"whisper-1.10.1-vulkan");
-        put("voice-runtime/whisper-1.10.1-vulkan/Release/whisper-cli", b"x");
-        put(&format!("voice-runtime/whisper-1.10.1-vulkan/Release/{SERVER_NAME}"), b"x");
-        put("voice/models/ggml.bin", b"model");
-        put("ffmpeg-runtime/active-version", b"ffmpeg-6");
-        put("ffmpeg-runtime/ffmpeg-6/ffmpeg", b"x");
+        install_whisper(dir);
+        put(dir, "voice/models/ggml.bin", b"model");
+        put(dir, "ffmpeg-runtime/active-version", b"ffmpeg-6");
+        put(dir, "ffmpeg-runtime/ffmpeg-6/ffmpeg", b"x");
     }
 
     pub fn manifest() -> RuntimeManifest {

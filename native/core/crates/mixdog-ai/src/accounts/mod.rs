@@ -13,6 +13,7 @@ mod file;
 mod model;
 pub mod policy;
 pub mod rotation;
+pub mod validity;
 
 use std::io;
 use std::path::PathBuf;
@@ -50,6 +51,15 @@ pub const ACCOUNT_PROVIDERS: [&str; 10] = [
     "antigravity-oauth",
     "opencode-go-oauth",
 ];
+/// Node's tri-state credential probe (oauthCredentialProbeState): a deliberate logout is Absent,
+/// a file that exists and cannot be read now is Unreadable and never a logout.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CredentialState {
+    Present,
+    Absent,
+    Unreadable,
+}
+
 pub const MAX_ACCOUNTS: usize = 20;
 /// A refusal block is an avoidance hint for the roster, not the retry
 /// schedule: capped so a header asking for days cannot idle an account.
@@ -305,6 +315,18 @@ impl AccountStore {
             Probe::Present(document) => !document.is_empty(),
             Probe::Absent => false,
             Probe::Unreadable => true,
+        })
+    }
+
+    /// The tri-state of an account slot's credential file (`oauthCredentialProbeState`): present when
+    /// its document is a sign-in by the provider's own rule ([`validity::credential_valid`]), absent
+    /// when it is missing or the rule rejects it, unreadable when it exists and cannot be parsed.
+    pub async fn credential_state(&self, provider: &str, slot: &str) -> Result<CredentialState, AccountError> {
+        let now = self.now_ms() as f64;
+        Ok(match self.credential_file(provider, slot)?.load_document().await {
+            Probe::Present(document) if validity::credential_valid(provider, &document, now) => CredentialState::Present,
+            Probe::Present(_) | Probe::Absent => CredentialState::Absent,
+            Probe::Unreadable => CredentialState::Unreadable,
         })
     }
 
@@ -664,3 +686,5 @@ impl AccountStore {
 mod rotation_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod validity_tests;

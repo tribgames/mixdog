@@ -4220,6 +4220,7 @@ dependencies = [
  "mixdog-core-config",
  "mixdog-js",
  "mixdog-protocol",
+ "mixdog-rt",
  "mixdog-services",
  "mixdog-store",
  "mixdog-tools",

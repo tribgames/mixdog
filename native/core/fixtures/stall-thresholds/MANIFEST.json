@@ -1,0 +1,18 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-stall-thresholds.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 18109,
+      "path": "golden.json",
+      "sha256": "068472e6b033db035ca1eceeabeb008c9998a201922a0e11ad53047ad554d027"
+    }
+  ],
+  "product": {
+    "tree": "product tree loaded by the recorder",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-stall-thresholds.mjs",
+  "set": "stall-thresholds",
+  "totalBytes": 18109
+}

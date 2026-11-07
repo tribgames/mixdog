@@ -22,6 +22,7 @@ use tokio::sync::watch;
 use super::machine::Machine;
 use super::model::ActivityInfo;
 use super::model::Blocked;
+use super::model::ClientKind;
 use super::model::CommandError;
 use super::model::CoreStatus;
 use super::model::Effect;
@@ -139,10 +140,25 @@ impl Lifecycle {
         ActivityGuard { lifecycle: Arc::clone(self), id }
     }
 
-    /// Registers one open client connection (any origin) until the guard drops.
-    pub fn connection(self: &Arc<Self>) -> ConnectionGuard {
+    /// As [`Lifecycle::begin_activity`], for work whose end lets the core stop with a Node text of its own
+    /// ([`super::model::SERVICE_CALLS_SETTLED`], [`super::model::MEMORY_AGENT_ACTIVITY_CHANGED`]).
+    pub fn begin_activity_settling(self: &Arc<Self>, info: ActivityInfo, settled: &'static str) -> ActivityGuard {
+        let id = self.apply(|m| m.begin_activity_settling(info, settled));
+        ActivityGuard { lifecycle: Arc::clone(self), id }
+    }
+
+    /// Counts one service call in flight until the guard drops (Node's `activeCalls`, `daemon.mjs:444-449`): with nobody attached the
+    /// core does not stop itself while one runs, and the last one ending reads 'service calls settled' (`:543`).
+    pub fn begin_call(self: &Arc<Self>) -> CallGuard {
+        self.apply(Machine::call_started);
+        CallGuard { lifecycle: Arc::clone(self) }
+    }
+
+    /// Registers one open client connection (any origin) until the guard drops; `kind` is the registry it is in, which names Node's
+    /// self-shutdown text when it is the last one to leave.
+    pub fn connection(self: &Arc<Self>, kind: ClientKind) -> ConnectionGuard {
         self.apply(Machine::client_opened);
-        ConnectionGuard { lifecycle: Arc::clone(self) }
+        ConnectionGuard { lifecycle: Arc::clone(self), kind }
     }
 
     // ---- boot (LR §3) -----------------------------------------------------------------
@@ -164,6 +180,13 @@ impl Lifecycle {
         self.apply(|m| m.fence(reason));
     }
 
+    /// [`Lifecycle::fence`] for a lost owner lock: Node words it with the lock file's path (`daemon.mjs:655`,
+    /// `owner lock file ${OWNER_LOCK_PATH} was deleted or replaced`), which only the caller knows.
+    pub fn fence_lock_file(self: &Arc<Self>, lock_file: &std::path::Path) {
+        self.note_trigger(&format!("owner lock file {} was deleted or replaced", lock_file.display()));
+        self.fence(FenceReason::LockFileReplaced);
+    }
+
     // ---- management commands (LR §6.1) ------------------------------------------------
 
     pub fn hold(self: &Arc<Self>, on: bool) -> Result<(), CommandError> {
@@ -177,6 +200,24 @@ impl Lifecycle {
         confirm_token: Option<&str>,
     ) -> Result<(), CommandError> {
         self.apply(|m| m.stop(mode, reason, confirm_token))
+    }
+
+    /// [`Lifecycle::stop`] with Node's text of this request (`daemon.mjs:272` `shutdown(reason)`), noted before the machine decides so a
+    /// release that starts inside the call already has it; a refused stop takes it back.
+    pub fn stop_noting(
+        self: &Arc<Self>,
+        mode: StopMode,
+        reason: StopReason,
+        confirm_token: Option<&str>,
+        node_reason: &str,
+    ) -> Result<(), CommandError> {
+        let fresh = locked(&self.trigger).is_none();
+        self.note_trigger(node_reason);
+        let result = self.stop(mode, reason, confirm_token);
+        if result.is_err() && fresh {
+            locked(&self.trigger).take();
+        }
+        result
     }
 
     pub fn cancel_drain(self: &Arc<Self>, drain_id: &str) -> Result<(), CommandError> {
@@ -270,6 +311,7 @@ impl Lifecycle {
             Effect::DrainNotice(notice) => self.ports.core.drain_notice(&notice),
             Effect::CancelRunning(running) => self.ports.core.cancel_running(&running),
             Effect::ReleaseDecision { pid } => self.ports.core.release_decision(pid),
+            Effect::NodeTrigger(text) => self.note_trigger(text),
             Effect::BeginRelease(cause) => {
                 let lifecycle = Arc::clone(self);
                 std::thread::Builder::new()
@@ -362,12 +404,24 @@ impl Drop for ActivityGuard {
     }
 }
 
+/// One service call in flight; see [`Lifecycle::begin_call`].
+pub struct CallGuard {
+    lifecycle: Arc<Lifecycle>,
+}
+
+impl Drop for CallGuard {
+    fn drop(&mut self) {
+        self.lifecycle.apply(Machine::call_ended);
+    }
+}
+
 pub struct ConnectionGuard {
     lifecycle: Arc<Lifecycle>,
+    kind: ClientKind,
 }
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        self.lifecycle.apply(Machine::client_closed);
+        self.lifecycle.apply(|m| m.client_closed(self.kind));
     }
 }

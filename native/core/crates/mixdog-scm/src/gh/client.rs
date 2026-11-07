@@ -2,13 +2,8 @@
 //! no token ever passes through this process. Writes to one remote repository are serialized
 //! in one queue and never retried; a failed write says the remote state is unknown.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the std::fs calls here are bodies of lane jobs; the keyed queue's tokio Mutex is a fair async queue held across awaits"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the std::fs calls here are bodies of lane jobs")]
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,7 +13,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde_json::Value;
 use serde_json::json;
-use tokio::sync::OwnedMutexGuard;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::GITHUB_DOMAIN;
@@ -212,55 +206,11 @@ impl GhRunner for ProcessGh {
         }
     }
 }
-/// One FIFO queue per key, nothing shared between keys.
-#[derive(Default)]
-struct KeyedQueue {
-    queues: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-}
-
-struct QueueTurn {
-    queue: Arc<KeyedQueue>,
-    key: String,
-    _guard: OwnedMutexGuard<()>,
-}
-
-impl Drop for QueueTurn {
-    fn drop(&mut self) {
-        let mut queues = self.queue.queues.lock().expect("keyed queue");
-        // This guard and the map's entry are the only owners when nobody else waits.
-        if let Some(entry) = queues.get(&self.key) {
-            if Arc::strong_count(entry) <= 2 {
-                queues.remove(&self.key);
-            }
-        }
-    }
-}
-
-impl KeyedQueue {
-    async fn turn(self: &Arc<Self>, key: String, cancel: &CancellationToken) -> Result<QueueTurn, ScmFailure> {
-        let entry = self
-            .queues
-            .lock()
-            .expect("keyed queue")
-            .entry(key.clone())
-            .or_default()
-            .clone();
-        let guard = tokio::select! {
-            guard = entry.lock_owned() => guard,
-            _ = cancel.cancelled() => return Err(ScmFailure::Cancelled),
-        };
-        Ok(QueueTurn {
-            queue: self.clone(),
-            key,
-            _guard: guard,
-        })
-    }
-}
-
 pub struct GhClient {
     pub(crate) runner: Arc<dyn GhRunner>,
     locks: Arc<RepoLocks>,
-    writes: Arc<KeyedQueue>,
+    /// One FIFO queue per remote repository, nothing shared between keys.
+    writes: mixdog_rt::KeyedGate,
 }
 
 impl GhClient {
@@ -268,7 +218,7 @@ impl GhClient {
         Self {
             runner,
             locks,
-            writes: Arc::new(KeyedQueue::default()),
+            writes: mixdog_rt::KeyedGate::new(),
         }
     }
 
@@ -342,7 +292,7 @@ impl GhClient {
         let write_key = format!("{hostname}/{}", if repo_name.is_empty() { "@account" } else { &repo_name }).to_lowercase();
         let mutates = request.def.write;
         let _turn = if mutates {
-            Some(self.writes.turn(write_key, cancel).await?)
+            Some(self.writes.enter(&write_key, cancel).await.map_err(|_| ScmFailure::Cancelled)?)
         } else {
             None
         };
@@ -460,21 +410,21 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn writes_to_one_repository_queue_and_others_do_not_wait() {
-        let queue = Arc::new(KeyedQueue::default());
+        let queue = Arc::new(mixdog_rt::KeyedGate::new());
         let cancel = CancellationToken::new();
-        let first = queue.turn("h/a".into(), &cancel).await.unwrap();
-        let other = tokio::time::timeout(Duration::from_millis(200), queue.turn("h/b".into(), &cancel)).await;
+        let first = queue.enter("h/a", &cancel).await.unwrap();
+        let other = tokio::time::timeout(Duration::from_millis(200), queue.enter("h/b", &cancel)).await;
         assert!(other.is_ok(), "a different repository does not wait");
         let waiting = {
             let queue = queue.clone();
             let cancel = cancel.clone();
-            tokio::spawn(async move { queue.turn("h/a".into(), &cancel).await.map(drop) })
+            tokio::spawn(async move { queue.enter("h/a", &cancel).await.map(drop) })
         };
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert!(!waiting.is_finished());
         drop(first);
         assert!(waiting.await.unwrap().is_ok());
-        assert!(queue.queues.lock().unwrap().is_empty() || queue.queues.lock().unwrap().len() <= 1);
+        assert!(queue.busy_keys() <= 1);
     }
 
     #[test]

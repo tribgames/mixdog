@@ -191,6 +191,34 @@ pub struct StopRequest {
     pub reason: StopReason,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirm_token: Option<String>,
+    /// The build that replaces this one; required for `update`, `restart`, `fastDeploy` and `sshReplace`, whose Node text
+    /// (`daemon.mjs:589`) is `daemon replacement by revision/build <revision>/<version>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replacement: Option<ReplacementBuild>,
+}
+
+/// The revision and version of the build a replacement stop is for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReplacementBuild {
+    /// The replacing install's build id (`EnsureArgs.build`): the nearest thing Rust has to Node's `SESSION_REVISION`, a number
+    /// Node compares for compatibility, which no Rust build carries.
+    pub revision: String,
+    pub version: String,
+}
+
+impl StopReason {
+    /// Whether the stop is a replacement by another build (its request names the build).
+    pub fn is_replacement(self) -> bool {
+        matches!(self, StopReason::Update | StopReason::Restart | StopReason::FastDeploy | StopReason::SshReplace)
+    }
+}
+
+impl ReplacementBuild {
+    /// Node's reason text for a replacement (`daemon.mjs:589`).
+    pub fn node_text(&self) -> String {
+        format!("daemon replacement by revision/build {}/{}", self.revision, self.version)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

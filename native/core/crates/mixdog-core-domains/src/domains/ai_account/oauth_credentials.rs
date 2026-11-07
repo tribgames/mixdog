@@ -11,6 +11,7 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_ai::accounts::validity::signed_in_until;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -107,18 +108,6 @@ fn email_from_jwts(tokens: &[String]) -> String {
     String::new()
 }
 
-/// `signedInTokenDocumentUntil(raw)`: until when `raw` is a sign-in.
-fn signed_in_until(raw: &Value) -> f64 {
-    if !truthy(raw.get("access_token")) {
-        return 0.0;
-    }
-    if truthy(raw.get("refresh_token")) {
-        return f64::INFINITY;
-    }
-    let stored = normalize_expires_at_ms(non_null(raw.get("expires_at")).or(raw.get("expiresAt")));
-    if stored != 0.0 { stored } else { expiry_from_access_token(&token_text(raw.get("access_token"))) }
-}
-
 /// `value ?? fallback` needs the value to be neither null nor missing.
 fn non_null(value: Option<&Value>) -> Option<&Value> {
     value.filter(|value| !value.is_null())
@@ -146,7 +135,8 @@ fn openai_identity(tokens: &[String]) -> Option<Value> {
 }
 
 fn load_openai(raw: &Value, now: f64) -> Option<Value> {
-    if signed_in_until(raw) <= now {
+    // Not an object: no `access_token`, so never a sign-in (Node's `raw?.access_token`).
+    if raw.as_object().map_or(0.0, signed_in_until) <= now {
         return None;
     }
     let own = raw.as_object()?;

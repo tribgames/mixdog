@@ -6,13 +6,14 @@
 //!
 //! All ten providers. The files they read are in oauth_credentials.
 
-use base64::Engine;
-use base64::engine::DecodePaddingMode;
-use base64::engine::GeneralPurpose;
-use base64::engine::GeneralPurposeConfig;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+
+// The three token rules live with the credential probes that decide a sign-in by them (one copy).
+pub use mixdog_ai::accounts::validity::decode_jwt_payload;
+pub use mixdog_ai::accounts::validity::expiry_from_access_token;
+pub use mixdog_ai::accounts::validity::normalize_expires_at_ms;
 
 /// `TOKEN_REFRESH_SKEW_MS`: a token that expires within this is "Refresh Soon".
 const TOKEN_REFRESH_SKEW_MS: f64 = 5.0 * 60_000.0;
@@ -48,28 +49,6 @@ pub(super) fn text(value: Option<&Value>) -> Option<&str> {
     value.and_then(Value::as_str).filter(|text| !text.is_empty())
 }
 
-/// `normalizeExpiresAtMs`: epoch seconds or milliseconds, a numeric string or an ISO-8601 string
-/// as epoch milliseconds; 0 is unknown.
-pub fn normalize_expires_at_ms(value: Option<&Value>) -> f64 {
-    if let Some(Value::String(raw)) = value {
-        // `Number(raw.trim() || NaN)` not finite: a date string.
-        if raw.trim().parse::<f64>().ok().filter(|n| n.is_finite()).is_none() {
-            return chrono::DateTime::parse_from_rfc3339(raw).map_or(0.0, |at| at.timestamp_millis() as f64);
-        }
-    }
-    let n = js_number(value);
-    if !n.is_finite() || n <= 0.0 {
-        return 0.0;
-    }
-    if n < 1e12 { n * 1000.0 } else { n }
-}
-
-/// `expiryFromAccessToken`: the token's `exp` claim in epoch milliseconds; 0 for an opaque token.
-pub fn expiry_from_access_token(token: &str) -> f64 {
-    let exp = decode_jwt_payload(token).map_or(0.0, |claims| js_number(claims.get("exp")));
-    if exp.is_finite() && exp > 0.0 { exp * 1000.0 } else { 0.0 }
-}
-
 /// `normalizeAccountIdentity`: `{ id?, email?, organizationId? }`, or `None` when it names neither an id nor an email.
 pub fn normalize_account_identity(raw: Option<&Value>) -> Option<Value> {
     let id = clean_identity_text(raw.and_then(|raw| raw.get("id")));
@@ -85,29 +64,6 @@ pub fn normalize_account_identity(raw: Option<&Value>) -> Option<Value> {
         }
     }
     Some(Value::Object(out))
-}
-
-/// `decodeJwtPayload`: the claims of a three-part token, or `None`.
-pub fn decode_jwt_payload(token: &str) -> Option<Map<String, Value>> {
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
-        return None;
-    }
-    // Node's base64 decoding takes either alphabet and ignores padding.
-    let payload: String = parts[1].chars().filter(|c| !c.is_whitespace() && *c != '=').map(|c| match c {
-        '-' => '+',
-        '_' => '/',
-        other => other,
-    }).collect();
-    let engine = GeneralPurpose::new(
-        &base64::alphabet::STANDARD,
-        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true),
-    );
-    let bytes = engine.decode(payload).ok()?;
-    match serde_json::from_slice::<Value>(&bytes).ok()? {
-        Value::Object(claims) => Some(claims),
-        _ => None,
-    }
 }
 
 /// `cleanIdentityText`.

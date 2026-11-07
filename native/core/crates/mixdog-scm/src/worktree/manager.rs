@@ -851,7 +851,17 @@ impl Worktrees {
             .await
             .map(|rows| rows.iter().any(|row| path_key(Path::new(&row.path)) == path_key(path)))
             .unwrap_or(false);
-        if inside && (registered || !path.exists()) {
+        // `assertManagedCheckoutPath`: a folder without its `.git` link (a checkout git never made,
+        // or one half removed) passes after a recorded attempt (a removal tried, a rollback begun)
+        // or while empty.
+        let unlinked = path.join(".git").symlink_metadata().is_err() && {
+            let truthy = |value: Option<&Value>| value.is_some_and(|v| !v.is_null() && v != &json!(false) && v != &json!(0) && v != &json!(""));
+            let attempted = truthy(record.extra.get("deleting").and_then(|deleting| deleting.get("lastAttemptAt")))
+                || truthy(record.extra.get("recovery").and_then(|recovery| recovery.get("remaining")))
+                || record.state == "recovery";
+            attempted || std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_none())
+        };
+        if inside && (registered || !path.exists() || unlinked) {
             Ok(())
         } else {
             Err(errors::path_unsafe(record.id.clone(), record.path.clone(), None))

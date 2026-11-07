@@ -187,7 +187,7 @@ fn the_builtin_tools_are_nodes_definitions() {
     for tool in &tools {
         let spec = tool.spec();
         let node = golden["definitions"].as_array().expect("definitions").iter().find(|def| def["name"] == spec.name.as_str()).expect("a Node definition");
-        assert_eq!(&spec.definition(), node, "{}", spec.name);
+        assert_eq!(&tool.definition(), node, "{}", spec.name);
         assert_eq!(spec.annotations.to_json().to_string(), node["annotations"].to_string(), "{} annotations", spec.name);
     }
     let node_agent_git = golden["variants"].as_array().expect("variants").iter().find(|row| row["name"] == "git" && row["surface"] == "agent").expect("the agent git");

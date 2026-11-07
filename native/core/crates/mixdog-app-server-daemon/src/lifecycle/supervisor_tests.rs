@@ -116,7 +116,7 @@ fn release_with(fault: (&'static str, Fault), budgets: ReleaseBudgets) -> Run {
         budgets,
     );
     lifecycle.set_serving().unwrap();
-    drop(lifecycle.connection());
+    drop(lifecycle.connection(crate::lifecycle::ClientKind::Session));
     Run { recorder, root, flushes, _unwedge: unwedge }
 }
 

@@ -74,6 +74,8 @@ use super::seams::ThreadStore;
 use super::seams::ToolSurfaceSource;
 use super::seams::Transcript;
 use super::seams::WindowRead;
+/// The stored-record transcript, which shows a room message as its room line (the rig's own transcript shows every row as a message).
+pub use super::transcript::RecordTranscript;
 use mixdog_core_base::approvals::ApprovalIds;
 use mixdog_core_base::approvals::DeviceInfo;
 use mixdog_core_base::approvals::Devices;

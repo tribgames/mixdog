@@ -206,6 +206,19 @@ impl DaemonLog {
         }
     }
 
+    /// `console.warn(line)` once `installRedirect` has run (the daemon's): `[console.warn] <line>`, the
+    /// line bounded as the redirect bounds an argument, then as any log line, without the `[daemon]` tag
+    /// (`fixtures/console-redirect/golden.json`, from the real redirect).
+    pub fn console_warn(&self, line: &str) {
+        self.raw(&format!("[console.warn] {}", bounded_text(line)));
+    }
+
+    /// `console_warn` as a seam a `Fn(&str)` consumer takes.
+    pub fn console_warn_sink(&self) -> Arc<dyn Fn(&str) + Send + Sync> {
+        let log = self.clone();
+        Arc::new(move |line| log.console_warn(line))
+    }
+
     /// `ResumeLog` for the quota-resume scheduler, and any other `Fn(&str)` log seam.
     pub fn line_log(&self) -> Arc<dyn Fn(&str) + Send + Sync> {
         let log = self.clone();
@@ -540,6 +553,27 @@ mod tests {
         assert_eq!(seen.len(), 4);
         for (thread, order) in seen {
             assert_eq!(order, (0..50).collect::<Vec<_>>(), "{thread}");
+        }
+    }
+
+    /// `console.warn` lands as the redirect writes it: tagged `[console.warn]`, trimmed, bounded twice.
+    #[tokio::test]
+    async fn a_console_warn_is_the_line_nodes_redirect_writes() {
+        let golden: Value = serde_json::from_str(include_str!("../../../fixtures/console-redirect/golden.json")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.log");
+        let log = DaemonLog::new(path.clone(), tokens().maintenance_io, CancellationToken::new());
+        log.enable_file_logging();
+        let cases = golden["cases"].as_array().unwrap();
+        for case in cases {
+            log.console_warn(&build(&case["parts"]));
+        }
+        log.flush().await;
+        let text = String::from_utf8(mixdog_statefile::read_content(&path).unwrap().unwrap()).unwrap();
+        let lines: Vec<&str> = text.lines().map(|line| line.split_once("] ").unwrap().1).collect();
+        assert_eq!(lines.len(), cases.len());
+        for (line, case) in lines.iter().zip(cases) {
+            assert_eq!(*line, case["line"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 

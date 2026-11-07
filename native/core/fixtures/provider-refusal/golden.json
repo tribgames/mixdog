@@ -1,0 +1,159 @@
+{
+  "configs": {
+    "valid": {
+      "custom-ok": {
+        "type": "custom",
+        "name": "Mine",
+        "baseURL": "https://llm.example.com/v1",
+        "protocol": "openai-chat",
+        "apiKey": "k",
+        "preconnect": false,
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "enabled": true
+      }
+    },
+    "all_off": {
+      "custom-off": {
+        "type": "custom",
+        "name": "Mine",
+        "baseURL": "https://llm.example.com/v1",
+        "protocol": "openai-chat",
+        "apiKey": "k",
+        "preconnect": false,
+        "models": [
+          {
+            "id": "m1"
+          }
+        ],
+        "enabled": false
+      }
+    },
+    "oauth_opt_out": {
+      "anthropic-oauth": {
+        "enabled": false
+      }
+    },
+    "oauth_probe_unavailable": {
+      "anthropic-oauth": {
+        "enabled": false,
+        "credentialProbeUnavailable": true
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "name": "all_off_on_an_empty_registry",
+      "registered": false,
+      "probe": null,
+      "steps": [
+        {
+          "config": "all_off",
+          "outcome": "refused",
+          "message": "[provider] all providers disabled in config — refusing to clear registry",
+          "code": "PROVIDERS_NONE_ENABLED"
+        }
+      ]
+    },
+    {
+      "name": "all_off_after_a_valid_config",
+      "registered": false,
+      "probe": null,
+      "steps": [
+        {
+          "config": "valid",
+          "outcome": "ok",
+          "message": null,
+          "code": null
+        },
+        {
+          "config": "all_off",
+          "outcome": "refused",
+          "message": "[provider] all providers disabled in config — refusing to clear registry",
+          "code": "PROVIDERS_NONE_ENABLED"
+        }
+      ]
+    },
+    {
+      "name": "an_explicit_opt_out_is_not_preserved",
+      "registered": true,
+      "probe": "present",
+      "steps": [
+        {
+          "config": "oauth_opt_out",
+          "outcome": "refused",
+          "message": "[provider] all providers disabled in config — refusing to clear registry",
+          "code": "PROVIDERS_NONE_ENABLED"
+        }
+      ]
+    },
+    {
+      "name": "a_probe_that_could_not_read_is_preserved",
+      "registered": true,
+      "probe": "present",
+      "steps": [
+        {
+          "config": "oauth_probe_unavailable",
+          "outcome": "ok",
+          "message": null,
+          "code": null
+        }
+      ]
+    },
+    {
+      "name": "an_oauth_provider_the_config_does_not_name_is_kept",
+      "registered": true,
+      "probe": "present",
+      "steps": [
+        {
+          "config": "all_off",
+          "outcome": "ok",
+          "message": null,
+          "code": null
+        }
+      ]
+    },
+    {
+      "name": "a_logged_out_oauth_provider_is_not_kept",
+      "registered": true,
+      "probe": "absent",
+      "steps": [
+        {
+          "config": "all_off",
+          "outcome": "refused",
+          "message": "[provider] all providers disabled in config — refusing to clear registry",
+          "code": "PROVIDERS_NONE_ENABLED"
+        }
+      ]
+    },
+    {
+      "name": "an_unreadable_credential_is_never_a_logout",
+      "registered": true,
+      "probe": "unreadable",
+      "steps": [
+        {
+          "config": "all_off",
+          "outcome": "ok",
+          "message": null,
+          "code": null
+        }
+      ]
+    },
+    {
+      "name": "an_unavailable_probe_over_a_logout_is_not_kept",
+      "registered": true,
+      "probe": "absent",
+      "steps": [
+        {
+          "config": "oauth_probe_unavailable",
+          "outcome": "refused",
+          "message": "[provider] all providers disabled in config — refusing to clear registry",
+          "code": "PROVIDERS_NONE_ENABLED"
+        }
+      ]
+    }
+  ]
+}

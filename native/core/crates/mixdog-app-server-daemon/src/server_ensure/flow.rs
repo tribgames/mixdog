@@ -27,6 +27,7 @@ use super::report::Replaced;
 use super::report::Report;
 use crate::compat;
 use crate::compat::Order;
+use crate::control::api::ReplacementBuild;
 use crate::lifecycle::DiscoveryPhase;
 use crate::lifecycle::StopReason;
 
@@ -128,10 +129,12 @@ fn ensure(
         if decision == Decision::Replace && core.state == DiscoveryPhase::Serving {
             access.hold(&core, true)?;
         }
-        let drain = access.stop_when_idle(&core, StopReason::SshReplace)?;
+        // Node's replacement text names the build that replaces the core (`daemon.mjs:589`).
+        let replacement = ReplacementBuild { revision: args.build.clone(), version: args.version.clone() };
+        let drain = access.stop_when_idle(&core, StopReason::SshReplace, Some(&replacement))?;
         let retired = match &args.confirm_token {
             Some(token) => {
-                access.stop_confirmed(&core, StopReason::SshReplace, token)?;
+                access.stop_confirmed(&core, StopReason::SshReplace, token, Some(&replacement))?;
                 true
             }
             None => drain.running.is_empty(),

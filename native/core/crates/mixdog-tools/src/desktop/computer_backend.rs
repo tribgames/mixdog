@@ -20,6 +20,7 @@ use std::sync::atomic::AtomicI64;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -52,6 +53,8 @@ use mixdog_js::js_trim;
 use mixdog_js::js_trim_start;
 use mixdog_js::utf16_len;
 use mixdog_protocol::ProcessHandle;
+use mixdog_rt::Scope;
+use mixdog_rt::Scoped;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -293,49 +296,106 @@ async fn pump(
     let _ = exited.send(true);
 }
 
-/// Runs a process to its exit.
-async fn run_to_exit(manager: &dyn ProcessManager, request: SpawnRequest) {
+/// Runs a process to its exit; true when it exited with code 0 (the cleanup's confirmation).
+async fn run_to_exit(manager: &dyn ProcessManager, request: SpawnRequest) -> bool {
     let handle = request.handle.clone();
     if manager.spawn(request).await.is_err() {
-        return;
+        return false;
     }
-    let Ok(mut events) = manager.subscribe(&handle, Some(0)) else { return };
+    let Ok(mut events) = manager.subscribe(&handle, Some(0)) else { return false };
     while let Some(event) = events.next().await {
-        if matches!(event, ProcessEvent::Exited { .. }) {
-            break;
+        if let ProcessEvent::Exited { exit, .. } = event {
+            return matches!(exit.status, mixdog_core_api::domain::process::ExitStatus::Code(0));
         }
     }
+    false
 }
 
-#[allow(
-    clippy::disallowed_types,
-    reason = "`turn` is held across the helper start and the stdin write on purpose, so one request starts and is written at a time"
-)]
 pub struct ProcessComputerBackend {
     config: ComputerConfig,
     manager: Arc<dyn ProcessManager>,
     host: Mutex<Option<Host>>,
-    turn: tokio::sync::Mutex<()>,
+    /// One request starts the helper and is written at a time; the wait leaves on the request's cancel.
+    turn: mixdog_rt::Gate,
     next_id: AtomicI64,
     screen: Screen,
     /// A typed secret's field may still hold focus: reads are refused until the next action.
     secret_focus: AtomicBool,
+    /// A visible execution is open: some action ran since the last `execution_end`, abort or
+    /// release (`activeComputerExecutions`, `computer-bridge/client.mjs:368`).
+    executing: AtomicBool,
+    /// The session reached the helper and has not been aborted or released
+    /// (`hostBoundComputerSessions`, `client.mjs:367`).
+    bound: AtomicBool,
 }
 
 impl ProcessComputerBackend {
     /// The helper runs under `manager`; it starts on the first action and restarts after a
     /// timeout or cancellation.
-    #[allow(clippy::disallowed_types, reason = "builds the `turn` lock; see the struct")]
     pub fn new(config: ComputerConfig, manager: Arc<dyn ProcessManager>) -> Self {
         Self {
             config,
             manager,
             host: Mutex::new(None),
-            turn: tokio::sync::Mutex::new(()),
+            turn: mixdog_rt::Gate::new(),
             next_id: AtomicI64::new(1),
             screen: Screen::default(),
             secret_focus: AtomicBool::new(false),
+            executing: AtomicBool::new(false),
+            bound: AtomicBool::new(false),
         }
+    }
+
+    /// Whether the session reached the helper and still owns state there.
+    pub fn is_bound(&self) -> bool {
+        self.bound.load(Ordering::SeqCst)
+    }
+
+    /// `session_abort` (`abortComputerSession`, `client.mjs:490-499`; the host side
+    /// `lifecycle-abort.ts:runAbortCleanup`): the helper is stopped and a fresh `--abort-cleanup`
+    /// process releases the input it held. True once the cleanup confirmed (exit 0); then the
+    /// session no longer owns state in the helper. A cancelled `computer` call does this itself.
+    pub async fn abort_session(&self) -> bool {
+        self.executing.store(false, Ordering::SeqCst);
+        let confirmed = self.retire().await;
+        if confirmed {
+            self.bound.store(false, Ordering::SeqCst);
+        }
+        confirmed
+    }
+
+    /// `execution_end` (`endComputerExecution`, `client.mjs:505-512`; the host side
+    /// `session-lifecycle.ts:endComputerExecution`) at a turn's settlement: held keys and buttons
+    /// go up (`release_held_input`) while the helper and its element refs stay warm for a
+    /// follow-up turn. Sent only when an execution is open. A release the helper cannot confirm
+    /// ends the session instead (`session-lifecycle.ts` `confirmed === false`). False when there
+    /// was nothing to end or the fallback abort did not confirm.
+    pub async fn end_execution(&self) -> bool {
+        if !self.executing.swap(false, Ordering::SeqCst) {
+            return false;
+        }
+        if !locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst)) {
+            return true;
+        }
+        let mut command = Map::new();
+        command.insert("action".into(), json!("release_held_input"));
+        match self.call(command, &CancellationToken::new()).await {
+            Ok(_) => true,
+            Err(_) => self.abort_session().await,
+        }
+    }
+
+    /// `session_release` (`releaseComputerSession`, `lifecycle-abort.ts:releaseComputerSession`):
+    /// a live helper first drops the session's refs, restores its focus and lets go of held input
+    /// (`release_session`), then the session is aborted whatever that answered.
+    pub async fn release_session(&self) -> bool {
+        let mut released = true;
+        if locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst)) {
+            let mut command = Map::new();
+            command.insert("action".into(), json!("release_session"));
+            released = self.call(command, &CancellationToken::new()).await.is_ok();
+        }
+        self.abort_session().await && released
     }
 
     /// A run of the helper with `args`; it reads requests from stdin when `stdin_piped`.
@@ -393,7 +453,7 @@ impl ProcessComputerBackend {
     }
 
     /// Writes one request and returns the channel its reply arrives on.
-    async fn send(&self, mut command: Map<String, Value>) -> Result<oneshot::Receiver<Result<Map<String, Value>, String>>, ComputerError> {
+    async fn send(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<oneshot::Receiver<Result<Map<String, Value>, String>>, ComputerError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         command.insert("id".into(), json!(id));
         command.insert("session_id".into(), json!(self.config.session_id));
@@ -407,7 +467,7 @@ impl ProcessComputerBackend {
             });
         }
         let (reply, receive) = oneshot::channel();
-        let _turn = self.turn.lock().await;
+        let _turn = self.turn.enter(cancel).await.map_err(|_| ComputerError::Cancelled)?;
         let live = locked(&self.host)
             .as_ref()
             .filter(|host| host.alive.load(Ordering::SeqCst))
@@ -442,14 +502,16 @@ impl ProcessComputerBackend {
         Ok(receive)
     }
 
-    /// Stops the helper and releases whatever input it held, from a fresh process.
-    async fn retire(&self) {
+    /// Stops the helper and releases whatever input it held, from a fresh process. True when that
+    /// cleanup confirmed.
+    async fn retire(&self) -> bool {
         let host = locked(&self.host).take();
         if let Some(host) = host {
             host.stop(&*self.manager).await;
         }
-        if let Ok(request) = self.request(vec!["--abort-cleanup".to_owned()], false) {
-            run_to_exit(&*self.manager, request).await;
+        match self.request(vec!["--abort-cleanup".to_owned()], false) {
+            Ok(request) => run_to_exit(&*self.manager, request).await,
+            Err(_) => false,
         }
     }
 
@@ -457,27 +519,34 @@ impl ProcessComputerBackend {
         if cancel.is_cancelled() {
             return Err(ComputerError::Cancelled);
         }
-        let receive = self.send(command).await?;
-        tokio::select! {
-            outcome = tokio::time::timeout(COMMAND_TIMEOUT, receive) => match outcome {
-                Err(_) => {
-                    self.retire().await;
-                    Err(ComputerError::Failed {
-                        code: "computer_command_timeout".into(),
-                        message: format!(
-                            "command exceeded {}ms; the input host was restarted",
-                            COMMAND_TIMEOUT.as_millis()
-                        ),
-                    })
-                }
-                Ok(Err(_)) => Err(host_exited()),
-                Ok(Ok(Err(message))) => Err(host_error(&message)),
-                Ok(Ok(Ok(result))) => Ok(result),
-            },
-            () = cancel.cancelled() => {
-                self.retire().await;
+        let receive = self.send(command, cancel).await?;
+        self.wait_reply(receive, cancel).await
+    }
+
+    /// The reply of a sent command, within `COMMAND_TIMEOUT` and the request's cancel. Either
+    /// one ending the wait retires the helper: a command it may still be running holds input.
+    async fn wait_reply(
+        &self,
+        receive: oneshot::Receiver<Result<Map<String, Value>, String>>,
+        cancel: &CancellationToken,
+    ) -> Result<Map<String, Value>, ComputerError> {
+        let scope = Scope::new().cancel(cancel).deadline(Some(Instant::now() + COMMAND_TIMEOUT));
+        match scope.run(receive).await {
+            Scoped::Cancelled => {
+                // Node aborts the session when a call is cancelled (`client.mjs:113,407`).
+                self.abort_session().await;
                 Err(ComputerError::Cancelled)
             }
+            Scoped::DeadlineExceeded => {
+                self.retire().await;
+                Err(ComputerError::Failed {
+                    code: "computer_command_timeout".into(),
+                    message: format!("command exceeded {}ms; the input host was restarted", COMMAND_TIMEOUT.as_millis()),
+                })
+            }
+            Scoped::Done(Err(_)) => Err(host_exited()),
+            Scoped::Done(Ok(Err(message))) => Err(host_error(&message)),
+            Scoped::Done(Ok(Ok(result))) => Ok(result),
         }
     }
 
@@ -973,6 +1042,9 @@ impl ComputerBackend for ProcessComputerBackend {
             });
         };
         validate(request.action, input).map_err(|reason| ComputerError::InvalidInput { reason })?;
+        // `trackComputerSession` (`client.mjs:366-371`) runs for each command sent.
+        self.bound.store(true, Ordering::SeqCst);
+        self.executing.store(true, Ordering::SeqCst);
         let mut command = host_command(request.action, input);
         let name = text(&command, "action").to_string();
         // While a typed secret's field may hold focus no capture leaves the host: a read is
@@ -1189,10 +1261,29 @@ mod tests {
 
     #[cfg(unix)]
     mod host {
+        use mixdog_rt::LaneToken;
+
         use super::*;
 
+        /// Writes an executable script on the maintenance lane.
+        async fn write_script(path: &std::path::Path, script: &'static str) {
+            let (path, opts) = (path.to_path_buf(), mixdog_statefile::Opts { mode: 0o755, ..mixdog_statefile::Opts::default() });
+            mixdog_rt::testing::tokens()
+                .maintenance_io
+                .submit_wait(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, script.as_bytes(), &opts).unwrap())
+                .await
+                .unwrap()
+                .await
+                .unwrap();
+        }
+
+        /// The text of a file the stand-in helper wrote; `None` while it is missing.
+        fn written(path: std::path::PathBuf) -> Option<String> {
+            mixdog_statefile::read_content(&path).unwrap().map(|bytes| String::from_utf8(bytes).unwrap())
+        }
+
         /// A stand-in helper: answers each request with its id and echoes the action.
-        fn fake_host(dir: &std::path::Path) -> PathBuf {
+        async fn fake_host(dir: &std::path::Path) -> PathBuf {
             let path = dir.join("fake-host.sh");
             let script = r#"#!/bin/sh
 if [ "$1" = "--abort-cleanup" ]; then echo cleaned > "$(dirname "$0")/cleanup"; exit 0; fi
@@ -1204,11 +1295,64 @@ while read -r line; do
   esac
 done
 "#;
-            std::fs::write(&path, script).unwrap();
-            let mut perms = std::fs::metadata(&path).unwrap().permissions();
-            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
-            std::fs::set_permissions(&path, perms).unwrap();
+            write_script(&path, script).await;
             path
+
+        }
+
+        /// A stand-in helper that also logs each request line it is sent.
+        async fn logging_host(dir: &std::path::Path) -> PathBuf {
+            let path = dir.join("logging-host.sh");
+            let script = r#"#!/bin/sh
+if [ "$1" = "--abort-cleanup" ]; then echo cleaned >> "$(dirname "$0")/cleanup"; exit 0; fi
+while read -r line; do
+  echo "$line" >> "$(dirname "$0")/log"
+  id=$(echo "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  echo "@@MIXCU@@{\"id\":$id,\"ok\":true,\"result\":{\"text\":\"ok\"}}"
+done
+"#;
+            write_script(&path, script).await;
+            path
+
+        }
+
+        fn log(dir: &std::path::Path) -> String {
+            written(dir.join("log")).unwrap_or_default()
+        }
+
+        /// `execution_end` lets go of held input and keeps the helper warm, and only when an
+        /// execution is open; `session_abort` stops the helper and runs the cleanup; `session_release`
+        /// drops the session's refs first. A session that was aborted owns nothing in the helper.
+        #[tokio::test]
+        async fn the_session_control_actions_follow_nodes_lifecycle() {
+            let dir = tempfile::tempdir().unwrap();
+            let tokens = mixdog_rt::testing::tokens();
+            let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+            let backend = ProcessComputerBackend::new(ComputerConfig::new(logging_host(dir.path()).await, "s1"), manager);
+            let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+
+            assert!(!backend.end_execution().await, "nothing is open before the first action");
+            assert!(!backend.is_bound());
+            backend.run(read(), CancellationToken::new()).await.unwrap();
+            assert!(backend.is_bound());
+            assert!(backend.end_execution().await);
+            assert!(log(dir.path()).lines().last().unwrap().contains("\"release_held_input\""), "{}", log(dir.path()));
+            assert!(backend.status().active, "the helper stays warm for a follow-up turn");
+            assert!(!backend.end_execution().await, "an ended execution is not ended twice");
+
+            backend.run(read(), CancellationToken::new()).await.unwrap();
+            assert!(backend.abort_session().await);
+            assert!(written(dir.path().join("cleanup")).is_some());
+            assert!(!backend.status().active);
+            assert!(!backend.is_bound(), "an aborted session owns nothing in the helper");
+            assert!(!backend.end_execution().await, "an abort closes the execution");
+
+            backend.run(read(), CancellationToken::new()).await.unwrap();
+            assert!(backend.release_session().await);
+            let sent = log(dir.path());
+            assert!(sent.lines().last().unwrap().contains("\"release_session\""), "{sent}");
+            assert_eq!(written(dir.path().join("cleanup")).unwrap().lines().count(), 2);
+            assert!(!backend.status().active && !backend.is_bound());
         }
 
         #[tokio::test]
@@ -1216,7 +1360,7 @@ done
             let dir = tempfile::tempdir().unwrap();
             let tokens = mixdog_rt::testing::tokens();
             let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-            let backend = ProcessComputerBackend::new(ComputerConfig::new(fake_host(dir.path()), "s1"), manager);
+            let backend = ProcessComputerBackend::new(ComputerConfig::new(fake_host(dir.path()).await, "s1"), manager);
             let parts = backend
                 .run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) }, CancellationToken::new())
                 .await
@@ -1235,7 +1379,30 @@ done
                 .run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"write","text":"hang"}) }, cancel)
                 .await;
             assert_eq!(hung, Err(ComputerError::Cancelled));
-            assert!(dir.path().join("cleanup").exists());
+            assert!(written(dir.path().join("cleanup")).is_some());
+            assert!(!backend.status().active);
+        }
+
+        /// The cancel fires while the command is in flight and the helper never answers: the wait
+        /// ends as `Cancelled` (cancel is checked before the reply), and the helper is retired,
+        /// which kills it and runs `--abort-cleanup`. No timing: the token is already fired when
+        /// the wait starts.
+        #[tokio::test]
+        async fn a_cancel_during_the_wait_retires_the_helper() {
+            let dir = tempfile::tempdir().unwrap();
+            let tokens = mixdog_rt::testing::tokens();
+            let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+            let backend = ProcessComputerBackend::new(ComputerConfig::new(fake_host(dir.path()).await, "s1"), manager);
+            let cancel = CancellationToken::new();
+            let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
+            assert!(backend.status().active);
+            assert!(written(dir.path().join("cleanup")).is_none());
+
+            cancel.cancel();
+            let ended = backend.wait_reply(receive, &cancel).await;
+
+            assert_eq!(ended, Err(ComputerError::Cancelled));
+            assert!(written(dir.path().join("cleanup")).is_some());
             assert!(!backend.status().active);
         }
     }

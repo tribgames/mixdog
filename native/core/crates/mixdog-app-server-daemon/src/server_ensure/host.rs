@@ -10,6 +10,7 @@ use serde::Serialize;
 use super::error::EnsureError;
 use crate::lifecycle::DiscoveryPhase;
 use crate::lifecycle::RunningWork;
+use crate::control::api::ReplacementBuild;
 use crate::lifecycle::StopReason;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,9 +110,10 @@ pub trait CoreAccess {
     /// `POST /mgmt/hold{on}`.
     fn hold(&self, core: &ServerCore, on: bool) -> Result<(), EnsureError>;
     /// `POST /mgmt/stop{whenIdle, reason}`: idempotent on a core already draining.
-    fn stop_when_idle(&self, core: &ServerCore, reason: StopReason) -> Result<DrainReport, EnsureError>;
+    /// A replacement names the build that replaces the core (`replacement`); any other stop passes `None`.
+    fn stop_when_idle(&self, core: &ServerCore, reason: StopReason, replacement: Option<&ReplacementBuild>) -> Result<DrainReport, EnsureError>;
     /// `POST /mgmt/stop{abortConfirmed, reason, confirmToken}`.
-    fn stop_confirmed(&self, core: &ServerCore, reason: StopReason, confirm_token: &str) -> Result<(), EnsureError>;
+    fn stop_confirmed(&self, core: &ServerCore, reason: StopReason, confirm_token: &str, replacement: Option<&ReplacementBuild>) -> Result<(), EnsureError>;
     /// Blocks until the OS reports the process (pid and start time) gone.
     fn wait_exit(&self, core: &ServerCore) -> Result<(), EnsureError>;
     /// Starts the core detached from this process's lifetime.

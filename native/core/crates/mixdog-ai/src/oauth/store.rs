@@ -221,6 +221,12 @@ impl CredentialFile {
             .await
     }
 
+    /// Stores `document` as the whole file, dropping the fields it lacks (Node's `forget…` writes
+    /// the file back without the credential, and the sign-out of one provider overwrites it).
+    pub async fn replace(&self, document: Document) -> io::Result<()> {
+        self.write_job(move |lane, path| publish(lane, path, &document)).await
+    }
+
     /// Publishes `update` only if `unchanged` accepts the stored document: a
     /// refresher that read the pair before another process refreshed it must
     /// not overwrite the newer login. A missing file is offered as an empty

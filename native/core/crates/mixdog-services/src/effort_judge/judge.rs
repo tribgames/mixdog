@@ -24,10 +24,8 @@ use tokio::sync::oneshot;
 
 use async_trait::async_trait;
 use mixdog_agent::step_effort::{StepEffortJudge, StepInput, StepResult};
-use mixdog_rt::{CpuBulk, TaskClass};
+use mixdog_rt::{CpuBulk, Gate, TaskClass};
 use serde_json::{Value, json};
-#[allow(clippy::disallowed_types, reason = "the turn lock is held across the awaited judgment on purpose: judgments run one at a time")]
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::effort_judge::error::JudgeError;
@@ -120,13 +118,15 @@ pub struct EffortJudgeModel {
     lane: CpuBulk,
     manifest: Manifest,
     progress: Option<ProgressSink>,
-    /// One judgment at a time: waiting happens here, not on a lane thread. The
-    /// loaded model (or its remembered load failure) lives under the same lock.
-    #[allow(clippy::disallowed_types, reason = "held across the awaited judgment on purpose: judgments run one at a time")]
-    turn: Mutex<Loaded>,
+    /// One load or judgment at a time: waiting happens here, not on a lane thread. Every entry
+    /// carries a cancel token, so a waiter (and a stuck section) never outlives its caller.
+    turn: Gate,
+    /// The loaded model (or its remembered load failure). Held for a few instructions only,
+    /// never across an await; the `turn` gate orders the loads and judgments that change it.
+    model: std::sync::Mutex<Loaded>,
     /// An install or repair is replacing the files: judgments answer at once.
     installing: AtomicBool,
-    /// Readable without the turn lock, which a running judgment holds.
+    /// Readable without the turn gate, which a running judgment holds.
     ready: AtomicBool,
     last_error: std::sync::Mutex<String>,
     /// When the remembered load failure happened (`lastLoadErrorAt`).
@@ -150,14 +150,13 @@ impl EffortJudgeModel {
             Some(manifest) => manifest,
             None => Manifest::bundled()?,
         };
-        #[allow(clippy::disallowed_types, reason = "builds the turn lock")]
-        let turn = Mutex::new(None);
         Ok(Arc::new(Self {
             config,
             lane,
             manifest,
             progress: options.progress,
-            turn,
+            turn: Gate::new(),
+            model: std::sync::Mutex::new(None),
             installing: AtomicBool::new(false),
             ready: AtomicBool::new(false),
             last_error: std::sync::Mutex::new(String::new()),
@@ -251,26 +250,29 @@ impl EffortJudgeModel {
         run_on_lane(self.lane, job).await.map_err(JudgeError::Worker)
     }
 
-    /// Loads the model into `state` unless it is already there (or failed).
+    fn model_state(&self) -> std::sync::MutexGuard<'_, Loaded> {
+        self.model.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Loads the model unless it is already there (or failed); callers hold the `turn` gate.
     /// A model that is not installed is not remembered: an install can follow.
     /// A lane refusal is transient and not remembered either; a load failure is.
-    async fn ensure_loaded(&self, state: &mut Loaded) -> Result<Arc<JudgeModel>, JudgeError> {
-        if state.is_none() {
-            if !available_on(self.lane, &self.config).await.map_err(|e| JudgeError::Worker(e.to_string()))? {
-                return Err(JudgeError::NotInstalled(self.config.dir.display().to_string()));
-            }
-            let config = self.config.clone();
-            let outcome = self.lane_job(move || JudgeModel::load(&config).map(Arc::new)).await?;
-            match &outcome {
-                Ok(_) => self.set_load_state(true, String::new()),
-                Err(error) => self.set_load_state(false, error.to_string()),
-            }
-            *state = Some(outcome);
+    async fn ensure_loaded(&self) -> Result<Arc<JudgeModel>, JudgeError> {
+        let resident = self.model_state().clone();
+        if let Some(outcome) = resident {
+            return outcome;
         }
-        match state {
-            Some(outcome) => outcome.clone(),
-            None => Err(JudgeError::Worker("model state missing".into())),
+        if !available_on(self.lane, &self.config).await.map_err(|e| JudgeError::Worker(e.to_string()))? {
+            return Err(JudgeError::NotInstalled(self.config.dir.display().to_string()));
         }
+        let config = self.config.clone();
+        let outcome = self.lane_job(move || JudgeModel::load(&config).map(Arc::new)).await?;
+        match &outcome {
+            Ok(_) => self.set_load_state(true, String::new()),
+            Err(error) => self.set_load_state(false, error.to_string()),
+        }
+        *self.model_state() = Some(outcome.clone());
+        outcome
     }
 
     /// Calibrated probabilities over the four levels for one step.
@@ -282,21 +284,30 @@ impl EffortJudgeModel {
         if self.is_installing() {
             return Err(JudgeError::Installing);
         }
-        let mut state = self.turn.lock().await;
-        // Checked again under the lock: an install that began while this call
-        // waited must find the files unused.
-        if self.is_installing() {
-            return Err(JudgeError::Installing);
+        let mut load_failure = None;
+        let answer = self
+            .turn
+            .run(&self.cancel, async {
+                // Checked again inside the gate: an install that began while this call
+                // waited must find the files unused.
+                if self.is_installing() {
+                    return Err(JudgeError::Installing);
+                }
+                let model = match self.ensure_loaded().await {
+                    Ok(model) => model,
+                    Err(error) => {
+                        load_failure = Some(error.clone());
+                        return Err(error);
+                    }
+                };
+                self.lane_job(move || model.probs(&input)).await?
+            })
+            .await
+            .map_err(|_| JudgeError::Cancelled)?;
+        if let Some(error) = &load_failure {
+            self.repair_after_load_failure(error);
         }
-        let model = match self.ensure_loaded(&mut state).await {
-            Ok(model) => model,
-            Err(error) => {
-                drop(state);
-                self.repair_after_load_failure(&error);
-                return Err(error);
-            }
-        };
-        self.lane_job(move || model.probs(&input)).await?
+        answer
     }
 
     /// `judgeTurn`: the turn's calibrated probabilities, or why the judge cannot answer in time.
@@ -316,14 +327,21 @@ impl EffortJudgeModel {
             Ok(false) => return TurnVerdict::skipped("model-missing"),
             Err(error) => return TurnVerdict::skipped(error.to_string()),
         }
+        // The turn's inference holds the gate only while this call waits for it: the token fires
+        // when the call returns, whatever the way, so a stuck inference never outlives its caller.
+        let call = self.cancel.child_token();
+        let _call_ends = call.clone().drop_guard();
         if !self.is_ready() {
             if let Some(why) = self.recent_load_failure(timing.retry) {
                 return TurnVerdict::skipped(format!("load-error: {why}"));
             }
             let (done_tx, done_rx) = oneshot::channel();
             let this = self.clone();
+            // A load outlives the cold wait that gave up on it (a big model takes longer than that);
+            // only the judge's own shutdown ends it.
+            let load_cancel = self.cancel.clone();
             mixdog_rt::spawn("services.effort-judge.turn-load", TaskClass::Work, async move {
-                drop(done_tx.send(this.load_for_turn(timing.retry).await));
+                drop(done_tx.send(this.load_for_turn(timing.retry, &load_cancel).await));
             });
             match tokio::time::timeout(timing.cold, done_rx).await {
                 Ok(Ok(Ok(()))) => {}
@@ -335,25 +353,33 @@ impl EffortJudgeModel {
                 }
             }
         }
-        // The task takes its place in the queue and keeps it until the inference ends, even for a
-        // caller whose deadline has passed: an answer that missed its deadline still occupies the model.
+        // The task takes its place in the queue and keeps it while the caller waits; the caller's
+        // deadline (or its own cancel) ends the task, wherever it is, and frees the gate.
         let (started_tx, started_rx) = oneshot::channel();
         let (result_tx, result_rx) = oneshot::channel();
         let this = self.clone();
         let clipped = clip_turn(&input);
+        let turn_cancel = call.clone();
         mixdog_rt::spawn("services.effort-judge.turn", TaskClass::Work, async move {
-            let mut state = this.turn.lock().await;
-            if started_tx.send(()).is_err() {
-                return;
+            let ran = this
+                .turn
+                .run(&turn_cancel, async {
+                    if started_tx.send(()).is_err() {
+                        return None;
+                    }
+                    let outcome = async {
+                        let model = this.ensure_loaded().await?;
+                        let began = std::time::Instant::now();
+                        let probs = this.lane_job(move || model.turn_probs(&clipped)).await??;
+                        Ok::<_, JudgeError>((probs, u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX)))
+                    }
+                    .await;
+                    Some(outcome)
+                })
+                .await;
+            if let Ok(Some(outcome)) = ran {
+                drop(result_tx.send(outcome));
             }
-            let outcome = async {
-                let model = this.ensure_loaded(&mut state).await?;
-                let began = std::time::Instant::now();
-                let probs = this.lane_job(move || model.turn_probs(&clipped)).await??;
-                Ok::<_, JudgeError>((probs, u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX)))
-            }
-            .await;
-            drop(result_tx.send(outcome));
         });
         match tokio::time::timeout(timing.queue, started_rx).await {
             Ok(Ok(())) => {}
@@ -378,23 +404,35 @@ impl EffortJudgeModel {
 
     /// Loads the model for a turn that found none resident. A failure older than the back-off is
     /// forgotten first, as Node starts a fresh worker then.
-    async fn load_for_turn(self: &Arc<Self>, retry: Duration) -> Result<(), JudgeError> {
-        let mut state = self.turn.lock().await;
-        if self.is_installing() {
-            return Err(JudgeError::Installing);
+    async fn load_for_turn(self: &Arc<Self>, retry: Duration, cancel: &CancellationToken) -> Result<(), JudgeError> {
+        let mut load_failure = None;
+        let loaded = self
+            .turn
+            .run(cancel, async {
+                if self.is_installing() {
+                    return Err(JudgeError::Installing);
+                }
+                let failed = *self.failed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                {
+                    let mut state = self.model_state();
+                    if matches!(*state, Some(Err(_))) && failed.is_none_or(|at| at.elapsed() >= retry) {
+                        *state = None;
+                    }
+                }
+                match self.ensure_loaded().await {
+                    Ok(_) => Ok(()),
+                    Err(error) => {
+                        load_failure = Some(error.clone());
+                        Err(error)
+                    }
+                }
+            })
+            .await
+            .map_err(|_| JudgeError::Cancelled)?;
+        if let Some(error) = &load_failure {
+            self.repair_after_load_failure(error);
         }
-        let failed = *self.failed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if matches!(*state, Some(Err(_))) && failed.is_none_or(|at| at.elapsed() >= retry) {
-            *state = None;
-        }
-        match self.ensure_loaded(&mut state).await {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                drop(state);
-                self.repair_after_load_failure(&error);
-                Err(error)
-            }
-        }
+        loaded
     }
 
     /// The first judged step of this instance: a model that is not the current
@@ -461,37 +499,43 @@ impl EffortJudgeModel {
             // A lane that could not read it answers "not now"; the next prewarm asks again.
             return false;
         }
-        match self.turn.try_lock() {
-            // A judgment or a load holds the lock: it is loaded or loading.
-            Err(_) => true,
-            Ok(state) => match &*state {
-                Some(Ok(_)) => true,
-                Some(Err(_)) => false,
-                None => {
-                    drop(state);
-                    let this = self.clone();
-                    mixdog_rt::spawn("services.effort-judge.prewarm", TaskClass::Work, async move {
-                        let mut state = this.turn.lock().await;
-                        if !this.is_installing() {
-                            let _ = this.ensure_loaded(&mut state).await;
-                        }
-                    });
-                    true
-                }
-            },
+        // A judgment or a load holds the gate: it is loaded or loading.
+        if self.turn.is_busy() {
+            return true;
+        }
+        let resident = self.model_state().as_ref().map(Result::is_ok);
+        match resident {
+            Some(ok) => ok,
+            None => {
+                let this = self.clone();
+                mixdog_rt::spawn("services.effort-judge.prewarm", TaskClass::Work, async move {
+                    drop(
+                        this.turn
+                            .run(&this.cancel, async {
+                                if !this.is_installing() {
+                                    let _ = this.ensure_loaded().await;
+                                }
+                            })
+                            .await,
+                    );
+                });
+                true
+            }
         }
     }
 
     /// `shutdownEffortJudge()`: unloads the model; the next judgment loads it again.
     pub async fn shutdown(&self) {
-        *self.turn.lock().await = None;
+        // Not behind the gate: a stuck judgment must not hold the exit. It keeps its own `Arc`
+        // of the model until it ends.
+        *self.model_state() = None;
         self.ready.store(false, Ordering::Release);
         self.tick.bump();
     }
 
     /// Runs `work` with no model loaded and judgments answering `Installing`,
     /// then lets the next judgment load whatever the files now hold.
-    async fn replacing_files<T, F>(&self, work: F) -> Result<T, InstallError>
+    async fn replacing_files<T, F>(&self, cancel: &CancellationToken, work: F) -> Result<T, InstallError>
     where
         F: std::future::Future<Output = Result<T, InstallError>>,
     {
@@ -505,8 +549,12 @@ impl EffortJudgeModel {
             }
         }
         let _done = Done(&self.installing);
-        // The loaded session maps the file the install is about to replace.
-        *self.turn.lock().await = None;
+        // The loaded session maps the file the install is about to replace: wait out the judgment
+        // that uses it (judgments now answer `Installing`), but only as long as `cancel` allows.
+        {
+            let _idle = self.turn.enter(cancel).await.map_err(|_| InstallError::Cancelled)?;
+            *self.model_state() = None;
+        }
         self.ready.store(false, Ordering::Release);
         self.tick.bump();
         let outcome = work.await;
@@ -526,7 +574,7 @@ impl EffortJudgeModel {
         progress: Option<&ProgressSink>,
         cancel: &CancellationToken,
     ) -> Result<(), InstallError> {
-        self.replacing_files(install::ensure_installed(&self.config, manifest, self.lane, progress, cancel)).await
+        self.replacing_files(cancel, install::ensure_installed(&self.config, manifest, self.lane, progress, cancel)).await
     }
 
     /// Re-verifies the files against the manifest and fetches only the damaged
@@ -542,7 +590,7 @@ impl EffortJudgeModel {
         }
         let bad = install::invalidate_damaged(&self.config.dir, manifest, self.lane).await?;
         if !bad.is_empty() {
-            self.replacing_files(install::install_model(&self.config.dir, manifest, self.lane, progress, cancel)).await?;
+            self.replacing_files(cancel, install::install_model(&self.config.dir, manifest, self.lane, progress, cancel)).await?;
         }
         Ok(bad)
     }

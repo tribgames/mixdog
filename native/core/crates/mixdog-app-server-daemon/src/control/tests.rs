@@ -104,7 +104,7 @@ fn stop_and_abort_run_the_one_procedure_over_the_wire() {
     let (server, token) = start(&fx);
     let port = server.port();
 
-    let (status, reply) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "fastDeploy"})));
+    let (status, reply) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "fastDeploy", "replacement": {"revision": "abc", "version": "1.5.0"}})));
     assert_eq!(status, 200, "{reply}");
     assert_eq!(reply["state"], "draining");
     assert_eq!(reply["drain"]["reason"], "fastDeploy");
@@ -114,11 +114,11 @@ fn stop_and_abort_run_the_one_procedure_over_the_wire() {
     let (_, status_reply) = mgmt(port, &token, "GET", "/mgmt/status", None);
     let confirm = status_reply["drain"]["confirmToken"].as_str().unwrap().to_owned();
 
-    let (status, reply) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "abortConfirmed", "reason": "fastDeploy"})));
+    let (status, reply) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "abortConfirmed", "reason": "fastDeploy", "replacement": {"revision": "abc", "version": "1.5.0"}})));
     assert_eq!((status, reply["code"].as_str()), (409, Some("confirmationInvalid")));
     assert!(fx.recorder.cancelled().is_empty());
 
-    let (status, _) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "abortConfirmed", "reason": "fastDeploy", "confirmToken": confirm})));
+    let (status, _) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "abortConfirmed", "reason": "fastDeploy", "replacement": {"revision": "abc", "version": "1.5.0"}, "confirmToken": confirm})));
     assert_eq!(status, 200);
     assert_eq!(fx.recorder.cancelled().len(), 1);
 
@@ -137,7 +137,10 @@ fn cancel_drain_and_hold_over_the_wire() {
     let port = server.port();
     let (_, reply) = mgmt(port, &token, "POST", "/mgmt/hold", Some(json!({"on": true})));
     assert_eq!(reply["hold"], true);
-    let (_, reply) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "update"})));
+    // A replacement that does not name its build is refused: Node's text (`daemon.mjs:589`) needs it.
+    let (status, _) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "update"})));
+    assert_eq!(status, 400);
+    let (_, reply) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "update", "replacement": {"revision": "abc", "version": "1.5.0"}})));
     assert_eq!(reply["hold"], false);
     let drain_id = reply["drain"]["drainId"].as_str().unwrap().to_owned();
     let (status, reply) = mgmt(port, &token, "POST", "/mgmt/cancelDrain", Some(json!({"drainId": drain_id})));

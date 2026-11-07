@@ -65,6 +65,20 @@ impl WarmRequest for Req {
     fn owner_session_id(&self) -> Option<&str> {
         self.owner.as_deref()
     }
+    fn fast(&self) -> bool {
+        false
+    }
+    fn warm_request(&self) -> Result<mixdog_core_api::domain::provider::ModelRequest, String> {
+        Ok(mixdog_core_api::domain::provider::ModelRequest {
+            model: self.model.clone(),
+            messages: Vec::new(),
+            tools: Vec::new(),
+            options: mixdog_core_api::domain::provider::RequestOptions::default(),
+        })
+    }
+    fn provider_generation(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// Nothing is fetched: the table is set resident.

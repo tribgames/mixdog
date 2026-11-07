@@ -6,7 +6,9 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use mixdog_rt::Gate;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 use super::ports::{AgentRuntime, AutomationServices};
 use super::tools::ChannelLifecycle;
@@ -19,6 +21,26 @@ struct State {
     bridge_starting: bool,
     automation_running: bool,
     stop_requested: bool,
+    /// Ends every start and reload that began before the last stop: a stop never waits behind
+    /// a start or reload that is stuck, it cancels it (the gates drop the stuck section).
+    epoch: CancellationToken,
+}
+
+/// Clears `bridge_starting` however the start ends; a start cut short also drops the
+/// `bridge_connected` it had claimed.
+struct StartFlag<'a> {
+    state: &'a Mutex<State>,
+    finished: bool,
+}
+
+impl Drop for StartFlag<'_> {
+    fn drop(&mut self) {
+        let mut st = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        st.bridge_starting = false;
+        if !self.finished {
+            st.bridge_connected = false;
+        }
+    }
 }
 
 pub struct ChannelRuntime {
@@ -28,12 +50,10 @@ pub struct ChannelRuntime {
     agent: Arc<dyn AgentRuntime>,
     state: Mutex<State>,
     /// One start at a time: a second caller joins the first.
-    #[allow(clippy::disallowed_types, reason = "a gate held across the awaited start on purpose: a second caller joins the first")]
-    start_gate: tokio::sync::Mutex<()>,
+    start_gate: Gate,
     /// Reloads apply in the order they were asked, each reading the stores afresh, so the last
     /// one applied is the newest.
-    #[allow(clippy::disallowed_types, reason = "a gate held across the awaited reload on purpose: reloads apply in order")]
-    reload_gate: tokio::sync::Mutex<()>,
+    reload_gate: Gate,
 }
 
 /// What the app shows as the worker's state.
@@ -50,7 +70,6 @@ impl RuntimeStatus {
 }
 
 impl ChannelRuntime {
-    #[allow(clippy::disallowed_types, reason = "builds the start and reload gates")]
     pub fn new(
         scheduler: Scheduler,
         schedules: Arc<dyn ScheduleRecords>,
@@ -63,9 +82,14 @@ impl ChannelRuntime {
             services,
             agent,
             state: Mutex::new(State::default()),
-            start_gate: tokio::sync::Mutex::new(()),
-            reload_gate: tokio::sync::Mutex::new(()),
+            start_gate: Gate::new(),
+            reload_gate: Gate::new(),
         })
+    }
+
+    /// The token a start or reload runs under: the current epoch, ended by the next stop.
+    fn epoch(&self) -> CancellationToken {
+        self.state.lock().unwrap().epoch.clone()
     }
 
     pub fn scheduler(&self) -> &Scheduler {
@@ -98,7 +122,11 @@ impl ChannelRuntime {
     /// Scheduler + webhook receiver, without activating the channel bridge. Loads the
     /// schedules first, as the worker's config load does.
     pub async fn start_automation(&self) -> Result<(), String> {
-        let _start = self.start_gate.lock().await;
+        // A start a stop cut short has nothing left to do: the stop tears everything down.
+        self.start_gate.run(&self.epoch(), self.start_automation_turn()).await.unwrap_or(Ok(()))
+    }
+
+    async fn start_automation_turn(&self) -> Result<(), String> {
         let running = self.state.lock().unwrap().automation_running;
         if running {
             return self.services.sync(false).await;
@@ -150,10 +178,34 @@ impl ChannelRuntime {
         self.arm_automation().await
     }
 
+    async fn start_bridge_turn(&self) -> Result<(), String> {
+        {
+            let mut st = self.state.lock().unwrap();
+            if st.bridge_connected || st.bridge_starting || !st.bridge_active {
+                return Ok(());
+            }
+            st.bridge_starting = true;
+            st.stop_requested = false;
+        }
+        let mut flag = StartFlag { state: &self.state, finished: false };
+        // A start error is non-fatal: it rolls back the connected state and degrades to
+        // automation-only mode.
+        if let Err(error) = self.activate_bridge().await {
+            tracing::warn!("mixdog: bridge start failed (non-fatal): {error}");
+            self.state.lock().unwrap().bridge_connected = false;
+        }
+        flag.finished = true;
+        Ok(())
+    }
+
     /// Re-reads the stores and re-arms the scheduler (and the receiver) when the runtime is
     /// supposed to be running; otherwise tears the receiver down.
     pub async fn reload_runtime(&self) -> Result<(), String> {
-        let _turn = self.reload_gate.lock().await;
+        // A reload a stop cut short is moot: the stop tore the receiver down.
+        self.reload_gate.run(&self.epoch(), self.reload_turn()).await.unwrap_or(Ok(()))
+    }
+
+    async fn reload_turn(&self) -> Result<(), String> {
         let rows = self.armed_schedules().await.map_err(|e| e.to_string())?;
         let live = {
             let st = self.state.lock().unwrap();
@@ -182,27 +234,12 @@ impl ChannelLifecycle for ChannelRuntime {
     }
 
     async fn start_bridge(&self) -> Result<(), String> {
-        let _start = self.start_gate.lock().await;
-        {
-            let mut st = self.state.lock().unwrap();
-            if st.bridge_connected || st.bridge_starting || !st.bridge_active {
-                return Ok(());
-            }
-            st.bridge_starting = true;
-            st.stop_requested = false;
-        }
-        // A start error is non-fatal: it rolls back the connected state and degrades to
-        // automation-only mode.
-        if let Err(error) = self.activate_bridge().await {
-            tracing::warn!("mixdog: bridge start failed (non-fatal): {error}");
-            self.state.lock().unwrap().bridge_connected = false;
-        }
-        self.state.lock().unwrap().bridge_starting = false;
-        Ok(())
+        // A start a stop cut short has nothing left to do: the stop tears everything down.
+        self.start_gate.run(&self.epoch(), self.start_bridge_turn()).await.unwrap_or(Ok(()))
     }
 
     async fn stop_owned_runtime(&self, reason: &str) -> Result<(), String> {
-        {
+        let epoch = {
             let mut st = self.state.lock().unwrap();
             if !st.bridge_connected && !st.bridge_starting && !st.automation_running {
                 return Ok(());
@@ -211,9 +248,16 @@ impl ChannelLifecycle for ChannelRuntime {
             if st.bridge_starting {
                 st.stop_requested = true;
             }
-        }
-        // A start in flight finishes (or bails) before the teardown below.
-        let _start = self.start_gate.lock().await;
+            // Cut short every start and reload in flight, stuck or not, so the teardown never
+            // waits behind one.
+            st.epoch.cancel();
+            st.epoch = CancellationToken::new();
+            st.epoch.clone()
+        };
+        let Ok(_start) = self.start_gate.enter(&epoch).await else {
+            // A later stop superseded this one and does the teardown.
+            return Ok(());
+        };
         self.scheduler.stop();
         self.services.stop().await;
         {

@@ -56,3 +56,41 @@ fn recovery_and_the_dead_only_sweep_leave_the_rows_node_leaves() {
         assert_eq!(want, case["stamped"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect::<Vec<_>>(), "{label}: stamped");
     }
 }
+
+/// `registerFailedTask` against the real background-task table (`fixtures/restart-notify/golden.json`,
+/// from `record-restart-notify.mjs`): a lost task with an id is left on the board as failed,
+/// acknowledged and un-announced, carrying the row's identity; a row without one registers nothing.
+#[test]
+fn a_lost_task_resolves_on_the_board_as_node_leaves_it() {
+    struct Frozen(i64);
+    impl mixdog_agent::env::Clock for Frozen {
+        fn now_ms(&self) -> i64 {
+            self.0
+        }
+    }
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../fixtures/restart-notify/golden.json")).unwrap();
+    let board = JobBoard::new(Arc::new(Frozen(golden["now"].as_i64().unwrap())), None, None);
+    for case in golden["cases"].as_array().unwrap() {
+        let source = row(&case["row"]);
+        register_failed_task(&board, &source);
+        let id = clean(source.get("task_id"));
+        let found = board.get(&id, &Scope::default());
+        let Some(task) = case["task"].as_object() else {
+            assert!(found.is_none(), "{}: no task id, no task", case["row"]["sessionId"]);
+            continue;
+        };
+        let found = found.unwrap_or_else(|| panic!("{id} resolves"));
+        let text = |key: &str| task["meta"].get(key).and_then(Value::as_str).map(str::to_owned);
+        assert_eq!(found.status, task["status"].as_str().unwrap(), "{id}");
+        assert_eq!(found.error.as_deref(), task["error"].as_str(), "{id}");
+        assert_eq!(found.terminal_reason.as_deref(), task["terminalReason"].as_str(), "{id}");
+        assert_eq!(found.operation, task["operation"].as_str().unwrap(), "{id}");
+        assert_eq!(found.label.as_deref().filter(|s| !s.is_empty()), task["label"].as_str().filter(|s| !s.is_empty()), "{id}");
+        assert_eq!(found.notified, task["notified"] == json!(true), "{id}");
+        for (got, key) in [(&found.meta.tag, "tag"), (&found.meta.session_id, "sessionId"), (&found.meta.agent, "agent"), (&found.meta.provider, "provider"), (&found.meta.model, "model"), (&found.meta.preset, "preset"), (&found.meta.effort, "effort")] {
+            assert_eq!(got, &text(key).filter(|s| !s.is_empty()), "{id}: meta.{key}");
+        }
+        register_failed_task(&board, &source);
+        assert_eq!(board.list_jobs(&Scope::default()).iter().filter(|j| j.task_id == id).count(), 1, "{id}: registered once");
+    }
+}

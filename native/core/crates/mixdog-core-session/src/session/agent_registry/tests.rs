@@ -579,3 +579,39 @@ async fn only_an_existing_lead_row_moves() {
     assert!(registry.update_lead_worker_cwd("s-absent", "/new").await);
     assert!(rig.store.map("s-agent").is_none() && rig.store.map("s-absent").is_none());
 }
+
+/// The exit flush settles the rows this process wrote as active and still holds, as failed
+/// `process-restart` and stamped now; a row another process took over, and a row that went idle, stay.
+#[test]
+fn exit_flush_fails_only_the_rows_this_process_still_runs() {
+    struct Alive;
+    impl restart::ProcessProbe for Alive {
+        fn alive(&self, _: u64) -> bool {
+            true
+        }
+    }
+    let rig = Rig::new();
+    let registry = rig.registry();
+    let active = |id: &str, pid: u64| worker_row(id, id, json!({ "status": "running", "stage": "streaming", "runtimePid": pid }));
+    {
+        let mut st = registry.lock();
+        registry.persist(&mut st, "s-own", Some(active("s-own", PID)));
+        registry.persist(&mut st, "s-taken", Some(active("s-taken", PID)));
+        registry.persist(&mut st, "s-idle", Some(active("s-idle", PID)));
+        registry.persist(&mut st, "s-other", Some(active("s-other", PID + 1)));
+        registry.persist(&mut st, "s-idle", Some(worker_row("s-idle", "s-idle", json!({ "runtimePid": PID }))));
+        registry.persist(&mut st, "s-taken", Some(active("s-taken", PID + 1)));
+    }
+    let running = |_: &str| false;
+    let live = restart::Liveness { probe: &Alive, own_pid: PID, running: &running, reap: &Hour, now_ms: NOW };
+    registry.flush_active_worker_rows(&live);
+    let own = rig.store.map("s-own").unwrap();
+    assert_eq!((own["status"].as_str(), own["failureReason"].as_str(), own["updatedAt"].as_str()), (Some("failed"), Some("process-restart"), Some(at(NOW).as_str())));
+    for kept in ["s-taken", "s-other"] {
+        assert_eq!(rig.store.map(kept).unwrap()["status"], "running", "{kept}");
+    }
+    assert_eq!(rig.store.map("s-idle").unwrap()["status"], "idle");
+    // A second flush has nothing left to settle.
+    registry.flush_active_worker_rows(&live);
+    assert_eq!(rig.store.map("s-other").unwrap()["status"], "running");
+}

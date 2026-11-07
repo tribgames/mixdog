@@ -157,6 +157,14 @@ struct StopBody<'a> {
     reason: StopReason,
     #[serde(skip_serializing_if = "Option::is_none")]
     confirm_token: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replacement: Option<ReplacementBody<'a>>,
+}
+/// The build a replacement stop is for (`daemon.mjs:589`: `daemon replacement by revision/build <revision>/<version>`).
+#[derive(Serialize)]
+struct ReplacementBody<'a> {
+    revision: &'a str,
+    version: &'a str,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -223,6 +231,29 @@ impl CtlClient {
                 mode,
                 reason,
                 confirm_token,
+                replacement: None,
+            },
+        )
+        .await
+    }
+
+    /// [`CtlClient::stop`] for a replacement (`update`, `restart`, `fastDeploy`, `sshReplace`): the core refuses one that does not name
+    /// the build that replaces it.
+    pub async fn stop_replacing(
+        &self,
+        mode: StopMode,
+        reason: StopReason,
+        confirm_token: Option<&str>,
+        revision: &str,
+        version: &str,
+    ) -> Result<CoreStatus, CtlError> {
+        self.post(
+            "stop",
+            &StopBody {
+                mode,
+                reason,
+                confirm_token,
+                replacement: Some(ReplacementBody { revision, version }),
             },
         )
         .await
@@ -441,6 +472,15 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_replacement_names_the_build_that_replaces_the_core() {
+        let (port, served) = serve_once(ok_reply(&draining_status())).await;
+        client(port).stop_replacing(StopMode::WhenIdle, StopReason::Update, None, "abc", "1.5.0").await.unwrap();
+        assert!(served.await.unwrap().ends_with(
+            r#"{"mode":"whenIdle","reason":"update","replacement":{"revision":"abc","version":"1.5.0"}}"#
+        ));
+    }
+
+    #[tokio::test]
     async fn status_decodes_the_snapshot() {
         let (port, served) = serve_once(ok_reply(&draining_status())).await;
         let status = client(port).status().await.unwrap();
@@ -523,7 +563,7 @@ mod tests {
         fn body<T: Serialize>(value: &T) -> String {
             serde_json::to_string(value).unwrap()
         }
-        let stop = body(&StopBody { mode: StopMode::AbortConfirmed, reason: StopReason::UserStop, confirm_token: Some("c") });
+        let stop = body(&StopBody { mode: StopMode::AbortConfirmed, reason: StopReason::UserStop, confirm_token: Some("c"), replacement: None });
         let stop: wire::StopRequest = serde_json::from_str(&stop).unwrap();
         assert_eq!((stop.mode, stop.reason), (wire::StopMode::AbortConfirmed, wire::StopReason::UserStop));
         serde_json::from_str::<wire::HoldRequest>(&body(&HoldBody { on: true })).unwrap();

@@ -326,6 +326,15 @@
       "totalBytes": 21747
     },
     {
+      "command": "node <repo>/benchmarks/rust-core/recorders/record-group-usage-tokens.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "group-usage-tokens/MANIFEST.json",
+      "manifestSha256": "13f053c94637b828f91db828fadc49f9f1dd98cdb11767ad80f43502b7c27822",
+      "recorder": "benchmarks/rust-core/recorders/record-group-usage-tokens.mjs",
+      "set": "group-usage-tokens",
+      "totalBytes": 7342
+    },
+    {
       "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-handoff-env.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "handoff-env/MANIFEST.json",
@@ -731,6 +740,15 @@
       "totalBytes": 126512
     },
     {
+      "command": "node <repo>/benchmarks/rust-core/recorders/record-restart-notify.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "restart-notify/MANIFEST.json",
+      "manifestSha256": "320f4bc73a305d48c25f4920fb0881c9667be393d4c1e8afa7d8adf2b8e0e8a7",
+      "recorder": "benchmarks/rust-core/recorders/record-restart-notify.mjs",
+      "set": "restart-notify",
+      "totalBytes": 9693
+    },
+    {
       "command": "node <repo>/benchmarks/rust-core/recorders/record-restart-settlement.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "restart-settlement/MANIFEST.json",
@@ -927,6 +945,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-snapshot-cleanup-schedule.mjs",
       "set": "snapshot-cleanup-schedule",
       "totalBytes": 1330
+    },
+    {
+      "command": "node <repo>/benchmarks/rust-core/recorders/record-stall-thresholds.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "stall-thresholds/MANIFEST.json",
+      "manifestSha256": "afabe4a95d3f56aaed28801c476a871981fd951171613dd1e4241ed267bbb829",
+      "recorder": "benchmarks/rust-core/recorders/record-stall-thresholds.mjs",
+      "set": "stall-thresholds",
+      "totalBytes": 18109
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-statusline-route.mjs --tree <tree>",

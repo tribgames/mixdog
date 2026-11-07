@@ -13,7 +13,6 @@
 pub mod embed_flush;
 pub mod ordinals;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -22,9 +21,10 @@ use mixdog_rt::DurabilityIo;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 use crate::memory::clean::clean_memory_text;
-use crate::memory::error::Result;
+use crate::memory::error::{MemoryError, Result};
 use crate::memory::ingest::embed_flush::RawEmbedFlush;
 use crate::memory::ingest::ordinals::{OrdinalStore, PriorMatcher, SessionState, identity_hash};
 use crate::memory::ingest_shape::{
@@ -49,8 +49,10 @@ struct Inner {
     flush: Arc<RawEmbedFlush>,
     session_cwd: Option<PathBuf>,
     now: NowMs,
-    #[allow(clippy::disallowed_types, reason = "a session's ingests are held across the awaited write on purpose: they run in call order, as Node's promise chain")]
-    chains: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// A session's ingests run in call order, as Node's promise chain.
+    chains: mixdog_rt::KeyedGate,
+    /// Ends every ingest waiting on `chains` or running under it ([`SessionIngest::close`]).
+    cancel: CancellationToken,
     /// The lane the project marker files are read on.
     lane: DurabilityIo,
     ordinals: Mutex<OrdinalStore>,
@@ -111,7 +113,8 @@ impl SessionIngest {
             db,
             session_cwd,
             now,
-            chains: Mutex::new(HashMap::new()),
+            chains: mixdog_rt::KeyedGate::new(),
+            cancel: CancellationToken::new(),
             lane,
             ordinals: Mutex::new(OrdinalStore::default()),
             flush_tail: Mutex::new(None),
@@ -133,20 +136,16 @@ impl SessionIngest {
             &named("sessionId").or_else(|| named("session_id")).unwrap_or_else(|| format!("session-{}", (self.0.now)())),
         )
         .to_owned();
-        let lane = {
-            let mut chains = self.0.chains.lock().expect("ingest chains");
-            chains.entry(session_id.clone()).or_default().clone()
-        };
-        let result = {
-            let _turn = lane.lock().await;
-            self.ingest_one(&session_id, args).await
-        };
-        let mut chains = self.0.chains.lock().expect("ingest chains");
-        // Only the map and this call hold the lane when no later call chained after it.
-        if chains.get(&session_id).is_some_and(|held| Arc::strong_count(held) == 2) {
-            chains.remove(&session_id);
-        }
-        result
+        self.0
+            .chains
+            .run(&session_id, &self.0.cancel, self.ingest_one(&session_id, args))
+            .await
+            .map_err(|_| MemoryError::Cancelled)?
+    }
+
+    /// Shutdown: ingests waiting for their session's turn, and the ones running, end cancelled.
+    pub fn close(&self) {
+        self.0.cancel.cancel();
     }
 
     async fn ingest_one(&self, session_id: &str, args: &Value) -> Result<String> {

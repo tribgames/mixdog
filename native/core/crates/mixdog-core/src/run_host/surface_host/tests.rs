@@ -72,8 +72,20 @@ fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/surface-host/golden.json")).expect("golden")
 }
 
+/// The golden's pool, its model-visible internal tools in the order Node registers them
+/// (`modelStandaloneTools()`, the golden's `standalone`): that order is the tail of a surface whose
+/// own list does not hold them.
 fn pool_of(g: &Value) -> Vec<Arc<dyn Tool>> {
-    g["pool"].as_array().expect("pool").iter().map(stub).collect()
+    let mut pool: Vec<Arc<dyn Tool>> = g["pool"].as_array().expect("pool").iter().map(stub).collect();
+    let registered: Vec<&str> = g["standalone"].as_array().expect("standalone").iter().map(|doc| doc["name"].as_str().expect("name")).collect();
+    let rank = |tool: &Arc<dyn Tool>| registered.iter().position(|name| *name == tool.spec().name);
+    let slots: Vec<usize> = (0..pool.len()).filter(|at| rank(&pool[*at]).is_some()).collect();
+    let mut in_order: Vec<Arc<dyn Tool>> = slots.iter().map(|at| pool[*at].clone()).collect();
+    in_order.sort_by_key(|tool| rank(tool));
+    for (at, tool) in slots.into_iter().zip(in_order) {
+        pool[at] = tool;
+    }
+    pool
 }
 
 fn names(value: &Value) -> Vec<String> {
@@ -105,11 +117,13 @@ struct FakePrompt(Mutex<Vec<RebuildRequest>>);
 #[async_trait]
 impl PromptRebuild for FakePrompt {
     async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
+        // The identity a rebuild gives back is the one it was asked for (`composeSessionSystem` keeps the session's).
+        let identity = request.header.get("promptIdentity").cloned().unwrap_or_else(|| json!({}));
         self.0.lock().unwrap().push(request);
         Ok(SessionPrompt {
             blocks: SystemBlocks { base: Some("# Tool Calls\nrules".into()), stable: Some("# Profile".into()), core: Some("# Core".into()), env: Some("# Env".into()), combined: false },
             environment_tail: "tail".into(),
-            prompt_identity: json!({}),
+            prompt_identity: identity,
             prompt_settings: json!({ "revision": "r1" }),
             response_language: Value::Null,
         })
@@ -471,6 +485,8 @@ async fn stale_header(g: &Value) -> Header {
     let mut header = rig(g, setup("full")).host.preview_surface().await.expect("preview");
     header.insert("provider".into(), json!("anthropic"));
     header.insert("model".into(), json!("claude-opus-4-6"));
+    // `thread/start` writes the denials a thread begins with (the preview surface carries none).
+    header.insert("disallowedTools".into(), json!([]));
     header
 }
 

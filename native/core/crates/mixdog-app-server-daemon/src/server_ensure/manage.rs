@@ -52,10 +52,10 @@ pub fn cleanup(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAcces
 
     let mut stopped = None;
     if let Some(core) = access.discovery()? {
-        let drain = access.stop_when_idle(&core, StopReason::UserStop)?;
+        let drain = access.stop_when_idle(&core, StopReason::UserStop, None)?;
         let retired = match &args.confirm_token {
             Some(token) => {
-                access.stop_confirmed(&core, StopReason::UserStop, token)?;
+                access.stop_confirmed(&core, StopReason::UserStop, token, None)?;
                 true
             }
             None => drain.running.is_empty(),

@@ -1,0 +1,329 @@
+{
+ "domain": "restart-notify",
+ "recorder": "benchmarks/rust-core/recorders/record-restart-notify.mjs",
+ "now": 1772359200000,
+ "cases": [
+  {
+   "row": {
+    "sessionId": "sess_a",
+    "tag": "rev",
+    "task_id": "task_1",
+    "ownerSessionId": "lead-a",
+    "agent": "reviewer",
+    "provider": "anthropic",
+    "model": "claude-x",
+    "preset": "p",
+    "effort": "high",
+    "clientHostPid": 4001,
+    "status": "failed",
+    "failureReason": "process-restart",
+    "finishedAt": "2026-03-01T09:59:00.000Z"
+   },
+   "executionId": "restart:task_1",
+   "queued": [
+    {
+     "owner": "lead-a",
+     "entry": {
+      "message": "<task-notification>\n<task-id>task_1</task-id>\n<tag>rev</tag>\n<status>failed</status>\n<summary>Agent \"rev\" failed</summary>\n<error>process restart: the daemon restarted while this agent task was running</error>\n</task-notification>",
+      "executionId": "restart:task_1",
+      "meta": {
+       "type": "agent_task_result",
+       "execution_surface": "agent",
+       "execution_id": "restart:task_1",
+       "status": "failed",
+       "caller_session_id": "lead-a"
+      }
+     }
+    }
+   ],
+   "live": [
+    {
+     "owner": "lead-a",
+     "text": "<task-notification>\n<task-id>task_1</task-id>\n<tag>rev</tag>\n<status>failed</status>\n<summary>Agent \"rev\" failed</summary>\n<error>process restart: the daemon restarted while this agent task was running</error>\n</task-notification>",
+     "meta": {
+      "type": "agent_task_result",
+      "execution_surface": "agent",
+      "execution_id": "restart:task_1",
+      "status": "failed",
+      "caller_session_id": "lead-a"
+     }
+    }
+   ],
+   "stamped": [
+    "sess_a"
+   ],
+   "task": {
+    "taskId": "task_1",
+    "surface": "agent",
+    "operation": "restart",
+    "label": "rev",
+    "input": {
+     "type": "restart",
+     "tag": "rev",
+     "sessionId": "sess_a",
+     "agent": "reviewer"
+    },
+    "status": "failed",
+    "startedAtMs": 1772359200000,
+    "startedAt": "2026-03-01T10:00:00.000Z",
+    "finishedAtMs": 1772359200000,
+    "finishedAt": "2026-03-01T10:00:00.000Z",
+    "resultText": null,
+    "error": "process restart: the daemon restarted while this agent task was running",
+    "notified": true,
+    "notifyContext": {
+     "notifyFn": null,
+     "callerSessionId": "lead-a",
+     "routingSessionId": "lead-a",
+     "clientHostPid": 4001
+    },
+    "ownerSessionId": "lead-a",
+    "routingSessionId": "lead-a",
+    "clientHostPid": 4001,
+    "meta": {
+     "tag": "rev",
+     "sessionId": "sess_a",
+     "agent": "reviewer",
+     "provider": "anthropic",
+     "model": "claude-x",
+     "preset": "p",
+     "effort": "high"
+    },
+    "resultType": "agent_task_result",
+    "renderResult": null,
+    "cancel": null,
+    "notifyOnCancel": false,
+    "terminalReason": "process-restart",
+    "completionAcknowledged": true,
+    "notifiedWithBody": true
+   }
+  },
+  {
+   "row": {
+    "sessionId": "sess_b",
+    "tag": "wk",
+    "ownerSessionId": "lead-a",
+    "agent": "worker",
+    "status": "failed",
+    "failureReason": "process-restart",
+    "finishedAt": "2026-03-01T09:58:00.000Z"
+   },
+   "executionId": "restart:sess_b:2026-03-01T09:58:00.000Z",
+   "queued": [
+    {
+     "owner": "lead-a",
+     "entry": {
+      "message": "<task-notification>\n<task-id>restart:sess_b:2026-03-01T09:58:00.000Z</task-id>\n<tag>wk</tag>\n<status>failed</status>\n<summary>Agent \"wk\" failed</summary>\n<error>process restart: the daemon restarted while this agent task was running</error>\n</task-notification>",
+      "executionId": "restart:sess_b:2026-03-01T09:58:00.000Z",
+      "meta": {
+       "type": "agent_task_result",
+       "execution_surface": "agent",
+       "execution_id": "restart:sess_b:2026-03-01T09:58:00.000Z",
+       "status": "failed",
+       "caller_session_id": "lead-a"
+      }
+     }
+    }
+   ],
+   "live": [
+    {
+     "owner": "lead-a",
+     "text": "<task-notification>\n<task-id>restart:sess_b:2026-03-01T09:58:00.000Z</task-id>\n<tag>wk</tag>\n<status>failed</status>\n<summary>Agent \"wk\" failed</summary>\n<error>process restart: the daemon restarted while this agent task was running</error>\n</task-notification>",
+     "meta": {
+      "type": "agent_task_result",
+      "execution_surface": "agent",
+      "execution_id": "restart:sess_b:2026-03-01T09:58:00.000Z",
+      "status": "failed",
+      "caller_session_id": "lead-a"
+     }
+    }
+   ],
+   "stamped": [
+    "sess_b"
+   ],
+   "task": null
+  },
+  {
+   "row": {
+    "sessionId": "sess_c",
+    "tag": "",
+    "task_id": "task_3",
+    "ownerSessionId": "lead-b",
+    "status": "failed",
+    "failureReason": "process-restart",
+    "finishedAt": "2026-03-01T09:57:00.000Z"
+   },
+   "executionId": "restart:task_3",
+   "queued": [
+    {
+     "owner": "lead-b",
+     "entry": {
+      "message": "<task-notification>\n<task-id>task_3</task-id>\n<status>failed</status>\n<summary>Agent \"task_3\" failed</summary>\n<error>process restart: the daemon restarted while this agent task was running</error>\n</task-notification>",
+      "executionId": "restart:task_3",
+      "meta": {
+       "type": "agent_task_result",
+       "execution_surface": "agent",
+       "execution_id": "restart:task_3",
+       "status": "failed",
+       "caller_session_id": "lead-b"
+      }
+     }
+    }
+   ],
+   "live": [
+    {
+     "owner": "lead-b",
+     "text": "<task-notification>\n<task-id>task_3</task-id>\n<status>failed</status>\n<summary>Agent \"task_3\" failed</summary>\n<error>process restart: the daemon restarted while this agent task was running</error>\n</task-notification>",
+     "meta": {
+      "type": "agent_task_result",
+      "execution_surface": "agent",
+      "execution_id": "restart:task_3",
+      "status": "failed",
+      "caller_session_id": "lead-b"
+     }
+    }
+   ],
+   "stamped": [
+    "sess_c"
+   ],
+   "task": {
+    "taskId": "task_3",
+    "surface": "agent",
+    "operation": "restart",
+    "label": null,
+    "input": {
+     "type": "restart",
+     "tag": "",
+     "sessionId": "sess_c",
+     "agent": null
+    },
+    "status": "failed",
+    "startedAtMs": 1772359200000,
+    "startedAt": "2026-03-01T10:00:00.000Z",
+    "finishedAtMs": 1772359200000,
+    "finishedAt": "2026-03-01T10:00:00.000Z",
+    "resultText": null,
+    "error": "process restart: the daemon restarted while this agent task was running",
+    "notified": true,
+    "notifyContext": {
+     "notifyFn": null,
+     "callerSessionId": "lead-b",
+     "routingSessionId": "lead-b",
+     "clientHostPid": null
+    },
+    "ownerSessionId": "lead-b",
+    "routingSessionId": "lead-b",
+    "clientHostPid": null,
+    "meta": {
+     "tag": "",
+     "sessionId": "sess_c",
+     "agent": null,
+     "provider": null,
+     "model": null,
+     "preset": null,
+     "effort": null
+    },
+    "resultType": "agent_task_result",
+    "renderResult": null,
+    "cancel": null,
+    "notifyOnCancel": false,
+    "terminalReason": "process-restart",
+    "completionAcknowledged": true,
+    "notifiedWithBody": true
+   }
+  },
+  {
+   "row": {
+    "sessionId": "sess_d",
+    "tag": "x<y&z",
+    "task_id": "task_4",
+    "ownerSessionId": "lead-b",
+    "agent": null,
+    "provider": null,
+    "model": null,
+    "clientHostPid": 0,
+    "status": "failed",
+    "failureReason": "process-restart",
+    "finishedAt": "2026-03-01T09:56:00.000Z"
+   },
+   "executionId": "restart:task_4",
+   "queued": [
+    {
+     "owner": "lead-b",
+     "entry": {
+      "message": "<task-notification>\n<task-id>task_4</task-id>\n<tag>x&lt;y&amp;z</tag>\n<status>failed</status>\n<summary>Agent \"x&lt;y&amp;z\" failed</summary>\n<error>process restart: the daemon restarted while this agent task was running</error>\n</task-notification>",
+      "executionId": "restart:task_4",
+      "meta": {
+       "type": "agent_task_result",
+       "execution_surface": "agent",
+       "execution_id": "restart:task_4",
+       "status": "failed",
+       "caller_session_id": "lead-b"
+      }
+     }
+    }
+   ],
+   "live": [
+    {
+     "owner": "lead-b",
+     "text": "<task-notification>\n<task-id>task_4</task-id>\n<tag>x&lt;y&amp;z</tag>\n<status>failed</status>\n<summary>Agent \"x&lt;y&amp;z\" failed</summary>\n<error>process restart: the daemon restarted while this agent task was running</error>\n</task-notification>",
+     "meta": {
+      "type": "agent_task_result",
+      "execution_surface": "agent",
+      "execution_id": "restart:task_4",
+      "status": "failed",
+      "caller_session_id": "lead-b"
+     }
+    }
+   ],
+   "stamped": [
+    "sess_d"
+   ],
+   "task": {
+    "taskId": "task_4",
+    "surface": "agent",
+    "operation": "restart",
+    "label": "x<y&z",
+    "input": {
+     "type": "restart",
+     "tag": "x<y&z",
+     "sessionId": "sess_d",
+     "agent": null
+    },
+    "status": "failed",
+    "startedAtMs": 1772359200000,
+    "startedAt": "2026-03-01T10:00:00.000Z",
+    "finishedAtMs": 1772359200000,
+    "finishedAt": "2026-03-01T10:00:00.000Z",
+    "resultText": null,
+    "error": "process restart: the daemon restarted while this agent task was running",
+    "notified": true,
+    "notifyContext": {
+     "notifyFn": null,
+     "callerSessionId": "lead-b",
+     "routingSessionId": "lead-b",
+     "clientHostPid": null
+    },
+    "ownerSessionId": "lead-b",
+    "routingSessionId": "lead-b",
+    "clientHostPid": null,
+    "meta": {
+     "tag": "x<y&z",
+     "sessionId": "sess_d",
+     "agent": null,
+     "provider": null,
+     "model": null,
+     "preset": null,
+     "effort": null
+    },
+    "resultType": "agent_task_result",
+    "renderResult": null,
+    "cancel": null,
+    "notifyOnCancel": false,
+    "terminalReason": "process-restart",
+    "completionAcknowledged": true,
+    "notifiedWithBody": true
+   }
+  }
+ ]
+}

@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-console-redirect.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 17447,
+      "path": "golden.json",
+      "sha256": "24a68ade960d549c7ed13f061537be08cb276246ca75a6d14e12232f50541b98"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": "ebdcca97de789757ba048e43d8b2a42ed028fa09",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "ebdcca97de789757ba048e43d8b2a42ed028fa09",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-console-redirect.mjs",
+  "set": "console-redirect",
+  "totalBytes": 17447
+}
