@@ -505,6 +505,8 @@ pub struct ComposeConfig {
     pub log: crate::daemon_log::DaemonLog,
     /// The daemon's run token, the one `log` holds. The stop procedure cancels it after the last stop step.
     pub stop: tokio_util::sync::CancellationToken,
+    /// The catalog's HTTP client (models.dev and LiteLLM fetches): the real one in the daemon (catalog::production_http), a client that cannot connect in tests.
+    pub catalog_http: Arc<dyn mixdog_ai::transport::http::HttpSend>,
 }
 
 /// `process.env` as the services read it.
@@ -532,7 +534,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
 /// [`compose`], whose slow waits (the PostgreSQL install and start) end when `interrupt` is cancelled: `serve` cancels it when a stop arrives meanwhile. A composition that
 /// fails, interrupted or not, gives back what it had acquired before it returns the error (`Acquired`), so no PostgreSQL is left running.
 pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop } = config;
+    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -564,7 +566,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let models = build_models(tokens, data_dir, ort_library)?;
     // The listing sources are built from the full provider config; the config domain supplies it
     // when it lands, until then only the models.dev metadata is refreshed.
-    let catalog = build_catalog(tokens, data_dir, Vec::new()).await.map_err(ComposeError::Catalog)?;
+    let catalog = build_catalog(tokens, data_dir, Vec::new(), catalog_http).await.map_err(ComposeError::Catalog)?;
     let shell_path =
         crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.map_err(ComposeError::Shell)?;
     // The one `ConfiguredShell`: every spawn reads it, and the flip hands `exec.configured_shell` to
@@ -624,6 +626,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         tidy_processes: tidy_processes.clone(),
         models,
         catalog: catalog.service().clone(),
+        catalog_warmup: catalog.warmup().clone(),
         exec: exec.runtime.clone(),
         shell_control: shell_control.clone(),
         files: file_service.clone(),
@@ -714,6 +717,7 @@ mod tests {
             ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
             log,
             stop,
+            catalog_http: crate::compose_test_support::offline_http(),
         }
     }
 

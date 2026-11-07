@@ -38,6 +38,8 @@ pub struct CatalogService {
     litellm: Option<Arc<ModelsDevSource>>,
     /// The tables adapters run their listing steps against.
     listing: ListingLookup,
+    /// The revision the price audit last judged (lastAuditedRevision).
+    pub(super) audited: std::sync::Mutex<Option<String>>,
 }
 
 impl CatalogService {
@@ -58,6 +60,7 @@ impl CatalogService {
             rosters: ArcSwap::from_pointee(Rosters::default()),
             litellm: None,
             listing: ListingLookup::new(),
+            audited: std::sync::Mutex::new(None),
         };
         service.publish_listing();
         service

@@ -415,6 +415,7 @@ mod tests {
             ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
                     log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
                     stop: mixdog_rt::CancellationToken::new(),
+                    catalog_http: crate::compose_test_support::offline_http(),
                 },
             )
             .await

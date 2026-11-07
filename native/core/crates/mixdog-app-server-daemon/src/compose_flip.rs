@@ -58,6 +58,8 @@ pub struct Built {
     pub tidy_processes: mixdog_services::tidy::process::Processes,
     pub models: Models,
     pub catalog: Arc<mixdog_ai::catalog::CatalogService>,
+    /// The catalog warm-up loop: the busy probe is bound here and the sessions' busy-state changes wake it.
+    pub catalog_warmup: Arc<crate::catalog::CatalogWarmup>,
     pub exec: Arc<mixdog_tools::exec::ExecRuntime>,
     pub shell_control: Arc<mixdog_tools::exec::ShellControl>,
     pub files: Arc<dyn mixdog_core_api::domain::fs::FileService>,
@@ -1760,8 +1762,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     let prewarm_lazy = prewarm_world.lazy();
     let code_graph_prewarm = mixdog_core::run_host::code_graph_prewarm::CodeGraphPrewarm::new(prewarm_world);
-    let session_prewarm: Arc<dyn mixdog_core_session::session::prewarm_signals::CodeGraphPrewarmSignals> =
-        Arc::new(mixdog_core::run_host::code_graph_prewarm::SessionPrewarm { prewarm: code_graph_prewarm, lazy: prewarm_lazy });
+    // The catalog warm-up defers while a turn runs or a session is being created (the same probe) and is woken with the prewarm.
+    b.catalog_warmup.bind_busy({
+        let (liveness, late) = (liveness.clone(), late.clone());
+        Arc::new(move || crate::prewarm_world::busy_reason(&liveness, &late))
+    });
+    let session_prewarm: Arc<dyn mixdog_core_session::session::prewarm_signals::CodeGraphPrewarmSignals> = Arc::new(crate::prewarm_world::WarmupSignals {
+        prewarm: mixdog_core::run_host::code_graph_prewarm::SessionPrewarm { prewarm: code_graph_prewarm, lazy: prewarm_lazy },
+        catalog: b.catalog_warmup.clone(),
+    });
     let owed = Owed {
         liveness: liveness.clone(),
         search_usage,

@@ -59,6 +59,72 @@ impl crate::registry::accounting::UsagePricing for CatalogPricing {
         PricingCatalog { service: self.0.clone() }.price_usage(args)
     }
 }
+/// One route of the price audit (`pricingAuditRows`): a model, or a wire id of one, and the rates the catalog lacks for it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AuditRow {
+    pub provider: String,
+    pub model: String,
+    pub missing_rates: Vec<&'static str>,
+}
+
+impl AuditRow {
+    pub fn priced(&self) -> bool {
+        self.missing_rates.is_empty()
+    }
+}
+
+impl CatalogService {
+    /// `pricingAuditRows(models, provider, metadataOf)` with `getModelMetadataSync` as the metadata: every picker id and every
+    /// wire id of each model needs an input and an output rate, and a cache-read rate when the model caches prompts.
+    pub fn audit_rows(&self, models: &[Value], provider: &str) -> Vec<AuditRow> {
+        let mut rows = Vec::new();
+        for model in models {
+            let mut ids: Vec<String> = Vec::new();
+            let mut add = |id: &str| {
+                if !id.is_empty() && !ids.iter().any(|seen| seen == id) {
+                    ids.push(id.to_owned());
+                }
+            };
+            add(model.get("id").and_then(Value::as_str).unwrap_or_default());
+            match model.get("wire") {
+                Some(Value::String(wire)) => add(wire),
+                Some(Value::Object(wires)) => wires.values().filter_map(Value::as_str).for_each(&mut add),
+                _ => {}
+            }
+            let owner = if provider.is_empty() { model.get("provider").and_then(Value::as_str).unwrap_or_default() } else { provider };
+            for id in ids {
+                let meta = self.sync_meta(&id, owner);
+                let has = |key: &str| meta.as_ref().and_then(|m| m.get(key)).is_some_and(|v| !v.is_null());
+                let caches = meta.as_ref().is_some_and(|m| truthy(m.get("supportsPromptCaching")));
+                let required: &[&'static str] = if caches { &["inputCostPerM", "outputCostPerM", "cacheReadCostPerM"] } else { &["inputCostPerM", "outputCostPerM"] };
+                let missing_rates = required.iter().copied().filter(|key| !has(key)).collect();
+                rows.push(AuditRow { provider: owner.to_owned(), model: id, missing_rates });
+            }
+        }
+        rows
+    }
+
+    /// `auditCachedModelPricing`: judges every cached roster route against the resident tables and reports the unpriced ones,
+    /// once per table revision (`lastAuditedRevision`). Returns the report it logged.
+    pub fn audit_cached_pricing(self: &Arc<Self>) -> Option<String> {
+        let revision = self.pricing_unchecked().revision();
+        let rows: Vec<AuditRow> = super::rosters::ROSTER_PROVIDERS
+            .iter()
+            .flat_map(|provider| self.audit_rows(&self.rosters.load().cached_models(provider), provider))
+            .collect();
+        let unpriced: Vec<&AuditRow> = rows.iter().filter(|row| !row.priced()).collect();
+        let mut audited = self.audited.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let report = (audited.as_deref() != Some(revision.as_str()) && !unpriced.is_empty()).then(|| {
+            let routes: Vec<String> = unpriced.iter().map(|row| format!("{}/{} ({})", row.provider, row.model, row.missing_rates.join(", "))).collect();
+            format!("[model-pricing] {}/{} catalog routes have no complete price: {}", unpriced.len(), rows.len(), routes.join("; "))
+        });
+        *audited = Some(revision);
+        if let Some(report) = &report {
+            tracing::warn!("{report}");
+        }
+        report
+    }
+}
 /// Media billed outside the text token slots (`args.media`).
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

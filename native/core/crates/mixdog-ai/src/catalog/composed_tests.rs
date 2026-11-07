@@ -112,3 +112,34 @@ async fn a_failed_fetch_keeps_the_disk_copies_and_is_not_retried_for_a_minute() 
     service.refresh().await;
     assert_eq!(asked(&http).len(), 2, "the retry backoff holds");
 }
+
+/// `auditCachedModelPricing`: every cached roster route must have its rates in the resident tables; the unpriced ones are
+/// reported once per table revision, not on every warm-up.
+#[tokio::test]
+async fn the_price_audit_reports_unpriced_roster_routes_once_per_table_revision() {
+    let (dir, _http, service) = composed(false).await;
+    let service = Arc::new(service);
+    assert_eq!(service.audit_cached_pricing(), None, "no roster route, nothing to report");
+
+    put(dir.path().join("openai-oauth-models.json"), r#"{"models":[{"id":"zz-unpriced"}]}"#.to_owned()).await;
+    assert_eq!(
+        service.audit_cached_pricing().as_deref(),
+        Some("[model-pricing] 1/1 catalog routes have no complete price: openai-oauth/zz-unpriced (inputCostPerM, outputCostPerM)")
+    );
+    assert_eq!(service.audit_cached_pricing(), None, "the same revision is not reported again");
+
+    // A refresh moves the table stamps: the revision, so the report, follows.
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    service.refresh().await;
+    assert!(service.audit_cached_pricing().is_some_and(|report| report.contains("openai-oauth/zz-unpriced")));
+}
+
+/// A model's wire ids are routes too (`pricingAuditRows`): each is judged, once.
+#[tokio::test]
+async fn the_audit_judges_the_picker_id_and_every_wire_id_once() {
+    let (_dir, _http, service) = composed(false).await;
+    let models = vec![serde_json::json!({ "id": "zz-a", "wire": { "low": "zz-a", "high": "zz-b" } })];
+    let rows = service.audit_rows(&models, "openai-oauth");
+    assert_eq!(rows.iter().map(|r| r.model.as_str()).collect::<Vec<_>>(), ["zz-a", "zz-b"]);
+    assert!(rows.iter().all(|r| !r.priced() && r.provider == "openai-oauth" && r.missing_rates == ["inputCostPerM", "outputCostPerM"]));
+}

@@ -47,21 +47,20 @@ impl EmbeddingProvider {
     /// `getEmbeddingInfo()`: metadata only, never loads the model.
     pub fn info(&self) -> Value {
         let model = js_trim(&self.config.model_id);
-        let ready = self.is_ready();
-        json!({
-            "model": model,
-            "dtype": config::normalize_dtype(model, self.config.dtype.as_deref()),
-            // `cachedDims || getKnownDimsForCurrentModel()`: the measured value once loaded.
-            "dimensions": match self.loaded.get() {
-                Some(Ok(embedder)) => Some(embedder.dims()),
-                _ => config::known_dims(model),
-            },
-            "device": if ready { "cpu" } else { "" },
-            "engine": "Transformers.js · ONNX Runtime",
-            "supported": onnx_runtime_supported(),
-        })
+        // `cachedDims || getKnownDimsForCurrentModel()`: the measured value once loaded.
+        let dims = match self.loaded.get() {
+            Some(Ok(embedder)) => Some(embedder.dims()),
+            _ => config::known_dims(model),
+        };
+        info_of(model, self.config.dtype.as_deref(), dims, self.is_ready())
     }
 
+    /// `getEmbeddingInfo()` on a host with no ONNX runtime to build a provider over: Node answers the same metadata there
+    /// (nothing loaded, `supported: false`), where the provider does not exist.
+    pub fn info_unbuilt(model_id: &str, dtype: Option<&str>) -> Value {
+        let model = js_trim(model_id);
+        info_of(model, dtype, config::known_dims(model), false)
+    }
     /// `getEmbeddingModelId()`.
     pub fn model_id(&self) -> &str {
         &self.config.model_id
@@ -139,5 +138,32 @@ impl QueryEmbedder for EmbeddingProvider {
         let embedder = self.warmup().await.ok().flatten()?;
         let vector = embedder.embed(text, InputType::Query).await.ok()?;
         (!vector.is_empty()).then(|| vector.to_vec())
+    }
+}
+
+fn info_of(model: &str, dtype: Option<&str>, dimensions: Option<usize>, ready: bool) -> Value {
+    json!({
+        "model": model,
+        "dtype": config::normalize_dtype(model, dtype),
+        "dimensions": dimensions,
+        "device": if ready { "cpu" } else { "" },
+        "engine": "Transformers.js · ONNX Runtime",
+        "supported": onnx_runtime_supported(),
+    })
+}
+
+#[cfg(test)]
+mod unbuilt_tests {
+    use super::*;
+
+    /// What Node's `getEmbeddingInfo()` answered for the default model before anything loaded (recorded by the capability
+    /// harness: `getToolModuleSettings` `memory.info`).
+    #[test]
+    fn a_host_without_the_runtime_reports_the_metadata_node_does() {
+        let info = EmbeddingProvider::info_unbuilt(config::DEFAULT_MODEL_ID, None);
+        assert_eq!(info["model"], config::DEFAULT_MODEL_ID);
+        assert_eq!((info["dtype"].as_str(), info["dimensions"].as_u64(), info["device"].as_str()), (Some("q8"), Some(384), Some("")));
+        assert_eq!(info["engine"], "Transformers.js · ONNX Runtime");
+        assert_eq!(info["supported"], onnx_runtime_supported());
     }
 }
