@@ -1248,7 +1248,7 @@ fn node_wire(r: &Value, case: &Value) -> Vec<Value> {
 /// No connected server names its tools differently from the recording.
 struct Unshortened;
 impl McpToolNames for Unshortened {
-    fn names(&self, _: &str) -> Option<(String, String)> {
+    fn names(&self, _: Option<&str>, _: &str) -> Option<(String, String)> {
         None
     }
 }

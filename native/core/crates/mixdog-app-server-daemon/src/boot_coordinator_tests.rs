@@ -86,7 +86,7 @@ impl BootSteps for Steps {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn boot_recovery_runs_as_nodes_coordinator_does() {
     let tokens = mixdog_rt::testing::tokens();
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/boot-recovery/golden.json")).expect("golden.json");
+    let golden: Value = serde_json::from_str(include_str!("../../../fixtures/boot-recovery/golden.json")).expect("golden.json");
     for case in golden["cases"].as_array().expect("cases") {
         let name = case["name"].as_str().expect("name");
         let data = tempfile::tempdir().expect("data dir");
