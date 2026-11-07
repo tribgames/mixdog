@@ -574,7 +574,7 @@ impl ReadTool {
             }
         };
         let streamed = stat.len > READ_STREAM_RANGE_MIN_BYTES;
-        let window = |rows: (String, Option<read_legacy::Seen>), source: &str, observe: &mut dyn FnMut(SnapshotMeta)| {
+        let window = |rows: (String, Option<read_legacy::Seen>), source: &str, observe: &mut (dyn FnMut(SnapshotMeta) + Send)| {
             if let Some(s) = rows.1 {
                 let ranges = if s.whole { vec![LineRange::WHOLE] } else { vec![LineRange { start: s.start, end: Some(s.end) }] };
                 observe(SnapshotMeta { ranges: Some(ranges), content_hash: s.whole.then(|| hash_text(&content)), file_line_count: Some(s.total), ..SnapshotMeta::new(source) });
@@ -604,7 +604,7 @@ impl ReadTool {
         mode: &str,
         n: Option<&JsonValue>,
         size: u64,
-        observe: &mut dyn FnMut(SnapshotMeta),
+        observe: &mut (dyn FnMut(SnapshotMeta) + Send),
     ) -> Result<String, ToolError> {
         const CHUNK: u64 = 1024 * 1024;
         const TAIL_WINDOW_CAP: u64 = 4 * 1024 * 1024;
