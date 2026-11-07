@@ -103,6 +103,9 @@ pub struct ReviewDiffGetParams {
     pub known: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// Leave the patch text out of a turn review (today's `getTurnReviewDiff {summary: true}`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<bool>,
 }
 
 /// Channel-bridge tool call (today's channel `POST /call`).

@@ -16,6 +16,7 @@ import { providerConnected } from './setup-facts';
 import { record } from './record-utils';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { getCachedConnectionInfo } from './settings/connection-info';
+import { invokeOrHeld } from './section-capabilities';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { setStarterGuideBlocking } from './starter-guide-gate';
 import { StarterTour, StarterWelcome, type TourStop } from './StarterTour';
@@ -345,7 +346,7 @@ export function StarterGuide({
   // when the config copy lacks any of it.
   useEffect(() => {
     let live = true;
-    Promise.resolve(api?.invokeCapability?.({ capability: 'getOnboardingStatus' }))
+    Promise.resolve(invokeOrHeld(api, { capability: 'getOnboardingStatus' }))
       .then((result) => {
         if (!live) return;
         const status = record(result?.value);

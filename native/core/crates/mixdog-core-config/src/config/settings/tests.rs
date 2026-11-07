@@ -89,7 +89,9 @@ async fn reads_and_setters_match_the_recorded_node_settings() {
                 "setProfile" => s.set_profile(&args[0]).await,
                 // The answer is the updater's view; only the stored switch is ours.
                 "setAutoUpdate" => s.set_auto_update(&args[0]).await.map(|()| setter["value"].clone()),
-                "saveStarterGuideState" => s.save_starter_guide_state(&args[0]).await,
+                // The recorder kept the guide of the status Node answers; the status itself is
+                // pinned by `save_starter_guide_state_answers_the_onboarding_status`.
+                "saveStarterGuideState" => s.save_starter_guide_state(&args[0]).await.map(|status| status["starterGuide"].clone()),
                 other => panic!("unknown setter {other}"),
             };
             let label = format!("entry {index} {method} {args:?}");
@@ -132,6 +134,27 @@ async fn theme_resolves_and_persists_like_the_tui() {
     assert_eq!(s.theme(), json!("indigo"), "persist:false stores nothing");
     s.set_theme(&json!("rosepine"), &Value::Null).await.unwrap();
     assert_eq!(s.config.get("ui.theme"), Some(json!("rosepine")));
+}
+
+// `settings-profile-api.mjs` `saveStarterGuideState` returns `this.getOnboardingStatus()`; the
+// values of the first assertions are those of `settings-profile-api.test.mjs`.
+#[tokio::test]
+async fn save_starter_guide_state_answers_the_onboarding_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let onboarding = json!({ "completed": true, "version": 3, "completedAt": "then" });
+    let (s, _) = settings(&dir, &json!({ "onboarding": onboarding }), None).await;
+    let status = s
+        .save_starter_guide_state(&json!({ "closed": true, "welcomed": true, "visited": ["workflow", "project", "project"] }))
+        .await
+        .unwrap();
+    assert_eq!(status["completed"], json!(true));
+    assert_eq!(status["version"], json!(3));
+    assert_eq!(status["starterGuide"], json!({ "closed": true, "welcomed": true, "visited": ["project", "workflow"] }));
+    assert!(status["workflowRoutes"].is_object());
+    let mut keys: Vec<&String> = status.as_object().unwrap().keys().collect();
+    keys.sort();
+    assert_eq!(keys, ["completed", "default", "starterGuide", "version", "workflowRoutes"]);
+    assert_eq!(s.config.agent()["onboarding"]["completedAt"], json!("then"));
 }
 
 #[tokio::test]

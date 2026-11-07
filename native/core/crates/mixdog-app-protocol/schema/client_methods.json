@@ -2958,7 +2958,7 @@
           "type": "string"
         },
         {
-          "description": "`notifications.devices.<id>` only: the value is a partial record merged onto the stored one, `events` and `quietHours` key by key; a device with none stored starts from the default record.",
+          "description": "Config path `notifications.devices.<id>` only: the value is a partial record merged onto the stored one, `events` and `quietHours` key by key; a device with none stored starts from the default record.",
           "enum": [
             "mergePatch"
           ],
@@ -2972,7 +2972,7 @@
           "type": "string"
         },
         {
-          "description": "`notifications.overrides` only: the value is `{target, setting}`; the target's entry is replaced, or removed when the mode is `inherit`, and expired mutes are dropped.",
+          "description": "Config path `notifications.overrides` only: the value is `{target, setting}`; the target entry is replaced, or removed when the mode is `inherit`, and expired mutes are dropped.",
           "enum": [
             "setConversation"
           ],
@@ -12000,6 +12000,13 @@
             "null"
           ]
         },
+        "summary": {
+          "description": "Leave the patch text out of a turn review (today's `getTurnReviewDiff {summary: true}`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "threadId": {
           "type": [
             "string",
@@ -13014,8 +13021,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         }
       },
       "type": "object"
@@ -13122,7 +13128,6 @@
     "ThreadContext": {
       "properties": {
         "autoCompactTokenLimit": {
-          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -13137,7 +13142,6 @@
           ]
         },
         "contextPercent": {
-          "default": null,
           "format": "double",
           "type": [
             "number",
@@ -13152,7 +13156,6 @@
           ]
         },
         "contextWindow": {
-          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -13160,7 +13163,6 @@
           ]
         },
         "displayContextWindow": {
-          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -14227,6 +14229,13 @@
     },
     "ThreadQueueDeleteParams": {
       "properties": {
+        "currentText": {
+          "description": "The composer's text when the entry is handed back (today's `restoreQueued` first argument): the reply's `text` ends with it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
         },
@@ -14620,7 +14629,6 @@
           ]
         },
         "effort": {
-          "default": null,
           "type": [
             "string",
             "null"
@@ -14686,7 +14694,6 @@
           ]
         },
         "turnEffort": {
-          "default": null,
           "type": [
             "string",
             "null"
@@ -14697,9 +14704,7 @@
     },
     "ThreadRuntime": {
       "properties": {
-        "activeTools": {
-          "default": null
-        },
+        "activeTools": true,
         "busy": {
           "default": false,
           "type": "boolean"
@@ -14716,15 +14721,9 @@
           "default": false,
           "type": "boolean"
         },
-        "commandStatus": {
-          "default": null
-        },
-        "progressHint": {
-          "default": null
-        },
-        "spinner": {
-          "default": null
-        },
+        "commandStatus": true,
+        "progressHint": true,
+        "spinner": true,
         "storage": {
           "anyOf": [
             {
@@ -14735,9 +14734,7 @@
             }
           ]
         },
-        "thinking": {
-          "default": null
-        },
+        "thinking": true,
         "toasts": {
           "default": [],
           "items": true,
@@ -15037,7 +15034,7 @@
           "type": "string"
         },
         {
-          "description": "The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in the task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.",
+          "description": "The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in\nthe task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.",
           "enum": [
             "control"
           ],
@@ -16608,7 +16605,11 @@
     "TurnSteerParams": {
       "properties": {
         "expectedTurnId": {
-          "type": "string"
+          "description": "Absent: the core steers the thread's active turn (today's `prioritizeQueued` names none).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "queuedId": {
           "type": "string"
@@ -16618,7 +16619,6 @@
         }
       },
       "required": [
-        "expectedTurnId",
         "queuedId",
         "threadId"
       ],

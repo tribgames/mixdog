@@ -543,15 +543,6 @@ export class CaptureService implements DesktopService {
     requests: ReadonlyArray<DesktopCapabilityReadRequest>
   ): Promise<DesktopCapabilityReadResult[]> {
     return requests.map((request) => {
-      if (request.capability === 'listThemes') {
-        return {
-          ok: true,
-          value: [
-            { id: 'basic', label: 'Basic', description: 'Capture dark theme', current: this.captureTheme === 'basic' },
-            { id: 'light', label: 'Light', description: 'Capture light theme', current: this.captureTheme === 'light' },
-          ],
-        };
-      }
       if (request.capability === 'getTheme') return { ok: true, value: this.captureTheme };
       if (Object.hasOwn(CAPTURE_SETTINGS_VALUES, request.capability)) {
         return { ok: true, value: CAPTURE_SETTINGS_VALUES[request.capability] };

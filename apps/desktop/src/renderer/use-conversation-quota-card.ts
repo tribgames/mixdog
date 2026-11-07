@@ -6,6 +6,7 @@ import type { Snapshot, TranscriptItem } from './desktop-types';
 import { modelDisplayName } from './provider-display';
 import { latestQuotaFailure, quotaDismissKey, quotaPanelVisible, quotaStopIsNew } from './quota-continue';
 import { record } from './record-utils';
+import { invokeOrHeld } from './section-capabilities';
 import { t } from './i18n';
 
 /** The account roster says the user picks the account by hand and another
@@ -97,7 +98,7 @@ export function useConversationQuotaCard({
     let current = true;
     void Promise.resolve()
       .then(() =>
-        window.mixdogDesktop.invokeCapability({ capability: 'getProviderAccounts', args: [exhaustedProvider] })
+        invokeOrHeld(window.mixdogDesktop, { capability: 'getProviderAccounts', args: [exhaustedProvider] })
       )
       .then(
         (response) => {

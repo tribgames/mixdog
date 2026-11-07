@@ -556,6 +556,10 @@ impl RunControl for SessionHandle {
         self.cell.steer(expected_turn, QueuedId::from(queued))
     }
 
+    fn active_turn(&self) -> Option<TurnId> {
+        self.cell.run.load_full().map(|run| run.turn.clone())
+    }
+
     fn decide(&self, decision: Decision) -> Result<(), CoreError> {
         self.cell.decide(decision)
     }

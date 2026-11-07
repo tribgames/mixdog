@@ -39,6 +39,10 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::state::SectionChange;
+use mixdog_core_api::turn_review::ChangesRead;
+use mixdog_core_api::turn_review::ReviewError;
+use mixdog_core_api::turn_review::ReviewRead;
+use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_api::DomainService;
 use mixdog_protocol::FeedId;
 use mixdog_protocol::LoginFlowId;
@@ -74,6 +78,14 @@ pub trait ReviewBases: Send + Sync {
     ) -> Option<(PathBuf, ObjectId)>;
 }
 
+/// The working directory of a thread (the `cwd` of its header): what Node's session review reads
+/// resolve against (`getCwd()`).
+#[async_trait]
+pub trait ThreadWorktrees: Send + Sync {
+    /// `Ok(None)`: no such thread. `Err`: the record read never ran.
+    async fn cwd(&self, thread: &ThreadId) -> Result<Option<String>, CoreError>;
+}
+
 const GATE_OFF: &str = "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.";
 
 struct GitWatch {
@@ -94,7 +106,8 @@ pub struct ScmService {
     feeds: Arc<dyn ScopedFeeds>,
     publisher: Arc<dyn StatePublisher>,
     gate: Arc<dyn FeatureGate>,
-    bases: Arc<dyn ReviewBases>,
+    reviews: Arc<dyn TurnReviewApi>,
+    worktrees: Arc<dyn ThreadWorktrees>,
     login: crate::gh::login::GithubLogin,
     flows: Mutex<HashMap<LoginFlowId, Arc<Flow>>>,
     flow_seq: AtomicU64,
@@ -106,6 +119,11 @@ fn invalid(error: serde_json::Error) -> CoreError {
         path: "params".into(),
         expected: error.to_string().into(),
     }
+}
+
+/// A turn-review failure, with the message Node's error carried.
+fn review_error(error: ReviewError) -> CoreError {
+    CoreError::DomainError { domain: "turnReview".into(), code: None, message: Some(error.message.into()), detail: None }
 }
 
 fn decode<T: DeserializeOwned>(req: &CoreRequest) -> Result<T, CoreError> {
@@ -187,7 +205,8 @@ impl ScmService {
         feeds: Arc<dyn ScopedFeeds>,
         publisher: Arc<dyn StatePublisher>,
         gate: Arc<dyn FeatureGate>,
-        bases: Arc<dyn ReviewBases>,
+        reviews: Arc<dyn TurnReviewApi>,
+        worktrees: Arc<dyn ThreadWorktrees>,
     ) -> Arc<Self> {
         Arc::new(Self {
             login: scm.github_login(),
@@ -195,7 +214,8 @@ impl ScmService {
             feeds,
             publisher,
             gate,
-            bases,
+            reviews,
+            worktrees,
             flows: Mutex::new(HashMap::new()),
             flow_seq: AtomicU64::new(0),
             watches: Mutex::new(HashMap::new()),
@@ -337,30 +357,49 @@ impl ScmService {
         Ok(initial)
     }
 
+    /// The turn and session reviews of a thread, answered by the turn review exactly as Node's
+    /// `getTurnReviewDiff`, `getTurnReviewFilePatch`, `getTurnChanges`, `getSessionReviewDiff`
+    /// and `getSessionReviewFilePatch` do. What picks the read: the scope, a `checkpointId`
+    /// (`getTurnChanges`, which also takes `patch` and the file as `path`), a `path` (one file's
+    /// patch, a rename's source as `oldPath`), else the review itself (`summary`, `known`).
+    async fn thread_review(&self, params: ReviewDiffGetParams) -> Result<Value, CoreError> {
+        let thread = params.thread_id.clone().ok_or_else(|| CoreError::InvalidParams { path: "threadId".into(), expected: "a thread id".into() })?;
+        let session = thread.as_str();
+        let reply = match (params.scope, params.checkpoint_id.as_deref(), params.path.as_deref()) {
+            (WireReviewScope::Turn, Some(checkpoint), file) => {
+                let read = ChangesRead { checkpoint_id: checkpoint.to_owned(), patch: params.patch == Some(true), file: file.map(str::to_owned) };
+                self.reviews.turn_changes(session, read).await.map_err(review_error)?
+            }
+            (WireReviewScope::Turn, None, Some(file)) => self.reviews.turn_review_file_patch("", session, file).await,
+            (WireReviewScope::Turn, None, None) => {
+                let read = ReviewRead { known: params.known.clone(), summary: params.summary == Some(true) };
+                self.reviews.turn_review_diff("", session, read).await
+            }
+            (WireReviewScope::Repo, ..) => {
+                return Err(CoreError::InvalidParams { path: "scope".into(), expected: "turn or session".into() });
+            }
+            (WireReviewScope::Session, _, file) => {
+                let worktree = self.worktrees.cwd(&thread).await?.ok_or_else(|| CoreError::InvalidParams {
+                    path: "threadId".into(),
+                    expected: "a thread with a working directory".into(),
+                })?;
+                match file {
+                    Some(file) => self.reviews.session_review_file_patch(&worktree, session, file, params.old_path.as_deref().unwrap_or("")).await,
+                    None => self.reviews.session_review_diff(&worktree, session).await,
+                }
+            }
+        };
+        Ok(Value::Object(reply))
+    }
+
     async fn review_get(self: &Arc<Self>, params: ReviewDiffGetParams, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         // A repository review (`scope: repo`) answers in the pane's own shapes, by request form;
         // `base_name` is set for it alone.
-        let (root, base, base_name) = match params.scope {
-            WireReviewScope::Repo => {
-                let dir = cwd(params.cwd.as_deref().unwrap_or(""))?;
-                let repo = self.scm.open(&dir, cancel).await?;
-                let root = repo.root()?.to_path_buf();
-                let (name, base) = review::repo_base(&self.scm.git, cancel, &root, params.source.as_deref().unwrap_or("branch")).await?;
-                (root, base, Some(name))
-            }
-            scope => {
-                let thread = params
-                    .thread_id
-                    .clone()
-                    .ok_or_else(|| ScmFailure::invalid("threadId", "a thread id"))?;
-                let (root, base) = self
-                    .bases
-                    .base(&thread, scope, params.checkpoint_id.as_deref())
-                    .await
-                    .ok_or_else(|| ScmFailure::refused("REVIEW_UNAVAILABLE", "This review has no recorded starting point."))?;
-                (root, base, None)
-            }
-        };
+        let dir = cwd(params.cwd.as_deref().unwrap_or(""))?;
+        let repo = self.scm.open(&dir, cancel).await?;
+        let root = repo.root()?.to_path_buf();
+        let (name, base) = review::repo_base(&self.scm.git, cancel, &root, params.source.as_deref().unwrap_or("branch")).await?;
+        let base_name = Some(name);
         let repo = self.scm.open(&root, cancel).await?;
         let request = ReviewRequest {
             repo: repo.repo_ref()?,
@@ -375,38 +414,6 @@ impl ScmService {
         let key = key_text(&summary.key);
         if params.known.as_deref() == Some(key.as_str()) {
             return Ok(json!({ "key": key, "unchanged": true }));
-        }
-        // `gitReviewDiffs`: one answer for the whole list, `{patches, omitted}` as Node builds it.
-        if base_name.is_some() && params.files.is_some() {
-            let requested: Vec<review::BatchFile> = params
-                .files
-                .iter()
-                .flatten()
-                .filter_map(|file| {
-                    Some(review::BatchFile {
-                        path: file.get("path")?.as_str()?.to_owned(),
-                        untracked: file.get("untracked").and_then(Value::as_bool) == Some(true),
-                    })
-                })
-                .collect();
-            let mut held: HashMap<String, String> = HashMap::new();
-            let mut pending = None;
-            for file in &requested {
-                if review::batch_unmatchable(&file.path) || held.contains_key(&file.path) {
-                    continue;
-                }
-                match self.scm.inspector.review_page(&summary.key, Some(&file.path), None).map_err(crate::mutate::scm_error)? {
-                    Cached::Ready(page) => {
-                        held.insert(file.path.clone(), page.patch);
-                    }
-                    Cached::Pending { key } => pending = Some(key_text(&key)),
-                }
-            }
-            let mut reply = review::review_batch(&requested, |path| held.get(path).cloned().unwrap_or_default());
-            if let Some(key) = pending {
-                reply["pending"] = json!({ "key": key });
-            }
-            return Ok(reply);
         }
         let files: Vec<Value> = summary
             .files
@@ -447,6 +454,14 @@ impl ScmService {
             }
         }
         if let Some(name) = base_name {
+            // `gitReviewDiffs`: `{patches, omitted}`.
+            if params.files.is_some() {
+                let mut shaped = json!({ "patches": out["patches"], "omitted": [] });
+                if let Some(pending) = out.get("pending") {
+                    shaped["pending"] = pending.clone();
+                }
+                return Ok(shaped);
+            }
             // `gitReviewDiff`: the patch text itself.
             if params.path.is_some() {
                 return Ok(match out.get("patch") {
@@ -607,7 +622,13 @@ impl ScmService {
             "github/pr/create" => { let p: p::GithubPrCreateParams = decode(req)?; scm.gh_pr_create(&cwd(&p.cwd)?, cancel, &p.value).await? }
             "github/pr/checkout" => { let p: p::GithubPrCheckoutParams = decode(req)?; scm.gh_pr_checkout(&cwd(&p.cwd)?, cancel, &p.value).await? }
             "github/pr/merge" => { let p: p::GithubPrMergeParams = decode(req)?; scm.gh_pr_merge(&cwd(&p.cwd)?, cancel, &p.value, &p.method).await? }
-            "review/diff/get" => self.review_get(decode(req)?, cancel).await?,
+            "review/diff/get" => {
+                let p: ReviewDiffGetParams = decode(req)?;
+                match p.scope {
+                    WireReviewScope::Repo => self.review_get(p, cancel).await?,
+                    WireReviewScope::Turn | WireReviewScope::Session => self.thread_review(p).await?,
+                }
+            }
             other => return Err(CoreError::InvalidParams { path: "method".into(), expected: format!("a method of git, github or review, not {other}").into() }),
         };
         Ok(Reply::Value(value))

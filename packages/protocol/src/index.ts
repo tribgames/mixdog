@@ -3157,7 +3157,11 @@ patch?: boolean,
 /**
  * The client's review key; an unchanged review answers `{unchanged:true}`.
  */
-known?: string, cursor?: string, };
+known?: string, cursor?: string,
+/**
+ * Leave the patch text out of a turn review (today's `getTurnReviewDiff {summary: true}`).
+ */
+summary?: boolean, };
 
 export type ReviewScope = "turn" | "session" | "repo";
 
@@ -3505,7 +3509,7 @@ export type ThreadClearSessionChangeHistoryParams = { opId: OpId, threadId?: Thr
 
 export type ThreadCompactStartParams = { threadId: ThreadId, opId: OpId, options?: JsonValue, };
 
-export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, contextWindow: number, displayContextWindow: number, autoCompactTokenLimit: number, stats?: JsonValue, };
+export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, contextWindow?: number, displayContextWindow?: number, autoCompactTokenLimit?: number, stats?: JsonValue, };
 
 /**
  * Params of `thread/contextStatus`.
@@ -3698,7 +3702,12 @@ submissionId?: string,
 /**
  * Hand the entry back to the composer.
  */
-restore: boolean, };
+restore: boolean,
+/**
+ * The composer's text when the entry is handed back (today's `restoreQueued` first
+ * argument): the reply's `text` ends with it.
+ */
+currentText?: string, };
 
 export type ThreadReadParams = { threadId: ThreadId, window?: ResumeWindow, includeTurns?: boolean, };
 
@@ -4214,7 +4223,11 @@ export type TurnStartResponse = { "kind": "started", turnId: TurnId, } | { "kind
 
 export type TurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
 
-export type TurnSteerParams = { threadId: ThreadId, expectedTurnId: TurnId, queuedId: QueuedId, };
+export type TurnSteerParams = { threadId: ThreadId,
+/**
+ * Absent: the core steers the thread's active turn (today's `prioritizeQueued` names none).
+ */
+expectedTurnId?: TurnId, queuedId: QueuedId, };
 
 /**
  * Fixed C0 reply (R12).
@@ -13018,7 +13031,7 @@ export const methodTable = {
         "relay"
       ],
       "params": "FsWatchParams",
-      "result": "v2::feed::Subscription",
+      "result": "JsonValue",
       "scope": {
         "field": "watchId",
         "kind": "fsWatch"
@@ -14881,7 +14894,7 @@ export const methodTable = {
       "result": "JsonValue",
       "scope": {
         "field": "tabId",
-        "kind": "terminalOrNone"
+        "kind": "terminal"
       }
     },
     {
@@ -14899,7 +14912,7 @@ export const methodTable = {
         "relay"
       ],
       "params": "TerminalAttachParams",
-      "result": "JsonValue",
+      "result": "v2::feed::Subscription",
       "scope": {
         "field": "tabId",
         "kind": "terminal"

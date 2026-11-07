@@ -341,6 +341,8 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         &inputs.tokens,
     );
     let workflow_config_concrete = workflow_config.clone();
+    // `presets`, `webSearch` and `workflows`: the pushed form of `listPresets`, `getWebSearchRoute` and `listWorkflows`.
+    mixdog_core_config::workflow::sections::spawn_sections(workflow_config.clone(), state.publisher.clone(), inputs.cancel.clone());
     let workflow: Arc<dyn DomainService> = workflow_config.clone();
     services.push(workflow.clone());
     services.push(Arc::new(BrowserService::new(inputs.host.clone())));
@@ -406,8 +408,6 @@ pub async fn compose_domains_post(inputs: &DomainInputs, post: PostSeams, pre: P
     let PreDomains { mut services, mut transfer_sources, state, config, tool_modules, watcher, late, extensions, setup_requests, update_cell, .. } = pre;
     let rows = rows::build(inputs, &config, state.publisher.clone(), tool_modules.clone(), post.session_attachments).await?;
     update_cell.bind(rows.update.clone());
-    // Node starts its self-update controller's boot check with the runtime (`wireSelfUpdate`).
-    let _ = rows.update.start_boot_check();
     services.extend(rows.services);
     transfer_sources.extend(rows.transfer_sources);
     // `import/*`: built over the session layer's side of an import, which exists only now.

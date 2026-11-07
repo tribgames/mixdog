@@ -31,6 +31,7 @@ import type {
   ProviderModelsChange,
 } from '../shared/contract';
 import { record, rows } from './record-utils';
+import { readHeldCapability } from './section-capabilities';
 import { sectionStoreFor } from './section-store';
 import type { RecordValue } from './desktop-types';
 
@@ -190,7 +191,6 @@ const SECTION_OF: Partial<Record<SidebarReferenceKey, string>> = {
   agents: 'agents',
   providerSetup: 'providerSetup',
   webSearchRoute: 'webSearch',
-  webSearchModels: 'webSearch',
 };
 
 async function pushed(api: SidebarReferenceApi, section: string): Promise<unknown> {
@@ -210,8 +210,10 @@ const LOADERS: { [K in SidebarReferenceKey]: Loader<K> } = {
   workflows: async (api) => rows(await pushed(api, 'workflows')),
   agents: async (api) => rows(await pushed(api, 'agents')),
   providerSetup: async (api) => requireDesktopProviders(await pushed(api, 'providerSetup')),
-  webSearchRoute: async (api) => record(record(await pushed(api, 'webSearch')).route),
-  webSearchModels: async (api) => rows(record(await pushed(api, 'webSearch')).models),
+  // The `webSearch` section is `getWebSearchRoute()`'s value; the model rows are `account/listWebSearchModels`.
+  webSearchRoute: async (api) => record(await pushed(api, 'webSearch')),
+  webSearchModels: async (api, force) =>
+    rows(await capability(api, 'listWebSearchModels', [{ quick: false, ...(force ? { force: true } : {}) }])),
 };
 
 let followedSections: (() => void) | undefined;
@@ -494,6 +496,17 @@ export function invalidateSidebarReferenceForMutation(mutation: string): boolean
 type PresetsResult = Awaited<ReturnType<NonNullable<SidebarReferenceApi['invokeCapability']>>>;
 const presetsRequests = new Map<SidebarReferenceApi, Promise<PresetsResult>>();
 
+/** The presets from the `presets` section when the store holds it, with the shell snapshot the host holds (the Main
+ *  route readers take from the same answer); else the capability. */
+async function readPresets(
+  api: SidebarReferenceApi & { getSnapshot?: DesktopApi['getSnapshot'] },
+  invoke: NonNullable<SidebarReferenceApi['invokeCapability']>
+): Promise<PresetsResult> {
+  const held = await readHeldCapability('listPresets', [], sectionStoreFor(api));
+  if (!held) return invoke.call(api, { capability: 'listPresets' });
+  return { value: held.value, snapshot: await api.getSnapshot?.() } as PresetsResult;
+}
+
 /** listPresets answers with both the presets and the host's Main-route
  *  snapshot, and several readers ask on one setup notification. Overlapping
  *  reads on one host share a single daemon call; nothing is kept after it
@@ -503,7 +516,7 @@ export function listPresetsShared(api: SidebarReferenceApi | undefined): Promise
   if (!api || !invoke) return Promise.resolve(undefined);
   const pending = presetsRequests.get(api);
   if (pending) return pending;
-  const promise = Promise.resolve(invoke.call(api, { capability: 'listPresets' }));
+  const promise = Promise.resolve(readPresets(api, invoke));
   presetsRequests.set(api, promise);
   const release = () => {
     if (presetsRequests.get(api) === promise) presetsRequests.delete(api);

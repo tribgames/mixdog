@@ -32,6 +32,7 @@ import {
 import { CategoryPanel } from './capability-panels';
 import { friendlyCapabilityError } from './remote-capability-guard';
 import { errorMessage } from '../editor-pane-session-errors';
+import { invokeOrHeld } from '../section-capabilities';
 import { isSshConnectionWindow } from '../desktop-connection';
 export { getCachedCapabilitySettings, preloadCapabilitySettings } from './capability-data';
 export { OAuthControl } from './capability-panels';
@@ -222,7 +223,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           setError('');
         }
         try {
-          const result = await api.invokeCapability!<T>({ capability, args });
+          const result = (await invokeOrHeld<T>(api, { capability, args }))!;
           // Authoritative completion boundary for every settings mutation: only
           // a resolved call invalidates the sidebar reference keys it makes
           // untrue (provider setup/model catalogs, search route, agents).

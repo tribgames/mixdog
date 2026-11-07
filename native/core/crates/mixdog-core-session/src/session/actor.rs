@@ -624,6 +624,54 @@ fn prompt_text(input: &TurnInput) -> String {
     }
 }
 
+/// `restoreQueued`'s reply (`take-entries.mjs`): the taken entries' text (`(id, text)`), joined
+/// with the composer's, each part only when it is not blank. Pasted images and texts live in
+/// the entries' attachments, which the prompt text above does not carry.
+fn restored_reply(taken: &[(&str, &str)], current_text: Option<&str>) -> Value {
+    let present = |text: &&str| !mixdog_js::js_trim(text).is_empty();
+    let queued_text = taken.iter().map(|(_, text)| *text).filter(present).collect::<Vec<_>>().join("\n");
+    let combined = [queued_text.as_str(), current_text.unwrap_or("")].into_iter().filter(present).collect::<Vec<_>>().join("\n");
+    json!({
+        "count": taken.len(),
+        "ids": taken.iter().map(|(id, _)| *id).filter(|id| !id.is_empty()).collect::<Vec<_>>(),
+        "text": combined,
+        "pastedImages": [],
+        "pastedTexts": [],
+    })
+}
+
+// The expectations follow `take-entries.mjs` `restoreQueued`: queued text first, each part only
+// when not blank, joined with a newline; a missed entry answers the composer's own text.
+#[cfg(test)]
+mod restored_reply_tests {
+    use super::restored_reply;
+    use serde_json::json;
+
+    #[test]
+    fn the_taken_text_comes_before_the_composers() {
+        assert_eq!(
+            restored_reply(&[("q1", "hello")], Some("draft")),
+            json!({ "count": 1, "ids": ["q1"], "text": "hello\ndraft", "pastedImages": [], "pastedTexts": [] })
+        );
+        assert_eq!(restored_reply(&[("q1", "hello")], None)["text"], json!("hello"));
+    }
+
+    #[test]
+    fn blank_parts_are_left_out() {
+        assert_eq!(restored_reply(&[("q1", "  ")], Some("draft"))["text"], json!("draft"));
+        assert_eq!(restored_reply(&[("q1", "  ")], Some(" "))["text"], json!(""));
+        assert_eq!(restored_reply(&[("q1", "  ")], Some(" "))["count"], json!(1));
+    }
+
+    #[test]
+    fn nothing_taken_counts_zero() {
+        assert_eq!(
+            restored_reply(&[], Some("draft")),
+            json!({ "count": 0, "ids": [], "text": "draft", "pastedImages": [], "pastedTexts": [] })
+        );
+    }
+}
+
 impl SessionActor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -3396,6 +3444,14 @@ impl SessionActor {
                 return Ok(());
             }
         }
+        // `restoreQueued` of an entry that is not queued (it started, or was taken) answers
+        // `count: 0` and the composer's own text, not an error.
+        if req.method.as_str() == "thread/queue/delete" {
+            if let Some(reply) = self.restore_miss(&req) {
+                let _ = tx.send(Ok(Reply::Value(reply)));
+                return Ok(());
+            }
+        }
         let result = match req.method.as_str() {
             "turn/start" => self.turn_start(&req),
             "thread/queue/delete" => self.queue_delete(&req),
@@ -3535,6 +3591,15 @@ impl SessionActor {
         })
     }
 
+    /// The `restoreQueued` reply of a hand-back whose entry is not in the queue; `None` for any
+    /// other request (a malformed one fails in [`Self::queue_delete`]).
+    fn restore_miss(&self, req: &CoreRequest) -> Option<Value> {
+        let params: ThreadQueueDeleteParams = parse(&req.params, "ThreadQueueDeleteParams").ok()?;
+        let qid = params.queued_id?;
+        let queued = self.projected.queue.iter().any(|q| q.qid == qid.as_str());
+        (params.restore && !queued).then(|| restored_reply(&[], params.current_text.as_deref()))
+    }
+
     fn queue_delete(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
         let params: ThreadQueueDeleteParams = parse(&req.params, "ThreadQueueDeleteParams")?;
         let qid = params
@@ -3548,7 +3613,15 @@ impl SessionActor {
                 queued_id: qid,
             });
         };
-        let value = json!({});
+        let text: String = serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
+            .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
+            .unwrap_or_default();
+        // A hand-back answers Node's `restoreQueued` reply; a plain delete answers `{}`.
+        let value = if params.restore {
+            restored_reply(&[(queued.qid.as_str(), text.as_str())], params.current_text.as_deref())
+        } else {
+            json!({})
+        };
         let record = Record::Queue(QueueRecord {
             qid: id(&queued.qid),
             action: QueueAction::Dequeue,
@@ -3558,9 +3631,6 @@ impl SessionActor {
         });
         let mut extra = Vec::new();
         if params.restore {
-            let text: String = serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
-                .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
-                .unwrap_or_default();
             let device = match req.ctx.caller {
                 Caller::Connection(connection) => self.deps.devices.describe(connection).device,
                 Caller::Internal(name) => name.to_owned(),
