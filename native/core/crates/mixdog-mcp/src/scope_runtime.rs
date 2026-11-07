@@ -230,7 +230,7 @@ impl ScopeRuntime {
     }
 
     /// The runtime scope once its first connect has settled (waiting for it if it is still
-    /// connecting): what a read with no session behind it reads. `None`: it was never started
+    /// connecting), without starting it: an observation. `None`: it was never started
     /// ([`open_runtime`](Self::open_runtime)) or was released.
     pub async fn runtime_ready(&self) -> Option<String> {
         let cell = self.cell(self.hub.runtime_scope())?;

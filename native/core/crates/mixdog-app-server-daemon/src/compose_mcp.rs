@@ -1101,6 +1101,22 @@ mod tests {
         let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
         assert_eq!(status["servers"][0]["status"], "failed", "a read with no session reads the runtime scope");
     }
+    /// A read with no session that arrives before the boot's spawn has run (or in a composition that never
+    /// spawns it) connects the runtime scope itself instead of failing, and the boot's start that follows
+    /// waits for that connect and opens no second connection set.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_thread_less_read_before_the_boot_spawn_connects_the_runtime_scope() {
+        let Composed { composed, extensions, .. } = compose_over(Arc::new(Quiet)).await;
+        let mut agent = extensions.agent();
+        agent.insert("mcpServers".to_owned(), serde_json::json!({"ghost": {"command": "mixdog-no-such-server-binary"}}));
+        extensions.save_agent(&extensions.agent(), &agent).await.unwrap();
+        let hub = composed.glue.hub();
+        assert!(hub.servers_in(hub.runtime_scope()).is_empty(), "nothing started the runtime scope");
+        let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
+        assert_eq!(status["servers"][0]["status"], "failed", "the read connected the runtime scope and read it");
+        composed.glue.start_runtime_scope().await.unwrap();
+        assert_eq!(hub.servers_in(hub.runtime_scope()).len(), 1, "the boot's start after the read opens no second connection set");
+    }
     /// The control thread (`thread/start{kind:"control"}`) is seeded in the runtime scope, so a call
     /// naming it and a call naming no thread read the same servers of the same scope, and no second
     /// connection set exists besides the runtime scope and the sessions' own.
