@@ -17,18 +17,16 @@ use super::dispatch::{self, Env};
 use super::federation::TrustSnapshot;
 
 /// A recorded path with `<ROOT>` forward-slashed, the way the recorder writes it.
-fn scrub(text: &str, ws: &Path, fs_root: &Path) -> String {
+fn scrub(text: &str, ws: &Path, fs_root: &Path, above: Option<&Path>) -> String {
     let ws_text = ws.display().to_string();
-    // The recorder ran under a tree with no sentinel above it, so Node's refusal never names one. A sentinel the
-    // machine keeps above the temp dir (a `package.json` in the home dir) is named by this port as Node would on that
-    // machine (`root-resolution.mjs:138`); it is the host's, not the case's, so it is not compared.
-    let text = ws.ancestors().skip(1).fold(text.to_owned(), |text, host| {
-        text.replace(&format!("The nearest sentinel is at '{}' (home/temp), which is never auto-adopted. ", host.display()), "")
-    });
     let text = text
         .replace(&ws_text, "<ROOT>")
         .replace(&ws_text.replace('\\', "/"), "<ROOT>")
         .replace(&format!("'{}'", fs_root.display()), "'<FSROOT>'");
+    let text = match above {
+        Some(above) => text.replace(&format!("'{}'", above.display()), "'<ABOVE>'"),
+        None => text,
+    };
     let mut out = String::new();
     let mut rest = text.as_str();
     while let Some(at) = rest.find("<ROOT>") {
@@ -64,7 +62,22 @@ fn routing_matches_the_node_goldens() {
     for (name, path) in entries {
         let case: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         let tmp = tempfile::tempdir().unwrap();
-        let ws = tmp.path().join("ws");
+        // Node's recorder ran every case on a tree of its own: nothing above it for the walk to find. The walk here ends
+        // at the tempdir, so a stray `package.json` above the host's temp dir cannot leak into a refusal. A case that
+        // records a sentinel above the temp boundary (`ancestors`) has the recorder's layout: `above[/package.json]`,
+        // `above/temp` standing for the temp dir, the workspace in it.
+        let ancestors = case.get("ancestors").and_then(Value::as_str);
+        let above = ancestors.map(|_| tmp.path().join("above"));
+        let (ws, boundaries) = match &above {
+            Some(above) => (above.join("temp").join("ws"), Some(vec![above.join("temp")])),
+            None => (tmp.path().join("ws"), None),
+        };
+        if ancestors == Some("sentinel") {
+            let above = above.as_ref().unwrap();
+            fs::create_dir_all(above).unwrap();
+            fs::write(above.join("package.json"), "{\"name\":\"p\"}\n").unwrap();
+        }
+        super::roots::LAYOUT.with(|l| *l.borrow_mut() = Some(super::roots::Layout { root: tmp.path().to_path_buf(), boundaries }));
         for (rel, text) in workspace["files"].as_object().unwrap() {
             let target = ws.join(rel);
             fs::create_dir_all(target.parent().unwrap()).unwrap();
@@ -89,8 +102,8 @@ fn routing_matches_the_node_goldens() {
         let got = dispatch::run(&Args::parse(&input), &cwd, &env);
         cases += 1;
         let (text, roots, complete) = match &got {
-            Ok(answer) => (Ok(scrub(&answer.text, &ws, &fs_root)), answer.dependency_roots.clone(), answer.complete),
-            Err(message) => (Err(scrub(message, &ws, &fs_root)), None, true),
+            Ok(answer) => (Ok(scrub(&answer.text, &ws, &fs_root, above.as_deref())), answer.dependency_roots.clone(), answer.complete),
+            Err(message) => (Err(scrub(message, &ws, &fs_root, above.as_deref())), None, true),
         };
         let want_text = match case.get("thrown") {
             Some(thrown) => Err(thrown.as_str().unwrap().to_owned()),
@@ -105,7 +118,7 @@ fn routing_matches_the_node_goldens() {
             let mut got_roots: Vec<String> = roots
                 .unwrap_or_default()
                 .iter()
-                .map(|root| if root == &fs_root { "<FSROOT>".to_owned() } else { scrub(&root.display().to_string(), &ws, &fs_root) })
+                .map(|root| if root == &fs_root { "<FSROOT>".to_owned() } else { scrub(&root.display().to_string(), &ws, &fs_root, above.as_deref()) })
                 .collect();
             got_roots.sort();
             got_roots.dedup();

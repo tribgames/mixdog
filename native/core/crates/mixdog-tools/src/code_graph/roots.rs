@@ -58,8 +58,25 @@ fn canonical_key(path: &Path) -> String {
     path_key(&std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 
+/// A test's own tree: the ancestor walk ends at `root` (nothing above it exists to the walk, as under Node's
+/// recorder, which mounted its layout as a drive of its own), and `boundaries` stand for home and temp.
+#[cfg(test)]
+pub(super) struct Layout {
+    pub root: PathBuf,
+    pub boundaries: Option<Vec<PathBuf>>,
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static LAYOUT: std::cell::RefCell<Option<Layout>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Home and temp: an implicit ancestor walk never crosses them.
 fn user_boundaries() -> Vec<String> {
+    #[cfg(test)]
+    if let Some(boundaries) = LAYOUT.with(|l| l.borrow().as_ref().and_then(|l| l.boundaries.clone())) {
+        return boundaries.iter().map(|p| canonical_key(p)).collect();
+    }
     [dirs::home_dir(), Some(std::env::temp_dir())]
         .into_iter()
         .flatten()
@@ -81,6 +98,10 @@ pub(super) fn find_dir_project_root(dir: &Path, stop_at_user_boundary: bool) -> 
     let stops = if stop_at_user_boundary { user_boundaries() } else { Vec::new() };
     let mut current = abs_from(Path::new(""), &dir.to_string_lossy());
     loop {
+        #[cfg(test)]
+        if LAYOUT.with(|l| l.borrow().as_ref().is_some_and(|l| !current.starts_with(&l.root))) {
+            return None;
+        }
         let parent = current.parent()?.to_path_buf();
         if stops.contains(&canonical_key(&current)) {
             return None;

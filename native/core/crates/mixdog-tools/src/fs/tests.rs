@@ -1118,8 +1118,10 @@ fn pin_legacy_environment() -> Vec<(&'static str, String)> {
 #[test]
 fn error_messages_are_redacted_as_node_redacts_them() {
     let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
-    let tokens = pin_legacy_environment();
+    let mut tokens = pin_legacy_environment();
     let cwd = std::env::temp_dir().join("mixdog-legacy-read-env").join("ws").to_string_lossy().replace('\\', "/");
+    // The workspace with the other case of its drive letter (a Windows host compares paths without case).
+    tokens.push(("<WSDRIVELOWER>", format!("{}{}", cwd[..1].to_lowercase(), &cwd[1..])));
     let with = |s: &str| {
         let mut out = s.replace("<WS>", &cwd);
         for (token, path) in &tokens {
@@ -1136,6 +1138,9 @@ fn error_messages_are_redacted_as_node_redacts_them() {
     };
     let mut failures = Vec::new();
     for m in doc["messages"].as_array().unwrap() {
+        if m["windowsOnly"] == true && !cfg!(windows) {
+            continue;
+        }
         let input = with(m["input"].as_str().unwrap());
         let got = back(&super::read_paths::normalize_error_message(&input, m["withCwd"].as_bool().unwrap().then_some(cwd.as_str())));
         if got != m["output"].as_str().unwrap() {

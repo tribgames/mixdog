@@ -48,7 +48,7 @@
     "memory/error-bad-op"
   ],
   "extraImpossible": [],
-  "fileCount": 175,
+  "fileCount": 177,
   "files": [
     {
       "bytes": 702,
@@ -199,6 +199,16 @@
       "bytes": 232,
       "path": "code_graph_cap/under-cap.json",
       "sha256": "203734eaf668f0fefb8d68681dafd2e4110a0a040c2eeedff120403b89a55855"
+    },
+    {
+      "bytes": 577,
+      "path": "code_graph_routing/ancestor-sentinel-absent.json",
+      "sha256": "83e17f1455d154c65235dc645f72eb05a1e27870a991ba799e5ea61116f3207a"
+    },
+    {
+      "bytes": 660,
+      "path": "code_graph_routing/ancestor-sentinel-present.json",
+      "sha256": "5181e45303abd864700021e0d76f39a7cbf4a52357f50c5924aacb04831ecc8f"
     },
     {
       "bytes": 304,
@@ -944,5 +954,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs + record-media-text.mjs",
   "set": "tools",
-  "totalBytes": 2374357
+  "totalBytes": 2375594
 }
