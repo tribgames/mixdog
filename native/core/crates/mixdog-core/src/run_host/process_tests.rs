@@ -298,11 +298,11 @@ async fn every_builder_input_comes_from_the_process_services() {
 async fn a_remote_client_holds_no_model_credentials() {
     let w = world(&[("MIXDOG_MODEL_PROXY", "client"), ("OPENAI_API_KEY", "sk-live")], json!({}), Vec::new()).await;
     let env = builder_env(&w.services);
-    assert!(env.keys.get("openai").await.is_none());
+    assert!(env.keys.get("openai").await.unwrap().is_none());
     // The PC's providers are available whatever the local Developer option says.
     assert!(!(env.gated_off)("cursor-oauth"));
     let local = world(&[("OPENAI_API_KEY", "sk-live")], json!({}), Vec::new()).await;
-    assert_eq!(builder_env(&local.services).keys.get("openai").await.as_deref(), Some("sk-live"));
+    assert_eq!(builder_env(&local.services).keys.get("openai").await.unwrap().as_deref(), Some("sk-live"));
 }
 
 /// The listed rows the recorder fed Node's `setModelEffortCapabilities`, as the subscription

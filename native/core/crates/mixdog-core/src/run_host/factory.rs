@@ -1085,14 +1085,14 @@ mod tests {
         async fn build(&self, _name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
             Ok(self.0.clone())
         }
-        async fn custom_key_ids(&self, _name: &str) -> Vec<String> {
-            Vec::new()
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
         }
         fn available(&self, _name: &str) -> bool {
             true
         }
-        async fn oauth_credentials_usable(&self, _name: &str) -> bool {
-            true
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(true)
         }
     }
 
@@ -1246,11 +1246,11 @@ mod tests {
     struct NoBots;
     #[async_trait::async_trait]
     impl mixdog_core_run::run_host::route_chain::BotRoutes for NoBots {
-        async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
-            None
+        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
         }
-        async fn stored_bot_route(&self, _: &str) -> Option<Value> {
-            None
+        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
         }
     }
 
@@ -1357,8 +1357,7 @@ mod tests {
             tokens: tokens.clone(),
             clock: clock.clone(),
             paths: mixdog_store::paths::Paths { plugin_root: workspace.path().join("plugin"), data_dir: data },
-            provider_builder: Arc::new(OneProvider(provider.clone())),
-            accounting,
+            registry: Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(OneProvider(provider.clone()))).with_accounting(accounting)),
             effort_judge: judge,
             side: super::super::side_requests::SideRequests {
                 store: kept,

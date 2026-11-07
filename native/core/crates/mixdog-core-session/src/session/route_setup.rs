@@ -22,6 +22,7 @@ use mixdog_core_ports::ports::domain_sessions::RouteSetupSessions;
 use mixdog_core_ports::ports::domain_sessions::SessionFacts;
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_run::run_host::route_chain::BotRoutes;
+use mixdog_core_run::run_host::route_chain::RouteReadUnavailable;
 use mixdog_core_ports::ports::domain_sessions::Obj;
 use mixdog_core_run::run_host::route_chain::primary_route;
 use mixdog_core_run::run_host::route_chain::resolve_session_mode;
@@ -61,20 +62,20 @@ impl SessionRouteSetup {
         self.load(id).filter(|session| session.get("closed") != Some(&Value::Bool(true)))
     }
 
-    async fn facts(&self, session: &Value, config: &Obj) -> SessionFacts {
+    async fn facts(&self, session: &Value, config: &Obj) -> Result<SessionFacts, PortError> {
         let mut current = Obj::new();
         for key in ["provider", "model"] {
             if let Some(value) = session.get(key) {
                 current.insert(key.into(), value.clone());
             }
         }
-        SessionFacts {
+        Ok(SessionFacts {
             id: session["id"].as_str().unwrap_or_default().to_owned(),
             acting_agent: acting_agent_of(session),
             current,
             hopped: route_fallback_hopped(session),
-            primary: primary_route(session, config, &*self.bots).await,
-        }
+            primary: primary_route(session, config, &*self.bots).await.map_err(unavailable)?,
+        })
     }
 }
 
@@ -97,6 +98,11 @@ fn session_error(message: impl Into<String>) -> PortError {
     PortError::Failed { capability: "session".into(), message: message.into() }
 }
 
+/// A bot route read that never ran: the route source is unknown, so no position is guessed.
+fn unavailable(error: RouteReadUnavailable) -> PortError {
+    session_error(error.to_string())
+}
+
 /// `ROUTE_FIELDS`, and `routeFields(input)`: only route fields cross, provider and model required.
 fn route_fields(input: Option<&Obj>) -> Result<Obj, PortError> {
     const ROUTE_FIELDS: [&str; 8] =
@@ -116,24 +122,24 @@ fn route_fields(input: Option<&Obj>) -> Result<Obj, PortError> {
 #[async_trait]
 impl RouteSetupSessions for SessionRouteSetup {
     /// `chainReceipt`: nothing for a caller without its own `agent`.
-    async fn caller_chain(&self, thread: &ThreadId, config: &Obj) -> Option<CallerChain> {
-        let caller = self.load(thread.as_str())?;
+    async fn caller_chain(&self, thread: &ThreadId, config: &Obj) -> Result<Option<CallerChain>, PortError> {
+        let Some(caller) = self.load(thread.as_str()) else { return Ok(None) };
         if !truthy(caller.get("agent")) {
-            return None;
+            return Ok(None);
         }
-        let position = route_fallback_position(&caller, config, &*self.bots).await;
-        let source = session_chain_source(&caller, config, &*self.bots).await;
+        let position = route_fallback_position(&caller, config, &*self.bots).await.map_err(unavailable)?;
+        let source = session_chain_source(&caller, config, &*self.bots).await.map_err(unavailable)?;
         let primary = session_route_primary(&caller);
-        Some(CallerChain { position, source_is_primary: same_route_model(source.as_ref(), Some(&primary)) })
+        Ok(Some(CallerChain { position, source_is_primary: same_route_model(source.as_ref(), Some(&primary)) }))
     }
 
-    async fn session(&self, id: &str, config: &Obj) -> Option<SessionFacts> {
-        let session = self.open(id)?;
-        Some(self.facts(&session, config).await)
+    async fn session(&self, id: &str, config: &Obj) -> Result<Option<SessionFacts>, PortError> {
+        let Some(session) = self.open(id) else { return Ok(None) };
+        Ok(Some(self.facts(&session, config).await?))
     }
 
     /// The agent's chats held here (home, room seats), then its home thread.
-    async fn agent_sessions(&self, agent: &str, config: &Obj) -> Vec<SessionFacts> {
+    async fn agent_sessions(&self, agent: &str, config: &Obj) -> Result<Vec<SessionFacts>, PortError> {
         let mut sessions: Vec<Value> = self
             .directory
             .loaded_ids()
@@ -149,9 +155,9 @@ impl RouteSetupSessions for SessionRouteSetup {
         }
         let mut facts = Vec::with_capacity(sessions.len());
         for session in &sessions {
-            facts.push(self.facts(session, config).await);
+            facts.push(self.facts(session, config).await?);
         }
-        facts
+        Ok(facts)
     }
 
     /// `routeControl`: one route method on another session, through the configure lane.
@@ -200,11 +206,11 @@ mod tests {
     struct NoBots;
     #[async_trait]
     impl BotRoutes for NoBots {
-        async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
-            None
+        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
         }
-        async fn stored_bot_route(&self, _: &str) -> Option<Value> {
-            None
+        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
         }
     }
 
@@ -241,14 +247,14 @@ mod tests {
         let setup = SessionRouteSetup::new(directory.clone(), Arc::new(NoBots), calls.clone());
         let config = Obj::new();
 
-        let home = setup.session("sess_home_scout", &config).await.expect("held");
+        let home = setup.session("sess_home_scout", &config).await.unwrap().expect("held");
         assert_eq!((home.acting_agent.as_str(), home.hopped), ("scout", false));
         assert_eq!(Value::Object(home.current), json!({ "provider": "openai", "model": "gpt-a" }));
-        assert!(setup.session("sess_w1", &config).await.is_none(), "a closed session is not found");
-        assert!(setup.session("sess_missing", &config).await.is_none());
-        let ids: Vec<String> = setup.agent_sessions("scout", &config).await.into_iter().map(|s| s.id).collect();
+        assert!(setup.session("sess_w1", &config).await.unwrap().is_none(), "a closed session is not found");
+        assert!(setup.session("sess_missing", &config).await.unwrap().is_none());
+        let ids: Vec<String> = setup.agent_sessions("scout", &config).await.unwrap().into_iter().map(|s| s.id).collect();
         assert_eq!(ids, ["sess_home_scout"]);
-        assert!(setup.caller_chain(&ThreadId::from("sess_home_scout"), &config).await.is_none(), "no own agent, no chain");
+        assert!(setup.caller_chain(&ThreadId::from("sess_home_scout"), &config).await.unwrap().is_none(), "no own agent, no chain");
 
         let caller = ThreadId::from("sess_lead");
         let route = obj(json!({ "provider": "anthropic", "model": "claude-x", "fast": null, "extra": 1 }));

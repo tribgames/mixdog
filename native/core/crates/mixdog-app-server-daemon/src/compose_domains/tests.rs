@@ -121,8 +121,8 @@ impl VoiceInstaller for Quiet {
 
 #[async_trait::async_trait]
 impl SessionCwds for Quiet {
-    async fn cwd(&self, _: &str) -> Option<String> {
-        None
+    async fn cwd(&self, _: &str) -> Result<Option<String>, mixdog_core_api::CoreError> {
+        Ok(None)
     }
 }
 
@@ -397,6 +397,9 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
     )
     .await
     .unwrap();
+    let cancel = CancellationToken::new();
+    let local_provider = crate::compose_domains::build_local_provider(dir.path(), core.tidy_processes(), &config, &cancel).unwrap();
+    let held = local_provider.clone();
     let inputs = DomainInputs {
         tokens,
         paths: DomainPaths {
@@ -425,7 +428,8 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
         },
         scopes: OpScopeSource::new(gates, Arc::new(NoThreads)),
         limits: Default::default(),
-        cancel: CancellationToken::new(),
+        cancel,
+        local_provider,
         seams: DomainSeams {
             settings_effects: quiet.clone(),
             feature_effects: quiet.clone(),
@@ -445,9 +449,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             local_target: Arc::new(NoDial),
             notification_clicks: quiet.clone(),
             instructions_changed: quiet.clone(),
-            session_attachments: quiet.clone(),
             system_proxy: Arc::new(mixdog_ai::netproxy::system::SystemProxy::default()),
-            doctor: quiet.clone(),
             plugins: PluginSeams { host: quiet.clone(), git: quiet.clone(), announce: Arc::new(|| {}) },
             setup_ui: quiet.clone(),
             network_proxy: policy,
@@ -457,9 +459,20 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             workflow_host: quiet.clone(),
         },
     };
-    let composed = compose_domains(inputs).await.unwrap();
-    // The one local provider is returned for the process inputs; the local-provider service holds the other handle.
-    assert!(Arc::strong_count(&composed.local_provider) >= 2);
+    // The two stages: nothing of the pre-pool stage reads the directory, so it runs first; the
+    // post-directory stage takes the two seams that do. Together they serve every method the
+    // one-call composition served.
+    let pre = crate::compose_domains::compose_domains_pre(&inputs).await.unwrap();
+    assert!(!pre.services.iter().any(|s| s.methods().contains(&"diagnostics/runDoctor")), "the doctor is a post-directory service");
+    let composed = crate::compose_domains::compose_domains_post(
+        &inputs,
+        crate::compose_domains::PostSeams { session_attachments: quiet.clone(), doctor: quiet.clone() },
+        pre,
+    )
+    .await
+    .unwrap();
+    // The one local provider is built first and handed in: the local-provider service holds a second handle to it.
+    assert!(Arc::strong_count(&held) >= 2);
     // The methods of these services are other owners' (see `OTHER_OWNERS`); all else is here.
     let mut builder = DomainsBuilder::new();
     for service in &composed.services {

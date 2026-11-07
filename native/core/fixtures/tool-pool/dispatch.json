@@ -1,53 +1,11 @@
 {
   "askTool": "mcp__mail__send",
-  "asks": [
-    {
-      "answer": {
-        "approved": true
-      },
-      "approved": true,
-      "name": "approved"
-    },
-    {
-      "answer": {
-        "approved": false,
-        "reason": "no thanks."
-      },
-      "denial": "Error: tool \"mcp__mail__send\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.",
-      "name": "denied with a reason"
-    },
-    {
-      "answer": {
-        "approved": false,
-        "reason": "not now. . "
-      },
-      "denial": "Error: tool \"mcp__mail__send\" was not approved: not now. Do not retry it or reach the same result another way; report it.",
-      "name": "denied with a reason ending in dots and spaces"
-    },
-    {
-      "answer": {
-        "approved": false
-      },
-      "denial": "Error: tool \"mcp__mail__send\" was not approved: This connector tool is set to ask before it runs for this agent. Do not retry it or reach the same result another way; report it.",
-      "name": "denied with no reason"
-    },
-    {
-      "answer": {
-        "approved": false,
-        "reason": "   "
-      },
-      "denial": "Error: tool \"mcp__mail__send\" was not approved: This connector tool is set to ask before it runs for this agent. Do not retry it or reach the same result another way; report it.",
-      "name": "denied with a blank reason"
-    },
-    {
-      "answer": null,
-      "denial": "Error: tool \"mcp__mail__send\" denied by hook: approval required but no approval UI is available (This connector tool is set to ask before it runs for this agent.)",
-      "name": "nobody can answer"
-    }
-  ],
   "bridgeSession": {
-    "availableConnectors": [
-      "mcp__alpha__zeta"
+    "eager": [
+      "read",
+      "load_tool",
+      "call_tool",
+      "Shell"
     ],
     "deferred": [
       "web_fetch",
@@ -55,187 +13,229 @@
       "mcp__alpha__zeta",
       "mcp__alpha__gone"
     ],
-    "eager": [
-      "read",
-      "load_tool",
-      "call_tool",
-      "Shell"
+    "availableConnectors": [
+      "mcp__alpha__zeta"
     ]
   },
   "projections": [
     {
-      "arguments": {
-        "url": "x"
-      },
       "name": "a deferred tool",
       "session": "bridge",
-      "target": "web_fetch",
       "wire": {
+        "name": "web_fetch",
         "arguments": {
           "url": "x"
-        },
-        "name": "web_fetch"
-      }
-    },
-    {
+        }
+      },
+      "target": "web_fetch",
       "arguments": {
         "url": "x"
-      },
+      }
+    },
+    {
       "name": "a deferred tool by another case",
       "session": "bridge",
-      "target": "web_fetch",
       "wire": {
+        "name": "WEB_FETCH",
         "arguments": {
           "url": "x"
-        },
-        "name": "WEB_FETCH"
+        }
+      },
+      "target": "web_fetch",
+      "arguments": {
+        "url": "x"
       }
     },
     {
-      "arguments": {},
       "name": "a name with spaces around it",
       "session": "bridge",
-      "target": "web_fetch",
       "wire": {
-        "arguments": {},
-        "name": "  web_fetch  "
-      }
+        "name": "  web_fetch  ",
+        "arguments": {}
+      },
+      "target": "web_fetch",
+      "arguments": {}
     },
     {
-      "arguments": {
-        "q": 1
-      },
       "name": "an available connector tool",
       "session": "bridge",
-      "target": "mcp__alpha__zeta",
       "wire": {
+        "name": "mcp__alpha__zeta",
         "arguments": {
           "q": 1
-        },
-        "name": "mcp__alpha__zeta"
+        }
+      },
+      "target": "mcp__alpha__zeta",
+      "arguments": {
+        "q": 1
       }
     },
     {
-      "error": "Error: TOOL_UNAVAILABLE: tool \"mcp__alpha__gone\" is unavailable in the current session catalog; no call was sent.",
       "name": "a connector tool the server dropped",
       "session": "bridge",
       "wire": {
-        "arguments": {},
-        "name": "mcp__alpha__gone"
-      }
+        "name": "mcp__alpha__gone",
+        "arguments": {}
+      },
+      "error": "Error: TOOL_UNAVAILABLE: tool \"mcp__alpha__gone\" is unavailable in the current session catalog; no call was sent."
     },
     {
-      "error": "Error: USE_DIRECT_TOOL: \"read\" is directly available; call read directly instead of call_tool.",
       "name": "an eager tool",
       "session": "bridge",
       "wire": {
-        "arguments": {},
-        "name": "read"
-      }
+        "name": "read",
+        "arguments": {}
+      },
+      "error": "Error: USE_DIRECT_TOOL: \"read\" is directly available; call read directly instead of call_tool."
     },
     {
-      "error": "Error: USE_DIRECT_TOOL: \"Shell\" is directly available; call Shell directly instead of call_tool.",
       "name": "an eager tool by another case",
       "session": "bridge",
       "wire": {
-        "arguments": {},
-        "name": "SHELL"
-      }
+        "name": "SHELL",
+        "arguments": {}
+      },
+      "error": "Error: USE_DIRECT_TOOL: \"Shell\" is directly available; call Shell directly instead of call_tool."
     },
     {
-      "error": "Error: TOOL_NOT_FOUND: no tool named \"nope\" is available in this session; find tools with load_tool {names: keyword}.",
       "name": "an unknown tool",
       "session": "bridge",
       "wire": {
-        "arguments": {},
-        "name": "nope"
-      }
+        "name": "nope",
+        "arguments": {}
+      },
+      "error": "Error: TOOL_NOT_FOUND: no tool named \"nope\" is available in this session; find tools with load_tool {names: keyword}."
     },
     {
-      "error": "Error: BRIDGE_RECURSION: call_tool cannot run the bridge tool \"load_tool\"; call it directly.",
       "name": "the discovery tool",
       "session": "bridge",
       "wire": {
-        "arguments": {},
-        "name": "load_tool"
-      }
+        "name": "load_tool",
+        "arguments": {}
+      },
+      "error": "Error: BRIDGE_RECURSION: call_tool cannot run the bridge tool \"load_tool\"; call it directly."
     },
     {
-      "error": "Error: BRIDGE_RECURSION: call_tool cannot run the bridge tool \"call_tool\"; call it directly.",
       "name": "call_tool itself",
       "session": "bridge",
       "wire": {
-        "arguments": {},
-        "name": "call_tool"
-      }
+        "name": "call_tool",
+        "arguments": {}
+      },
+      "error": "Error: BRIDGE_RECURSION: call_tool cannot run the bridge tool \"call_tool\"; call it directly."
     },
     {
-      "error": "Error: INVALID_ARGUMENTS: name must be 1-256 characters.",
       "name": "an empty name",
       "session": "bridge",
       "wire": {
-        "arguments": {},
-        "name": ""
-      }
+        "name": "",
+        "arguments": {}
+      },
+      "error": "Error: INVALID_ARGUMENTS: name must be 1-256 characters."
     },
     {
-      "error": "Error: INVALID_ARGUMENTS: name must be 1-256 characters.",
       "name": "a name past the limit",
       "session": "bridge",
       "wire": {
-        "arguments": {},
-        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      }
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "arguments": {}
+      },
+      "error": "Error: INVALID_ARGUMENTS: name must be 1-256 characters."
     },
     {
-      "error": "Error: INVALID_ARGUMENTS: call_tool arguments must be an object of the target tool arguments.",
       "name": "no arguments object",
       "session": "bridge",
       "wire": {
         "name": "web_fetch"
-      }
+      },
+      "error": "Error: INVALID_ARGUMENTS: call_tool arguments must be an object of the target tool arguments."
     },
     {
-      "error": "Error: INVALID_ARGUMENTS: call_tool arguments must be an object of the target tool arguments.",
       "name": "arguments as an array",
       "session": "bridge",
       "wire": {
-        "arguments": [],
-        "name": "web_fetch"
-      }
+        "name": "web_fetch",
+        "arguments": []
+      },
+      "error": "Error: INVALID_ARGUMENTS: call_tool arguments must be an object of the target tool arguments."
     },
     {
-      "error": "Error: INVALID_ARGUMENTS: call_tool does not accept: more.",
       "name": "an extra key",
       "session": "bridge",
       "wire": {
+        "name": "web_fetch",
         "arguments": {},
-        "more": 1,
-        "name": "web_fetch"
-      }
+        "more": 1
+      },
+      "error": "Error: INVALID_ARGUMENTS: call_tool does not accept: more."
     },
     {
-      "error": "Error: INVALID_ARGUMENTS: call_tool does not accept: a, b.",
       "name": "two extra keys",
       "session": "bridge",
       "wire": {
-        "a": 1,
+        "name": "web_fetch",
         "arguments": {},
-        "b": 2,
-        "name": "web_fetch"
-      }
+        "a": 1,
+        "b": 2
+      },
+      "error": "Error: INVALID_ARGUMENTS: call_tool does not accept: a, b."
     },
     {
-      "error": "Error: INVALID_ARGUMENTS: call_tool requires {name, arguments}.",
       "name": "arguments that are no object",
       "session": "bridge",
-      "wire": "x"
+      "wire": "x",
+      "error": "Error: INVALID_ARGUMENTS: call_tool requires {name, arguments}."
     },
     {
-      "error": "Error: INVALID_ARGUMENTS: call_tool requires {name, arguments}.",
       "name": "null arguments",
       "session": "bridge",
-      "wire": null
+      "wire": null,
+      "error": "Error: INVALID_ARGUMENTS: call_tool requires {name, arguments}."
+    }
+  ],
+  "asks": [
+    {
+      "name": "approved",
+      "answer": {
+        "approved": true
+      },
+      "approved": true
+    },
+    {
+      "name": "denied with a reason",
+      "answer": {
+        "approved": false,
+        "reason": "no thanks."
+      },
+      "denial": "Error: tool \"mcp__mail__send\" was not approved: no thanks. Do not retry it or reach the same result another way; report it."
+    },
+    {
+      "name": "denied with a reason ending in dots and spaces",
+      "answer": {
+        "approved": false,
+        "reason": "not now. . "
+      },
+      "denial": "Error: tool \"mcp__mail__send\" was not approved: not now. Do not retry it or reach the same result another way; report it."
+    },
+    {
+      "name": "denied with no reason",
+      "answer": {
+        "approved": false
+      },
+      "denial": "Error: tool \"mcp__mail__send\" was not approved: This connector tool is set to ask before it runs for this agent. Do not retry it or reach the same result another way; report it."
+    },
+    {
+      "name": "denied with a blank reason",
+      "answer": {
+        "approved": false,
+        "reason": "   "
+      },
+      "denial": "Error: tool \"mcp__mail__send\" was not approved: This connector tool is set to ask before it runs for this agent. Do not retry it or reach the same result another way; report it."
+    },
+    {
+      "name": "nobody can answer",
+      "answer": null,
+      "denial": "Error: tool \"mcp__mail__send\" denied by hook: approval required but no approval UI is available (This connector tool is set to ask before it runs for this agent.)"
     }
   ]
 }

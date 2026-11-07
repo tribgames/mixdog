@@ -1,6 +1,7 @@
 //! The core ticker (P §4.7, R13): one task on RT-C serves every deadline of the process.
 //!
-//! A deadline is an absolute [`Instant`] plus a callback. The ticker keeps them ordered, sleeps
+//! A deadline is an absolute [`Instant`] plus a callback; the ticker puts it on the tokio clock
+//! (its distance from now) so a paused or advanced test clock moves it too. The ticker keeps them ordered, sleeps
 //! until the earliest, runs the due callbacks and sleeps again; it never polls. Registering an
 //! earlier deadline than the current first wakes it to re-arm. There is no task or timer per
 //! deadline, so a million pending expiries cost a map entry each.
@@ -24,14 +25,15 @@ use tokio::sync::Notify;
 use tokio::sync::oneshot;
 
 use crate::TaskClass;
+use crate::scoped::on_tokio_clock;
 
 type Callback = Box<dyn FnOnce() + Send>;
 
 #[derive(Default)]
 struct State {
     next_id: u64,
-    /// Ordered by deadline, then registration order.
-    pending: BTreeMap<(Instant, u64), Callback>,
+    /// Ordered by deadline (tokio clock), then registration order.
+    pending: BTreeMap<(tokio::time::Instant, u64), Callback>,
 }
 
 struct Shared {
@@ -56,7 +58,7 @@ pub struct Ticker {
 #[must_use = "dropping the handle keeps the deadline armed; call cancel() to disarm it"]
 pub struct TimerHandle {
     shared: Arc<Shared>,
-    key: (Instant, u64),
+    key: (tokio::time::Instant, u64),
 }
 
 impl TimerHandle {
@@ -91,7 +93,7 @@ impl Ticker {
         {
             let mut state = self.shared.lock();
             state.next_id += 1;
-            key = (at, state.next_id);
+            key = (on_tokio_clock(at), state.next_id);
             state.pending.insert(key, Box::new(callback));
             earliest = state.pending.keys().next() == Some(&key);
         }
@@ -146,7 +148,7 @@ async fn run(shared: Arc<Shared>) {
         tokio::pin!(changed);
         changed.as_mut().enable();
 
-        let now = Instant::now();
+        let now = tokio::time::Instant::now();
         let (due, next) = {
             let mut state = shared.lock();
             let later = state.pending.split_off(&(now, u64::MAX));
@@ -157,9 +159,36 @@ async fn run(shared: Arc<Shared>) {
             let _ = catch_unwind(AssertUnwindSafe(callback));
         }
         if let Some(at) = next {
-            let _ = tokio::time::timeout_at(tokio::time::Instant::from_std(at), changed).await;
+            let _ = tokio::time::timeout_at(at, changed).await;
         } else {
             changed.await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    /// The clock is advanced far from the std clock before the deadline is registered. On a
+    /// std-instant scan the ticker saw the deadline as never due and re-armed it in a loop.
+    #[tokio::test(start_paused = true)]
+    async fn a_deadline_registered_after_the_clock_advanced_fires_at_its_distance() {
+        let shared = Arc::new(Shared { state: Mutex::new(State::default()), changed: Notify::new() });
+        let ticker = Ticker { shared: shared.clone() };
+        let task = tokio::spawn(run(shared));
+        tokio::time::advance(Duration::from_secs(3600)).await;
+        let started = tokio::time::Instant::now();
+        let (tx, rx) = oneshot::channel();
+        let _ = ticker.register(Instant::now() + Duration::from_secs(10), move || {
+            let _ = tx.send(tokio::time::Instant::now());
+        });
+        let fired = tokio::time::timeout(Duration::from_secs(60), rx).await.expect("fired inside the bound").unwrap();
+        // The std clock moved a few microseconds between `Instant::now()` and the registration.
+        let waited = fired - started;
+        assert!(waited > Duration::from_secs(9) && waited <= Duration::from_secs(10), "{waited:?}");
+        task.abort();
     }
 }

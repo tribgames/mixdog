@@ -1,0 +1,1440 @@
+{
+ "recorder": "benchmarks/rust-core/recorders/record-cursor-tools.mjs",
+ "cases": [
+  {
+   "id": "plain / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "plain / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "annotations / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "slim",
+     "description": "The slim tool",
+     "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "T",
+      "default": {},
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string",
+        "title": "A",
+        "default": "x",
+        "examples": [
+         "y"
+        ],
+        "deprecated": false,
+        "readOnly": true,
+        "writeOnly": false,
+        "$comment": "c"
+       }
+      },
+      "required": [],
+      "additionalProperties": true,
+      "$id": "x"
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "slim",
+     "description": "The slim tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"}}}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "annotations / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "slim",
+     "description": "The slim tool",
+     "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "T",
+      "default": {},
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string",
+        "title": "A",
+        "default": "x",
+        "examples": [
+         "y"
+        ],
+        "deprecated": false,
+        "readOnly": true,
+        "writeOnly": false,
+        "$comment": "c"
+       }
+      },
+      "required": [],
+      "additionalProperties": true,
+      "$id": "x"
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "not-slimmed-further / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "keep",
+     "description": "The keep tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "a"
+      ],
+      "additionalProperties": false,
+      "description": "kept"
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "keep",
+     "description": "The keep tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"}},\"required\":[\"a\"],\"additionalProperties\":false,\"description\":\"kept\"}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "not-slimmed-further / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "keep",
+     "description": "The keep tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "a"
+      ],
+      "additionalProperties": false,
+      "description": "kept"
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "deep / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "deep",
+     "description": "The deep tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "next": {
+        "type": "object",
+        "properties": {
+         "next": {
+          "type": "object",
+          "properties": {
+           "next": {
+            "type": "object",
+            "properties": {
+             "next": {
+              "type": "object",
+              "properties": {
+               "next": {
+                "type": "object",
+                "properties": {
+                 "next": {
+                  "type": "object",
+                  "properties": {
+                   "next": {
+                    "type": "object",
+                    "properties": {
+                     "next": {
+                      "type": "object",
+                      "properties": {
+                       "next": {
+                        "type": "object",
+                        "properties": {
+                         "next": {
+                          "type": "object",
+                          "properties": {
+                           "next": {
+                            "type": "object",
+                            "properties": {
+                             "next": {
+                              "type": "object",
+                              "properties": {
+                               "next": {
+                                "type": "object",
+                                "properties": {
+                                 "next": {
+                                  "type": "object",
+                                  "properties": {
+                                   "next": {
+                                    "type": "object",
+                                    "properties": {
+                                     "next": {
+                                      "type": "string",
+                                      "title": "leaf"
+                                     },
+                                     "title": {
+                                      "type": "string"
+                                     }
+                                    },
+                                    "title": "level 0"
+                                   },
+                                   "title": {
+                                    "type": "string"
+                                   }
+                                  },
+                                  "title": "level 1"
+                                 },
+                                 "title": {
+                                  "type": "string"
+                                 }
+                                },
+                                "title": "level 2"
+                               },
+                               "title": {
+                                "type": "string"
+                               }
+                              },
+                              "title": "level 3"
+                             },
+                             "title": {
+                              "type": "string"
+                             }
+                            },
+                            "title": "level 4"
+                           },
+                           "title": {
+                            "type": "string"
+                           }
+                          },
+                          "title": "level 5"
+                         },
+                         "title": {
+                          "type": "string"
+                         }
+                        },
+                        "title": "level 6"
+                       },
+                       "title": {
+                        "type": "string"
+                       }
+                      },
+                      "title": "level 7"
+                     },
+                     "title": {
+                      "type": "string"
+                     }
+                    },
+                    "title": "level 8"
+                   },
+                   "title": {
+                    "type": "string"
+                   }
+                  },
+                  "title": "level 9"
+                 },
+                 "title": {
+                  "type": "string"
+                 }
+                },
+                "title": "level 10"
+               },
+               "title": {
+                "type": "string"
+               }
+              },
+              "title": "level 11"
+             },
+             "title": {
+              "type": "string"
+             }
+            },
+            "title": "level 12"
+           },
+           "title": {
+            "type": "string"
+           }
+          },
+          "title": "level 13"
+         },
+         "title": {
+          "type": "string"
+         }
+        },
+        "title": "level 14"
+       },
+       "title": {
+        "type": "string"
+       }
+      },
+      "title": "level 15"
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "deep",
+     "description": "The deep tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"object\",\"properties\":{\"next\":{\"type\":\"string\",\"title\":\"leaf\"},\"title\":{\"type\":\"string\"}},\"title\":\"level 0\"},\"title\":{\"type\":\"string\"}},\"title\":\"level 1\"},\"title\":{\"type\":\"string\"}},\"title\":\"level 2\"},\"title\":{\"type\":\"string\"}},\"title\":\"level 3\"},\"title\":{\"type\":\"string\"}},\"title\":\"level 4\"},\"title\":{\"type\":\"string\"}},\"title\":\"level 5\"},\"title\":{\"type\":\"string\"}},\"title\":\"level 6\"},\"title\":{\"type\":\"string\"}},\"title\":\"level 7\"},\"title\":{\"type\":\"string\"}},\"title\":\"level 8\"},\"title\":{\"type\":\"string\"}}}}}}}}}}}}}}}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "deep / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "deep",
+     "description": "The deep tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "next": {
+        "type": "object",
+        "properties": {
+         "next": {
+          "type": "object",
+          "properties": {
+           "next": {
+            "type": "object",
+            "properties": {
+             "next": {
+              "type": "object",
+              "properties": {
+               "next": {
+                "type": "object",
+                "properties": {
+                 "next": {
+                  "type": "object",
+                  "properties": {
+                   "next": {
+                    "type": "object",
+                    "properties": {
+                     "next": {
+                      "type": "object",
+                      "properties": {
+                       "next": {
+                        "type": "object",
+                        "properties": {
+                         "next": {
+                          "type": "object",
+                          "properties": {
+                           "next": {
+                            "type": "object",
+                            "properties": {
+                             "next": {
+                              "type": "object",
+                              "properties": {
+                               "next": {
+                                "type": "object",
+                                "properties": {
+                                 "next": {
+                                  "type": "object",
+                                  "properties": {
+                                   "next": {
+                                    "type": "object",
+                                    "properties": {
+                                     "next": {
+                                      "type": "string",
+                                      "title": "leaf"
+                                     },
+                                     "title": {
+                                      "type": "string"
+                                     }
+                                    },
+                                    "title": "level 0"
+                                   },
+                                   "title": {
+                                    "type": "string"
+                                   }
+                                  },
+                                  "title": "level 1"
+                                 },
+                                 "title": {
+                                  "type": "string"
+                                 }
+                                },
+                                "title": "level 2"
+                               },
+                               "title": {
+                                "type": "string"
+                               }
+                              },
+                              "title": "level 3"
+                             },
+                             "title": {
+                              "type": "string"
+                             }
+                            },
+                            "title": "level 4"
+                           },
+                           "title": {
+                            "type": "string"
+                           }
+                          },
+                          "title": "level 5"
+                         },
+                         "title": {
+                          "type": "string"
+                         }
+                        },
+                        "title": "level 6"
+                       },
+                       "title": {
+                        "type": "string"
+                       }
+                      },
+                      "title": "level 7"
+                     },
+                     "title": {
+                      "type": "string"
+                     }
+                    },
+                    "title": "level 8"
+                   },
+                   "title": {
+                    "type": "string"
+                   }
+                  },
+                  "title": "level 9"
+                 },
+                 "title": {
+                  "type": "string"
+                 }
+                },
+                "title": "level 10"
+               },
+               "title": {
+                "type": "string"
+               }
+              },
+              "title": "level 11"
+             },
+             "title": {
+              "type": "string"
+             }
+            },
+            "title": "level 12"
+           },
+           "title": {
+            "type": "string"
+           }
+          },
+          "title": "level 13"
+         },
+         "title": {
+          "type": "string"
+         }
+        },
+        "title": "level 14"
+       },
+       "title": {
+        "type": "string"
+       }
+      },
+      "title": "level 15"
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "compound-one-of / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "union",
+     "description": "The union tool",
+     "inputSchema": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "a": {
+          "type": "string",
+          "enum": [
+           "x",
+           "y"
+          ]
+         },
+         "shared": {
+          "type": "object",
+          "properties": {
+           "p": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "p"
+          ]
+         }
+        }
+       },
+       {
+        "type": "object",
+        "properties": {
+         "a": {
+          "type": "string",
+          "enum": [
+           "y",
+           "z"
+          ]
+         },
+         "b": {
+          "type": "integer"
+         },
+         "shared": {
+          "type": "object",
+          "properties": {
+           "q": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "p",
+           "q"
+          ]
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "union",
+     "description": "The union tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"enum\":[\"x\",\"y\",\"z\"]},\"shared\":{\"type\":\"object\",\"properties\":{\"p\":{\"type\":\"string\"},\"q\":{\"type\":\"string\"}},\"required\":[\"p\"]},\"b\":{\"type\":\"integer\"}}}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "compound-one-of / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "union",
+     "description": "The union tool",
+     "inputSchema": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "a": {
+          "type": "string",
+          "enum": [
+           "x",
+           "y"
+          ]
+         },
+         "shared": {
+          "type": "object",
+          "properties": {
+           "p": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "p"
+          ]
+         }
+        }
+       },
+       {
+        "type": "object",
+        "properties": {
+         "a": {
+          "type": "string",
+          "enum": [
+           "y",
+           "z"
+          ]
+         },
+         "b": {
+          "type": "integer"
+         },
+         "shared": {
+          "type": "object",
+          "properties": {
+           "q": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "p",
+           "q"
+          ]
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "compound-with-root / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "object",
+      "description": "root",
+      "properties": {
+       "r": {
+        "type": "string"
+       }
+      },
+      "anyOf": [
+       {
+        "type": "object",
+        "properties": {
+         "r": {
+          "type": "string",
+          "enum": [
+           "a"
+          ]
+         },
+         "s": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "r"
+        ]
+       },
+       {
+        "type": "object",
+        "properties": {
+         "s": {
+          "type": "integer"
+         }
+        },
+        "required": [
+         "r"
+        ]
+       }
+      ],
+      "allOf": [
+       {
+        "properties": {
+         "t": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"description\":\"root\",\"properties\":{\"r\":{\"type\":\"string\",\"enum\":[\"a\"]},\"s\":{\"type\":\"string\"},\"t\":{\"type\":\"string\"}}}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "compound-with-root / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "object",
+      "description": "root",
+      "properties": {
+       "r": {
+        "type": "string"
+       }
+      },
+      "anyOf": [
+       {
+        "type": "object",
+        "properties": {
+         "r": {
+          "type": "string",
+          "enum": [
+           "a"
+          ]
+         },
+         "s": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "r"
+        ]
+       },
+       {
+        "type": "object",
+        "properties": {
+         "s": {
+          "type": "integer"
+         }
+        },
+        "required": [
+         "r"
+        ]
+       }
+      ],
+      "allOf": [
+       {
+        "properties": {
+         "t": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "compound-numeric-keys / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "numbered",
+     "description": "The numbered tool",
+     "inputSchema": {
+      "anyOf": [
+       {
+        "type": "object",
+        "properties": {
+         "2": {
+          "type": "string"
+         },
+         "10": {
+          "type": "string"
+         },
+         "b": {
+          "type": "string"
+         }
+        }
+       },
+       {
+        "type": "object",
+        "properties": {
+         "2": {
+          "type": "integer"
+         },
+         "c": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "numbered",
+     "description": "The numbered tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"2\":{\"type\":\"string\"},\"10\":{\"type\":\"string\"},\"b\":{\"type\":\"string\"},\"c\":{\"type\":\"string\"}}}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "compound-numeric-keys / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "numbered",
+     "description": "The numbered tool",
+     "inputSchema": {
+      "anyOf": [
+       {
+        "type": "object",
+        "properties": {
+         "2": {
+          "type": "string"
+         },
+         "10": {
+          "type": "string"
+         },
+         "b": {
+          "type": "string"
+         }
+        }
+       },
+       {
+        "type": "object",
+        "properties": {
+         "2": {
+          "type": "integer"
+         },
+         "c": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "compound-bare-branches / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "bare-branches",
+     "description": "The bare-branches tool",
+     "inputSchema": {
+      "oneOf": [
+       {
+        "properties": {
+         "a": {
+          "type": "string"
+         }
+        }
+       },
+       {
+        "description": "nothing to merge"
+       },
+       {
+        "properties": {
+         "a": {
+          "enum": [
+           "k"
+          ]
+         },
+         "b": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "bare-branches",
+     "description": "The bare-branches tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"a\":{\"enum\":[\"k\"],\"type\":\"string\"},\"b\":{\"type\":\"string\"}}}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "compound-bare-branches / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "bare-branches",
+     "description": "The bare-branches tool",
+     "inputSchema": {
+      "oneOf": [
+       {
+        "properties": {
+         "a": {
+          "type": "string"
+         }
+        }
+       },
+       {
+        "description": "nothing to merge"
+       },
+       {
+        "properties": {
+         "a": {
+          "enum": [
+           "k"
+          ]
+         },
+         "b": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "array-parameters / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "array",
+     "description": "The array tool",
+     "inputSchema": [
+      {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "offered": [],
+   "excluded": [
+    {
+     "name": "array",
+     "index": 0,
+     "pointer": "/",
+     "reason": "the input schema must be a JSON object schema",
+     "message": "[cursor] tool \"array\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+    }
+   ]
+  },
+  {
+   "id": "array-parameters / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "array",
+     "description": "The array tool",
+     "inputSchema": [
+      {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "offered": [],
+   "excluded": [
+    {
+     "name": "array",
+     "index": 0,
+     "pointer": "/",
+     "reason": "the input schema must be a JSON object schema",
+     "message": "[cursor] tool \"array\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+    }
+   ]
+  },
+  {
+   "id": "no-schema / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "bare",
+     "description": "The bare tool",
+     "inputSchema": null
+    }
+   ],
+   "offered": [
+    {
+     "name": "bare",
+     "description": "The bare tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{}}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "no-schema / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "bare",
+     "description": "The bare tool",
+     "inputSchema": null
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "scalar-schema / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "scalar",
+     "description": "The scalar tool",
+     "inputSchema": "oops"
+    }
+   ],
+   "offered": [],
+   "excluded": [
+    {
+     "name": "scalar",
+     "index": 0,
+     "pointer": "/",
+     "reason": "the input schema must be a JSON object schema",
+     "message": "[cursor] tool \"scalar\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+    }
+   ]
+  },
+  {
+   "id": "scalar-schema / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "scalar",
+     "description": "The scalar tool",
+     "inputSchema": "oops"
+    }
+   ],
+   "offered": [],
+   "excluded": [
+    {
+     "name": "scalar",
+     "index": 0,
+     "pointer": "/",
+     "reason": "the input schema must be a JSON object schema",
+     "message": "[cursor] tool \"scalar\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+    }
+   ]
+  },
+  {
+   "id": "draft-07 / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "bound",
+     "description": "The bound tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "number",
+        "minimum": 1,
+        "exclusiveMinimum": true
+       }
+      }
+     }
+    },
+    {
+     "name": "refs",
+     "description": "The refs tool",
+     "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+       "n": {
+        "type": "string"
+       }
+      },
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/definitions/n"
+       }
+      }
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"pair\":{\"type\":\"array\",\"prefixItems\":[{\"type\":\"string\"},{\"type\":\"number\"}]}}}"
+    },
+    {
+     "name": "bound",
+     "description": "The bound tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"number\",\"exclusiveMinimum\":1}}}"
+    },
+    {
+     "name": "refs",
+     "description": "The refs tool",
+     "inputSchemaJson": "{\"definitions\":{\"n\":{\"type\":\"string\"}},\"type\":\"object\",\"properties\":{\"x\":{\"$ref\":\"#/definitions/n\"}}}"
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "draft-07 / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "bound",
+     "description": "The bound tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "number",
+        "minimum": 1,
+        "exclusiveMinimum": true
+       }
+      }
+     }
+    },
+    {
+     "name": "refs",
+     "description": "The refs tool",
+     "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+       "n": {
+        "type": "string"
+       }
+      },
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/definitions/n"
+       }
+      }
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": []
+  },
+  {
+   "id": "broken / auto",
+   "toolChoice": null,
+   "tools": [
+    {
+     "name": "first",
+     "description": "The first tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    },
+    {
+     "name": "pattern",
+     "description": "The pattern tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "string",
+        "pattern": "("
+       }
+      }
+     }
+    },
+    {
+     "name": "last",
+     "description": "The last tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "b": {
+        "type": "integer"
+       }
+      }
+     }
+    }
+   ],
+   "offered": [
+    {
+     "name": "first",
+     "description": "The first tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"}}}"
+    },
+    {
+     "name": "last",
+     "description": "The last tool",
+     "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"b\":{\"type\":\"integer\"}}}"
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[cursor] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    },
+    {
+     "name": "rooted",
+     "index": 2,
+     "pointer": "/type",
+     "reason": "the input schema root must have type \"object\"",
+     "message": "[cursor] tool \"rooted\" (tools[2]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+    },
+    {
+     "name": "typed",
+     "index": 3,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[cursor] tool \"typed\" (tools[3]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    },
+    {
+     "name": "pattern",
+     "index": 4,
+     "pointer": "/",
+     "reason": "Invalid regular expression: /(/u: Unterminated group",
+     "message": "[cursor] tool \"pattern\" (tools[4]) excluded: invalid input schema at \"/\": Invalid regular expression: /(/u: Unterminated group"
+    }
+   ]
+  },
+  {
+   "id": "broken / none",
+   "toolChoice": "none",
+   "tools": [
+    {
+     "name": "first",
+     "description": "The first tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    },
+    {
+     "name": "pattern",
+     "description": "The pattern tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "string",
+        "pattern": "("
+       }
+      }
+     }
+    },
+    {
+     "name": "last",
+     "description": "The last tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "b": {
+        "type": "integer"
+       }
+      }
+     }
+    }
+   ],
+   "offered": [],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[cursor] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    },
+    {
+     "name": "rooted",
+     "index": 2,
+     "pointer": "/type",
+     "reason": "the input schema root must have type \"object\"",
+     "message": "[cursor] tool \"rooted\" (tools[2]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+    },
+    {
+     "name": "typed",
+     "index": 3,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[cursor] tool \"typed\" (tools[3]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    },
+    {
+     "name": "pattern",
+     "index": 4,
+     "pointer": "/",
+     "reason": "Invalid regular expression: /(/u: Unterminated group",
+     "message": "[cursor] tool \"pattern\" (tools[4]) excluded: invalid input schema at \"/\": Invalid regular expression: /(/u: Unterminated group"
+    }
+   ]
+  }
+ ]
+}

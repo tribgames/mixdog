@@ -1,86 +1,87 @@
 {
   "routes": [
     {
-      "config": {},
       "name": "no agents",
+      "config": {},
       "route": null
     },
     {
+      "name": "a complete route",
       "config": {
         "agents": {
           "explore": {
-            "model": "gpt-5",
-            "provider": "openai-oauth"
+            "provider": "openai-oauth",
+            "model": "gpt-5"
           }
         }
       },
-      "name": "a complete route",
       "route": {
-        "fast": false,
+        "provider": "openai-oauth",
         "model": "gpt-5",
-        "provider": "openai-oauth"
+        "fast": false
       }
     },
     {
+      "name": "a route with effort, fast and parameters",
       "config": {
         "agents": {
           "explore": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
             "effort": " high ",
             "fast": true,
-            "model": "gpt-5",
             "modelParameters": {
               "temperature": 0
-            },
-            "provider": "openai-oauth"
+            }
           }
         }
       },
-      "name": "a route with effort, fast and parameters",
       "route": {
+        "provider": "openai-oauth",
+        "model": "gpt-5",
         "effort": "high",
         "fast": true,
-        "model": "gpt-5",
         "modelParameters": {
           "temperature": 0
-        },
-        "provider": "openai-oauth"
+        }
       }
     },
     {
-      "config": {
-        "agents": {
-          "explore": {
-            "effort": "  ",
-            "fast": "yes",
-            "model": "gpt-5",
-            "provider": "openai-oauth"
-          }
-        }
-      },
       "name": "a blank effort and a fast that is not true",
-      "route": {
-        "fast": false,
-        "model": "gpt-5",
-        "provider": "openai-oauth"
-      }
-    },
-    {
       "config": {
         "agents": {
           "explore": {
-            "model": " m ",
-            "provider": "  p  "
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "effort": "  ",
+            "fast": "yes"
           }
         }
       },
-      "name": "a padded provider and model",
       "route": {
-        "fast": false,
-        "model": "m",
-        "provider": "p"
+        "provider": "openai-oauth",
+        "model": "gpt-5",
+        "fast": false
       }
     },
     {
+      "name": "a padded provider and model",
+      "config": {
+        "agents": {
+          "explore": {
+            "provider": "  p  ",
+            "model": " m "
+          }
+        }
+      },
+      "route": {
+        "provider": "p",
+        "model": "m",
+        "fast": false
+      }
+    },
+    {
+      "name": "a route without a model",
       "config": {
         "agents": {
           "explore": {
@@ -88,10 +89,10 @@
           }
         }
       },
-      "name": "a route without a model",
       "route": null
     },
     {
+      "name": "a route without a provider",
       "config": {
         "agents": {
           "explore": {
@@ -99,69 +100,68 @@
           }
         }
       },
-      "name": "a route without a provider",
       "route": null
     },
     {
+      "name": "a disabled explore with a route",
       "config": {
         "agents": {
           "explore": {
-            "model": "gpt-5",
-            "provider": "openai-oauth"
+            "provider": "openai-oauth",
+            "model": "gpt-5"
           }
         },
         "disabledAgents": [
           "explore"
         ]
       },
-      "name": "a disabled explore with a route",
       "route": null
     },
     {
+      "name": "the default model is not a fallback",
       "config": {
         "default": {
-          "model": "gpt-5",
-          "provider": "openai-oauth"
+          "provider": "openai-oauth",
+          "model": "gpt-5"
         }
       },
-      "name": "the default model is not a fallback",
       "route": null
     },
     {
+      "name": "a preset name",
       "config": {
         "agents": {
           "explore": "preset-name"
         }
       },
-      "name": "a preset name",
       "route": "preset-name"
     },
     {
+      "name": "an array",
       "config": {
         "agents": {
           "explore": [
             {
-              "model": "gpt-5",
-              "provider": "openai-oauth"
+              "provider": "openai-oauth",
+              "model": "gpt-5"
             }
           ]
         }
       },
-      "name": "an array",
       "route": [
         {
-          "model": "gpt-5",
-          "provider": "openai-oauth"
+          "provider": "openai-oauth",
+          "model": "gpt-5"
         }
       ]
     },
     {
+      "name": "a falsy route",
       "config": {
         "agents": {
           "explore": 0
         }
       },
-      "name": "a falsy route",
       "route": null
     }
   ]

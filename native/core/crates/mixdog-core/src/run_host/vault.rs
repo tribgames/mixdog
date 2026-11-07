@@ -20,7 +20,12 @@ pub struct KeychainVault {
 }
 
 fn vault_error(error: SecretError) -> VaultError {
-    VaultError(error.message)
+    if error.unrun {
+        // The secrets lane's own text names an internal queue; this is what the user reads.
+        VaultError::unrun("the keychain could not be reached: its lane did not run the call")
+    } else {
+        VaultError::new(error.message)
+    }
 }
 
 impl KeychainVault {
@@ -49,7 +54,7 @@ impl SecretVault for KeychainVault {
         self.store.delete(account).await.map_err(vault_error)
     }
 
-    async fn is_fallback(&self, account: &str) -> bool {
-        self.store.is_fallback(account).await
+    async fn is_fallback(&self, account: &str) -> Result<bool, VaultError> {
+        self.store.is_fallback(account).await.map_err(vault_error)
     }
 }

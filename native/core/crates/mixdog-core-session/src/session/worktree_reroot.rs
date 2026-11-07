@@ -290,6 +290,33 @@ pub fn route_prompt_refresh(view: &PromptView, route_changed: bool) -> PromptRew
     working.finish(view, applied)
 }
 
+/// `presentedWorkspace(session)`: the workspace the prompt presents now, read back from the
+/// blocks: `{cwd, environmentContext, coreMemoryContext, instructionFilesContext}`. The core is
+/// the `tier3` message in the split layout and `bp3CoreContext` in the combined one; the Cwd is
+/// the `# Session` block's, else the environment facts'. Pure.
+pub fn presented_workspace(view: &PromptView) -> Value {
+    static SESSION_CWD: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static WORKER_CWD: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let session_cwd = SESSION_CWD.get_or_init(|| regex::Regex::new(r"(?:^|\n)# Session\nCwd: ([^\n]+)").expect("static regex"));
+    let worker_cwd = WORKER_CWD.get_or_init(|| regex::Regex::new(r"(?:^|\n)- Cwd: ([^\n]+?) — the active Project root").expect("static regex"));
+
+    let split = view.header.get("bp3EnvSplit") == Some(&Value::Bool(true));
+    let core = if split { view.tier3.unwrap_or_default() } else { text_of(view.header, "bp3CoreContext") };
+    let (_, instruction_files, memory) = split_core(core);
+    let facts = text_of(view.header, "bp3EnvironmentContext").split(SEPARATOR).next().unwrap_or_default();
+    let prompt_text = [view.env.unwrap_or_default(), view.tier3.unwrap_or_default()].join("\n");
+    let cwd = session_cwd
+        .captures(&prompt_text)
+        .or_else(|| worker_cwd.captures(facts))
+        .map(|found| js_trim(&found[1]).to_owned());
+    let mut presented = Map::new();
+    presented.insert("cwd".into(), cwd.map_or(Value::Null, Value::String));
+    presented.insert("environmentContext".into(), Value::String(if facts.starts_with("- ") { js_trim(facts).to_owned() } else { String::new() }));
+    presented.insert("coreMemoryContext".into(), Value::String(if memory.is_empty() { String::new() } else { js_trim(&memory[CORE_MEMORY_HEADING.len()..]).to_owned() }));
+    presented.insert("instructionFilesContext".into(), Value::String(js_trim(&instruction_files).to_owned()));
+    Value::Object(presented)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

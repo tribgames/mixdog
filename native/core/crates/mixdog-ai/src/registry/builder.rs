@@ -203,6 +203,13 @@ fn flag(cfg: &Value, key: &str) -> Option<bool> {
     cfg.get(key).and_then(Value::as_bool)
 }
 
+/// A provider build fails, with this text, when the keychain read for its key never ran: an empty
+/// key would instead report the provider as not configured. A read that ran and found nothing is
+/// not an error here.
+fn unread_key(provider: &str, error: &super::keys::VaultError) -> String {
+    format!("The API key for {provider} could not be read: {error}.")
+}
+
 fn key_config(cfg: &Value) -> KeyConfig {
     KeyConfig {
         api_key: cfg.get("apiKey").and_then(Value::as_str).map(str::to_owned),
@@ -580,7 +587,7 @@ impl DefaultProviderBuilder {
     }
 
     async fn build_gemini(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        let key = self.env.keys.resolve(name, &key_config(cfg)).await;
+        let key = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
         Ok(adapter(
             google::gemini(key, self.env.http.clone(), self.env.google_traits.clone())
                 .with_listing_lookup(self.env.listing.clone()),
@@ -647,7 +654,7 @@ impl DefaultProviderBuilder {
         let traits = self.env.google_traits.clone();
         let mode = text(cfg, "authMode");
         if mode == Some("api-key") {
-            let key = self.env.keys.resolve(name, &key_config(cfg)).await;
+            let key = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
             if key.trim().is_empty() {
                 return Err("[vertex-ai] the Vertex AI API key is not configured".into());
             }
@@ -659,7 +666,7 @@ impl DefaultProviderBuilder {
                 AdcRead::NoLogin => return self.build_vertex_metadata(cfg).await,
             }
         } else {
-            let raw = self.env.keys.resolve(name, &key_config(cfg)).await;
+            let raw = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
             vertex::parse_service_account(&raw).map_err(|e| e.message)?
         };
         let env = self.env.env.clone();
@@ -870,7 +877,7 @@ impl DefaultProviderBuilder {
     async fn build_cursor(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         let http = self.env.http.clone();
         let tokens: Arc<dyn crate::providers::cursor::AccessToken> = if name == "cursor-api" {
-            let key = self.env.keys.resolve(name, &key_config(cfg)).await;
+            let key = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
             Arc::new(ApiKeyAccess::new(http.clone(), key))
         } else {
             Arc::new(FileAccess::new(http.clone(), self.file(name)?))
@@ -934,17 +941,22 @@ impl ProviderBuilder for DefaultProviderBuilder {
         })
     }
 
-    async fn custom_key_ids(&self, name: &str) -> Vec<String> {
-        self.env.accounts.custom_key_ids(name).await.unwrap_or_default()
+    async fn custom_key_ids(&self, name: &str) -> Result<Vec<String>, String> {
+        match self.env.accounts.custom_key_ids(name).await {
+            Ok(ids) => Ok(ids),
+            Err(error) if error.unrun() => Err(format!("The additional API keys of {name} could not be read: {error}.")),
+            Err(_) => Ok(Vec::new()),
+        }
     }
 
     fn available(&self, name: &str) -> bool {
         !(self.env.gated_off)(name)
     }
 
-    async fn oauth_credentials_usable(&self, name: &str) -> bool {
-        // An unreadable file counts as present: it is never a logout.
-        OAUTH_PROVIDER_NAMES.contains(&name) && self.env.accounts.has_credential(name, "default").await.unwrap_or(false)
+    async fn oauth_credentials_usable(&self, name: &str) -> Result<bool, String> {
+        // An unreadable file counts as present: it is never a logout, so a credential read that
+        // never ran (`Probe::Unreadable`) already reads as present here and cannot be missing.
+        Ok(OAUTH_PROVIDER_NAMES.contains(&name) && self.env.accounts.has_credential(name, "default").await.unwrap_or(false))
     }
 }
 

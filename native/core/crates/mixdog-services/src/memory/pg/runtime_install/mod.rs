@@ -12,7 +12,7 @@
 //! manifest is compiled in (`decisions.md`, "PG runtime installer").
 
 mod manifest;
-mod retry;
+pub mod retry;
 mod stage;
 mod tar;
 

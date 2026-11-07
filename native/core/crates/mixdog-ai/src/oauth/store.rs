@@ -30,6 +30,25 @@ use serde_json::Map;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
+/// A credential lane job that never ran (the lane refused or dropped it). It says nothing about
+/// the file: callers that would otherwise take the failure for "nothing stored" test
+/// [`is_lane_unrun`].
+#[derive(Debug)]
+pub struct LaneUnrun;
+
+impl std::fmt::Display for LaneUnrun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the provider account store could not be reached: its lane did not run the call")
+    }
+}
+
+impl std::error::Error for LaneUnrun {}
+
+/// Whether `error` is a [`LaneUnrun`].
+pub fn is_lane_unrun(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<LaneUnrun>())
+}
+
 #[derive(Clone, Copy)]
 pub struct CredentialIo {
     pub read: InteractiveIo,
@@ -45,8 +64,8 @@ impl CredentialIo {
         let job = self
             .read
             .submit(&CancellationToken::new(), body)
-            .map_err(io::Error::other)?;
-        job.await.map_err(io::Error::other)?
+            .map_err(|_| io::Error::other(LaneUnrun))?;
+        job.await.map_err(|_| io::Error::other(LaneUnrun))?
     }
 
     /// Runs `body` as a durability-lane job; it takes its own file locks.
@@ -57,8 +76,8 @@ impl CredentialIo {
         let job = self
             .write
             .submit(&CancellationToken::new(), body)
-            .map_err(io::Error::other)?;
-        job.await.map_err(io::Error::other)?
+            .map_err(|_| io::Error::other(LaneUnrun))?;
+        job.await.map_err(|_| io::Error::other(LaneUnrun))?
     }
 }
 

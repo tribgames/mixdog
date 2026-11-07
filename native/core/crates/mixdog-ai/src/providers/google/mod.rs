@@ -23,10 +23,13 @@ pub mod policy;
 pub mod request;
 pub mod schema;
 pub mod serving;
+pub mod tool_accept;
 pub mod traits;
 
 #[cfg(test)]
 mod conformance;
+#[cfg(test)]
+mod tool_accept_tests;
 
 use adapter::GoogleAdapter;
 use auth::ApiKeyAuth;

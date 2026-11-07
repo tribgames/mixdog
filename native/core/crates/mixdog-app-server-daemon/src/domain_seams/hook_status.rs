@@ -245,7 +245,7 @@ impl HookObserver for HookEventLog {
 }
 
 /// `summarizeRule(rule, index)` (`hook-bus/rules.mjs`).
-fn summarize_rule(rule: &Value, index: usize) -> Value {
+pub(crate) fn summarize_rule(rule: &Value, index: usize) -> Value {
     let or_null = |keys: &[&str]| first_truthy(rule, keys).cloned().unwrap_or(Value::Null);
     let patch = first_truthy(rule, &["patch", "args"]).map_or(Value::Null, compact_value);
     json!({

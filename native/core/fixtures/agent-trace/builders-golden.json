@@ -1,0 +1,647 @@
+{
+ "note": "recorded by benchmarks/rust-core/recorders/record-agent-trace-builders.mjs",
+ "now": 1700000000000,
+ "cases": [
+  {
+   "name": "preset",
+   "builder": "preset_assign",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "s1",
+    "agent": "worker",
+    "presetName": "fast",
+    "model": "m",
+    "provider": "p",
+    "parentSessionId": "par"
+   },
+   "emits": true
+  },
+  {
+   "name": "preset-empty",
+   "builder": "preset_assign",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "s1"
+   },
+   "emits": true
+  },
+  {
+   "name": "fetch",
+   "builder": "fetch",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "s2",
+    "headersMs": 120,
+    "httpStatus": 200,
+    "handshakeRetries": 2,
+    "handshakeRetryClassifiers": [
+     "a",
+     "b"
+    ],
+    "provider": "openai",
+    "model": "m",
+    "transport": "websocket"
+   },
+   "emits": true
+  },
+  {
+   "name": "fetch-min",
+   "builder": "fetch",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "s2",
+    "headersMs": 5,
+    "httpStatus": 503,
+    "handshakeRetries": null,
+    "handshakeRetryClassifiers": []
+   },
+   "emits": true
+  },
+  {
+   "name": "sse",
+   "builder": "sse",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "s3",
+    "sseParseMs": 900,
+    "ttftMs": 150,
+    "provider": "anthropic",
+    "model": "m",
+    "transport": "http"
+   },
+   "emits": true
+  },
+  {
+   "name": "turn-timing",
+   "builder": "turn_timing",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "s4",
+    "status": "ok",
+    "requestId": "r1",
+    "ttftMs": 100.5,
+    "endToEndTtftMs": "250.4",
+    "queueMs": null,
+    "routeMs": 3,
+    "mcpMs": -0.5,
+    "providerMs": "x"
+   },
+   "emits": true
+  },
+  {
+   "name": "turn-timing-empty",
+   "builder": "turn_timing",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "s4"
+   },
+   "emits": true
+  },
+  {
+   "name": "usage-anthropic",
+   "builder": "usage_raw",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "u1",
+    "iteration": 2,
+    "inputTokens": 100,
+    "outputTokens": 40,
+    "cachedTokens": 300,
+    "cacheWriteTokens": 50,
+    "model": "claude",
+    "modelDisplay": "Claude",
+    "responseId": "resp",
+    "rawUsage": {
+     "service_tier": "priority",
+     "output_tokens_details": {
+      "reasoning_tokens": 7
+     }
+    },
+    "provider": "anthropic",
+    "requestKind": "turn",
+    "requestPrevResponseId": "prev",
+    "chainContinuous": true,
+    "continuationResetReason": null,
+    "prefixBlocks": [
+     {
+      "hash": "abc"
+     }
+    ]
+   },
+   "emits": true
+  },
+  {
+   "name": "usage-openai",
+   "builder": "usage_raw",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "u2",
+    "iteration": 1,
+    "inputTokens": 500,
+    "outputTokens": 20,
+    "cachedTokens": 200,
+    "provider": "openai",
+    "model": "gpt",
+    "promptTokens": 480,
+    "rawUsage": {
+     "thinkingTokens": 3,
+     "serviceTier": "flex"
+    },
+    "serviceTier": "auto"
+   },
+   "emits": true
+  },
+  {
+   "name": "usage-identity",
+   "builder": "usage_raw",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "raw",
+    "inputTokens": 10,
+    "outputTokens": 5,
+    "provider": "anthropic",
+    "model": "m",
+    "pricingModel": "pm0",
+    "rawUsage": {
+     "reasoningTokens": 5,
+     "reasoningTokensComplete": false
+    },
+    "__identity": {
+     "provider": "xai",
+     "sessionId": "idsess",
+     "inputTokensInclusive": false,
+     "requestedModel": "rm",
+     "pricingModel": "pm",
+     "sourceType": "lead"
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "usage-min",
+   "builder": "usage_raw",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "u3"
+   },
+   "emits": true
+  },
+  {
+   "name": "usage-upper",
+   "builder": "usage_raw",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "u5",
+    "inputTokens": 100,
+    "outputTokens": 1,
+    "cachedTokens": 30,
+    "cacheWriteTokens": 10,
+    "provider": "ANTHROPIC-OAuth"
+   },
+   "emits": true
+  },
+  {
+   "name": "usage-dotted-i",
+   "builder": "usage_raw",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "u6",
+    "inputTokens": 100,
+    "outputTokens": 1,
+    "cachedTokens": 30,
+    "cacheWriteTokens": 10,
+    "provider": "ANTHROPİC"
+   },
+   "emits": true
+  },
+  {
+   "name": "usage-bad-reasoning",
+   "builder": "usage_raw",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "u4",
+    "inputTokens": 1,
+    "outputTokens": 1,
+    "provider": "google",
+    "rawUsage": {
+     "reasoningTokens": -1,
+     "raw": {}
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "loop",
+   "builder": "loop",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "l1",
+    "iteration": 3,
+    "sendMs": 40,
+    "preSendMs": 5,
+    "messageCount": 7,
+    "bodyBytesEst": 1234,
+    "agent": "lead"
+   },
+   "emits": true
+  },
+  {
+   "name": "loop-min",
+   "builder": "loop",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "l1",
+    "iteration": 3,
+    "sendMs": 40,
+    "messageCount": 7
+   },
+   "emits": true
+  },
+  {
+   "name": "compress",
+   "builder": "compress",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "c1",
+    "toolName": "grep",
+    "before": 1000,
+    "after": 250
+   },
+   "emits": true
+  },
+  {
+   "name": "compress-zero",
+   "builder": "compress",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "c1",
+    "toolName": "grep",
+    "before": 0,
+    "after": 0
+   },
+   "emits": true
+  },
+  {
+   "name": "shell-output",
+   "builder": "shell_output",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "sh1",
+    "toolName": "shell",
+    "toolCallId": "tc",
+    "preOffloadBytes": 5000,
+    "postOffloadBytes": 800,
+    "modelVisibleBytes": 900,
+    "offloaded": true,
+    "resultKind": "ok",
+    "telemetry": {
+     "commandOutputBytes": 5000.7,
+     "capturedPreviewBytes": 100,
+     "shellResultBytes": 5100,
+     "toolResultBytes": 5200,
+     "exitCode": 2,
+     "signal": "SIGTERM",
+     "timedOut": true,
+     "spilled": true,
+     "losslessCompaction": {
+      "applied": true,
+      "reason": "dup",
+      "kind": "lines"
+     }
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "shell-output-min",
+   "builder": "shell_output",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "sh2",
+    "telemetry": {
+     "commandOutputBytes": 0,
+     "exitCode": 1.5
+    },
+    "modelVisibleBytes": -3
+   },
+   "emits": true
+  },
+  {
+   "name": "shell-output-none",
+   "builder": "shell_output",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "sh3",
+    "telemetry": {}
+   },
+   "emits": false
+  },
+  {
+   "name": "shell-output-nosession",
+   "builder": "shell_output",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "telemetry": {
+     "commandOutputBytes": 1
+    }
+   },
+   "emits": false
+  },
+  {
+   "name": "tool-output",
+   "builder": "tool_output",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "to1",
+    "toolName": "read",
+    "toolCallId": "tc",
+    "preOffloadBytes": 9000,
+    "postOffloadBytes": 700,
+    "modelVisibleBytes": 1000,
+    "offloaded": true,
+    "resultKind": "ok"
+   },
+   "emits": true
+  },
+  {
+   "name": "tool-output-not-offloaded",
+   "builder": "tool_output",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "to1",
+    "toolName": "read",
+    "toolCallId": "tc",
+    "preOffloadBytes": 9000,
+    "postOffloadBytes": 700,
+    "modelVisibleBytes": 1000,
+    "offloaded": false,
+    "resultKind": "ok"
+   },
+   "emits": false
+  },
+  {
+   "name": "batch",
+   "builder": "batch",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "b1",
+    "toolCallCount": 3
+   },
+   "emits": true
+  },
+  {
+   "name": "batch-full",
+   "builder": "batch",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "b2",
+    "toolCallCount": 2,
+    "batchId": "bid",
+    "batchCalls": [
+     {
+      "id": "a"
+     },
+     {
+      "id": "b"
+     }
+    ],
+    "iteration": 4
+   },
+   "emits": true
+  },
+  {
+   "name": "fallback-nonstreaming",
+   "builder": "transport_fallback",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "f1",
+    "iteration": 3,
+    "provider": "anthropic",
+    "model": "m",
+    "transport": "non-streaming",
+    "from": "stream",
+    "to": "non-streaming",
+    "reason": "reset",
+    "error_code": "ECONNRESET",
+    "error_http_status": 502,
+    "error_classifier": "reset"
+   },
+   "emits": true
+  },
+  {
+   "name": "prewarm",
+   "builder": "spawn_ws_prewarm",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "pk",
+    "payload": {
+     "stage": "open",
+     "ms": 12
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "output-truncated",
+   "builder": "output_truncated",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "o1",
+    "iteration": 2,
+    "stop_reason": "max_tokens",
+    "content_len": 3,
+    "agent": "lead"
+   },
+   "emits": true
+  },
+  {
+   "name": "output-truncated-defaults",
+   "builder": "output_truncated",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "o1",
+    "iteration": 2,
+    "stop_reason": "length",
+    "content_len": 0
+   },
+   "emits": true
+  },
+  {
+   "name": "gemini-cache",
+   "builder": "gemini_cache",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "g1",
+    "iteration": 2,
+    "kind": "gemini_cache",
+    "payload": {
+     "hit": true
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "cache-break",
+   "builder": "cache_break",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "sessionId": "cb1",
+    "iteration": 4,
+    "payload": {
+     "classification": "unexpected",
+     "reason": "prefix_changed",
+     "source": "anthropic",
+     "provider": "anthropic",
+     "model": "m",
+     "transport": "http",
+     "request_prefix_changed": false,
+     "cached_tokens": 0,
+     "prompt_tokens": 1000,
+     "actual_cache_miss": false
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "browser-timing",
+   "builder": "browser_timing",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "context": {
+     "sessionId": "bt1",
+     "turnId": "t1",
+     "action": "click"
+    },
+    "bridgeMs": 33,
+    "body": {
+     "ok": true,
+     "value": {
+      "timing": {
+       "queueMs": 2,
+       "commandMs": 5,
+       "waitMs": -1,
+       "snapshots": 1,
+       "steps": [
+        {
+         "index": 1,
+         "commandMs": 3,
+         "text": "x"
+        },
+        {
+         "index": 9,
+         "commandMs": 1
+        }
+       ],
+       "mouseEvents": {
+        "mouseMoved": {
+         "count": 2,
+         "totalMs": 4
+        },
+        "mousePressed": {}
+       }
+      }
+     }
+    },
+    "status": 200
+   },
+   "emits": true
+  },
+  {
+   "name": "browser-timing-error",
+   "builder": "browser_timing",
+   "how": "recorded",
+   "source": null,
+   "rust": {
+    "context": {
+     "sessionId": "bt2"
+    },
+    "bridgeMs": 1,
+    "body": {
+     "ok": false,
+     "timing": {
+      "queueMs": 1,
+      "screenshotMs": 9
+     }
+    },
+    "status": 500
+   },
+   "emits": true
+  }
+ ],
+ "jsonl": "{\"kind\":\"preset_assign\",\"agent\":\"worker\",\"preset_name\":\"fast\",\"model\":\"m\",\"provider\":\"p\",\"parent_session_id\":\"par\",\"parentSessionId\":\"par\",\"ts\":1700000000000,\"session_id\":\"s1\",\"payload\":{}}\n{\"kind\":\"preset_assign\",\"agent\":null,\"preset_name\":null,\"model\":null,\"provider\":null,\"parent_session_id\":null,\"parentSessionId\":null,\"ts\":1700000000000,\"session_id\":\"s1\",\"payload\":{}}\n{\"kind\":\"fetch\",\"headers_ms\":120,\"http_status\":200,\"provider\":\"openai\",\"model\":\"m\",\"transport\":\"websocket\",\"handshake_retries\":2,\"handshake_retry_classifiers\":[\"a\",\"b\"],\"payload\":{\"headers_ms\":120,\"phase\":\"http_response_headers\",\"http_status\":200,\"provider\":\"openai\",\"model\":\"m\",\"transport\":\"websocket\",\"handshake_retries\":2,\"handshake_retry_classifiers\":[\"a\",\"b\"]},\"ts\":1700000000000,\"session_id\":\"s2\"}\n{\"kind\":\"fetch\",\"headers_ms\":5,\"http_status\":503,\"provider\":null,\"model\":null,\"transport\":null,\"handshake_retries\":0,\"payload\":{\"headers_ms\":5,\"phase\":\"http_response_headers\",\"http_status\":503,\"provider\":null,\"model\":null,\"transport\":null,\"handshake_retries\":0},\"ts\":1700000000000,\"session_id\":\"s2\"}\n{\"kind\":\"sse\",\"sse_parse_ms\":900,\"stream_total_ms\":900,\"ttft_ms\":150,\"first_token_ms\":150,\"provider\":\"anthropic\",\"model\":\"m\",\"transport\":\"http\",\"payload\":{\"sse_parse_ms\":900,\"stream_total_ms\":900,\"ttft_ms\":150,\"first_token_ms\":150,\"provider\":\"anthropic\",\"model\":\"m\",\"transport\":\"http\"},\"ts\":1700000000000,\"session_id\":\"s3\"}\n{\"kind\":\"turn_timing\",\"status\":\"ok\",\"request_id\":\"r1\",\"ttft_ms\":101,\"end_to_end_ttft_ms\":250,\"queue_ms\":0,\"route_ms\":3,\"preflight_ms\":null,\"mcp_ms\":0,\"provider_ms\":null,\"payload\":{\"status\":\"ok\",\"request_id\":\"r1\",\"ttft_ms\":101,\"end_to_end_ttft_ms\":250,\"queue_ms\":0,\"route_ms\":3,\"preflight_ms\":null,\"mcp_ms\":0,\"provider_ms\":null},\"ts\":1700000000000,\"session_id\":\"s4\"}\n{\"kind\":\"turn_timing\",\"status\":\"unknown\",\"request_id\":null,\"ttft_ms\":null,\"end_to_end_ttft_ms\":null,\"queue_ms\":null,\"route_ms\":null,\"preflight_ms\":null,\"mcp_ms\":null,\"provider_ms\":null,\"payload\":{\"status\":\"unknown\",\"request_id\":null,\"ttft_ms\":null,\"end_to_end_ttft_ms\":null,\"queue_ms\":null,\"route_ms\":null,\"preflight_ms\":null,\"mcp_ms\":null,\"provider_ms\":null},\"ts\":1700000000000,\"session_id\":\"s4\"}\n{\"iteration\":2,\"kind\":\"usage_raw\",\"input_tokens\":100,\"output_tokens\":40,\"thinking_tokens\":7,\"cached_tokens\":300,\"cache_write_tokens\":50,\"uncached_input_tokens\":100,\"prompt_tokens\":450,\"model\":\"claude\",\"model_display\":\"Claude\",\"response_id\":\"resp\",\"request_kind\":\"turn\",\"service_tier\":\"priority\",\"request_prev_response_id\":\"prev\",\"chain_continuous\":true,\"continuation_reset_reason\":null,\"payload\":{\"provider\":\"anthropic\",\"requested_model\":null,\"pricing_model\":null,\"source_type\":null,\"prompt_tokens\":450,\"uncached_input_tokens\":100,\"thinking_tokens\":7,\"model_display\":\"Claude\",\"response_id\":\"resp\",\"service_tier\":\"priority\",\"raw_usage\":{\"service_tier\":\"priority\",\"output_tokens_details\":{\"reasoning_tokens\":7}},\"request_prev_response_id\":\"prev\",\"chain_continuous\":true,\"continuation_reset_reason\":null,\"prefix_blocks\":[{\"hash\":\"abc\"}]},\"ts\":1700000000000,\"session_id\":\"u1\"}\n{\"iteration\":1,\"kind\":\"usage_raw\",\"input_tokens\":500,\"output_tokens\":20,\"thinking_tokens\":3,\"cached_tokens\":200,\"cache_write_tokens\":0,\"uncached_input_tokens\":300,\"prompt_tokens\":480,\"model\":\"gpt\",\"model_display\":null,\"response_id\":null,\"request_kind\":null,\"service_tier\":\"auto\",\"payload\":{\"provider\":\"openai\",\"requested_model\":null,\"pricing_model\":null,\"source_type\":null,\"prompt_tokens\":480,\"uncached_input_tokens\":300,\"thinking_tokens\":3,\"model_display\":null,\"response_id\":null,\"service_tier\":\"auto\",\"raw_usage\":{\"thinkingTokens\":3,\"serviceTier\":\"flex\"}},\"ts\":1700000000000,\"session_id\":\"u2\"}\n{\"kind\":\"usage_raw\",\"input_tokens\":10,\"output_tokens\":5,\"thinking_tokens\":5,\"cache_write_tokens\":0,\"uncached_input_tokens\":10,\"prompt_tokens\":10,\"model\":\"m\",\"model_display\":null,\"response_id\":null,\"request_kind\":null,\"service_tier\":null,\"payload\":{\"provider\":\"xai\",\"requested_model\":\"rm\",\"pricing_model\":\"pm0\",\"source_type\":\"lead\",\"prompt_tokens\":10,\"uncached_input_tokens\":10,\"thinking_tokens\":5,\"model_display\":null,\"response_id\":null,\"service_tier\":null,\"raw_usage\":{\"reasoningTokens\":5,\"reasoningTokensComplete\":false}},\"ts\":1700000000000,\"session_id\":\"idsess\"}\n{\"kind\":\"usage_raw\",\"thinking_tokens\":null,\"cache_write_tokens\":0,\"uncached_input_tokens\":0,\"prompt_tokens\":0,\"model\":null,\"model_display\":null,\"response_id\":null,\"request_kind\":null,\"service_tier\":null,\"payload\":{\"provider\":null,\"requested_model\":null,\"pricing_model\":null,\"source_type\":null,\"prompt_tokens\":0,\"uncached_input_tokens\":0,\"thinking_tokens\":null,\"model_display\":null,\"response_id\":null,\"service_tier\":null,\"raw_usage\":null},\"ts\":1700000000000,\"session_id\":\"u3\"}\n{\"kind\":\"usage_raw\",\"input_tokens\":100,\"output_tokens\":1,\"thinking_tokens\":null,\"cached_tokens\":30,\"cache_write_tokens\":10,\"uncached_input_tokens\":100,\"prompt_tokens\":140,\"model\":null,\"model_display\":null,\"response_id\":null,\"request_kind\":null,\"service_tier\":null,\"payload\":{\"provider\":\"ANTHROPIC-OAuth\",\"requested_model\":null,\"pricing_model\":null,\"source_type\":null,\"prompt_tokens\":140,\"uncached_input_tokens\":100,\"thinking_tokens\":null,\"model_display\":null,\"response_id\":null,\"service_tier\":null,\"raw_usage\":null},\"ts\":1700000000000,\"session_id\":\"u5\"}\n{\"kind\":\"usage_raw\",\"input_tokens\":100,\"output_tokens\":1,\"thinking_tokens\":null,\"cached_tokens\":30,\"cache_write_tokens\":10,\"uncached_input_tokens\":60,\"prompt_tokens\":100,\"model\":null,\"model_display\":null,\"response_id\":null,\"request_kind\":null,\"service_tier\":null,\"payload\":{\"provider\":\"ANTHROPİC\",\"requested_model\":null,\"pricing_model\":null,\"source_type\":null,\"prompt_tokens\":100,\"uncached_input_tokens\":60,\"thinking_tokens\":null,\"model_display\":null,\"response_id\":null,\"service_tier\":null,\"raw_usage\":null},\"ts\":1700000000000,\"session_id\":\"u6\"}\n{\"kind\":\"usage_raw\",\"input_tokens\":1,\"output_tokens\":1,\"thinking_tokens\":null,\"cache_write_tokens\":0,\"uncached_input_tokens\":1,\"prompt_tokens\":1,\"model\":null,\"model_display\":null,\"response_id\":null,\"request_kind\":null,\"service_tier\":null,\"payload\":{\"provider\":\"google\",\"requested_model\":null,\"pricing_model\":null,\"source_type\":null,\"prompt_tokens\":1,\"uncached_input_tokens\":1,\"thinking_tokens\":null,\"model_display\":null,\"response_id\":null,\"service_tier\":null,\"raw_usage\":{\"reasoningTokens\":-1,\"raw\":{}}},\"ts\":1700000000000,\"session_id\":\"u4\"}\n{\"iteration\":3,\"kind\":\"loop\",\"agent\":\"lead\",\"send_ms\":40,\"pre_send_ms\":5,\"tool_resume_ms\":null,\"message_count\":7,\"body_bytes_est\":1234,\"ts\":1700000000000,\"session_id\":\"l1\",\"payload\":{}}\n{\"iteration\":3,\"kind\":\"loop\",\"agent\":null,\"send_ms\":40,\"pre_send_ms\":null,\"tool_resume_ms\":null,\"message_count\":7,\"body_bytes_est\":null,\"ts\":1700000000000,\"session_id\":\"l1\",\"payload\":{}}\n{\"kind\":\"compress\",\"tool_name\":\"grep\",\"payload\":{\"bytes_before\":1000,\"bytes_after\":250,\"savings_pct\":75},\"ts\":1700000000000,\"session_id\":\"c1\"}\n{\"kind\":\"compress\",\"tool_name\":\"grep\",\"payload\":{\"bytes_before\":0,\"bytes_after\":0,\"savings_pct\":0},\"ts\":1700000000000,\"session_id\":\"c1\"}\n{\"kind\":\"shell_output\",\"tool_name\":\"shell\",\"payload\":{\"tool_call_id\":\"tc\",\"result_kind\":\"ok\",\"command_output_bytes\":5000,\"captured_preview_bytes\":100,\"shell_result_bytes\":5100,\"tool_result_bytes\":5200,\"pre_offload_bytes\":5000,\"post_offload_bytes\":800,\"model_visible_bytes\":900,\"byte_delta\":4100,\"reduction_pct\":82,\"exit_code\":2,\"signal\":\"SIGTERM\",\"timed_out\":true,\"spilled\":true,\"offloaded\":true,\"lossless_compaction\":{\"applied\":true,\"reason\":\"dup\",\"kind\":\"lines\"}},\"ts\":1700000000000,\"session_id\":\"sh1\"}\n{\"kind\":\"shell_output\",\"tool_name\":\"shell\",\"payload\":{\"tool_call_id\":null,\"result_kind\":null,\"command_output_bytes\":0,\"captured_preview_bytes\":0,\"shell_result_bytes\":0,\"tool_result_bytes\":0,\"pre_offload_bytes\":0,\"post_offload_bytes\":0,\"model_visible_bytes\":0,\"byte_delta\":0,\"reduction_pct\":null,\"exit_code\":null,\"signal\":null,\"timed_out\":false,\"spilled\":false,\"offloaded\":false,\"lossless_compaction\":null},\"ts\":1700000000000,\"session_id\":\"sh2\"}\n{\"kind\":\"tool_output\",\"tool_name\":\"read\",\"payload\":{\"tool_call_id\":\"tc\",\"result_kind\":\"ok\",\"pre_offload_bytes\":9000,\"post_offload_bytes\":700,\"model_visible_bytes\":1000,\"saved_bytes\":8000,\"reduction_pct\":89,\"offloaded\":true},\"ts\":1700000000000,\"session_id\":\"to1\"}\n{\"kind\":\"batch\",\"payload\":{\"tool_call_count\":3},\"ts\":1700000000000,\"session_id\":\"b1\"}\n{\"kind\":\"batch\",\"payload\":{\"tool_call_count\":2,\"batch_schema_version\":1,\"batch_id\":\"bid\",\"iteration\":4,\"calls\":[{\"id\":\"a\"},{\"id\":\"b\"}]},\"ts\":1700000000000,\"session_id\":\"b2\"}\n{\"iteration\":3,\"kind\":\"transport_fallback\",\"provider\":\"anthropic\",\"model\":\"m\",\"transport\":\"non-streaming\",\"payload\":{\"from\":\"stream\",\"to\":\"non-streaming\",\"reason\":\"reset\",\"error_code\":\"ECONNRESET\",\"error_http_status\":502,\"error_classifier\":\"reset\"},\"ts\":1700000000000,\"session_id\":\"f1\"}\n{\"kind\":\"spawn_ws_prewarm\",\"provider\":\"openai-oauth\",\"transport\":\"websocket\",\"payload\":{\"stage\":\"open\",\"ms\":12},\"ts\":1700000000000,\"session_id\":\"pk\"}\n{\"iteration\":2,\"kind\":\"output_truncated\",\"payload\":{\"stop_reason\":\"max_tokens\",\"content_len\":3,\"agent\":\"lead\"},\"ts\":1700000000000,\"session_id\":\"o1\"}\n{\"iteration\":2,\"kind\":\"output_truncated\",\"payload\":{\"stop_reason\":\"length\",\"content_len\":0,\"agent\":null},\"ts\":1700000000000,\"session_id\":\"o1\"}\n{\"iteration\":2,\"kind\":\"gemini_cache\",\"payload\":{\"hit\":true},\"ts\":1700000000000,\"session_id\":\"g1\"}\n{\"iteration\":4,\"kind\":\"cache_break\",\"classification\":\"unexpected\",\"reason\":\"prefix_changed\",\"source\":\"anthropic\",\"provider\":\"anthropic\",\"model\":\"m\",\"transport\":\"http\",\"payload\":{\"classification\":\"unexpected\",\"reason\":\"prefix_changed\",\"source\":\"anthropic\",\"provider\":\"anthropic\",\"model\":\"m\",\"transport\":\"http\",\"request_prefix_changed\":false,\"cached_tokens\":0,\"prompt_tokens\":1000,\"actual_cache_miss\":false},\"ts\":1700000000000,\"session_id\":\"cb1\"}\n{\"kind\":\"browser_timing\",\"turn_id\":\"t1\",\"action\":\"click\",\"bridge_ms\":33,\"http_status\":200,\"ok\":true,\"payload\":{\"queueMs\":2,\"commandMs\":5,\"snapshots\":1,\"steps\":[{\"index\":1,\"commandMs\":3}],\"mouseEvents\":{\"mouseMoved\":{\"count\":2,\"totalMs\":4}}},\"ts\":1700000000000,\"session_id\":\"bt1\"}\n{\"kind\":\"browser_timing\",\"bridge_ms\":1,\"http_status\":500,\"ok\":false,\"payload\":{\"queueMs\":1,\"screenshotMs\":9},\"ts\":1700000000000,\"session_id\":\"bt2\"}\n",
+ "pure": {
+  "grokChain": [
+   {
+    "state": {
+     "xaiResponses": {
+      "previousResponseId": "p1"
+     }
+    },
+    "prev": "p1",
+    "reason": "x",
+    "out": {
+     "requestPrevResponseId": "p1",
+     "chainContinuous": true,
+     "continuationResetReason": "x"
+    }
+   },
+   {
+    "state": {
+     "xaiResponses": {
+      "previousResponseId": "p1"
+     }
+    },
+    "prev": "p2",
+    "reason": null,
+    "out": {
+     "requestPrevResponseId": "p2",
+     "chainContinuous": false,
+     "continuationResetReason": null
+    }
+   },
+   {
+    "state": null,
+    "prev": "",
+    "reason": null,
+    "out": {
+     "requestPrevResponseId": null,
+     "chainContinuous": false,
+     "continuationResetReason": null
+    }
+   }
+  ]
+ }
+}

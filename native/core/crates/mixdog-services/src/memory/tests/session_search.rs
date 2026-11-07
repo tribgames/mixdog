@@ -141,8 +141,8 @@ struct Stored {
 
 #[async_trait::async_trait]
 impl StoredSessions for Stored {
-    async fn session_ids(&self) -> Vec<String> {
-        self.sessions.iter().map(|s| s.0.clone()).collect()
+    async fn session_ids(&self) -> crate::memory::error::Result<Vec<String>> {
+        Ok(self.sessions.iter().map(|s| s.0.clone()).collect())
     }
     async fn record_stamp(&self, id: &str) -> Option<String> {
         self.sessions.iter().find(|s| s.0 == id).map(|s| s.1.clone())
@@ -187,6 +187,40 @@ async fn backfill_indexes_changed_sessions_once_and_drops_vanished_ones() {
     stored.sessions[0].2.push(json!({ "role": "assistant", "content": "the heron answer was recorded later" }));
     assert_eq!(ingest.backfill(&stored).await.expect("changed"), 1);
     assert_eq!(db.search("recorded later", 10).await.expect("search").len(), 1);
+}
+
+/// A store whose folder cannot be listed (Node's `readdirSync` throws).
+struct Unlistable;
+
+#[async_trait::async_trait]
+impl StoredSessions for Unlistable {
+    async fn session_ids(&self) -> crate::memory::error::Result<Vec<String>> {
+        Err(crate::memory::error::MemoryError::Io(std::io::Error::other("sessions folder unreadable")))
+    }
+    async fn record_stamp(&self, _: &str) -> Option<String> {
+        unreachable!("nothing is stamped after a failed listing")
+    }
+    async fn read(&self, _: &str) -> Option<IngestSession> {
+        unreachable!("nothing is read after a failed listing")
+    }
+}
+
+/// A failed listing must not read as "no sessions stored": the cleanup that drops the rows of
+/// vanished sessions would otherwise drop every session's rows.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_failed_session_listing_fails_the_backfill_and_removes_no_rows() {
+    let pg = TestPg::start().await;
+    let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
+    let ingest = SessionSearchIngest::new(db.clone(), Arc::new(NoSecrets));
+
+    db.append("kept", &[json!({ "role": "user", "content": "indexed heron conversation" })]).await.expect("append");
+    db.record_backfill_stamp("kept", "s1").await.expect("stamp");
+
+    assert!(ingest.backfill(&Unlistable).await.is_err(), "the backfill fails");
+    assert_eq!(db.search("heron", 10).await.expect("search").len(), 1, "no rows were removed");
+    assert!(db.session_ids().await.expect("ids").contains("kept"));
+    assert_eq!(db.backfill_stamps().await.expect("stamps").get("kept").map(String::as_str), Some("s1"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

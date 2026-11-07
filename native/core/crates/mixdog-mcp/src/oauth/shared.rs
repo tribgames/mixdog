@@ -20,6 +20,10 @@ pub enum OAuthError {
     /// The secret store could not be read or written.
     #[error("MCP OAuth credential store: {0}")]
     Store(String),
+    /// The store call never ran (its lane refused or dropped the job). It says nothing about the
+    /// sign-in: not "reauthentication required", and never a reason to erase it.
+    #[error("MCP OAuth credential store: its lane did not run the call")]
+    Unavailable,
 }
 
 impl From<OAuthError> for TransportError {

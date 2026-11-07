@@ -349,14 +349,14 @@ pub(crate) mod tests {
                 native_documents: config.get("nativeDocuments").and_then(Value::as_bool),
             }))
         }
-        async fn custom_key_ids(&self, _: &str) -> Vec<String> {
-            Vec::new()
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
         }
         fn available(&self, _: &str) -> bool {
             true
         }
-        async fn oauth_credentials_usable(&self, _: &str) -> bool {
-            false
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(false)
         }
     }
     struct Tagged;

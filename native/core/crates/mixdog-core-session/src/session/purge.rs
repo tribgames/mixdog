@@ -114,6 +114,7 @@ pub(crate) fn project_slug(cwd: &str) -> String {
 fn clear_offloaded(lane: &InLane<MaintenanceIo>, dir: &Path) {
     let Ok(names) = mixdog_statefile::list_dir(lane, dir) else { return };
     for name in names.iter().filter(|name| name.ends_with(".txt")) {
+        mixdog_rt::job_progress();
         let _ = mixdog_statefile::remove_file(lane, &dir.join(name));
     }
     // `rmdirSync`: only an empty folder goes.
@@ -138,6 +139,7 @@ fn remove_transcripts(_lane: &InLane<MaintenanceIo>, paths: &[PathBuf]) {
 /// `rmSync(dir, { recursive: true, force: true })` / `unlinkSync` that ignores what is gone.
 fn remove_all(lane: &InLane<MaintenanceIo>, targets: &[PathBuf]) {
     for target in targets {
+        mixdog_rt::job_progress();
         let _ = match mixdog_statefile::metadata(lane, target) {
             Ok(meta) if meta.is_dir() => mixdog_statefile::remove_dir_all(lane, target),
             Ok(_) => mixdog_statefile::remove_file(lane, target),

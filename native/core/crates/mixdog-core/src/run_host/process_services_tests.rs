@@ -139,7 +139,7 @@ async fn a_dpapi_file_node_wrote_is_read_by_the_vault() {
     for case in dpapi["cases"].as_array().unwrap() {
         let account = case["account"].as_str().unwrap();
         assert_eq!(vault.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
-        assert!(!vault.is_fallback(account).await, "{account}");
+        assert!(!vault.is_fallback(account).await.unwrap(), "{account}");
     }
     assert_eq!(vault.get("agent.never.apiKey").await.unwrap(), None);
 }
@@ -178,21 +178,21 @@ impl SecretStore for Failing {
         Err(SecretError::new("[keychain] security set failed"))
     }
     async fn delete(&self, _: &str) -> Result<(), SecretError> {
-        Err(SecretError { message: "[keychain] delete failed".into(), no_provider: true })
+        Err(SecretError { message: "[keychain] delete failed".into(), no_provider: true, unrun: false })
     }
-    async fn is_fallback(&self, account: &str) -> bool {
-        account == "from-file"
+    async fn is_fallback(&self, account: &str) -> Result<bool, SecretError> {
+        Ok(account == "from-file")
     }
 }
 
 #[tokio::test]
 async fn a_failing_keychain_is_the_vaults_error_with_node_s_message() {
     let vault = KeychainVault::new(Arc::new(Failing));
-    assert_eq!(vault.get("a").await, Err(VaultError("[keychain] the keyring is locked".into())));
-    assert_eq!(vault.set("a", "v").await, Err(VaultError("[keychain] security set failed".into())));
-    assert_eq!(vault.delete("a").await, Err(VaultError("[keychain] delete failed".into())));
-    assert!(vault.is_fallback("from-file").await);
-    assert!(!vault.is_fallback("a").await);
+    assert_eq!(vault.get("a").await, Err(VaultError::new("[keychain] the keyring is locked")));
+    assert_eq!(vault.set("a", "v").await, Err(VaultError::new("[keychain] security set failed")));
+    assert_eq!(vault.delete("a").await, Err(VaultError::new("[keychain] delete failed")));
+    assert!(vault.is_fallback("from-file").await.unwrap());
+    assert!(!vault.is_fallback("a").await.unwrap());
 }
 
 // ---- ManagedLocalModels ------------------------------------------------------------------

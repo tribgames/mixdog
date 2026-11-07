@@ -23,10 +23,18 @@ use super::runners::runner_for;
 
 const CHECK_CONCURRENCY: usize = 3;
 
-/// What `files` hold now, by path; an unreadable file is absent. One lane job.
-async fn read_files(lane: DurabilityIo, paths: Vec<PathBuf>) -> HashMap<PathBuf, Vec<u8>> {
-    on_lane(lane, move || read_files_blocking(paths)).await.unwrap_or_default()
+fn put(r: &mut Value, k: &str, v: Value) {
+    r[k] = v;
 }
+
+/// What `files` hold now, by path; an unreadable file is absent. One lane job. `Err` when the job
+/// never ran: an empty map there would read as "every file is gone" and make an engine's in-place
+/// rewrite look like no change, or go unrecorded.
+async fn read_files(lane: DurabilityIo, paths: Vec<PathBuf>) -> Result<HashMap<PathBuf, Vec<u8>>, String> {
+    on_lane(lane, move || read_files_blocking(paths)).await.map_err(|_| UNREAD.to_owned())
+}
+
+const UNREAD: &str = "the files could not be read: their lane did not run the read";
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn read_files_blocking(paths: Vec<PathBuf>) -> HashMap<PathBuf, Vec<u8>> {
@@ -34,10 +42,10 @@ fn read_files_blocking(paths: Vec<PathBuf>) -> HashMap<PathBuf, Vec<u8>> {
 }
 
 /// SHA-256 of each file in `files` by name; an unreadable file digests as empty.
-async fn digests(lane: DurabilityIo, cwd: &Path, files: &[String]) -> HashMap<String, String> {
+async fn digests(lane: DurabilityIo, cwd: &Path, files: &[String]) -> Result<HashMap<String, String>, String> {
     let paths: Vec<PathBuf> = files.iter().map(|f| full_path_for(cwd, f)).collect();
-    let mut read = read_files(lane, paths.clone()).await;
-    files.iter().zip(paths).map(|(f, p)| (f.clone(), read.remove(&p).map(|b| Sha256::digest(&b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default())).collect()
+    let mut read = read_files(lane, paths.clone()).await?;
+    Ok(files.iter().zip(paths).map(|(f, p)| (f.clone(), read.remove(&p).map(|b| Sha256::digest(&b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default())).collect())
 }
 
 /// Files an engine's check pass says it would rewrite, plus fixable findings.
@@ -106,7 +114,6 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Value {
         "filesChecked": scope.len(), "filesChanged": check.changed_files,
         "diagnostics": check.diagnostics.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
     }));
-    let put = |r: &mut Value, k: &str, v: Value| r[k] = v;
     if !check.stderr_tail.is_empty() {
         put(&mut result, "stderrTail", json!(check.stderr_tail));
     }
@@ -134,24 +141,54 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Value {
         put(&mut result, "filesChanged", json!([]));
         return result;
     }
-    let before = digests(o.lane, &o.cwd, &candidates).await;
+    // Both reads come BEFORE the engine rewrites anything: if either never ran, nothing is written.
+    let unwritten = |result: &mut Value, why: String| {
+        put(result, "error", json!(why));
+        put(result, "applied", json!(false));
+    };
+    let before = match digests(o.lane, &o.cwd, &candidates).await {
+        Ok(before) => before,
+        Err(why) => {
+            unwritten(&mut result, why);
+            return result;
+        }
+    };
     // The turn review needs each file's bytes before the engine rewrites it in place.
     let baselines: Option<HashMap<PathBuf, Vec<u8>>> = match &o.session_id {
-        Some(_) => Some(read_files(o.lane, candidates.iter().map(|f| full_path_for(&o.cwd, f)).collect()).await),
+        Some(_) => match read_files(o.lane, candidates.iter().map(|f| full_path_for(&o.cwd, f)).collect()).await {
+            Ok(baselines) => Some(baselines),
+            Err(why) => {
+                unwritten(&mut result, why);
+                return result;
+            }
+        },
         None => None,
     };
     let fixed = runner.fix(&request(engine, candidates.clone(), o)).await;
-    let after = digests(o.lane, &o.cwd, &candidates).await;
+    let after = match digests(o.lane, &o.cwd, &candidates).await {
+        Ok(after) => after,
+        Err(why) => {
+            // The engine has run: say so, and that what it changed is not known.
+            put(&mut result, "error", json!(format!("{why}; the engine ran, so these files may have been rewritten")));
+            put(&mut result, "applied", json!(false));
+            return result;
+        }
+    };
     let changed: Vec<String> = candidates.iter().filter(|f| after[*f] != before[*f]).cloned().collect();
     // The engine wrote in place: run the invalidation a pipeline write would have run.
     let changed_paths: Vec<_> = changed.iter().map(|f| full_path_for(&o.cwd, f)).collect();
     if let Some(host) = &o.host {
         host.note_written(&changed_paths, o.session_id.as_deref()).await;
         if let (Some(session), Some(baselines)) = (o.session_id.as_deref(), baselines) {
-            let mut written = read_files(o.lane, changed_paths.clone()).await;
-            let changes: Vec<FileChange> = changed_paths.iter().filter_map(|p| Some(FileChange { full_path: p.clone(), before: baselines.get(p)?.clone(), after: written.remove(p)? })).collect();
-            if !changes.is_empty() {
-                host.record_changes(&o.cwd, session, changes).await;
+            match read_files(o.lane, changed_paths.clone()).await {
+                Ok(mut written) => {
+                    let changes: Vec<FileChange> = changed_paths.iter().filter_map(|p| Some(FileChange { full_path: p.clone(), before: baselines.get(p)?.clone(), after: written.remove(p)? })).collect();
+                    if !changes.is_empty() {
+                        host.record_changes(&o.cwd, session, changes).await;
+                    }
+                }
+                // The files were rewritten and the turn review cannot be told what they became.
+                Err(why) => put(&mut result, "error", json!(format!("{why}; the changes were written but not recorded for the turn review"))),
             }
         }
     }
@@ -273,6 +310,17 @@ mod tests {
         assert_eq!(out[0]["skipped"], "no runner for this engine in this build");
         assert_eq!((out[1]["filesChecked"].clone(), out[1].get("skipped").is_none()), (json!(0), true));
         assert!(spawn.calls.lock().unwrap().is_empty());
+    }
+
+    /// A read that never ran is an error: an empty map would make a rewritten file look unchanged.
+    #[tokio::test]
+    async fn a_file_read_that_never_ran_is_an_error_not_an_empty_digest() {
+        let (dir, _spawn) = setup();
+        let lane = Processes::for_tests().durability();
+        assert!(digests(lane, dir.path(), &["a.sh".into()]).await.is_ok());
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        assert!(digests(lane, dir.path(), &["a.sh".into()]).await.unwrap_err().contains("did not run the read"));
+        assert!(read_files(lane, vec![dir.path().join("a.sh")]).await.is_err());
     }
 
     #[test]

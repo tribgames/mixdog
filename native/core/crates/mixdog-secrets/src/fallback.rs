@@ -313,12 +313,18 @@ impl SecretStore for FallbackStore {
     }
 
     /// `hasFallbackSecret`: a value the keychain holds wins over the file; an unreadable file
-    /// or keychain counts as "not served by the file".
-    async fn is_fallback(&self, account: &str) -> bool {
-        if matches!(self.keychain.get(account).await, Ok(Some(_))) {
-            return false;
+    /// or keychain counts as "not served by the file". `Err` only when a read never ran.
+    async fn is_fallback(&self, account: &str) -> Result<bool, SecretError> {
+        match self.keychain.get(account).await {
+            Ok(Some(_)) => return Ok(false),
+            Err(error) if error.unrun => return Err(error),
+            _ => {}
         }
-        matches!(self.file_get(account).await, Ok(Some(_)))
+        match self.file_get(account).await {
+            Ok(value) => Ok(value.is_some()),
+            Err(error) if error.unrun => Err(error),
+            Err(_) => Ok(false),
+        }
     }
 }
 
@@ -367,10 +373,10 @@ mod tests {
         for case in golden["fallback"]["cases"].as_array().unwrap() {
             let account = case["account"].as_str().unwrap();
             assert_eq!(store.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
-            assert_eq!(store.is_fallback(account).await, case["hasFallback"].as_bool().unwrap(), "{account}");
+            assert_eq!(store.is_fallback(account).await.unwrap(), case["hasFallback"].as_bool().unwrap(), "{account}");
         }
         let absent = &golden["fallback"]["absent"];
-        assert_eq!(store.is_fallback(absent["account"].as_str().unwrap()).await, absent["hasFallback"].as_bool().unwrap());
+        assert_eq!(store.is_fallback(absent["account"].as_str().unwrap()).await.unwrap(), absent["hasFallback"].as_bool().unwrap());
     }
 
     #[cfg(target_os = "linux")]

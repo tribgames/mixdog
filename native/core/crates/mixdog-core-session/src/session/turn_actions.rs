@@ -94,7 +94,7 @@ impl TurnActionsService {
     }
 
     async fn header(&self, thread: &ThreadId) -> Result<mixdog_store::schema::record::Header, CoreError> {
-        self.directory.stored_header(thread).await.ok_or_else(|| CoreError::ThreadNotFound { thread_id: thread.clone() })
+        self.directory.try_stored_header(thread).await?.ok_or_else(|| CoreError::ThreadNotFound { thread_id: thread.clone() })
     }
 
     /// `agentControl(args)`: `agentTool.execute(args, { callerCwd, invocationSource:

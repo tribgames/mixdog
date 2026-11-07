@@ -29,8 +29,9 @@ pub fn parse_ts_to_ms(value: Option<&Value>, now_ms: f64) -> f64 {
 }
 
 /// The session cwd Mixdog embeds as a top-level `cwd` on every message row, read from the first
-/// five lines of the first 100 KiB. Only a directory that exists counts.
-pub async fn cwd_from_transcript_path(lane: MaintenanceIo, file: &Path) -> Option<PathBuf> {
+/// five lines of the first 100 KiB. Only a directory that exists counts. A read that never ran
+/// is an error, not "no cwd".
+pub async fn cwd_from_transcript_path(lane: MaintenanceIo, file: &Path) -> std::io::Result<Option<PathBuf>> {
     let file = file.to_owned();
     let job = lane
         .submit_wait(&CancellationToken::new(), move |lane| {
@@ -50,8 +51,9 @@ pub async fn cwd_from_transcript_path(lane: MaintenanceIo, file: &Path) -> Optio
             }
             None
         })
-        .await;
-    job.ok()?.await.ok().flatten()
+        .await
+        .map_err(|e| std::io::Error::other(format!("lane job was not queued: {e:?}")))?;
+    job.await.map_err(|_| std::io::Error::other("lane job was dropped"))
 }
 
 /// A conversation row of a transcript line.

@@ -736,8 +736,12 @@ fn strip_non_standard(schema: &Value) -> Value {
 }
 
 /// `("parameters", legacy)` when the legacy subset is exact, else
-/// `("parametersJsonSchema", original)`.
+/// `("parametersJsonSchema", original)`. A null or a scalar is no schema at all: `convertSchema` hands it
+/// back as written (`geminiSchemaFields`), and the declaration check then refuses it.
 pub fn declaration_schema(input: &Value) -> (&'static str, Value) {
+    if matches!(input, Value::Null | Value::String(_) | Value::Number(_)) {
+        return ("parameters", input.clone());
+    }
     if input.is_boolean() || !legacy_representable(input, true) {
         ("parametersJsonSchema", strip_non_standard(input))
     } else {

@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {
+      "name": "missing file",
+      "binary": "<DIR>\\gone-helper",
+      "platform": "win32",
+      "how": "error",
+      "code": "ENOENT",
+      "text": "computer host failed to start: spawn <DIR>\\gone-helper ENOENT"
+    },
+    {
+      "name": "not an executable",
+      "binary": "<DIR>\\plain.txt",
+      "platform": "win32",
+      "how": "throw",
+      "code": "EFTYPE",
+      "text": "spawn EFTYPE"
+    },
+    {
+      "name": "missing directory",
+      "binary": "<DIR>\\nodir\\helper",
+      "platform": "win32",
+      "how": "error",
+      "code": "ENOENT",
+      "text": "computer host failed to start: spawn <DIR>\\nodir\\helper ENOENT"
+    }
+  ]
+}

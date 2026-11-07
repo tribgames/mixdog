@@ -102,8 +102,9 @@ impl SessionDirectory {
     }
 
     /// `loadSession(id)` is a session and `closed !== true`.
-    pub async fn home_thread_open(&self, id: &ThreadId) -> bool {
-        self.stored_header(id).await.is_some_and(|header| header.get("closed") != Some(&Value::Bool(true)))
+    /// `Err` when the record read never ran: a thread whose record was not read is not a closed one.
+    pub async fn home_thread_open(&self, id: &ThreadId) -> Result<bool, mixdog_core_api::CoreError> {
+        Ok(self.try_stored_header(id).await?.is_some_and(|header| header.get("closed") != Some(&Value::Bool(true))))
     }
 
     /// Queues `turn` behind the thread's own work and resolves when it settles. `on_start`
@@ -210,8 +211,22 @@ mod tests {
         assert_eq!(body["content"], json!("Header\n\nCheck the build"));
         assert_eq!(body["meta"]["transcript"]["submissionIds"], json!(["routine_1"]));
         assert_eq!(body["meta"]["transcript"]["routineTrigger"], json!({ "kind": "schedule", "name": "daily" }));
-        assert!(directory.home_thread_open(&handle.id).await);
-        assert!(!directory.home_thread_open(&ThreadId::from("sess_none")).await);
+        assert!(directory.home_thread_open(&handle.id).await.unwrap());
+        assert!(!directory.home_thread_open(&ThreadId::from("sess_none")).await.unwrap());
+    }
+
+    /// A record read that the lane refuses is an error: not a closed or missing thread.
+    #[tokio::test]
+    async fn a_home_thread_record_that_was_not_read_is_an_error_not_a_closed_thread() {
+        let rig = Rig::new();
+        let directory = SessionDirectory::new(rig.deps());
+        let id = ThreadId::from("sess_none");
+        assert!(!directory.home_thread_open(&id).await.unwrap());
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        assert!(directory.home_thread_open(&id).await.is_err());
+        assert!(directory.try_stored_header(&id).await.is_err());
+        // The lossy view for read-only callers still reads as unknown.
+        assert!(directory.stored_header(&id).await.is_none());
     }
 
     /// A wake is one turn with the prompt as its input row, the submission id and the hop in its

@@ -1,0 +1,237 @@
+{
+  "steps": [
+    {
+      "name": "nothing changed",
+      "op": "none",
+      "change": {
+        "providers": false,
+        "mcp": false,
+        "settings": false
+      },
+      "calls": []
+    },
+    {
+      "name": "a provider is switched on",
+      "op": "agent",
+      "path": [
+        "providers",
+        "openai",
+        "enabled"
+      ],
+      "value": true,
+      "change": {
+        "providers": true,
+        "mcp": false,
+        "settings": true
+      },
+      "calls": [
+        "releaseAdmissionCooldowns",
+        "reinitProviders",
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "the same content written again",
+      "op": "agent",
+      "path": [
+        "providers",
+        "openai",
+        "enabled"
+      ],
+      "value": true,
+      "change": {
+        "providers": false,
+        "mcp": false,
+        "settings": false
+      },
+      "calls": []
+    },
+    {
+      "name": "a developer option",
+      "op": "agent",
+      "path": [
+        "developer",
+        "cursorOAuth"
+      ],
+      "value": true,
+      "change": {
+        "providers": true,
+        "mcp": false,
+        "settings": true
+      },
+      "calls": [
+        "releaseAdmissionCooldowns",
+        "reinitProviders",
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "a setting that is no provider",
+      "op": "agent",
+      "path": [
+        "theme"
+      ],
+      "value": "new",
+      "change": {
+        "providers": false,
+        "mcp": false,
+        "settings": true
+      },
+      "calls": [
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "an MCP server",
+      "op": "agent",
+      "path": [
+        "mcpServers",
+        "docs",
+        "command"
+      ],
+      "value": "docs-server",
+      "change": {
+        "providers": false,
+        "mcp": true,
+        "settings": true
+      },
+      "calls": [
+        "reconcileMcp",
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "a provider key is saved",
+      "op": "secret",
+      "account": "agent.openai.apiKey",
+      "change": {
+        "providers": true,
+        "mcp": false,
+        "settings": true
+      },
+      "calls": [
+        "releaseAdmissionCooldowns",
+        "reinitProviders",
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "the same key is saved again",
+      "op": "secret",
+      "account": "agent.openai.apiKey",
+      "change": {
+        "providers": true,
+        "mcp": false,
+        "settings": true
+      },
+      "calls": [
+        "releaseAdmissionCooldowns",
+        "reinitProviders",
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "a custom provider extra key",
+      "op": "secret",
+      "account": "agent.custom-1.apiKey.k1",
+      "change": {
+        "providers": true,
+        "mcp": false,
+        "settings": true
+      },
+      "calls": [
+        "releaseAdmissionCooldowns",
+        "reinitProviders",
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "a usage session key is no provider key",
+      "op": "secret",
+      "account": "agent.openai.usageSessionKey",
+      "change": {
+        "providers": false,
+        "mcp": false,
+        "settings": true
+      },
+      "calls": [
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "an MCP sign-in",
+      "op": "secret",
+      "account": "mcp-oauth.abc",
+      "change": {
+        "providers": false,
+        "mcp": true,
+        "settings": true
+      },
+      "calls": [
+        "reconcileMcp",
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "a provider key is deleted",
+      "op": "delete",
+      "account": "agent.openai.apiKey",
+      "change": {
+        "providers": true,
+        "mcp": true,
+        "settings": true
+      },
+      "calls": [
+        "releaseAdmissionCooldowns",
+        "reinitProviders",
+        "reconcileMcp",
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "a deletion again",
+      "op": "delete",
+      "account": "agent.openai.apiKey",
+      "change": {
+        "providers": true,
+        "mcp": true,
+        "settings": true
+      },
+      "calls": [
+        "releaseAdmissionCooldowns",
+        "reinitProviders",
+        "reconcileMcp",
+        "announceSettingsChange"
+      ]
+    },
+    {
+      "name": "the plugin registry announces a change",
+      "op": "announce",
+      "key": "plugins",
+      "change": {
+        "providers": false,
+        "mcp": true,
+        "settings": true
+      },
+      "calls": [
+        "reconcileMcp",
+        "announceSettingsChange"
+      ]
+    }
+  ],
+  "retried": {
+    "firstAttempt": [
+      "releaseAdmissionCooldowns",
+      "reinitProviders",
+      "announceSettingsChange"
+    ],
+    "afterBackoff": [
+      "releaseAdmissionCooldowns",
+      "reinitProviders",
+      "announceSettingsChange",
+      "releaseAdmissionCooldowns",
+      "reinitProviders"
+    ],
+    "retryMs": 60
+  }
+}

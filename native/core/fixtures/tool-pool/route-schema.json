@@ -1,10 +1,131 @@
 {
+  "tools": [
+    {
+      "name": "plain",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "no_schema",
+      "inputSchema": null
+    },
+    {
+      "name": "string_root",
+      "inputSchema": {
+        "type": "string"
+      }
+    },
+    {
+      "name": "array_root",
+      "inputSchema": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "unknown_type",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "bogus"
+          }
+        }
+      }
+    },
+    {
+      "name": "bad_ref",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "$ref": "#/definitions/missing"
+          }
+        }
+      }
+    },
+    {
+      "name": "draft07",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "definitions": {
+          "n": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        },
+        "properties": {
+          "n": {
+            "$ref": "#/definitions/n"
+          }
+        }
+      }
+    },
+    {
+      "name": "root_combinator",
+      "inputSchema": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "no_type",
+      "inputSchema": {
+        "properties": {
+          "a": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "freeform",
+      "inputSchema": {
+        "type": "string"
+      },
+      "freeform": {
+        "type": "grammar",
+        "syntax": "lark",
+        "definition": "start: /.+/"
+      }
+    },
+    {
+      "name": "not_an_object_schema",
+      "inputSchema": "oops"
+    }
+  ],
   "sessions": [
     {
       "name": "openai-oauth",
       "session": {
-        "model": "gpt-5",
-        "provider": "openai-oauth"
+        "provider": "openai-oauth",
+        "model": "gpt-5"
       },
       "tools": [
         {
@@ -56,8 +177,8 @@
     {
       "name": "openai",
       "session": {
-        "model": "gpt-5",
-        "provider": "openai"
+        "provider": "openai",
+        "model": "gpt-5"
       },
       "tools": [
         {
@@ -109,8 +230,8 @@
     {
       "name": "a compatible chat route",
       "session": {
-        "model": "vendor/model",
-        "provider": "openrouter"
+        "provider": "openrouter",
+        "model": "vendor/model"
       },
       "tools": [
         {
@@ -162,8 +283,8 @@
     {
       "name": "a messages wire on a compatible route",
       "session": {
-        "model": "vendor/model",
         "provider": "openrouter",
+        "model": "vendor/model",
         "wireRoute": {
           "wire": "messages"
         }
@@ -218,8 +339,8 @@
     {
       "name": "anthropic",
       "session": {
-        "model": "claude-sonnet-4",
-        "provider": "anthropic"
+        "provider": "anthropic",
+        "model": "claude-sonnet-4"
       },
       "tools": [
         {
@@ -271,8 +392,8 @@
     {
       "name": "gemini",
       "session": {
-        "model": "gemini-2.5-pro",
-        "provider": "gemini"
+        "provider": "gemini",
+        "model": "gemini-2.5-pro"
       },
       "tools": [
         {
@@ -324,8 +445,8 @@
     {
       "name": "antigravity claude",
       "session": {
-        "model": "claude-opus-4",
-        "provider": "antigravity-oauth"
+        "provider": "antigravity-oauth",
+        "model": "claude-opus-4"
       },
       "tools": [
         {
@@ -373,127 +494,6 @@
           "reason": "tool \"not_an_object_schema\" is unavailable with the current model: the provider rejected its input schema at / (the input schema must be a JSON object schema), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
         }
       ]
-    }
-  ],
-  "tools": [
-    {
-      "inputSchema": {
-        "properties": {
-          "path": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "name": "plain"
-    },
-    {
-      "inputSchema": null,
-      "name": "no_schema"
-    },
-    {
-      "inputSchema": {
-        "type": "string"
-      },
-      "name": "string_root"
-    },
-    {
-      "inputSchema": {
-        "items": {
-          "type": "string"
-        },
-        "type": "array"
-      },
-      "name": "array_root"
-    },
-    {
-      "inputSchema": {
-        "properties": {
-          "a": {
-            "type": "bogus"
-          }
-        },
-        "type": "object"
-      },
-      "name": "unknown_type"
-    },
-    {
-      "inputSchema": {
-        "properties": {
-          "a": {
-            "$ref": "#/definitions/missing"
-          }
-        },
-        "type": "object"
-      },
-      "name": "bad_ref"
-    },
-    {
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "definitions": {
-          "n": {
-            "exclusiveMinimum": true,
-            "minimum": 0,
-            "type": "number"
-          }
-        },
-        "properties": {
-          "n": {
-            "$ref": "#/definitions/n"
-          }
-        },
-        "type": "object"
-      },
-      "name": "draft07"
-    },
-    {
-      "inputSchema": {
-        "anyOf": [
-          {
-            "properties": {
-              "a": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          {
-            "properties": {
-              "b": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          }
-        ]
-      },
-      "name": "root_combinator"
-    },
-    {
-      "inputSchema": {
-        "properties": {
-          "a": {
-            "type": "string"
-          }
-        }
-      },
-      "name": "no_type"
-    },
-    {
-      "freeform": {
-        "definition": "start: /.+/",
-        "syntax": "lark",
-        "type": "grammar"
-      },
-      "inputSchema": {
-        "type": "string"
-      },
-      "name": "freeform"
-    },
-    {
-      "inputSchema": "oops",
-      "name": "not_an_object_schema"
     }
   ]
 }

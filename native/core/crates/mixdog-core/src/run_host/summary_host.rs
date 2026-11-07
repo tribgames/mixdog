@@ -143,7 +143,7 @@ impl SummaryHost for ProcessSummaryHost {
         let config = (self.deps.config)();
         let providers = config.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
         self.deps.registry.init_providers(&providers).await.map_err(|error| SummaryFailure::Failed(error.message))?;
-        Ok(self.deps.registry.get(provider).await.is_some())
+        Ok(self.deps.registry.try_get(provider).await.map_err(|error| SummaryFailure::Failed(error.message))?.is_some())
     }
 
     fn whole_window(&self, provider: &str, model: &str) -> u64 {

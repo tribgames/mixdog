@@ -301,7 +301,10 @@ fn run_kind(kind: RoutineKind) -> RunKind {
 #[async_trait]
 impl RoutineSessions for CoreRoutineSessions {
     async fn home_thread_open(&self, session_id: &str) -> Result<bool, String> {
-        Ok(self.directory.home_thread_open(&ThreadId::from(session_id)).await)
+        self.directory
+            .home_thread_open(&ThreadId::from(session_id))
+            .await
+            .map_err(|_| "the home thread's record could not be read: its lane did not run the read".to_owned())
     }
 
     /// The turn rides the thread's queue; once it starts the thread is an unattended run of its

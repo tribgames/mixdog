@@ -8,6 +8,7 @@ pub mod local_provider;
 pub mod media;
 pub mod memory;
 pub mod model_install;
+pub mod native_asset;
 pub mod scheduler;
 pub mod task_reports;
 pub mod tidy;

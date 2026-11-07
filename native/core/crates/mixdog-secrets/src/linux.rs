@@ -88,7 +88,7 @@ fn failure(action: &str, error: &secret_service::Error) -> SecretError {
         _ => format!("[keychain] secret service {action} failed — {HINT}"),
     };
     tracing::debug!(%error, action, "secret service call failed");
-    SecretError { message, no_provider }
+    SecretError { message, no_provider, unrun: false }
 }
 
 /// `op` bounded by the keychain timeout, which a locked keyring waiting on its unlock prompt hits.
@@ -104,7 +104,7 @@ async fn bounded<T>(action: &str, op: impl Future<Output = Result<T, SecretError
 
 async fn connect(action: &str) -> Result<SecretService<'static>, SecretError> {
     if session_bus_missing() {
-        return Err(SecretError { message: "no D-Bus session bus is available".to_owned(), no_provider: true });
+        return Err(SecretError { message: "no D-Bus session bus is available".to_owned(), no_provider: true, unrun: false });
     }
     SecretService::connect(EncryptionType::Dh).await.map_err(|e| failure(action, &e))
 }
@@ -165,8 +165,8 @@ impl SecretStore for SecretServiceStore {
         bounded("clear", clear(account)).await
     }
 
-    async fn is_fallback(&self, _account: &str) -> bool {
-        false
+    async fn is_fallback(&self, _account: &str) -> Result<bool, SecretError> {
+        Ok(false)
     }
 }
 

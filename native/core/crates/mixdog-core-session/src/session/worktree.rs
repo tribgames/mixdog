@@ -110,6 +110,7 @@ pub use self::worktree_reroot::PendingReroot;
 pub use self::worktree_reroot::PromptRewrite;
 pub use self::worktree_reroot::PromptView;
 pub use self::worktree_reroot::pending_workspace_reroot;
+pub use self::worktree_reroot::presented_workspace;
 pub use self::worktree_reroot::route_prompt_refresh;
 pub use self::worktree_setup::SetupListener;
 pub use self::worktree_setup::SetupNotice;

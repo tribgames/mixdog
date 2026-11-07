@@ -21,6 +21,20 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use crate::providers::action_input::action_input_contract;
+use crate::providers::action_input::action_input_union_for;
+use crate::providers::compat::schema::Problem;
+use crate::providers::compat::schema::Rule;
+use crate::providers::compat::schema::ToolExclusion;
+use crate::providers::compat::schema::exclusion;
+use crate::providers::compat::schema::report_exclusion;
+use crate::providers::compat::schema::wire_input_schema;
+use crate::providers::flat_schema::merge_flat_schema_property;
+use crate::providers::js_value::entries;
+use crate::providers::js_value::js_ordered_map;
+use crate::providers::js_value::spread;
+use crate::providers::js_value::truthy;
+
 use super::betas::BetaFeatures;
 use super::caps::ModelCaps;
 use super::codec::Flavor;
@@ -370,92 +384,28 @@ fn mark_block(message: &mut WireMessage, block_index: usize, ttl: CacheTtl) {
 // Tools
 // ---------------------------------------------------------------------------
 
-fn merge_flat_schema_property(current: Option<&Value>, incoming: &Value) -> Value {
-    let Some(current) = current.filter(|c| c.is_object()) else {
-        return incoming.clone();
-    };
-    let Some(incoming_map) = incoming.as_object() else {
-        return current.clone();
-    };
-    let current_map = current.as_object().expect("filtered to objects");
-    let mut merged = incoming_map.clone();
-    for (key, value) in current_map {
-        merged.insert(key.clone(), value.clone());
-    }
-    let enum_of = |map: &Map<String, Value>| map.get("enum").and_then(Value::as_array).cloned();
-    if current_map.contains_key("enum") && enum_of(current_map).is_some()
-        || enum_of(incoming_map).is_some()
-    {
-        let mut values: Vec<Value> = Vec::new();
-        for value in enum_of(current_map)
-            .into_iter()
-            .flatten()
-            .chain(enum_of(incoming_map).into_iter().flatten())
-        {
-            if !values.contains(&value) {
-                values.push(value);
-            }
-        }
-        merged.insert("enum".into(), Value::Array(values));
-    }
-    if current_map.contains_key("properties") || incoming_map.contains_key("properties") {
-        let mut properties = Map::new();
-        if let Some(props) = current_map.get("properties").and_then(Value::as_object) {
-            for (name, property) in props {
-                properties.insert(name.clone(), property.clone());
-            }
-        }
-        if let Some(props) = incoming_map.get("properties").and_then(Value::as_object) {
-            for (name, property) in props {
-                let next = merge_flat_schema_property(properties.get(name), property);
-                properties.insert(name.clone(), next);
-            }
-        }
-        merged.insert("properties".into(), Value::Object(properties));
-    }
-    match (
-        current_map.get("required").and_then(Value::as_array),
-        incoming_map.get("required").and_then(Value::as_array),
-    ) {
-        (Some(a), Some(b)) => {
-            let shared: Vec<Value> = a.iter().filter(|name| b.contains(name)).cloned().collect();
-            if shared.is_empty() {
-                merged.shift_remove("required");
-            } else {
-                merged.insert("required".into(), Value::Array(shared));
-            }
-        }
-        _ => {
-            merged.shift_remove("required");
-        }
-    }
-    Value::Object(merged)
-}
-
 /// Anthropic forbids `oneOf`/`anyOf`/`allOf` at the top level of
 /// `input_schema`: such a schema is flattened into one object schema.
-fn sanitize_input_schema(schema: &Value) -> Value {
+pub(crate) fn sanitize_input_schema(schema: &Value) -> Value {
     let Some(map) = schema.as_object() else {
-        return json!({ "type": "object", "properties": {} });
+        // A non-object that is truthy in JavaScript's `typeof` sense (an array) is cloned as is.
+        return if schema.is_array() { schema.clone() } else { json!({ "type": "object", "properties": {} }) };
     };
-    let truthy = |v: &Value| !matches!(v, Value::Null | Value::Bool(false));
-    let Some(key) = ["oneOf", "anyOf", "allOf"]
-        .into_iter()
-        .find(|k| map.get(*k).is_some_and(truthy))
-    else {
+    let Some(key) = ["oneOf", "anyOf", "allOf"].into_iter().find(|k| map.get(*k).is_some_and(truthy)) else {
         return schema.clone();
     };
     let conjunctive = key == "allOf";
-    let mut properties = map
-        .get("properties")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let mut required: Vec<Value> = map
-        .get("required")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let mut properties = spread(map.get("properties").filter(|p| truthy(p)));
+    // A `Set`: a repeated name is kept once.
+    let mut required: Vec<Value> = Vec::new();
+    let add_required = |required: &mut Vec<Value>, name: &Value| {
+        if name.is_object() || name.is_array() || !required.contains(name) {
+            required.push(name.clone());
+        }
+    };
+    for name in map.get("required").and_then(Value::as_array).into_iter().flatten() {
+        add_required(&mut required, name);
+    }
     let mut branch_descriptions: Vec<String> = Vec::new();
     for raw in map[key].as_array().into_iter().flatten() {
         let branch = if conjunctive && raw.get("allOf").is_some_and(truthy) {
@@ -466,41 +416,36 @@ fn sanitize_input_schema(schema: &Value) -> Value {
         let Some(branch_map) = branch.as_object() else {
             continue;
         };
-        for (name, property) in branch_map
-            .get("properties")
-            .and_then(Value::as_object)
-            .into_iter()
-            .flatten()
-        {
-            let next = if conjunctive && properties.contains_key(name) {
-                json!({ "allOf": [properties[name].clone(), property.clone()] })
+        for (name, property) in entries(branch_map.get("properties").filter(|p| truthy(p)).unwrap_or(&Value::Null)) {
+            // allOf is an intersection, not an alternative: both constraints stay on a shared field.
+            let next = if conjunctive && properties.contains_key(&name) {
+                json!({ "allOf": [properties[&name].clone(), property] })
             } else {
-                merge_flat_schema_property(properties.get(name), property)
+                merge_flat_schema_property(properties.get(&name), &property)
             };
-            properties.insert(name.clone(), next);
+            properties.insert(name, next);
         }
         if conjunctive {
             for name in branch_map.get("required").and_then(Value::as_array).into_iter().flatten() {
-                if !required.contains(name) {
-                    required.push(name.clone());
-                }
+                add_required(&mut required, name);
             }
         }
-        if let Some(description) = branch_map
-            .get("description")
-            .and_then(Value::as_str)
-            .filter(|d| !d.is_empty())
-        {
-            branch_descriptions.push(description.to_owned());
-        } else if let Some(kind) = branch_map.get("type").and_then(Value::as_str).filter(|t| !t.is_empty()) {
-            branch_descriptions.push(format!("type:{kind}"));
+        if let Some(description) = branch_map.get("description").filter(|d| truthy(d)) {
+            branch_descriptions.push(mixdog_js::value_to_string(description));
+        } else if let Some(kind) = branch_map.get("type").filter(|t| truthy(t)) {
+            branch_descriptions.push(format!("type:{}", mixdog_js::value_to_string(kind)));
         }
     }
-    let mut description = map
-        .get("description")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
+    // The per-action input rules ride on the merged `input` field.
+    let contract = action_input_contract(schema);
+    if !contract.is_empty()
+        && let Some(Value::Object(input)) = properties.get("input").filter(|input| truthy(input))
+    {
+        let mut input = input.clone();
+        input.insert("description".into(), Value::String(contract));
+        properties.insert("input".into(), Value::Object(input));
+    }
+    let own_description = map.get("description").filter(|d| truthy(d)).cloned();
     let mut parts: Vec<String> = Vec::new();
     let mut used = 0usize;
     for (i, branch) in branch_descriptions.iter().enumerate() {
@@ -513,15 +458,20 @@ fn sanitize_input_schema(schema: &Value) -> Value {
         parts.push(value);
     }
     let addition = parts.join(" ");
-    if !addition.is_empty() {
-        description = if description.is_empty() { addition } else { format!("{description} {addition}") };
-    }
+    let description = if addition.is_empty() {
+        own_description
+    } else {
+        Some(Value::String(match own_description {
+            Some(own) => format!("{} {addition}", mixdog_js::value_to_string(&own)),
+            None => addition,
+        }))
+    };
     let mut out = Map::new();
     out.insert("type".into(), json!("object"));
-    if !description.is_empty() {
-        out.insert("description".into(), Value::String(description));
+    if let Some(description) = description {
+        out.insert("description".into(), description);
     }
-    out.insert("properties".into(), Value::Object(properties));
+    out.insert("properties".into(), Value::Object(js_ordered_map(properties)));
     if !required.is_empty() {
         out.insert("required".into(), Value::Array(required));
     }
@@ -531,14 +481,54 @@ fn sanitize_input_schema(schema: &Value) -> Value {
     Value::Object(out)
 }
 
-fn wire_tools(tools: &[ToolDefinition], eager: bool) -> Vec<Value> {
+/// The Messages `input_schema` of a tool (`anthropicInputSchema`): the flattened schema, lowered
+/// to 2020-12 with an object root when it is not valid as written; `Err` when it is broken even
+/// then. First-party Anthropic (`anthropic`, `anthropic-oauth`, the only providers this body
+/// serves) takes the nested per-action input alternatives a tool registered
+/// (`actionInputUnionFor`); a gateway on the same wire would keep the advertised flat schema.
+fn input_schema(tool: &ToolDefinition, native: bool) -> Result<Value, Problem> {
+    let advertised = if native { action_input_union_for(&tool.input_schema) } else { tool.input_schema.clone() };
+    wire_input_schema(&sanitize_input_schema(&advertised), Rule::Anthropic)
+}
+
+/// `ANTHROPIC_NATIVE_PROVIDERS`: the providers whose Messages wire takes the nested per-action
+/// input alternatives; a gateway on the same wire keeps the advertised flat schema.
+fn native_provider(provider: &str) -> bool {
+    matches!(provider, "anthropic" | "anthropic-oauth")
+}
+
+/// Why the Messages wire leaves `tool` out of a request (`anthropicToolExclusion`), or `None`
+/// when it is sent. Reports nothing.
+pub fn anthropic_tool_exclusion(tool: &ToolDefinition, provider: &str) -> Option<ToolExclusion> {
+    input_schema(tool, native_provider(provider))
+        .err()
+        .map(|problem| exclusion(&tool.name, 0, problem, &format!("[{provider}] tool")))
+}
+
+/// A Messages endpoint rejects the whole request for one invalid `input_schema`, so a tool that is
+/// broken even after lowering is reported (`excluded`) and left out (`toAnthropicTools`).
+pub(crate) fn wire_tools(
+    tools: &[ToolDefinition],
+    provider: &str,
+    eager: bool,
+    excluded: &mut dyn FnMut(ToolExclusion),
+) -> Vec<Value> {
+    let source = format!("[{provider}] tool");
     tools
         .iter()
-        .map(|tool| {
+        .enumerate()
+        .filter_map(|(index, tool)| {
+            let schema = match input_schema(tool, native_provider(provider)) {
+                Ok(schema) => schema,
+                Err(problem) => {
+                    excluded(exclusion(&tool.name, index, problem, &source));
+                    return None;
+                }
+            };
             let mut entry = json!({
                 "name": tool.name,
                 "description": tool.description,
-                "input_schema": sanitize_input_schema(&tool.input_schema),
+                "input_schema": schema,
             });
             if tool.defer_loading {
                 entry["defer_loading"] = Value::Bool(true);
@@ -546,7 +536,7 @@ fn wire_tools(tools: &[ToolDefinition], eager: bool) -> Vec<Value> {
             if eager {
                 entry["eager_input_streaming"] = Value::Bool(true);
             }
-            entry
+            Some(entry)
         })
         .collect()
 }
@@ -771,7 +761,9 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
         .and_then(|p| p.get("disableParallelToolUse"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let tools = wire_tools(&request.tools, cfg.first_party);
+    let tools = wire_tools(&request.tools, cfg.provider_name, cfg.first_party, &mut |excluded| {
+        report_exclusion(&request.options, excluded)
+    });
     let choice = if tools.is_empty() {
         None
     } else {

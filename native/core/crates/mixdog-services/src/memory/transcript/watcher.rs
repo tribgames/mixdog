@@ -70,7 +70,10 @@ impl Shared {
         if self.consumed.lock().expect("consumed").get(&key).is_some_and(|prev| *prev >= mtime) {
             return;
         }
-        let cwd = cwd_from_transcript_path(lane, file).await;
+        let Ok(cwd) = cwd_from_transcript_path(lane, file).await else {
+            // Not consumed: the next sweep reads this file again.
+            return;
+        };
         let ingested = self.ingest.ingest_transcript_file(file, cwd.as_deref()).await;
         match ingested {
             Ok(n) => {

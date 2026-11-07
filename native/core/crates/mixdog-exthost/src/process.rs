@@ -56,9 +56,21 @@ pub(crate) fn spawn_command(
     rt: &Handle,
 ) -> std::io::Result<Proc> {
     let _entered = rt.enter();
+    let mut command = worker_command(program, args, envs);
+    let child = command.spawn()?;
+    let containment = Containment::attach(&child)?;
+    Ok(Proc { child, containment })
+}
+
+/// The launcher's OS-proxy decision. Node deletes it from `process.env` when it adopts it
+/// (`system-proxy.mjs:461`), so no worker it starts ever sees it.
+const SYSTEM_PROXY_HANDOFF: &str = "MIXDOG_SYSTEM_PROXY_HANDOFF";
+
+fn worker_command(program: &Path, args: &[OsString], envs: &[(&str, &str)]) -> Command {
     let mut command = Command::new(program);
     command
         .args(args)
+        .env_remove(SYSTEM_PROXY_HANDOFF)
         .envs(envs.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -68,9 +80,7 @@ pub(crate) fn spawn_command(
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     #[cfg(unix)]
     command.process_group(0);
-    let child = command.spawn()?;
-    let containment = Containment::attach(&child)?;
-    Ok(Proc { child, containment })
+    command
 }
 
 /// A child as its owner (`owner::Owner`) drives it: the real [`ChildOps`].
@@ -332,5 +342,18 @@ impl Reader {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_worker_does_not_inherit_the_launchers_system_proxy_decision() {
+        let command = worker_command(Path::new("node"), &[], &[("OTHER", "1")]);
+        let envs: Vec<_> = command.as_std().get_envs().collect();
+        assert!(envs.contains(&(std::ffi::OsStr::new(SYSTEM_PROXY_HANDOFF), None)), "removed from the child");
+        assert!(envs.contains(&(std::ffi::OsStr::new("OTHER"), Some(std::ffi::OsStr::new("1")))), "the given env stays");
     }
 }

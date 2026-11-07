@@ -100,6 +100,13 @@ impl Cycle1Dispatch {
     }
 }
 
+/// `wait` from now on the runtime's clock. `Scope` sleeps on that clock, so a deadline taken from
+/// `std::time::Instant::now()` is already past once the clock has been advanced (a paused test
+/// clock): the wind-down wait would end before the cancelled run was polled.
+fn after(wait: Duration) -> Instant {
+    (tokio::time::Instant::now() + wait).into_std()
+}
+
 #[async_trait]
 impl Cycle1Llm for Cycle1Dispatch {
     async fn call(&self, request: &Cycle1Request, cancel: &CancellationToken, prompt: &str) -> Result<String, String> {
@@ -112,7 +119,7 @@ impl Cycle1Llm for Cycle1Dispatch {
         }
         let payload = self.payload(request, prompt);
         let request_ms = payload.idle_timeout_ms.map(|timeout| timeout + TRANSPORT_GRACE_MS);
-        let deadline = request_ms.map(|ms| Instant::now() + Duration::from_secs_f64(ms / 1000.0));
+        let deadline = request_ms.map(|ms| after(Duration::from_secs_f64(ms / 1000.0)));
         let run = CancellationToken::new();
         let mut work = Box::pin(self.host.agent_dispatch(payload, &run));
         let ended = match Scope::new().cancel(cancel).deadline(deadline).run(&mut work).await {
@@ -121,7 +128,7 @@ impl Cycle1Llm for Cycle1Dispatch {
         };
         run.cancel();
         // The run's own answer is dropped: the failure is the one the request ended with.
-        let _ = Scope::new().deadline(Some(Instant::now() + CANCEL_WAIT)).run(&mut work).await;
+        let _ = Scope::new().deadline(Some(after(CANCEL_WAIT))).run(&mut work).await;
         Err(match ended {
             Scoped::DeadlineExceeded => format!("agent broker request timed out after {}ms", mixdog_js::number_to_string(request_ms.unwrap_or_default())),
             _ => CANCELED.to_owned(),

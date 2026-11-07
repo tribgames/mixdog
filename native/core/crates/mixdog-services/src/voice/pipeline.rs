@@ -185,10 +185,17 @@ impl VoicePipeline {
 
     /// What is installed now, resolved on the lane; a lane that cannot answer reads as nothing
     /// installed.
-    pub async fn runtime(&self) -> VoiceRuntime {
+    pub async fn runtime(&self) -> Result<VoiceRuntime, VoiceError> {
         let (dir, manifest) = (self.data_dir.clone(), self.manifest.clone());
-        let unresolved = VoiceRuntime::absent(&self.manifest);
-        on_lane(self.lane, move || resolve_voice_runtime(&dir, &manifest)).await.unwrap_or(unresolved)
+        on_lane(self.lane, move || resolve_voice_runtime(&dir, &manifest))
+            .await
+            .map_err(|e| VoiceError(format!("the voice runtime state could not be read: {e}")))
+    }
+
+    /// For a status display only: a read that never ran shows an absent runtime, and the next
+    /// poll reads it again. Nothing that installs or transcribes may use this.
+    pub async fn runtime_for_display(&self) -> VoiceRuntime {
+        self.runtime().await.unwrap_or_else(|_| VoiceRuntime::absent(&self.manifest))
     }
 
     /// [`voice_runtime_info`] for `runtime`, read on the lane.
@@ -198,7 +205,7 @@ impl VoicePipeline {
     }
 
     async fn contract(&self, settings: &VoiceSettings) -> Result<(VoiceRuntime, ServerContract), VoiceError> {
-        let runtime = self.runtime().await;
+        let runtime = self.runtime().await?;
         if !runtime.installed {
             let missing: Vec<&str> = [
                 (runtime.binary, "binary"),
@@ -247,10 +254,12 @@ impl VoicePipeline {
         let max_bytes = settings.max_file_size_mb * 1024.0 * 1024.0;
         if max_bytes > 0.0 {
             let path = audio.to_owned();
-            if let Ok(Some(size)) = on_lane(self.lane, move || file_size(&path)).await {
-                if size as f64 > max_bytes {
-                    return Ok(None);
-                }
+            // A size check that never ran must not wave an over-limit file through.
+            let size = on_lane(self.lane, move || file_size(&path))
+                .await
+                .map_err(|e| VoiceError(format!("the audio file size could not be checked: {e}")))?;
+            if size.is_some_and(|size| size as f64 > max_bytes) {
+                return Ok(None);
             }
         }
         if settings.max_duration_sec > 0.0 {

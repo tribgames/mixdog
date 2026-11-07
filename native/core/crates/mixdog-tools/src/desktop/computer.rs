@@ -3,8 +3,10 @@
 //! is the tool's scheduling group.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use async_trait::async_trait;
+use mixdog_ai::providers::action_input::advertise_action_input_union;
 use mixdog_core_api::domain::computer::ComputerAction;
 use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::computer::ComputerError;
@@ -57,11 +59,22 @@ pub struct ComputerTool {
     backend: Arc<dyn ComputerBackend>,
 }
 
+/// `COMPUTER_ACTION_INPUT_UNION` (`defs/computer.union.json`) registered under its flat projection,
+/// which is the `inputSchema` of `defs/computer.json`: a provider path that takes nested per-action
+/// input alternatives (first-party Anthropic, Claude behind Antigravity) sends the union for it
+/// (`actionInputUnionFor`). The tool advertises the flat form everywhere else.
+static ADVERTISED_UNION: LazyLock<JsonValue> = LazyLock::new(|| {
+    let nested: JsonValue = serde_json::from_str(include_str!("defs/computer.union.json")).expect("embedded computer union is valid JSON");
+    advertise_action_input_union(&nested)
+});
+
 impl ComputerTool {
     pub fn new(backend: Arc<dyn ComputerBackend>) -> Self {
+        LazyLock::force(&ADVERTISED_UNION);
         Self { spec: spec_from_def(include_str!("defs/computer.json"), false, &["computer"]), backend }
     }
 }
+
 
 #[async_trait]
 impl Tool for ComputerTool {
@@ -78,6 +91,7 @@ impl Tool for ComputerTool {
 
 #[cfg(test)]
 mod tests {
+    use mixdog_ai::providers::action_input::action_input_union_for;
     use serde_json::json;
 
     use super::*;
@@ -88,5 +102,17 @@ mod tests {
         assert_eq!((r.action, r.input), (ComputerAction::Capture, json!({})));
         assert!(request(&json!({"action":"zap"})).unwrap_err().starts_with("unknown computer action \"zap\""));
         assert!(request(&json!({"action":"act","input":[]})).is_err());
+    }
+
+    /// The registered union is the one for exactly the schema the tool advertises, byte for byte
+    /// (the registry is keyed by its text), and a provider that takes the union gets it.
+    #[test]
+    fn the_advertised_schema_resolves_to_the_nested_union() {
+        let spec = spec_from_def(include_str!("defs/computer.json"), false, &["computer"]);
+        assert_eq!(ADVERTISED_UNION.to_string(), spec.input_schema.to_string());
+        let nested = action_input_union_for(&spec.input_schema);
+        assert_ne!(nested, spec.input_schema);
+        let alternatives = nested["properties"]["input"]["anyOf"].as_array().expect("per-action alternatives");
+        assert!(!alternatives.is_empty());
     }
 }

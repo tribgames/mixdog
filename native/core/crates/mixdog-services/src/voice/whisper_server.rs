@@ -250,7 +250,10 @@ impl Core {
         let pid_path = pid_file(&contract.server_cmd);
         let cwd = contract.server_cmd.parent().unwrap_or(Path::new(".")).to_owned();
         // Reclaim only a child the pid file proves is ours; a foreign listener is never touched.
-        if let Some(meta) = read_pid_file(lane, pid_path.clone()).await {
+        // A pid file that cannot be read stops the start: a stale child would be orphaned when
+        // the new pid file replaces its record.
+        let recorded = read_pid_file(lane, pid_path.clone()).await.map_err(|e| VoiceError(format!("the whisper-server pid file could not be read: {e}")))?;
+        if let Some(meta) = recorded {
             if reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, &cwd).await {
                 clear_pid_file(lane, pid_path.clone()).await;
             }

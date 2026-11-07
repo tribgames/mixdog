@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::Duration;
+use std::time::Instant;
 
 use tokio::runtime::Builder;
 use tokio::runtime::Handle;
@@ -44,6 +45,7 @@ mod tasks;
 
 pub use hist::HistSummary;
 pub use pool::LaneSnapshot;
+pub use pool::job_progress;
 pub use priority::Priority;
 pub use tasks::PollViolation;
 pub use tasks::TaskSnapshot;
@@ -98,6 +100,38 @@ const fn lane_priority(kind: LaneKind) -> Priority {
         LaneKind::InteractiveIo | LaneKind::DurabilityIo | LaneKind::SpawnIo | LaneKind::PtyIo => {
             Priority::Normal
         }
+    }
+}
+
+/// Longest a job may hold a thread of a pooled lane without reporting [`job_progress`] before
+/// the lane's watchdog counts that thread wedged (F1). It is the longest legitimate stretch
+/// of one indivisible step, not a job length: loops over items report progress per item, so a
+/// long walk never trips it. This is not the service bound `S` of RL §12.2 (a p99 gate over
+/// healthy jobs); a wedged thread only costs a replacement thread, and the lane refuses work
+/// only when 2x its threads are wedged at once. Derivations (job sites in the Rust tree):
+/// - cpu-interactive 5 s: `S` is 40 ms (§12.2); the longest job is a history-page row
+///   projection bounded by the page (`mixdog-core-session session/reads.rs:105`).
+/// - io-interactive 10 s: `S` is 25 ms; jobs are single file reads and one catalog parse
+///   (`run_host/process.rs:186`, `daemon catalog.rs:83`, `ai catalog/rosters.rs:136`); the
+///   lease exists to catch a read on a dead network drive.
+/// - io-durability 30 s: a write waits for the statefile lock at most 2 s
+///   (`mixdog-statefile lock.rs:38,471-497`), then writes and fsyncs one document or one
+///   group-commit batch (`session/durability.rs`, at most `batch_bytes`); fsync on stalled
+///   storage is the hang this catches. 15x the lock wait. Multi-file jobs report progress.
+/// - io-spawn 30 s: one process creation plus job-object setup (`mixdog-spawn manager.rs`
+///   `launch_process`), milliseconds; headroom for a first-run virus scan.
+/// - cpu-bulk and io-maintenance 10 min: jobs here are loops that report progress (repo
+///   walks, blob census per shard); the longest unreported step is one recursive delete of a
+///   session scratch or tool-result tree (`session/purge.rs` `remove_all`), assumed at most
+///   minutes. Embedding and compaction bodies do not report progress yet (open).
+const fn lane_lease(kind: LaneKind) -> Duration {
+    match kind {
+        LaneKind::CpuInteractive => Duration::from_secs(5),
+        LaneKind::InteractiveIo => Duration::from_secs(10),
+        LaneKind::DurabilityIo | LaneKind::SpawnIo => Duration::from_secs(30),
+        LaneKind::CpuBulk | LaneKind::MaintenanceIo => Duration::from_secs(600),
+        // Thread-per-job lane: jobs own their thread for the life of the PTY, no lease.
+        LaneKind::PtyIo => Duration::MAX,
     }
 }
 
@@ -217,6 +251,7 @@ impl Executors {
                 lane_priority(kind),
                 params.threads,
                 params.queue,
+                lane_lease(kind),
                 &priority_failures,
             )
         };
@@ -262,6 +297,15 @@ impl Executors {
                 .collect(),
             priority_failures: self.priority_failures.load(Relaxed),
             poll_violations,
+        }
+    }
+
+    /// One lease pass over every pooled lane at `now`, as each lane's watchdog thread does on
+    /// its own tick. Gate runs and tests call it with a future `now` to expire leases without
+    /// waiting.
+    pub fn sweep_leases(&self, now: Instant) {
+        for lane in &self.lanes {
+            lane.sweep(now);
         }
     }
 
@@ -313,6 +357,10 @@ impl Backend for Executors {
 
     fn capacity_notify(&self, lane: LaneKind) -> Option<Arc<Notify>> {
         Some(self.lanes[lane_index(lane)].freed())
+    }
+
+    fn lane_wedged(&self, lane: LaneKind) -> bool {
+        self.lanes[lane_index(lane)].is_wedged()
     }
 }
 

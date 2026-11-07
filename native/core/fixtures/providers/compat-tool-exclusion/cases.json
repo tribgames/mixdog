@@ -1,0 +1,1749 @@
+{
+ "recorder": "benchmarks/rust-core/recorders/record-compat-tool-exclusion.mjs",
+ "cases": [
+  {
+   "id": "google/gemini-3-pro / plain",
+   "provider": "groq",
+   "model": "google/gemini-3-pro",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "google/gemini-3-pro / loose-and-dangling",
+   "provider": "groq",
+   "model": "google/gemini-3-pro",
+   "tools": [
+    {
+     "name": "loose",
+     "description": "The loose tool",
+     "inputSchema": {
+      "description": "no type"
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "loose",
+     "parameters": {
+      "description": "no type"
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[gemini] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    }
+   ]
+  },
+  {
+   "id": "google/gemini-3-pro / mixed",
+   "provider": "groq",
+   "model": "google/gemini-3-pro",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "description": "The numeric tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string",
+      "enum": [
+       "a",
+       "b"
+      ]
+     }
+    },
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 2,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[gemini] tool \"dangling\" (tools[2]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    },
+    {
+     "name": "rooted",
+     "index": 4,
+     "pointer": "/type",
+     "reason": "the input schema root must have type \"object\"",
+     "message": "[gemini] tool \"rooted\" (tools[4]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+    },
+    {
+     "name": "typed",
+     "index": 5,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[gemini] tool \"typed\" (tools[5]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    }
+   ]
+  },
+  {
+   "id": "gemini-2.5-flash / plain",
+   "provider": "groq",
+   "model": "gemini-2.5-flash",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "gemini-2.5-flash / loose-and-dangling",
+   "provider": "groq",
+   "model": "gemini-2.5-flash",
+   "tools": [
+    {
+     "name": "loose",
+     "description": "The loose tool",
+     "inputSchema": {
+      "description": "no type"
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "loose",
+     "parameters": {
+      "description": "no type"
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[gemini] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    }
+   ]
+  },
+  {
+   "id": "gemini-2.5-flash / mixed",
+   "provider": "groq",
+   "model": "gemini-2.5-flash",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "description": "The numeric tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string",
+      "enum": [
+       "a",
+       "b"
+      ]
+     }
+    },
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 2,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[gemini] tool \"dangling\" (tools[2]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    },
+    {
+     "name": "rooted",
+     "index": 4,
+     "pointer": "/type",
+     "reason": "the input schema root must have type \"object\"",
+     "message": "[gemini] tool \"rooted\" (tools[4]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+    },
+    {
+     "name": "typed",
+     "index": 5,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[gemini] tool \"typed\" (tools[5]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    }
+   ]
+  },
+  {
+   "id": "Models/Gemini-3 / plain",
+   "provider": "groq",
+   "model": "Models/Gemini-3",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "Models/Gemini-3 / loose-and-dangling",
+   "provider": "groq",
+   "model": "Models/Gemini-3",
+   "tools": [
+    {
+     "name": "loose",
+     "description": "The loose tool",
+     "inputSchema": {
+      "description": "no type"
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "loose",
+     "parameters": {
+      "description": "no type"
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[gemini] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    }
+   ]
+  },
+  {
+   "id": "Models/Gemini-3 / mixed",
+   "provider": "groq",
+   "model": "Models/Gemini-3",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "description": "The numeric tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string",
+      "enum": [
+       "a",
+       "b"
+      ]
+     }
+    },
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 2,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[gemini] tool \"dangling\" (tools[2]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    },
+    {
+     "name": "rooted",
+     "index": 4,
+     "pointer": "/type",
+     "reason": "the input schema root must have type \"object\"",
+     "message": "[gemini] tool \"rooted\" (tools[4]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+    },
+    {
+     "name": "typed",
+     "index": 5,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[gemini] tool \"typed\" (tools[5]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    }
+   ]
+  },
+  {
+   "id": "llama-4 / plain",
+   "provider": "groq",
+   "model": "llama-4",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "llama-4 / loose-and-dangling",
+   "provider": "groq",
+   "model": "llama-4",
+   "tools": [
+    {
+     "name": "loose",
+     "description": "The loose tool",
+     "inputSchema": {
+      "description": "no type"
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "loose",
+     "parameters": {
+      "type": "object",
+      "description": "no type",
+      "properties": {}
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[groq] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    }
+   ]
+  },
+  {
+   "id": "llama-4 / mixed",
+   "provider": "groq",
+   "model": "llama-4",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "description": "The numeric tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string",
+      "enum": [
+       "a",
+       "b"
+      ]
+     }
+    },
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 2,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[groq] tool \"dangling\" (tools[2]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    },
+    {
+     "name": "rooted",
+     "index": 4,
+     "pointer": "/type",
+     "reason": "the input schema root must have type \"object\"",
+     "message": "[groq] tool \"rooted\" (tools[4]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+    },
+    {
+     "name": "typed",
+     "index": 5,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[groq] tool \"typed\" (tools[5]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    }
+   ]
+  },
+  {
+   "id": "my-gemini-1 / plain",
+   "provider": "groq",
+   "model": "my-gemini-1",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "my-gemini-1 / loose-and-dangling",
+   "provider": "groq",
+   "model": "my-gemini-1",
+   "tools": [
+    {
+     "name": "loose",
+     "description": "The loose tool",
+     "inputSchema": {
+      "description": "no type"
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "loose",
+     "parameters": {
+      "type": "object",
+      "description": "no type",
+      "properties": {}
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[groq] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    }
+   ]
+  },
+  {
+   "id": "my-gemini-1 / mixed",
+   "provider": "groq",
+   "model": "my-gemini-1",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "description": "The numeric tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string",
+      "enum": [
+       "a",
+       "b"
+      ]
+     }
+    },
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 2,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[groq] tool \"dangling\" (tools[2]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    },
+    {
+     "name": "rooted",
+     "index": 4,
+     "pointer": "/type",
+     "reason": "the input schema root must have type \"object\"",
+     "message": "[groq] tool \"rooted\" (tools[4]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+    },
+    {
+     "name": "typed",
+     "index": 5,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[groq] tool \"typed\" (tools[5]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    }
+   ]
+  },
+  {
+   "id": "gemini / plain",
+   "provider": "groq",
+   "model": "gemini",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "gemini / loose-and-dangling",
+   "provider": "groq",
+   "model": "gemini",
+   "tools": [
+    {
+     "name": "loose",
+     "description": "The loose tool",
+     "inputSchema": {
+      "description": "no type"
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "loose",
+     "parameters": {
+      "type": "object",
+      "description": "no type",
+      "properties": {}
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[groq] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    }
+   ]
+  },
+  {
+   "id": "gemini / mixed",
+   "provider": "groq",
+   "model": "gemini",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "description": "The numeric tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string",
+      "enum": [
+       "a",
+       "b"
+      ]
+     }
+    },
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 2,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[groq] tool \"dangling\" (tools[2]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    },
+    {
+     "name": "rooted",
+     "index": 4,
+     "pointer": "/type",
+     "reason": "the input schema root must have type \"object\"",
+     "message": "[groq] tool \"rooted\" (tools[4]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+    },
+    {
+     "name": "typed",
+     "index": 5,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[groq] tool \"typed\" (tools[5]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    }
+   ]
+  },
+  {
+   "id": "vendor/gemini / plain",
+   "provider": "groq",
+   "model": "vendor/gemini",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "excluded": []
+  },
+  {
+   "id": "vendor/gemini / loose-and-dangling",
+   "provider": "groq",
+   "model": "vendor/gemini",
+   "tools": [
+    {
+     "name": "loose",
+     "description": "The loose tool",
+     "inputSchema": {
+      "description": "no type"
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "loose",
+     "parameters": {
+      "type": "object",
+      "description": "no type",
+      "properties": {}
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[groq] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    }
+   ]
+  },
+  {
+   "id": "vendor/gemini / mixed",
+   "provider": "groq",
+   "model": "vendor/gemini",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "description": "The numeric tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string",
+      "enum": [
+       "a",
+       "b"
+      ]
+     }
+    },
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    }
+   ],
+   "sentTools": [
+    {
+     "name": "lookup",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    },
+    {
+     "name": "tuple",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "number"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "numeric",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 2,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[groq] tool \"dangling\" (tools[2]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    },
+    {
+     "name": "rooted",
+     "index": 4,
+     "pointer": "/type",
+     "reason": "the input schema root must have type \"object\"",
+     "message": "[groq] tool \"rooted\" (tools[4]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+    },
+    {
+     "name": "typed",
+     "index": 5,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[groq] tool \"typed\" (tools[5]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    }
+   ]
+  }
+ ]
+}

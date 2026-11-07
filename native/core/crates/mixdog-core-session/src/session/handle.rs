@@ -108,14 +108,14 @@ impl SessionHandle {
 
     /// Today's `explicitSessionCwd()` inside this session's scope: its cwd, else
     /// `MIXDOG_SESSION_CWD`, else `<data>/user-cwd.txt`.
-    pub async fn explicit_cwd(&self) -> Option<String> {
+    pub async fn explicit_cwd(&self) -> Result<Option<String>, CoreError> {
         let header = self.cell.header.load_full();
         let scoped = header.get("cwd").and_then(Value::as_str);
         self.deps.user_cwd.explicit_cwd(scoped).await
     }
 
     /// Today's `readLastSessionCwd(keyPid)`.
-    pub async fn last_cwd(&self, key_pid: Option<&str>) -> Option<String> {
+    pub async fn last_cwd(&self, key_pid: Option<&str>) -> Result<Option<String>, CoreError> {
         self.deps.user_cwd.last_cwd(key_pid).await
     }
 
@@ -372,7 +372,8 @@ impl SessionHandle {
             let p: ThreadRevertTurnReviewParams = serde_json::from_value(req.params.clone()).map_err(|_| invalid("ThreadRevertTurnReviewParams"))?;
             (None, p.checkpoint_id)
         };
-        let cwd = self.explicit_cwd().await.unwrap_or_default();
+        // An unrun cwd read is an error, not "no cwd": the review would revert in the wrong place.
+        let cwd = self.explicit_cwd().await?.unwrap_or_default();
         let checkpoint = checkpoint.unwrap_or_default();
         let review = &self.deps.turn_review;
         let done = match file {

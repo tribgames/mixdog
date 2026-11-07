@@ -42,7 +42,9 @@ pub struct IngestSession {
 /// The session store, for backfill.
 #[async_trait]
 pub trait StoredSessions: Send + Sync {
-    async fn session_ids(&self) -> Vec<String>;
+    /// Every stored session, in listing order. A failed listing fails the backfill before it
+    /// drops anything (Node's `readdirSync` throws out of `backfillSessionSearch`).
+    async fn session_ids(&self) -> Result<Vec<String>>;
     /// The change stamp of a session's stored record.
     async fn record_stamp(&self, session_id: &str) -> Option<String>;
     async fn read(&self, session_id: &str) -> Option<IngestSession>;
@@ -249,7 +251,7 @@ impl SessionSearchIngest {
     /// short pace between sessions. Returns the number of sessions indexed.
     pub async fn backfill(&self, stored: &dyn StoredSessions) -> Result<usize> {
         let stamps = self.db.backfill_stamps().await?;
-        let session_ids = stored.session_ids().await;
+        let session_ids = stored.session_ids().await?;
         let mut ingested = 0;
         for session_id in &session_ids {
             match self.backfill_one(stored, &stamps, session_id, &mut ingested).await {

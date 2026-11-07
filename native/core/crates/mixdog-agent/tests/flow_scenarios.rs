@@ -13,14 +13,12 @@ use futures::future::BoxFuture;
 use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::board::JobMeta;
-use mixdog_agent::agent_tool::flow::early::EarlyNotice;
+use mixdog_agent::agent_tool::error_text::PlainErrorText;
+use mixdog_agent::agent_tool::{AgentParts, assemble};
 use mixdog_agent::agent_tool::flow::job_starter::JobStarter;
-use mixdog_agent::agent_tool::flow::send::SendFlowDeps;
 use mixdog_agent::agent_tool::flow::send::SendFlowImpl;
 use mixdog_agent::agent_tool::flow::seams::*;
-use mixdog_agent::agent_tool::flow::spawn::SpawnFlowDeps;
 use mixdog_agent::agent_tool::flow::spawn::SpawnFlowImpl;
-use mixdog_agent::agent_tool::flow::turn::TurnRunner;
 use mixdog_agent::agent_tool::flow::handoff::handoff_content;
 use mixdog_agent::agent_tool::flow::worker_turns::Claim;
 use mixdog_agent::agent_tool::flow::worker_turns::TurnOwner;
@@ -33,7 +31,6 @@ use mixdog_agent::agent_tool::host::*;
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::scope::SessionFacts;
 use mixdog_agent::agent_tool::scope::TagRecord;
-use mixdog_agent::agent_tool::views::JobViews;
 use mixdog_agent::agent_tool::views::WorkerFacts;
 use mixdog_agent::agent_tool::views::WorkerLive;
 use mixdog_agent::agent_tool::views::Workers;
@@ -638,8 +635,6 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
 
     let sessions: Arc<dyn TurnSessions> = Arc::new(Sess(shared.clone()));
     let turns: Arc<dyn TurnOwner> = Arc::new(TurnsOwner(shared.clone()));
-    let early = Arc::new(EarlyNotice::new(Arc::new(Owner(shared.clone())), clock.clone()));
-    let runner = Arc::new(TurnRunner::new(sessions.clone(), turns.clone(), Arc::new(Reviews(shared.clone())), Arc::new(Events(shared.clone())), Arc::new(NoInbox), early));
     // A job cancelled "before" is cancelled by the time its first status goes out, which is before
     // its work is released.
     let status: Arc<dyn Fn() + Send + Sync> = {
@@ -653,34 +648,49 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         })
     };
     let registry: Arc<dyn Registry> = Arc::new(Reg(shared.clone()));
-    let starter = Arc::new(JobStarter::new(board.clone(), Arc::new(Closer(shared.clone())), sessions, Arc::new(Open), Arc::new(NoStarts), status.clone()));
-    let views = Arc::new(JobViews::new(board.clone(), registry.clone(), Arc::new(NoWorkers), clock.clone()));
-    let env: Arc<dyn Environment> = Arc::new(Env);
-    let spawn = Arc::new(SpawnFlowImpl::new(SpawnFlowDeps {
-        world: Arc::new(SpawnHost { shared: shared.clone(), scenario: scenario.clone(), host: host.cloned().unwrap_or(Value::Null) }),
-        registry: registry.clone(),
-        sessions: Arc::new(Closer(shared.clone())),
-        env: env.clone(),
+    // The same assembly the compose root calls.
+    let assembled = assemble(AgentParts {
         board: board.clone(),
-        views: views.clone(),
-        starter: starter.clone(),
-        runner: runner.clone(),
         clock,
+        registry,
+        sessions: Arc::new(Closer(shared.clone())),
+        turn_sessions: sessions,
+        turns,
+        reviews: Arc::new(Reviews(shared.clone())),
+        events: Arc::new(Events(shared.clone())),
+        inbox: Arc::new(NoInbox),
+        owner_notify: Arc::new(Owner(shared.clone())),
+        admission: Arc::new(Open),
+        starts: Arc::new(NoStarts),
+        workers: Arc::new(NoWorkers),
         status_changed: status,
+        spawn_world: Arc::new(SpawnHost { shared: shared.clone(), scenario: scenario.clone(), host: host.cloned().unwrap_or(Value::Null) }),
+        send_world: Arc::new(SendHost { shared: shared.clone(), scenario: scenario.clone() }),
+        terminal_trace: Arc::new(NoTrace),
+        env: Arc::new(Env),
+        catalog: None,
+        scopes: Arc::new(NoScopes),
+        errors: Arc::new(PlainErrorText),
         default_cwd: "/default".into(),
         mcp_scope_id: None,
-    }));
-    let send = Arc::new(SendFlowImpl::new(SendFlowDeps {
-        world: Arc::new(SendHost { shared: shared.clone(), scenario: scenario.clone() }),
-        registry,
-        env,
-        views,
-        starter,
-        runner,
-        turns,
-        default_cwd: "/default".into(),
-    }));
-    Rig { shared, spawn, send }
+    });
+    let (spawn, send) = (assembled.spawn, assembled.send);    Rig { shared, spawn, send }
+}
+
+/// No terminal trace, no caller scope: the flows under test never reach them.
+struct NoTrace;
+impl TerminalTrace for NoTrace {
+    fn has_terminal_trace(&self, _: &str, _: &Scope) -> Result<bool, String> {
+        Ok(false)
+    }
+    fn reap_terminal_trace_for_tag(&self, _: &str, _: &Scope) {}
+}
+
+struct NoScopes;
+impl CallerScopes for NoScopes {
+    fn scope_of(&self, _: &ThreadId) -> Scope {
+        Scope::default()
+    }
 }
 
 struct DeliveredTo(Log);

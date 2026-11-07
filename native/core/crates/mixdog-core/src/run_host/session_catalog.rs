@@ -6,9 +6,8 @@
 //! A thread that is not running has no tools: nothing is available there.
 //!
 //! An eager tool the route can never send (`routeToolExclusionReason`'s schema rule, see
-//! `route_schema`) is blocked before it was ever sent for the OpenAI family; the other families'
-//! rule is not ported yet (`Verdict::Unported`), so there such a tool is blocked only after a
-//! request left it out, through the surface's route exclusions.
+//! `route_schema`) is blocked before it was ever sent, whatever the route's wire family; a tool
+//! a request left out is also blocked, through the surface's route exclusions.
 
 use std::collections::HashSet;
 use std::sync::Arc;

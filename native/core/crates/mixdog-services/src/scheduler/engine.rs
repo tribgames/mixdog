@@ -261,6 +261,17 @@ impl Scheduler {
     }
 }
 
+struct Held {
+    inner: Arc<Inner>,
+    name: String,
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.inner.release(&self.name);
+    }
+}
+
 impl Inner {
     fn find(&self, name: &str) -> Option<Schedule> {
         self.state.lock().unwrap().schedules.iter().find(|s| s.name == name).cloned()
@@ -320,6 +331,11 @@ impl Inner {
         self.state.lock().unwrap().running.remove(name);
     }
 
+    /// Releases `name` when dropped, so a fire aborted at shutdown or by a dropped future still
+    /// frees its overlap reservation.
+    fn hold(self: &Arc<Self>, name: &str) -> Held {
+        Held { inner: Arc::clone(self), name: name.into() }
+    }
     fn start(self: &Arc<Self>) {
         let schedules = {
             let mut st = self.state.lock().unwrap();
@@ -431,6 +447,7 @@ impl Inner {
         // are written, so a rename can neither complete meanwhile nor leave this fire to
         // run under the old name. A refused fire still claims its slot and records a skip.
         let refusal = self.reserve(name);
+        let _held = refusal.is_none().then(|| self.hold(name));
         let outcome = self.run_claimed_slot(name, scheduled_at, started_at, next, refusal).await;
         if let Err(err) = outcome {
             let now = self.clock.now();
@@ -438,9 +455,6 @@ impl Inner {
             let _ = self.store.mark_failure(name, now).await;
             tracing::warn!(schedule = name, "failed: {err}");
             self.notify_failure(name, &format!("run failed: {err}"));
-        }
-        if refusal.is_none() {
-            self.release(name);
         }
     }
 
@@ -530,13 +544,11 @@ impl Inner {
             return;
         }
         let reserved = self.reserve(name);
+        let _held = reserved.is_none().then(|| self.hold(name));
         let result = self.run_one_shot(name, now, reserved).await;
         if let Err(err) = result {
             self.mark_one_shot_failed(name).await;
             self.notify_failure(name, &format!("one-shot failed: {err} — left pending for retry"));
-        }
-        if reserved.is_none() {
-            self.release(name);
         }
     }
 
@@ -630,13 +642,9 @@ impl Inner {
         let run = {
             let inner = Arc::clone(self);
             let owned = !opts.reserved;
-            let n = name.clone();
             async move {
-                let result = inner.dispatch_run(&schedule, &prompt, opts.await_dispatch).await;
-                if owned {
-                    inner.release(&n);
-                }
-                result
+                let _held = owned.then(|| inner.hold(&schedule.name));
+                inner.dispatch_run(&schedule, &prompt, opts.await_dispatch).await
             }
         };
         // Cron-style fires are fire-and-forget; a one-shot awaits the dispatch so a

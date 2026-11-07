@@ -11,6 +11,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use mixdog_core_api::CoreError;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
 use mixdog_rt::MaintenanceIo;
@@ -18,7 +19,6 @@ use mixdog_workspace::pathguard::canonical_through_existing;
 
 use super::shell_jobs::WorkspaceSight;
 use super::user_cwd::node_resolve;
-use mixdog_rt::LaneToken;
 
 pub struct GitSight {
     io: MaintenanceIo,
@@ -29,9 +29,11 @@ impl GitSight {
         Self { io }
     }
 
-    /// `job` as a maintenance-lane job; `None` when the lane refused or dropped it.
-    async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce(&InLane<MaintenanceIo>) -> R + Send + 'static) -> Option<R> {
-        self.io.submit(&CancellationToken::new(), job).ok()?.await.ok()
+    /// `job` as a maintenance-lane job. An `Err` means it did not run (the lane was full or
+    /// wedged): Node's `catch { return false }` (`workspace-visibility.mjs`) covers a failed
+    /// file read only, so an unrun check must not be answered "does not see".
+    async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce(&InLane<MaintenanceIo>) -> R + Send + 'static) -> Result<R, CoreError> {
+        mixdog_core_base::support::on_lane(self.io, &CancellationToken::new(), job).await
     }
 }
 
@@ -114,9 +116,9 @@ fn common_dir_above(lane: &InLane<MaintenanceIo>, start: &str) -> Option<String>
 
 #[async_trait]
 impl WorkspaceSight for GitSight {
-    async fn sees(&self, target: &str, viewer: &str) -> bool {
+    async fn sees(&self, target: &str, viewer: &str) -> Result<bool, CoreError> {
         if target.is_empty() || viewer.is_empty() {
-            return false;
+            return Ok(false);
         }
         let (target, viewer) = (target.to_owned(), viewer.to_owned());
         self.on_lane(move |lane| {
@@ -129,12 +131,13 @@ impl WorkspaceSight for GitSight {
             }
         })
         .await
-        .unwrap_or(false)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use mixdog_rt::LaneToken;
+
     use super::*;
 
     /// Lays `text` at `path` (its directories made) the way the daemon writes: on the lane.
@@ -175,11 +178,11 @@ mod tests {
         make_dir(&inner).await;
 
         let path = |p: &Path| p.to_string_lossy().into_owned();
-        assert!(sight.sees(&path(&main), &path(&inner)).await, "a folder inside the other");
-        assert!(sight.sees(&path(&inner), &path(&main)).await, "and the other way round");
-        assert!(sight.sees(&path(&main), &path(&linked)).await, "a linked worktree of the repository");
-        assert!(!sight.sees(&path(&main), &path(&other)).await, "another repository");
-        assert!(!sight.sees(&path(&main), "").await, "no viewer folder");
+        assert!(sight.sees(&path(&main), &path(&inner)).await.unwrap(), "a folder inside the other");
+        assert!(sight.sees(&path(&inner), &path(&main)).await.unwrap(), "and the other way round");
+        assert!(sight.sees(&path(&main), &path(&linked)).await.unwrap(), "a linked worktree of the repository");
+        assert!(!sight.sees(&path(&main), &path(&other)).await.unwrap(), "another repository");
+        assert!(!sight.sees(&path(&main), "").await.unwrap(), "no viewer folder");
     }
 
     /// A directory link: a junction on Windows (it needs no privilege), a symlink elsewhere.
@@ -236,7 +239,7 @@ mod tests {
             ("a linked worktree and another repository", raw(&["linked"]), raw(&["other"]), false),
         ];
         for (name, target, viewer, want) in cases {
-            assert_eq!(sight.sees(&target, &viewer).await, want, "{name}: {target} / {viewer}");
+            assert_eq!(sight.sees(&target, &viewer).await.unwrap(), want, "{name}: {target} / {viewer}");
         }
     }
 }

@@ -31,6 +31,8 @@ const MIGRATION_VERSION: i64 = 1;
 const MIXY_BOT_ID: &str = "mixy";
 /// Mixy's runtime id (agent-home.mjs `MIXY_AGENT_ID`).
 pub const MIXY_RUNTIME_ID: &str = "lead";
+/// `DEFAULT_MIXY_NAME` (mixy-name.mjs).
+pub const DEFAULT_MIXY_NAME: &str = "Mixy";
 
 /// Where an agent's route lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,6 +346,34 @@ pub fn bot_migration(lane: &InLane<InteractiveIo>, data_dir: &Path) -> Option<Ma
     }
     let manifest = read_json(lane, &data_dir.join(BOTS_DIR).join(MIGRATION_MANIFEST))?;
     (manifest.get("version").and_then(Value::as_i64) == Some(MIGRATION_VERSION)).then_some(manifest)
+}
+
+/// `mixyIdentityDir(dataDir)`: Mixy's identity folder, `bots/mixy` once the bot store is active,
+/// `agents/lead` before.
+pub fn mixy_identity_dir(lane: &InLane<InteractiveIo>, data_dir: &Path) -> PathBuf {
+    if bot_migration(lane, data_dir).is_some() {
+        data_dir.join(BOTS_DIR).join(MIXY_BOT_ID)
+    } else {
+        data_dir.join("agents").join(MIXY_RUNTIME_ID)
+    }
+}
+
+/// `mixyDisplayName()`: the `name` of Mixy's `agent.json` with each run of white space one space,
+/// trimmed; "Mixy" for a missing, unreadable, malformed or nameless manifest (no `.bak` read).
+pub fn mixy_display_name(lane: &InLane<InteractiveIo>, data_dir: &Path) -> String {
+    let file = mixy_identity_dir(lane, data_dir).join("agent.json");
+    // `JSON.parse(readFileSync(file, 'utf8'))`: invalid UTF-8 decodes to U+FFFD; a BOM fails.
+    let manifest = mixdog_statefile::read_content(&file)
+        .ok()
+        .flatten()
+        .and_then(|bytes| serde_json::from_str::<Value>(&String::from_utf8_lossy(&bytes)).ok());
+    let name = manifest
+        .as_ref()
+        .and_then(|manifest| manifest.get("name"))
+        .and_then(Value::as_str)
+        .map(|name| mixdog_js::js_words(name).collect::<Vec<_>>().join(" "))
+        .unwrap_or_default();
+    if name.is_empty() { DEFAULT_MIXY_NAME.to_owned() } else { name }
 }
 
 /// A JSON object file; a missing or damaged one falls back to its last good copy (`.bak`, left

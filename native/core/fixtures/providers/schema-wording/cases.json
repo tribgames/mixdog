@@ -1,0 +1,8613 @@
+{
+ "recorder": "benchmarks/rust-core/recorders/record-schema-wording.mjs",
+ "skipped": 0,
+ "sanitize": [
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   },
+   "out": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      },
+      "description": "first"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "b": {
+        "type": "integer"
+       }
+      }
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: first) (variant 2: type:object)",
+    "properties": {
+     "a": {
+      "type": "string"
+     },
+     "b": {
+      "type": "integer"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "anyOf": [
+     {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "a"
+      ]
+     },
+     {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "integer"
+       },
+       "b": {
+        "type": "string"
+       }
+      }
+     }
+    ],
+    "description": "root"
+   },
+   "out": {
+    "type": "object",
+    "description": "root (variant 1: type:object) (variant 2: type:object)",
+    "properties": {
+     "a": {
+      "type": "string"
+     },
+     "b": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "allOf": [
+     {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "a"
+      ]
+     },
+     {
+      "type": "object",
+      "properties": {
+       "a": {
+        "minLength": 1
+       },
+       "b": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "b",
+       "a"
+      ]
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object) (variant 2: type:object)",
+    "properties": {
+     "a": {
+      "allOf": [
+       {
+        "type": "string"
+       },
+       {
+        "minLength": 1
+       }
+      ]
+     },
+     "b": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "a",
+     "b"
+    ]
+   }
+  },
+  {
+   "schema": {
+    "allOf": [
+     {
+      "allOf": [
+       {
+        "type": "object",
+        "properties": {
+         "x": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "type": "object",
+      "properties": {
+       "y": {
+        "type": "string"
+       }
+      }
+     }
+    ],
+    "required": [
+     "y",
+     "y"
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: (variant 1: type:object)) (variant 2: type:object)",
+    "properties": {
+     "x": {
+      "type": "string"
+     },
+     "y": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "y"
+    ]
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "required": [
+     "a",
+     "a",
+     "b"
+    ],
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    },
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "b": {
+        "type": "string"
+       }
+      }
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object)",
+    "properties": {
+     "a": {
+      "type": "string"
+     },
+     "b": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "a",
+     "b"
+    ]
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": [
+       "object",
+       "null"
+      ],
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     {
+      "type": "string"
+     },
+     null,
+     true,
+     []
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object,null) (variant 2: type:string)",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "description": 5,
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     {
+      "description": 0,
+      "type": "object"
+     },
+     {
+      "properties": [
+       "p0",
+       "p1"
+      ]
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: 5) (variant 2: type:object)",
+    "properties": {
+     "0": "p0",
+     "1": "p1",
+     "a": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "f0": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 0 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f1": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 1 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f2": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 2 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f3": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 3 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f4": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 4 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f5": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 5 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f6": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 6 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f7": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 7 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f8": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 8 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f9": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 9 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f10": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 10 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f11": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 11 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f12": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 12 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f13": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 13 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f14": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 14 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f15": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 15 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f16": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 16 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f17": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 17 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f18": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 18 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f19": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 19 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f20": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 20 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f21": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 21 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f22": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 22 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f23": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 23 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f24": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 24 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f25": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 25 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f26": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 26 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f27": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 27 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f28": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 28 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f29": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 29 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f30": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 30 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f31": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 31 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f32": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 32 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f33": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 33 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f34": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 34 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f35": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 35 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f36": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 36 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f37": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 37 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f38": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 38 with some words"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "f39": {
+        "type": "string"
+       }
+      },
+      "description": "variant number 39 with some words"
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: variant number 0 with some words) (variant 2: variant number 1 with some words) (variant 3: variant number 2 with some words) (variant 4: variant number 3 with some words) (variant 5: variant number 4 with some words) (variant 6: variant number 5 with some words) (variant 7: variant number 6 with some words) (variant 8: variant number 7 with some words) (variant 9: variant number 8 with some words) (variant 10: variant number 9 with some words)",
+    "properties": {
+     "f0": {
+      "type": "string"
+     },
+     "f1": {
+      "type": "string"
+     },
+     "f2": {
+      "type": "string"
+     },
+     "f3": {
+      "type": "string"
+     },
+     "f4": {
+      "type": "string"
+     },
+     "f5": {
+      "type": "string"
+     },
+     "f6": {
+      "type": "string"
+     },
+     "f7": {
+      "type": "string"
+     },
+     "f8": {
+      "type": "string"
+     },
+     "f9": {
+      "type": "string"
+     },
+     "f10": {
+      "type": "string"
+     },
+     "f11": {
+      "type": "string"
+     },
+     "f12": {
+      "type": "string"
+     },
+     "f13": {
+      "type": "string"
+     },
+     "f14": {
+      "type": "string"
+     },
+     "f15": {
+      "type": "string"
+     },
+     "f16": {
+      "type": "string"
+     },
+     "f17": {
+      "type": "string"
+     },
+     "f18": {
+      "type": "string"
+     },
+     "f19": {
+      "type": "string"
+     },
+     "f20": {
+      "type": "string"
+     },
+     "f21": {
+      "type": "string"
+     },
+     "f22": {
+      "type": "string"
+     },
+     "f23": {
+      "type": "string"
+     },
+     "f24": {
+      "type": "string"
+     },
+     "f25": {
+      "type": "string"
+     },
+     "f26": {
+      "type": "string"
+     },
+     "f27": {
+      "type": "string"
+     },
+     "f28": {
+      "type": "string"
+     },
+     "f29": {
+      "type": "string"
+     },
+     "f30": {
+      "type": "string"
+     },
+     "f31": {
+      "type": "string"
+     },
+     "f32": {
+      "type": "string"
+     },
+     "f33": {
+      "type": "string"
+     },
+     "f34": {
+      "type": "string"
+     },
+     "f35": {
+      "type": "string"
+     },
+     "f36": {
+      "type": "string"
+     },
+     "f37": {
+      "type": "string"
+     },
+     "f38": {
+      "type": "string"
+     },
+     "f39": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "2": {
+        "type": "string"
+       },
+       "10": {
+        "type": "string"
+       },
+       "b": {
+        "type": "string"
+       }
+      }
+     }
+    ],
+    "properties": {
+     "z": {
+      "type": "string"
+     }
+    }
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object)",
+    "properties": {
+     "2": {
+      "type": "string"
+     },
+     "10": {
+      "type": "string"
+     },
+     "z": {
+      "type": "string"
+     },
+     "b": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    ],
+    "additionalProperties": false
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object)",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    ],
+    "additionalProperties": true
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object)",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [],
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   },
+   "out": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "anyOf": "nope",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   },
+   "out": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": 0,
+    "anyOf": [
+     {
+      "type": "object",
+      "properties": {
+       "k": {
+        "type": "string"
+       }
+      }
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object)",
+    "properties": {
+     "k": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "description": 12,
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "12 (variant 1: type:object)",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "action": {
+        "enum": [
+         "read"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string"
+         },
+         "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+         }
+        },
+        "required": [
+         "path"
+        ]
+       }
+      }
+     },
+     {
+      "type": "object",
+      "properties": {
+       "action": {
+        "enum": [
+         "write"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string"
+         },
+         "limit": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 20
+         },
+         "mode": {
+          "enum": [
+           "a",
+           "b"
+          ]
+         }
+        },
+        "required": [
+         "path"
+        ]
+       }
+      }
+     },
+     {
+      "type": "object",
+      "properties": {
+       "action": {
+        "enum": [
+         "list"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string"
+         },
+         "mode": {
+          "enum": [
+           "c"
+          ]
+         }
+        }
+       }
+      }
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object) (variant 2: type:object) (variant 3: type:object)",
+    "properties": {
+     "action": {
+      "enum": [
+       "read",
+       "write",
+       "list"
+      ]
+     },
+     "input": {
+      "type": "object",
+      "properties": {
+       "path": {
+        "type": "string"
+       },
+       "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+       },
+       "mode": {
+        "enum": [
+         "a",
+         "b",
+         "c"
+        ]
+       }
+      },
+      "description": "Allowed input by action (* required): read(path*,limit>=1<=10); write(path*,limit>=5<=20,mode=a|b); list(path,mode=c)."
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "enum": [
+       "x",
+       "y"
+      ]
+     },
+     "input": {
+      "type": "object",
+      "description": "old"
+     }
+    },
+    "anyOf": [
+     {
+      "type": "object",
+      "properties": {
+       "action": {
+        "enum": [
+         "x"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "n": {
+          "type": "number",
+          "minimum": 0
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "object",
+      "properties": {
+       "action": {
+        "enum": [
+         "y"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "n": {
+          "type": "number",
+          "minimum": 2
+         }
+        }
+       }
+      }
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object) (variant 2: type:object)",
+    "properties": {
+     "action": {
+      "enum": [
+       "x",
+       "y"
+      ]
+     },
+     "input": {
+      "type": "object",
+      "properties": {
+       "n": {
+        "type": "number",
+        "minimum": 0
+       }
+      },
+      "description": "Allowed input by action (* required): x(n>=0); y(n>=2)."
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "action": {
+        "enum": [
+         "a"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "q": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "object",
+      "properties": {
+       "action": {
+        "enum": [
+         "b"
+        ]
+       }
+      }
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object) (variant 2: type:object)",
+    "properties": {
+     "action": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "input": {
+      "type": "object",
+      "properties": {
+       "q": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "action": {
+        "enum": [
+         "a"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "q": {
+          "enum": [
+           1,
+           null,
+           "z",
+           true
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "object",
+      "properties": {
+       "action": {
+        "enum": [
+         "b"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "q": {
+          "enum": [
+           2
+          ]
+         }
+        }
+       }
+      }
+     }
+    ]
+   },
+   "out": {
+    "type": "object",
+    "description": "(variant 1: type:object) (variant 2: type:object)",
+    "properties": {
+     "action": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "input": {
+      "type": "object",
+      "properties": {
+       "q": {
+        "enum": [
+         1,
+         null,
+         "z",
+         true,
+         2
+        ]
+       }
+      },
+      "description": "Allowed input by action (* required): a(q=1||z|true); b(q=2)."
+     }
+    }
+   }
+  },
+  {
+   "schema": null,
+   "out": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "schema": "oops",
+   "out": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "schema": [
+    {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     }
+    }
+   ],
+   "out": [
+    {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "schema": {},
+   "out": {}
+  }
+ ],
+ "wire": [
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "string"
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "description": "no type"
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "description": "no type",
+     "properties": {}
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "description": "no type",
+     "properties": {}
+    }
+   },
+   "gemini": {
+    "schema": {
+     "description": "no type"
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "array"
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "type": [
+     "object",
+     "null"
+    ],
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "anyOf": [
+     {
+      "required": [
+       "a"
+      ]
+     },
+     {
+      "required": [
+       "b"
+      ]
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/anyOf",
+    "reason": "Anthropic input_schema does not allow a root \"anyOf\""
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "anyOf": [
+      {
+       "required": [
+        "a"
+       ]
+      },
+      {
+       "required": [
+        "b"
+       ]
+      }
+     ]
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "anyOf": [
+      {
+       "required": [
+        "a"
+       ]
+      },
+      {
+       "required": [
+        "b"
+       ]
+      }
+     ]
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "object",
+    "allOf": [
+     {
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/allOf",
+    "reason": "Anthropic input_schema does not allow a root \"allOf\""
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "allOf": [
+      {
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "allOf": [
+      {
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "object",
+    "not": {
+     "required": [
+      "a"
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/not",
+    "reason": "Anthropic input_schema does not allow a root \"not\""
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "not": {
+      "required": [
+       "a"
+      ]
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "not": {
+      "required": [
+       "a"
+      ]
+     }
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "pair": {
+      "type": "array",
+      "items": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "number"
+       }
+      ]
+     }
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "pair": {
+       "type": "array",
+       "prefixItems": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "number"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "pair": {
+       "type": "array",
+       "prefixItems": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "number"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "pair": {
+       "type": "array",
+       "prefixItems": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "number"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "geminiProblem": {
+    "pointer": "/properties/pair/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "n": {
+      "type": "number",
+      "minimum": 1,
+      "exclusiveMinimum": true
+     }
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "n": {
+       "type": "number",
+       "exclusiveMinimum": 1
+      }
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "n": {
+       "type": "number",
+       "exclusiveMinimum": 1
+      }
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "n": {
+       "type": "number",
+       "exclusiveMinimum": 1
+      }
+     }
+    }
+   },
+   "geminiProblem": {
+    "pointer": "/properties/n/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+     "n": {
+      "type": "integer"
+     }
+    },
+    "type": "object",
+    "properties": {
+     "x": {
+      "$ref": "#/definitions/n",
+      "description": "ignored"
+     }
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "$schema": "http://json-schema.org/draft-07/schema#",
+     "definitions": {
+      "n": {
+       "type": "integer"
+      }
+     },
+     "type": "object",
+     "properties": {
+      "x": {
+       "$ref": "#/definitions/n",
+       "description": "ignored"
+      }
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "$schema": "http://json-schema.org/draft-07/schema#",
+     "definitions": {
+      "n": {
+       "type": "integer"
+      }
+     },
+     "type": "object",
+     "properties": {
+      "x": {
+       "$ref": "#/definitions/n",
+       "description": "ignored"
+      }
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "$schema": "http://json-schema.org/draft-07/schema#",
+     "definitions": {
+      "n": {
+       "type": "integer"
+      }
+     },
+     "type": "object",
+     "properties": {
+      "x": {
+       "$ref": "#/definitions/n",
+       "description": "ignored"
+      }
+     }
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "$ref": "#/$defs/missing"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#/$defs/missing\""
+   },
+   "openai": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#/$defs/missing\""
+   },
+   "gemini": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#/$defs/missing\""
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#/$defs/missing\""
+   }
+  },
+  {
+   "schema": {
+    "$id": "http://example.com/s",
+    "type": "object",
+    "properties": {
+     "a": {
+      "$ref": "#/$defs/missing"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"http://example.com/s#/$defs/missing\""
+   },
+   "openai": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"http://example.com/s#/$defs/missing\""
+   },
+   "gemini": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"http://example.com/s#/$defs/missing\""
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"http://example.com/s#/$defs/missing\""
+   }
+  },
+  {
+   "schema": {
+    "$defs": {
+     "x": {
+      "$anchor": "foo",
+      "type": "string"
+     }
+    },
+    "type": "object",
+    "properties": {
+     "a": {
+      "$ref": "#foo"
+     }
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "$defs": {
+      "x": {
+       "$anchor": "foo",
+       "type": "string"
+      }
+     },
+     "type": "object",
+     "properties": {
+      "a": {
+       "$ref": "#foo"
+      }
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "$defs": {
+      "x": {
+       "$anchor": "foo",
+       "type": "string"
+      }
+     },
+     "type": "object",
+     "properties": {
+      "a": {
+       "$ref": "#foo"
+      }
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "$defs": {
+      "x": {
+       "$anchor": "foo",
+       "type": "string"
+      }
+     },
+     "type": "object",
+     "properties": {
+      "a": {
+       "$ref": "#foo"
+      }
+     }
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "$ref": "#nofoo"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#nofoo\""
+   },
+   "openai": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#nofoo\""
+   },
+   "gemini": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#nofoo\""
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#nofoo\""
+   }
+  },
+  {
+   "schema": {
+    "$defs": {
+     "a b": {
+      "type": "string"
+     },
+     "c/d": {
+      "type": "string"
+     }
+    },
+    "type": "object",
+    "properties": {
+     "a": {
+      "$ref": "#/$defs/a%20b"
+     },
+     "b": {
+      "$ref": "#/$defs/c~1d"
+     }
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "$defs": {
+      "a b": {
+       "type": "string"
+      },
+      "c/d": {
+       "type": "string"
+      }
+     },
+     "type": "object",
+     "properties": {
+      "a": {
+       "$ref": "#/$defs/a%20b"
+      },
+      "b": {
+       "$ref": "#/$defs/c~1d"
+      }
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "$defs": {
+      "a b": {
+       "type": "string"
+      },
+      "c/d": {
+       "type": "string"
+      }
+     },
+     "type": "object",
+     "properties": {
+      "a": {
+       "$ref": "#/$defs/a%20b"
+      },
+      "b": {
+       "$ref": "#/$defs/c~1d"
+      }
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "$defs": {
+      "a b": {
+       "type": "string"
+      },
+      "c/d": {
+       "type": "string"
+      }
+     },
+     "type": "object",
+     "properties": {
+      "a": {
+       "$ref": "#/$defs/a%20b"
+      },
+      "b": {
+       "$ref": "#/$defs/c~1d"
+      }
+     }
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "$ref": "other.json#/x"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"other.json#/x\""
+   },
+   "openai": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"other.json#/x\""
+   },
+   "gemini": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"other.json#/x\""
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"other.json#/x\""
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "$ref": "#/properties/b"
+     },
+     "b": {
+      "type": "string"
+     }
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "$ref": "#/properties/b"
+      },
+      "b": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "$ref": "#/properties/b"
+      },
+      "b": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "$ref": "#/properties/b"
+      },
+      "b": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "string",
+      "pattern": "("
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /(/u: Unterminated group"
+   },
+   "openai": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /(/u: Unterminated group"
+   },
+   "gemini": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /(/u: Unterminated group"
+   },
+   "geminiProblem": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /(/u: Unterminated group"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "string",
+      "pattern": "["
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /[/u: Unterminated character class"
+   },
+   "openai": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /[/u: Unterminated character class"
+   },
+   "gemini": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /[/u: Unterminated character class"
+   },
+   "geminiProblem": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /[/u: Unterminated character class"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "patternProperties": {
+     "(": {
+      "type": "string"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /(/u: Unterminated group"
+   },
+   "openai": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /(/u: Unterminated group"
+   },
+   "gemini": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /(/u: Unterminated group"
+   },
+   "geminiProblem": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /(/u: Unterminated group"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "$ref": "#/$defs/missing"
+     },
+     "b": {
+      "type": "string",
+      "pattern": "("
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#/$defs/missing\""
+   },
+   "openai": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#/$defs/missing\""
+   },
+   "gemini": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#/$defs/missing\""
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/$ref",
+    "reason": "unresolvable $ref \"#/$defs/missing\""
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "any"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "openai": {
+    "pointer": "/properties/a/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "gemini": {
+    "pointer": "/properties/a/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": [
+       "string",
+       "string"
+      ]
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "openai": {
+    "pointer": "/properties/a/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "gemini": {
+    "pointer": "/properties/a/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "enum": "x"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/properties/a/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/properties/a/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "required": "a",
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "required": [
+     "a",
+     "a"
+    ],
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have duplicate items (items ## 1 and 0 are identical)"
+   },
+   "openai": {
+    "pointer": "/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have duplicate items (items ## 1 and 0 are identical)"
+   },
+   "gemini": {
+    "pointer": "/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have duplicate items (items ## 1 and 0 are identical)"
+   },
+   "geminiProblem": {
+    "pointer": "/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have duplicate items (items ## 1 and 0 are identical)"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "required": [
+     1,
+     1
+    ],
+    "properties": {
+     "a": {
+      "type": "string"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": [
+     {
+      "type": "string"
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/properties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/properties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/properties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/properties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "integer",
+      "minimum": "zero"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/properties/a/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/properties/a/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "array",
+      "minItems": -1
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/minItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be >= 0"
+   },
+   "openai": {
+    "pointer": "/properties/a/minItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be >= 0"
+   },
+   "gemini": {
+    "pointer": "/properties/a/minItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be >= 0"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/minItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be >= 0"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "array",
+      "items": [],
+      "minItems": 1.5
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "openai": {
+    "pointer": "/properties/a/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "gemini": {
+    "pointer": "/properties/a/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "allOf": []
+   },
+   "anthropic": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "openai": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "gemini": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "geminiProblem": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "multipleOf": 0
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be > 0"
+   },
+   "openai": {
+    "pointer": "/properties/a/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be > 0"
+   },
+   "gemini": {
+    "pointer": "/properties/a/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be > 0"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be > 0"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "exclusiveMinimum": "x"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/properties/a/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/properties/a/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "0": 6,
+     "1": 5,
+     "x": 7
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/properties/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/properties/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "$comment": 3
+   },
+   "anthropic": {
+    "pointer": "/$comment",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/$comment",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/$comment",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/$comment",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "title": 3,
+    "description": []
+   },
+   "anthropic": {
+    "pointer": "/title",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/title",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/title",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/title",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "$ref": 5
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/a/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/properties/a/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/properties/a/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "dependencies": {
+     "a": [
+      "b"
+     ]
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "dependencies": {
+      "a": [
+       "b"
+      ]
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "dependencies": {
+      "a": [
+       "b"
+      ]
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "dependencies": {
+      "a": [
+       "b"
+      ]
+     }
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "object",
+    "dependencies": {
+     "a": 5
+    }
+   },
+   "anthropic": {
+    "pointer": "/dependentSchemas/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/dependentSchemas/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/dependentSchemas/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/dependencies/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "definitions": {
+     "a": 5
+    }
+   },
+   "anthropic": {
+    "pointer": "/definitions/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/definitions/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/definitions/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/definitions/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "$defs": {
+     "x/y": {
+      "type": "nope"
+     },
+     "~": {
+      "type": "nope"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/$defs/x~1y/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "openai": {
+    "pointer": "/$defs/x~1y/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "gemini": {
+    "pointer": "/$defs/x~1y/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "geminiProblem": {
+    "pointer": "/$defs/x~1y/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "minimum": 0,
+    "description": [
+     "a",
+     "a"
+    ],
+    "unevaluatedProperties": {}
+   },
+   "anthropic": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "contains": {
+     "$defs": {
+      "1": {
+       "minProperties": [
+        true
+       ]
+      },
+      "a": {
+       "propertyNames": {
+        "properties": [
+         1,
+         "a"
+        ],
+        "anyOf": "a b",
+        "required": "x"
+       }
+      }
+     }
+    },
+    "pattern": [
+     "object",
+     "null"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/contains/$defs/1/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/contains/$defs/1/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/contains/$defs/1/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/contains/$defs/1/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "anyOf": [
+     {
+      "unevaluatedProperties": false
+     },
+     {
+      "unevaluatedItems": "a b",
+      "propertyNames": {
+       "format": [
+        "string",
+        "string"
+       ],
+       "$defs": {
+        "1": {
+         "dependentRequired": -1
+        }
+       }
+      }
+     }
+    ],
+    "if": {
+     "title": "object",
+     "unevaluatedItems": -1,
+     "minContains": ""
+    },
+    "exclusiveMinimum": "a b"
+   },
+   "anthropic": {
+    "pointer": "/if/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/if/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/if/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/if/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "description": "d",
+    "$ref": [
+     "object",
+     "null"
+    ],
+    "$defs": {}
+   },
+   "anthropic": {
+    "pointer": "/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "propertyNames": 0,
+    "then": -1
+   },
+   "anthropic": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": {
+     "type": "integer",
+     "description": "d",
+     "prefixItems": "a b"
+    },
+    "uniqueItems": [
+     "a",
+     "b"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/items/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/items/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/items/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/items/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "prefixItems": null
+   },
+   "anthropic": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "minProperties": [
+     1,
+     "a"
+    ],
+    "dependentRequired": "x"
+   },
+   "anthropic": {
+    "pointer": "/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "patternProperties": {
+     "1": {
+      "not": "string",
+      "allOf": [
+       true
+      ]
+     }
+    },
+    "description": [
+     {},
+     {}
+    ]
+   },
+   "anthropic": {
+    "pointer": "/patternProperties/1/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/patternProperties/1/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/patternProperties/1/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/patternProperties/1/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "uniqueItems": true,
+    "description": [
+     "a",
+     "b"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "contentSchema": {
+     "then": {
+      "const": "a b"
+     },
+     "dependentRequired": []
+    }
+   },
+   "anthropic": {
+    "pointer": "/contentSchema/dependentRequired",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/contentSchema/dependentRequired",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/contentSchema/dependentRequired",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/contentSchema/dependentRequired",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "string",
+    "examples": [
+     true
+    ],
+    "const": "object"
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "allOf": [
+     {
+      "patternProperties": [
+       "a",
+       "b"
+      ],
+      "dependencies": [
+       "a",
+       "a"
+      ],
+      "properties": {
+       "1": {
+        "dependencies": [
+         "a",
+         "b"
+        ]
+       }
+      }
+     },
+     {
+      "description": [
+       "a",
+       "b"
+      ],
+      "prefixItems": "^a$"
+     }
+    ],
+    "const": [],
+    "maxItems": [
+     1,
+     1
+    ],
+    "patternProperties": {
+     "1": {
+      "deprecated": true,
+      "if": [
+       1,
+       "a"
+      ],
+      "patternProperties": {
+       "10": {
+        "minimum": false
+       }
+      },
+      "anyOf": "x"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/patternProperties/1/patternProperties/10/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/patternProperties/1/patternProperties/10/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/patternProperties/1/patternProperties/10/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/patternProperties/1/patternProperties/10/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "dependentRequired": "x",
+    "minContains": 1.5,
+    "oneOf": [
+     {
+      "maxItems": [
+       true
+      ],
+      "format": [
+       1,
+       1
+      ]
+     },
+     {
+      "exclusiveMinimum": "string",
+      "dependentSchemas": {
+       "1": {
+        "title": "",
+        "multipleOf": [
+         true
+        ],
+        "const": ""
+       },
+       "c/d": {
+        "oneOf": [
+         "a",
+         "b"
+        ],
+        "minLength": {}
+       },
+       "a": {
+        "else": {
+         "multipleOf": [
+          "object",
+          "null"
+         ]
+        },
+        "deprecated": "string"
+       }
+      },
+      "maximum": true
+     }
+    ],
+    "examples": ""
+   },
+   "anthropic": {
+    "pointer": "/oneOf/0/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/oneOf/0/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/oneOf/0/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/oneOf/0/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "2": {
+      "type": "number",
+      "contains": [
+       {},
+       {}
+      ]
+     },
+     "b": {
+      "type": "integer"
+     },
+     "c": {
+      "type": "string",
+      "description": "d"
+     }
+    },
+    "anyOf": [
+     {
+      "type": "string",
+      "description": "d",
+      "enum": [
+       "a",
+       "b"
+      ]
+     }
+    ],
+    "contentSchema": 1
+   },
+   "anthropic": {
+    "pointer": "/properties/2/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/properties/2/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/properties/2/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/2/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": 1
+   },
+   "anthropic": {
+    "pointer": "/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "description": "d",
+    "$ref": "^a$",
+    "dependentRequired": [
+     true
+    ]
+   },
+   "anthropic": {
+    "pointer": "/dependentRequired",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/dependentRequired",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/dependentRequired",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/dependentRequired",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "exclusiveMinimum": 1,
+    "contains": {
+     "then": {
+      "additionalProperties": {
+       "$ref": "#/properties/a",
+       "pattern": "(",
+       "else": [
+        "string",
+        "string"
+       ]
+      },
+      "then": {
+       "items": {}
+      },
+      "deprecated": 1
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/contains/then/additionalProperties/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/contains/then/additionalProperties/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/contains/then/additionalProperties/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/contains/then/additionalProperties/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "if": [
+     "a",
+     "b"
+    ],
+    "dependentSchemas": "a b"
+   },
+   "anthropic": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "patternProperties": {
+     "a": 1
+    }
+   },
+   "anthropic": {
+    "pointer": "/patternProperties/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/patternProperties/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/patternProperties/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/patternProperties/a",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "oneOf": []
+   },
+   "anthropic": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "openai": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "gemini": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "geminiProblem": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "prefixItems": 0,
+    "anyOf": [
+     true
+    ]
+   },
+   "anthropic": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "maxItems": [
+     "string",
+     "string"
+    ],
+    "dependentRequired": 0
+   },
+   "anthropic": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "minProperties": [
+     {},
+     {}
+    ],
+    "propertyNames": 0
+   },
+   "anthropic": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "minLength": [
+     1,
+     "a"
+    ],
+    "dependentRequired": "^a$"
+   },
+   "anthropic": {
+    "pointer": "/minLength",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/minLength",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/minLength",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/minLength",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "definitions": {
+     "a": {
+      "unevaluatedProperties": [
+       1,
+       "a"
+      ],
+      "dependencies": [
+       "a",
+       "b"
+      ]
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/definitions/a/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/definitions/a/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/definitions/a/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/definitions/a/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": [
+     "a",
+     "b",
+     "a"
+    ],
+    "if": {
+     "uniqueItems": false
+    },
+    "$ref": "#/properties/a"
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "description": "d",
+    "definitions": "x"
+   },
+   "anthropic": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "minimum": 0,
+    "$ref": -1
+   },
+   "anthropic": {
+    "pointer": "/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "description": "d",
+    "minimum": 0,
+    "patternProperties": "^a$"
+   },
+   "anthropic": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "then": {}
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "then": {}
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "then": {}
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "then": {}
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "dependentSchemas": {
+     "0": {
+      "oneOf": []
+     },
+     "a": {
+      "minLength": [
+       "string",
+       "string"
+      ],
+      "unevaluatedProperties": false
+     }
+    },
+    "unevaluatedProperties": "string"
+   },
+   "anthropic": {
+    "pointer": "/dependentSchemas/0/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "openai": {
+    "pointer": "/dependentSchemas/0/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "gemini": {
+    "pointer": "/dependentSchemas/0/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   },
+   "geminiProblem": {
+    "pointer": "/dependentSchemas/0/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+   }
+  },
+  {
+   "schema": {
+    "exclusiveMinimum": [
+     "object",
+     "null"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "description": "d",
+    "$ref": "^a$"
+   },
+   "anthropic": {
+    "pointer": "",
+    "reason": "unresolvable $ref \"%5Ea$\""
+   },
+   "openai": {
+    "pointer": "",
+    "reason": "unresolvable $ref \"%5Ea$\""
+   },
+   "gemini": {
+    "pointer": "",
+    "reason": "unresolvable $ref \"%5Ea$\""
+   },
+   "geminiProblem": {
+    "pointer": "",
+    "reason": "unresolvable $ref \"%5Ea$\""
+   }
+  },
+  {
+   "schema": {
+    "else": {
+     "$defs": {
+      "1": {
+       "contentSchema": true,
+       "unevaluatedProperties": "^a$",
+       "pattern": "[a-"
+      },
+      "a": {
+       "maximum": 0,
+       "contentSchema": "object"
+      }
+     },
+     "prefixItems": [],
+     "minLength": 1
+    },
+    "definitions": true,
+    "minLength": "^a$"
+   },
+   "anthropic": {
+    "pointer": "/else/$defs/1/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/else/$defs/1/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/else/$defs/1/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/else/$defs/1/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "minimum": 0,
+    "if": [
+     1,
+     1
+    ]
+   },
+   "anthropic": {
+    "pointer": "/if",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/if",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/if",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/if",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "description": "d",
+    "maxItems": "a b",
+    "title": "^a$"
+   },
+   "anthropic": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "exclusiveMinimum": -1,
+    "not": {
+     "examples": "string",
+     "then": {
+      "if": true
+     },
+     "const": [
+      "string",
+      "string"
+     ],
+     "minimum": "string"
+    }
+   },
+   "anthropic": {
+    "pointer": "/not/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/not/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/not/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/not/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "minContains": null,
+    "not": {
+     "anyOf": [
+      1,
+      1
+     ],
+     "pattern": "(",
+     "type": "boolean"
+    },
+    "title": 1.5
+   },
+   "anthropic": {
+    "pointer": "/not/anyOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/not/anyOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/not/anyOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/not/anyOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "minimum": [
+     true
+    ],
+    "contains": {
+     "enum": "a b"
+    }
+   },
+   "anthropic": {
+    "pointer": "/contains/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/contains/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/contains/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/contains/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "pattern": "a b"
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "pattern": "a b",
+     "properties": {}
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "pattern": "a b",
+     "properties": {}
+    }
+   },
+   "gemini": {
+    "schema": {
+     "pattern": "a b"
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "exclusiveMinimum": -1,
+    "maxItems": 1
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "exclusiveMinimum": -1,
+     "maxItems": 1,
+     "properties": {}
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "exclusiveMinimum": -1,
+     "maxItems": 1,
+     "properties": {}
+    }
+   },
+   "gemini": {
+    "schema": {
+     "exclusiveMinimum": -1,
+     "maxItems": 1
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "$defs": "^a$",
+    "unevaluatedProperties": []
+   },
+   "anthropic": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "maximum": {
+     "a": 1
+    },
+    "prefixItems": [
+     {
+      "minProperties": [],
+      "required": [
+       true
+      ],
+      "default": [
+       "a",
+       "b"
+      ]
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/prefixItems/0/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/prefixItems/0/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/prefixItems/0/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/prefixItems/0/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "unevaluatedProperties": [
+     "a",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "b": {
+      "type": "number",
+      "description": "d"
+     },
+     "a": {
+      "type": "object",
+      "description": "d",
+      "properties": {
+       "1": {
+        "type": "number",
+        "$ref": {
+         "a": 1
+        }
+       },
+       "c": {
+        "type": "object",
+        "properties": {
+         "c": {
+          "type": "string",
+          "description": "d"
+         }
+        }
+       },
+       "b": {
+        "type": "integer",
+        "description": "d"
+       }
+      }
+     }
+    },
+    "required": [
+     "b",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/properties/a/properties/1/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/properties/a/properties/1/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/properties/a/properties/1/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/properties/1/$ref",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "properties": "string"
+   },
+   "anthropic": {
+    "pointer": "/properties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/properties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/properties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/properties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "title": "x",
+    "propertyNames": [
+     1,
+     1
+    ]
+   },
+   "anthropic": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "string",
+    "examples": [
+     "string",
+     "string"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "title": [
+     "string",
+     "string"
+    ],
+    "properties": [],
+    "items": [
+     "object",
+     "null"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "format": true
+   },
+   "anthropic": {
+    "pointer": "/format",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/format",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/format",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/format",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "minContains": "x",
+    "deprecated": [
+     "a",
+     "a"
+    ],
+    "exclusiveMinimum": []
+   },
+   "anthropic": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     "a",
+     "b",
+     "a"
+    ],
+    "not": {
+     "contains": [
+      "object",
+      "null"
+     ],
+     "exclusiveMinimum": [
+      "a",
+      "b"
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/oneOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/oneOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/oneOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/oneOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "minimum": 0
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "1": {
+      "type": "object",
+      "properties": {
+       "1": {
+        "type": "integer",
+        "description": "d"
+       },
+       "b": {
+        "type": "boolean",
+        "description": "d",
+        "required": [
+         1,
+         1
+        ]
+       }
+      },
+      "anyOf": [
+       {
+        "type": "object",
+        "properties": {
+         "a": {
+          "type": "object",
+          "properties": {
+           "b": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "b"
+          ],
+          "additionalProperties": false,
+          "dependentRequired": {
+           "a": 1
+          }
+         }
+        },
+        "required": [
+         "a"
+        ],
+        "anyOf": [
+         {
+          "type": "boolean"
+         }
+        ],
+        "additionalProperties": {
+         "type": "number"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/1/properties/b/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/properties/1/properties/b/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/properties/1/properties/b/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/1/properties/b/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "dependentSchemas": -1
+   },
+   "anthropic": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "description": "d",
+    "properties": {
+     "2": {
+      "type": "number"
+     }
+    },
+    "anyOf": [
+     {
+      "type": "array",
+      "items": {
+       "type": "number",
+       "prefixItems": [
+        "a",
+        "a"
+       ]
+      },
+      "maxItems": false
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/anyOf/0/items/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/anyOf/0/items/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/anyOf/0/items/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/anyOf/0/items/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "then": "a b",
+    "multipleOf": 1.5
+   },
+   "anthropic": {
+    "pointer": "/then",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/then",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/then",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/then",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "$defs": [
+     "a",
+     "b",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "items": {
+     "a": 1
+    }
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "enum": [
+     "a",
+     "b",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "enum": [
+      "a",
+      "b",
+      "a"
+     ],
+     "properties": {}
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "enum": [
+      "a",
+      "b",
+      "a"
+     ],
+     "properties": {}
+    }
+   },
+   "gemini": {
+    "schema": {
+     "enum": [
+      "a",
+      "b",
+      "a"
+     ]
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "minimum": 0,
+    "propertyNames": [
+     "a",
+     "b",
+     "a"
+    ],
+    "pattern": [
+     "a",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "description": {
+     "a": 1
+    },
+    "minContains": true
+   },
+   "anthropic": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "description": "d",
+    "items": {
+     "type": "object",
+     "exclusiveMinimum": [
+      true
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/items/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/items/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/items/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/items/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "prefixItems": [
+     {
+      "title": "a b",
+      "exclusiveMinimum": true
+     },
+     {
+      "minLength": null,
+      "propertyNames": [
+       "a",
+       "b",
+       "a"
+      ],
+      "multipleOf": []
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/prefixItems/1/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/prefixItems/1/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/prefixItems/1/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/prefixItems/0/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "pattern": "a{2,1}"
+   },
+   "anthropic": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /a{2,1}/u: numbers out of order in {} quantifier"
+   },
+   "openai": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /a{2,1}/u: numbers out of order in {} quantifier"
+   },
+   "gemini": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /a{2,1}/u: numbers out of order in {} quantifier"
+   },
+   "geminiProblem": {
+    "pointer": "",
+    "reason": "Invalid regular expression: /a{2,1}/u: numbers out of order in {} quantifier"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "description": "d",
+    "examples": "object"
+   },
+   "anthropic": {
+    "pointer": "/examples",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/examples",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/examples",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/examples",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "description": "d",
+    "minItems": [
+     "a",
+     "b"
+    ],
+    "dependentSchemas": []
+   },
+   "anthropic": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "minContains": [
+     true
+    ],
+    "definitions": {
+     "a": 1
+    }
+   },
+   "anthropic": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "description": "d",
+    "items": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "additionalProperties": {
+       "a": 1
+      }
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "required": [
+     {
+      "minimum": []
+     },
+     {}
+    ]
+   },
+   "anthropic": {
+    "pointer": "/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/required/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "maxItems": {
+     "a": 1
+    }
+   },
+   "anthropic": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "2": {
+      "type": "string",
+      "required": "a b"
+     },
+     "unevaluatedItems": [
+      "a",
+      "a"
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/2/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/properties/2/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/properties/2/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/2/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "oneOf": [
+     {
+      "uniqueItems": [
+       "a",
+       "a"
+      ],
+      "exclusiveMinimum": "x"
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/oneOf/0/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/oneOf/0/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/oneOf/0/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/oneOf/0/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "pattern": [
+     1,
+     "a"
+    ],
+    "dependentSchemas": {
+     "10": {
+      "items": {
+       "required": false,
+       "exclusiveMinimum": [
+        "object",
+        "null"
+       ]
+      },
+      "required": [
+       1,
+       "a"
+      ]
+     }
+    },
+    "items": -1,
+    "minimum": "x"
+   },
+   "anthropic": {
+    "pointer": "/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/items",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "minimum": "^a$",
+    "items": {
+     "maxItems": false,
+     "type": "number",
+     "$ref": "#/properties/a",
+     "dependencies": "^a$"
+    },
+    "multipleOf": [
+     1,
+     1
+    ]
+   },
+   "anthropic": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "type": "string",
+    "enum": [
+     "a",
+     "b"
+    ],
+    "uniqueItems": {}
+   },
+   "anthropic": {
+    "pointer": "/uniqueItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "openai": {
+    "pointer": "/uniqueItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "gemini": {
+    "pointer": "/uniqueItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/uniqueItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   }
+  },
+  {
+   "schema": {
+    "pattern": false,
+    "enum": [
+     "a",
+     "b"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/pattern",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/pattern",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/pattern",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/pattern",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "exclusiveMinimum": {
+     "a": 1
+    }
+   },
+   "anthropic": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "anyOf": 1.5,
+    "deprecated": "object"
+   },
+   "anthropic": {
+    "pointer": "/anyOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/anyOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/anyOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/anyOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "allOf": "string",
+    "definitions": {
+     "10": {
+      "minProperties": "x",
+      "deprecated": null,
+      "title": [
+       true
+      ]
+     },
+     "e~f": {
+      "unevaluatedItems": "x",
+      "minProperties": 1.5
+     }
+    },
+    "oneOf": [
+     {
+      "enum": -1
+     },
+     {
+      "dependentSchemas": {
+       "a": {
+        "minContains": {},
+        "unevaluatedProperties": -1
+       }
+      },
+      "$ref": "x.json#/y"
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "default": [
+     1,
+     1
+    ],
+    "oneOf": 1
+   },
+   "anthropic": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "anyOf": [
+     {
+      "pattern": [
+       "string",
+       "string"
+      ]
+     },
+     {
+      "contains": {}
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/anyOf/0/pattern",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/anyOf/0/pattern",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/anyOf/0/pattern",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/anyOf/0/pattern",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "patternProperties": []
+   },
+   "anthropic": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "description": {},
+    "const": [
+     1,
+     1
+    ],
+    "pattern": "a{2,1}"
+   },
+   "anthropic": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/description",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "multipleOf": [
+     "a",
+     "a"
+    ],
+    "definitions": -1
+   },
+   "anthropic": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "pattern": "object"
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "minimum": true,
+    "oneOf": "string",
+    "title": [
+     "object",
+     "null"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/oneOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "c": {
+       "type": "string",
+       "description": "d",
+       "dependentSchemas": [
+        "a",
+        "b",
+        "a"
+       ]
+      },
+      "properties": [
+       {},
+       {}
+      ]
+     },
+     "required": [
+      "c"
+     ],
+     "anyOf": [
+      {
+       "type": "object",
+       "properties": {
+        "c": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       },
+       "anyOf": [
+        {
+         "type": "string"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/items/properties/c/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/items/properties/c/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/items/properties/c/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/items/properties/c/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "prefixItems": [
+     1,
+     "a"
+    ],
+    "unevaluatedProperties": false
+   },
+   "anthropic": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "unevaluatedItems": "string",
+    "type": 1
+   },
+   "anthropic": {
+    "pointer": "/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "pattern": "^a$",
+    "minContains": "a b"
+   },
+   "anthropic": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "unevaluatedProperties": 1,
+    "minItems": "string"
+   },
+   "anthropic": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "multipleOf": 0
+   },
+   "anthropic": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be > 0"
+   },
+   "openai": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be > 0"
+   },
+   "gemini": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be > 0"
+   },
+   "geminiProblem": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be > 0"
+   }
+  },
+  {
+   "schema": {
+    "then": {
+     "required": [
+      1,
+      1
+     ],
+     "properties": [
+      "a",
+      "a"
+     ]
+    },
+    "patternProperties": "^a$",
+    "prefixItems": ""
+   },
+   "anthropic": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "1": {
+      "type": "boolean"
+     },
+     "a": {
+      "type": "integer",
+      "format": {
+       "a": 1
+      }
+     }
+    },
+    "required": [
+     "1",
+     "a"
+    ],
+    "anyOf": [
+     {
+      "type": "number",
+      "description": "d"
+     }
+    ]
+   },
+   "anthropic": {
+    "pointer": "/properties/a/format",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "openai": {
+    "pointer": "/properties/a/format",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "gemini": {
+    "pointer": "/properties/a/format",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/a/format",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be string"
+   }
+  },
+  {
+   "schema": {
+    "required": "a b",
+    "additionalProperties": {},
+    "maximum": "a b"
+   },
+   "anthropic": {
+    "pointer": "/maximum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/maximum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/maximum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/maximum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": {
+     "type": "boolean",
+     "deprecated": "x"
+    }
+   },
+   "anthropic": {
+    "pointer": "/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "openai": {
+    "pointer": "/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "gemini": {
+    "pointer": "/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "string",
+    "description": "d",
+    "allOf": [
+     "a",
+     "b",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/allOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/allOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/allOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/allOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "default": {
+     "a": 1,
+     "const": {
+      "a": 1
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": {
+     "type": "integer",
+     "maxItems": -1,
+     "contains": true
+    }
+   },
+   "anthropic": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be >= 0"
+   },
+   "openai": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be >= 0"
+   },
+   "gemini": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be >= 0"
+   },
+   "geminiProblem": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be >= 0"
+   }
+  },
+  {
+   "schema": {
+    "minItems": "^a$",
+    "properties": {
+     "1": {
+      "enum": false
+     },
+     "a": {
+      "definitions": {
+       "0": {
+        "enum": "object"
+       },
+       "c/d": {
+        "description": "object",
+        "prefixItems": [
+         {
+          "minContains": -1
+         }
+        ]
+       },
+       "b": {
+        "dependentRequired": "string",
+        "format": [
+         "a",
+         "b",
+         "a"
+        ]
+       }
+      },
+      "patternProperties": 1,
+      "dependentSchemas": "string",
+      "properties": "^a$"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/properties/1/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/properties/1/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/properties/1/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/1/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "maxItems": "^a$"
+   },
+   "anthropic": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "1": {
+      "type": "number",
+      "description": "d"
+     },
+     "c": {
+      "type": "object",
+      "properties": {
+       "2": {
+        "type": "boolean"
+       },
+       "b": {
+        "type": "boolean"
+       }
+      },
+      "required": [
+       "2",
+       "b"
+      ],
+      "additionalProperties": {
+       "type": "boolean",
+       "examples": [
+        "a",
+        "a"
+       ]
+      }
+     }
+    }
+   },
+   "anthropic": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "1": {
+       "type": "number",
+       "description": "d"
+      },
+      "c": {
+       "type": "object",
+       "properties": {
+        "2": {
+         "type": "boolean"
+        },
+        "b": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "2",
+        "b"
+       ],
+       "additionalProperties": {
+        "type": "boolean",
+        "examples": [
+         "a",
+         "a"
+        ]
+       }
+      }
+     }
+    }
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "1": {
+       "type": "number",
+       "description": "d"
+      },
+      "c": {
+       "type": "object",
+       "properties": {
+        "2": {
+         "type": "boolean"
+        },
+        "b": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "2",
+        "b"
+       ],
+       "additionalProperties": {
+        "type": "boolean",
+        "examples": [
+         "a",
+         "a"
+        ]
+       }
+      }
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "1": {
+       "type": "number",
+       "description": "d"
+      },
+      "c": {
+       "type": "object",
+       "properties": {
+        "2": {
+         "type": "boolean"
+        },
+        "b": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "2",
+        "b"
+       ],
+       "additionalProperties": {
+        "type": "boolean",
+        "examples": [
+         "a",
+         "a"
+        ]
+       }
+      }
+     }
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "type": "number",
+    "description": "d",
+    "patternProperties": {
+     "patternProperties": [
+      "object",
+      "null"
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/patternProperties/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/patternProperties/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/patternProperties/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/patternProperties/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "else": {
+     "a": 1
+    },
+    "prefixItems": [
+     "object",
+     "null"
+    ],
+    "additionalProperties": {
+     "not": -1,
+     "oneOf": [
+      {
+       "required": "object",
+       "multipleOf": [
+        {},
+        {}
+       ],
+       "minLength": "",
+       "allOf": []
+      }
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "patternProperties": "a b"
+   },
+   "anthropic": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "2": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "c": {
+         "type": "object",
+         "description": "d",
+         "properties": {
+          "1": {
+           "type": "string"
+          },
+          "c": {
+           "type": "string"
+          },
+          "required": null
+         },
+         "required": [
+          "1",
+          "c"
+         ],
+         "anyOf": [
+          {
+           "type": "string"
+          }
+         ],
+         "additionalProperties": false
+        }
+       },
+       "required": [
+        "a",
+        "c"
+       ]
+      }
+     },
+     "required": [
+      "2"
+     ],
+     "additionalProperties": {
+      "type": "number"
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/items/properties/2/properties/c/properties/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/items/properties/2/properties/c/properties/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/items/properties/2/properties/c/properties/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/items/properties/2/properties/c/properties/required",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "$defs": "^a$",
+    "exclusiveMinimum": [
+     1,
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "examples": [],
+    "multipleOf": "object"
+   },
+   "anthropic": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "type": "string",
+    "description": "d",
+    "not": false,
+    "exclusiveMinimum": "x"
+   },
+   "anthropic": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/exclusiveMinimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "not": 1.5
+   },
+   "anthropic": {
+    "pointer": "/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "minContains": true,
+    "anyOf": [
+     {
+      "minItems": [
+       "a",
+       "a"
+      ],
+      "else": {
+       "propertyNames": {
+        "maximum": {},
+        "format": [
+         "a",
+         "b"
+        ],
+        "minItems": "^a$"
+       },
+       "definitions": {
+        "0": {
+         "unevaluatedProperties": [
+          "a",
+          "b"
+         ],
+         "type": "integer"
+        }
+       }
+      },
+      "minProperties": [
+       {},
+       {}
+      ]
+     },
+     {
+      "definitions": "string",
+      "exclusiveMinimum": [
+       {},
+       {}
+      ]
+     }
+    ],
+    "maximum": "",
+    "propertyNames": {
+     "pattern": "^a$",
+     "not": [
+      "a",
+      "b",
+      "a"
+     ],
+     "dependentRequired": 1.5
+    }
+   },
+   "anthropic": {
+    "pointer": "/propertyNames/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/propertyNames/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/propertyNames/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/propertyNames/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "minContains": null
+   },
+   "anthropic": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "description": "d",
+    "items": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     }
+    },
+    "dependencies": {}
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "oneOf": [
+     1,
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/oneOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/oneOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/oneOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/oneOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "string",
+    "description": "d",
+    "enum": [
+     "a",
+     "b"
+    ],
+    "examples": [
+     "object",
+     "null"
+    ],
+    "const": 0
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "definitions": [
+     "a",
+     "b",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": {
+     "type": "number",
+     "deprecated": false
+    }
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "c": {
+      "type": "object",
+      "properties": {
+       "1": {
+        "type": "object",
+        "description": "d",
+        "properties": {
+         "2": {
+          "type": "boolean",
+          "description": "d"
+         },
+         "c": {
+          "type": "integer"
+         }
+        },
+        "required": [
+         "2",
+         "c"
+        ]
+       },
+       "a": {
+        "type": "object",
+        "properties": {
+         "c": {
+          "type": "boolean"
+         },
+         "const": []
+        }
+       },
+       "c": {
+        "type": "number"
+       }
+      },
+      "additionalProperties": {
+       "type": "boolean"
+      }
+     }
+    },
+    "required": [
+     "c"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/properties/c/properties/a/properties/const",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/properties/c/properties/a/properties/const",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/properties/c/properties/a/properties/const",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/properties/c/properties/a/properties/const",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "string",
+    "enum": [
+     "a",
+     "b"
+    ],
+    "minContains": 1.5,
+    "default": 1
+   },
+   "anthropic": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "enum": {}
+   },
+   "anthropic": {
+    "pointer": "/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/enum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "contains": "string"
+   },
+   "anthropic": {
+    "pointer": "/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "uniqueItems": -1
+   },
+   "anthropic": {
+    "pointer": "/uniqueItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "openai": {
+    "pointer": "/uniqueItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "gemini": {
+    "pointer": "/uniqueItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/uniqueItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "propertyNames": [
+     "a",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "allOf": 0,
+    "examples": [
+     1,
+     1
+    ],
+    "minProperties": 1.5
+   },
+   "anthropic": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/allOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "contentSchema": [
+     "a",
+     "a"
+    ],
+    "unevaluatedItems": {
+     "minProperties": "string",
+     "default": 1,
+     "minItems": true,
+     "$defs": [
+      1,
+      1
+     ]
+    },
+    "anyOf": 1,
+    "exclusiveMinimum": -1
+   },
+   "anthropic": {
+    "pointer": "/anyOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/anyOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/anyOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/anyOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "type": "object",
+    "properties": {
+     "1": {
+      "type": "object",
+      "description": "d",
+      "properties": {
+       "1": {
+        "type": "array",
+        "description": "d",
+        "items": {
+         "type": "integer"
+        },
+        "enum": [
+         1,
+         "a"
+        ]
+       },
+       "2": {
+        "type": "string",
+        "description": "d",
+        "enum": [
+         "a",
+         "b"
+        ]
+       }
+      },
+      "additionalProperties": {
+       "type": "string",
+       "enum": [
+        "a",
+        "b"
+       ]
+      }
+     },
+     "a": {
+      "type": "number"
+     },
+     "c": {
+      "type": "string",
+      "description": "d"
+     }
+    },
+    "anyOf": [
+     {
+      "type": "array",
+      "description": "d",
+      "items": {
+       "type": "boolean"
+      }
+     }
+    ],
+    "additionalProperties": {
+     "type": "string"
+    }
+   },
+   "anthropic": {
+    "pointer": "/anyOf",
+    "reason": "Anthropic input_schema does not allow a root \"anyOf\""
+   },
+   "openai": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "1": {
+       "type": "object",
+       "description": "d",
+       "properties": {
+        "1": {
+         "type": "array",
+         "description": "d",
+         "items": {
+          "type": "integer"
+         },
+         "enum": [
+          1,
+          "a"
+         ]
+        },
+        "2": {
+         "type": "string",
+         "description": "d",
+         "enum": [
+          "a",
+          "b"
+         ]
+        }
+       },
+       "additionalProperties": {
+        "type": "string",
+        "enum": [
+         "a",
+         "b"
+        ]
+       }
+      },
+      "a": {
+       "type": "number"
+      },
+      "c": {
+       "type": "string",
+       "description": "d"
+      }
+     },
+     "anyOf": [
+      {
+       "type": "array",
+       "description": "d",
+       "items": {
+        "type": "boolean"
+       }
+      }
+     ],
+     "additionalProperties": {
+      "type": "string"
+     }
+    }
+   },
+   "gemini": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "1": {
+       "type": "object",
+       "description": "d",
+       "properties": {
+        "1": {
+         "type": "array",
+         "description": "d",
+         "items": {
+          "type": "integer"
+         },
+         "enum": [
+          1,
+          "a"
+         ]
+        },
+        "2": {
+         "type": "string",
+         "description": "d",
+         "enum": [
+          "a",
+          "b"
+         ]
+        }
+       },
+       "additionalProperties": {
+        "type": "string",
+        "enum": [
+         "a",
+         "b"
+        ]
+       }
+      },
+      "a": {
+       "type": "number"
+      },
+      "c": {
+       "type": "string",
+       "description": "d"
+      }
+     },
+     "anyOf": [
+      {
+       "type": "array",
+       "description": "d",
+       "items": {
+        "type": "boolean"
+       }
+      }
+     ],
+     "additionalProperties": {
+      "type": "string"
+     }
+    }
+   },
+   "geminiProblem": null
+  },
+  {
+   "schema": {
+    "multipleOf": true,
+    "unevaluatedItems": "string"
+   },
+   "anthropic": {
+    "pointer": "/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/unevaluatedItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": [
+     "a",
+     "a"
+    ],
+    "definitions": 1.5
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+   }
+  },
+  {
+   "schema": {
+    "not": {
+     "dependentSchemas": 1
+    }
+   },
+   "anthropic": {
+    "pointer": "/not/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/not/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/not/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/not/dependentSchemas",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "allOf": [
+     "a",
+     "b"
+    ],
+    "unevaluatedProperties": "string"
+   },
+   "anthropic": {
+    "pointer": "/allOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/allOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/allOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/allOf/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "description": "d",
+    "exclusiveMinimum": 1
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "description": "d",
+    "items": {
+     "type": "string",
+     "description": "d",
+     "default": "^a$"
+    }
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  },
+  {
+   "schema": {
+    "unevaluatedProperties": "^a$"
+   },
+   "anthropic": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "patternProperties": [
+     "a",
+     "b",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/patternProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "integer",
+    "minimum": 0,
+    "anyOf": [
+     true
+    ],
+    "definitions": -1
+   },
+   "anthropic": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/definitions",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "minimum": [
+     "a",
+     "b"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/minimum",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": {
+     "type": "number",
+     "description": "d",
+     "deprecated": [
+      "a",
+      "b"
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "openai": {
+    "pointer": "/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "gemini": {
+    "pointer": "/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   }
+  },
+  {
+   "schema": {
+    "minLength": {
+     "a": 1
+    },
+    "exclusiveMinimum": -1,
+    "else": [
+     "a",
+     "b",
+     "a"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "maxItems": "object",
+    "minimum": 0,
+    "items": {
+     "maxItems": {},
+     "definitions": {
+      "e~f": {
+       "unevaluatedProperties": -1,
+       "anyOf": []
+      }
+     },
+     "unevaluatedItems": {
+      "a": 1
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/items/maxItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "uniqueItems": [
+     "string",
+     "string"
+    ],
+    "patternProperties": {
+     "a": {
+      "$ref": "#/properties/a",
+      "minContains": [
+       "string",
+       "string"
+      ],
+      "deprecated": null
+     }
+    },
+    "deprecated": 0
+   },
+   "anthropic": {
+    "pointer": "/patternProperties/a/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/patternProperties/a/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/patternProperties/a/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/patternProperties/a/minContains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "format": 1,
+    "propertyNames": "^a$",
+    "deprecated": "object"
+   },
+   "anthropic": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "required": -1,
+    "propertyNames": {
+     "multipleOf": false,
+     "not": 1
+    }
+   },
+   "anthropic": {
+    "pointer": "/propertyNames/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/propertyNames/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/propertyNames/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/propertyNames/not",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "additionalProperties": [
+     "object",
+     "null"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/additionalProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/additionalProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/additionalProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/additionalProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "contentSchema": {
+     "default": 0,
+     "oneOf": []
+    },
+    "else": 1.5
+   },
+   "anthropic": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "prefixItems": "string",
+    "exclusiveMinimum": "string"
+   },
+   "anthropic": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "openai": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "gemini": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   },
+   "geminiProblem": {
+    "pointer": "/prefixItems",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be array"
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "multipleOf": [],
+    "definitions": [
+     "a",
+     "b"
+    ]
+   },
+   "anthropic": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "openai": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "gemini": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   },
+   "geminiProblem": {
+    "pointer": "/multipleOf",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be number"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "$defs": [
+     {},
+     {}
+    ]
+   },
+   "anthropic": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "prefixItems": [
+     "string",
+     "string"
+    ],
+    "definitions": {
+     "1": {
+      "$ref": "^a$",
+      "anyOf": [
+       {
+        "unevaluatedProperties": "^a$"
+       },
+       {
+        "unevaluatedProperties": [
+         true
+        ]
+       }
+      ]
+     },
+     "a": {
+      "$ref": "#/properties/a",
+      "definitions": {
+       "c/d": {
+        "dependencies": null,
+        "maxItems": [
+         "string",
+         "string"
+        ],
+        "propertyNames": ""
+       },
+       "b": {
+        "dependencies": "object",
+        "uniqueItems": [
+         "a",
+         "a"
+        ],
+        "allOf": [
+         {
+          "oneOf": -1,
+          "deprecated": false
+         },
+         {
+          "maximum": "object",
+          "not": "a b",
+          "contains": {
+           "a": 1
+          },
+          "required": [
+           1,
+           1
+          ]
+         }
+        ]
+       }
+      },
+      "required": {}
+     },
+     "c/d": {
+      "else": {
+       "uniqueItems": 0,
+       "default": "object"
+      },
+      "minItems": null
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/prefixItems/0",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "items": {
+     "type": "integer",
+     "minProperties": [
+      "a",
+      "b"
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/items/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "openai": {
+    "pointer": "/items/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "gemini": {
+    "pointer": "/items/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   },
+   "geminiProblem": {
+    "pointer": "/items/minProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be integer"
+   }
+  },
+  {
+   "schema": {
+    "else": {
+     "minItems": {
+      "a": 1
+     },
+     "else": {
+      "dependencies": "object",
+      "properties": {
+       "e~f": {
+        "oneOf": [
+         {},
+         {}
+        ],
+        "contains": []
+       }
+      }
+     },
+     "unevaluatedProperties": {
+      "a": 1
+     }
+    }
+   },
+   "anthropic": {
+    "pointer": "/else/else/properties/e~0f/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/else/else/properties/e~0f/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/else/else/properties/e~0f/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/else/else/properties/e~0f/contains",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "dependentRequired": {},
+    "required": [
+     "a",
+     "a"
+    ],
+    "contains": {
+     "dependencies": [
+      "object",
+      "null"
+     ],
+     "$ref": "#/properties/a"
+    }
+   },
+   "anthropic": {
+    "pointer": "/contains/dependencies",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/contains/dependencies",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/contains/dependencies",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/contains/dependencies",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "propertyNames": [
+     1,
+     "a"
+    ],
+    "format": null
+   },
+   "anthropic": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/propertyNames",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "const": -1,
+    "contentSchema": {
+     "dependencies": [
+      "a",
+      "a"
+     ],
+     "maximum": [
+      1,
+      1
+     ],
+     "unevaluatedProperties": [
+      "string",
+      "string"
+     ]
+    }
+   },
+   "anthropic": {
+    "pointer": "/contentSchema/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/contentSchema/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/contentSchema/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/contentSchema/unevaluatedProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "number",
+    "$defs": true,
+    "minLength": "x"
+   },
+   "anthropic": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "openai": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "gemini": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   },
+   "geminiProblem": {
+    "pointer": "/$defs",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object"
+   }
+  },
+  {
+   "schema": {
+    "type": "boolean",
+    "description": "d",
+    "else": [
+     true
+    ]
+   },
+   "anthropic": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/else",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "array",
+    "description": "d",
+    "items": {
+     "type": "array",
+     "description": "d",
+     "items": {
+      "type": "number",
+      "deprecated": "a b"
+     }
+    },
+    "minItems": -1
+   },
+   "anthropic": {
+    "pointer": "/items/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "openai": {
+    "pointer": "/items/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "gemini": {
+    "pointer": "/items/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/items/items/deprecated",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": [
+     true
+    ],
+    "additionalProperties": {
+     "additionalProperties": 0,
+     "uniqueItems": -1,
+     "dependentRequired": null
+    }
+   },
+   "anthropic": {
+    "pointer": "/additionalProperties/additionalProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "openai": {
+    "pointer": "/additionalProperties/additionalProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "gemini": {
+    "pointer": "/additionalProperties/additionalProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   },
+   "geminiProblem": {
+    "pointer": "/additionalProperties/additionalProperties",
+    "reason": "not a valid JSON Schema 2020-12 schema: must be object,boolean"
+   }
+  },
+  {
+   "schema": {
+    "type": "string",
+    "pattern": "a b"
+   },
+   "anthropic": {
+    "pointer": "/type",
+    "reason": "Anthropic input_schema root must have type \"object\""
+   },
+   "openai": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "gemini": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   },
+   "geminiProblem": {
+    "pointer": "/type",
+    "reason": "the input schema root must have type \"object\""
+   }
+  }
+ ],
+ "anthropic": [
+  {
+   "id": "plain",
+   "provider": "anthropic",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "sent": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     },
+     "eager_input_streaming": true
+    }
+   ],
+   "excluded": [],
+   "exclusions": [
+    null
+   ]
+  },
+  {
+   "id": "plain",
+   "provider": "anthropic-oauth",
+   "tools": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     }
+    }
+   ],
+   "sent": [
+    {
+     "name": "lookup",
+     "description": "The lookup tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key"
+      ]
+     },
+     "eager_input_streaming": true
+    }
+   ],
+   "excluded": [],
+   "exclusions": [
+    null
+   ]
+  },
+  {
+   "id": "mixed",
+   "provider": "anthropic",
+   "tools": [
+    {
+     "name": "first",
+     "description": "The first tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "union",
+     "description": "The union tool",
+     "inputSchema": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "a": {
+          "type": "string"
+         }
+        },
+        "description": "one"
+       },
+       {
+        "type": "object",
+        "properties": {
+         "b": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     }
+    },
+    {
+     "name": "last",
+     "description": "The last tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "b": {
+        "type": "integer"
+       }
+      }
+     },
+     "deferLoading": true
+    }
+   ],
+   "sent": [
+    {
+     "name": "first",
+     "description": "The first tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     "eager_input_streaming": true
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "string"
+         }
+        ]
+       }
+      }
+     },
+     "eager_input_streaming": true
+    },
+    {
+     "name": "union",
+     "description": "The union tool",
+     "input_schema": {
+      "type": "object",
+      "description": "(variant 1: one) (variant 2: type:object)",
+      "properties": {
+       "a": {
+        "type": "string"
+       },
+       "b": {
+        "type": "string"
+       }
+      }
+     },
+     "eager_input_streaming": true
+    },
+    {
+     "name": "last",
+     "description": "The last tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {
+       "b": {
+        "type": "integer"
+       }
+      }
+     },
+     "defer_loading": true,
+     "eager_input_streaming": true
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[anthropic] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    }
+   ],
+   "exclusions": [
+    null,
+    {
+     "name": "dangling",
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\""
+    },
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "id": "mixed",
+   "provider": "anthropic-oauth",
+   "tools": [
+    {
+     "name": "first",
+     "description": "The first tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    {
+     "name": "dangling",
+     "description": "The dangling tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "$ref": "#/$defs/missing"
+       }
+      }
+     }
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "items": [
+         {
+          "type": "string"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "name": "union",
+     "description": "The union tool",
+     "inputSchema": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "a": {
+          "type": "string"
+         }
+        },
+        "description": "one"
+       },
+       {
+        "type": "object",
+        "properties": {
+         "b": {
+          "type": "string"
+         }
+        }
+       }
+      ]
+     }
+    },
+    {
+     "name": "last",
+     "description": "The last tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "b": {
+        "type": "integer"
+       }
+      }
+     },
+     "deferLoading": true
+    }
+   ],
+   "sent": [
+    {
+     "name": "first",
+     "description": "The first tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {
+       "a": {
+        "type": "string"
+       }
+      }
+     },
+     "eager_input_streaming": true
+    },
+    {
+     "name": "tuple",
+     "description": "The tuple tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {
+       "pair": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "string"
+         }
+        ]
+       }
+      }
+     },
+     "eager_input_streaming": true
+    },
+    {
+     "name": "union",
+     "description": "The union tool",
+     "input_schema": {
+      "type": "object",
+      "description": "(variant 1: one) (variant 2: type:object)",
+      "properties": {
+       "a": {
+        "type": "string"
+       },
+       "b": {
+        "type": "string"
+       }
+      }
+     },
+     "eager_input_streaming": true
+    },
+    {
+     "name": "last",
+     "description": "The last tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {
+       "b": {
+        "type": "integer"
+       }
+      }
+     },
+     "defer_loading": true,
+     "eager_input_streaming": true
+    }
+   ],
+   "excluded": [
+    {
+     "name": "dangling",
+     "index": 1,
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\"",
+     "message": "[anthropic-oauth] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+    }
+   ],
+   "exclusions": [
+    null,
+    {
+     "name": "dangling",
+     "pointer": "/properties/x/$ref",
+     "reason": "unresolvable $ref \"#/$defs/missing\""
+    },
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "id": "broken-types",
+   "provider": "anthropic",
+   "tools": [
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "pattern",
+     "description": "The pattern tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "string",
+        "pattern": "("
+       }
+      }
+     }
+    }
+   ],
+   "sent": [],
+   "excluded": [
+    {
+     "name": "typed",
+     "index": 0,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[anthropic] tool \"typed\" (tools[0]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    },
+    {
+     "name": "rooted",
+     "index": 1,
+     "pointer": "/type",
+     "reason": "Anthropic input_schema root must have type \"object\"",
+     "message": "[anthropic] tool \"rooted\" (tools[1]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+    },
+    {
+     "name": "pattern",
+     "index": 2,
+     "pointer": "/",
+     "reason": "Invalid regular expression: /(/u: Unterminated group",
+     "message": "[anthropic] tool \"pattern\" (tools[2]) excluded: invalid input schema at \"/\": Invalid regular expression: /(/u: Unterminated group"
+    }
+   ],
+   "exclusions": [
+    {
+     "name": "typed",
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    },
+    {
+     "name": "rooted",
+     "pointer": "/type",
+     "reason": "Anthropic input_schema root must have type \"object\""
+    },
+    {
+     "name": "pattern",
+     "pointer": "/",
+     "reason": "Invalid regular expression: /(/u: Unterminated group"
+    }
+   ]
+  },
+  {
+   "id": "broken-types",
+   "provider": "anthropic-oauth",
+   "tools": [
+    {
+     "name": "typed",
+     "description": "The typed tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "any"
+       }
+      }
+     }
+    },
+    {
+     "name": "rooted",
+     "description": "The rooted tool",
+     "inputSchema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "pattern",
+     "description": "The pattern tool",
+     "inputSchema": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "string",
+        "pattern": "("
+       }
+      }
+     }
+    }
+   ],
+   "sent": [],
+   "excluded": [
+    {
+     "name": "typed",
+     "index": 0,
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+     "message": "[anthropic-oauth] tool \"typed\" (tools[0]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    },
+    {
+     "name": "rooted",
+     "index": 1,
+     "pointer": "/type",
+     "reason": "Anthropic input_schema root must have type \"object\"",
+     "message": "[anthropic-oauth] tool \"rooted\" (tools[1]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+    },
+    {
+     "name": "pattern",
+     "index": 2,
+     "pointer": "/",
+     "reason": "Invalid regular expression: /(/u: Unterminated group",
+     "message": "[anthropic-oauth] tool \"pattern\" (tools[2]) excluded: invalid input schema at \"/\": Invalid regular expression: /(/u: Unterminated group"
+    }
+   ],
+   "exclusions": [
+    {
+     "name": "typed",
+     "pointer": "/properties/x/type",
+     "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+    },
+    {
+     "name": "rooted",
+     "pointer": "/type",
+     "reason": "Anthropic input_schema root must have type \"object\""
+    },
+    {
+     "name": "pattern",
+     "pointer": "/",
+     "reason": "Invalid regular expression: /(/u: Unterminated group"
+    }
+   ]
+  },
+  {
+   "id": "no-schema",
+   "provider": "anthropic",
+   "tools": [
+    {
+     "name": "bare",
+     "description": "The bare tool"
+    }
+   ],
+   "sent": [
+    {
+     "name": "bare",
+     "description": "The bare tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {}
+     },
+     "eager_input_streaming": true
+    }
+   ],
+   "excluded": [],
+   "exclusions": [
+    null
+   ]
+  },
+  {
+   "id": "no-schema",
+   "provider": "anthropic-oauth",
+   "tools": [
+    {
+     "name": "bare",
+     "description": "The bare tool"
+    }
+   ],
+   "sent": [
+    {
+     "name": "bare",
+     "description": "The bare tool",
+     "input_schema": {
+      "type": "object",
+      "properties": {}
+     },
+     "eager_input_streaming": true
+    }
+   ],
+   "excluded": [],
+   "exclusions": [
+    null
+   ]
+  },
+  {
+   "id": "actions",
+   "provider": "anthropic",
+   "tools": [
+    {
+     "name": "act",
+     "description": "The act tool",
+     "inputSchema": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "action": {
+          "enum": [
+           "read"
+          ]
+         },
+         "input": {
+          "type": "object",
+          "properties": {
+           "path": {
+            "type": "string"
+           },
+           "limit": {
+            "type": "integer",
+            "minimum": 1
+           }
+          }
+         }
+        }
+       },
+       {
+        "type": "object",
+        "properties": {
+         "action": {
+          "enum": [
+           "write"
+          ]
+         },
+         "input": {
+          "type": "object",
+          "properties": {
+           "path": {
+            "type": "string"
+           },
+           "limit": {
+            "type": "integer",
+            "minimum": 3
+           }
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "sent": [
+    {
+     "name": "act",
+     "description": "The act tool",
+     "input_schema": {
+      "type": "object",
+      "description": "(variant 1: type:object) (variant 2: type:object)",
+      "properties": {
+       "action": {
+        "enum": [
+         "read",
+         "write"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string"
+         },
+         "limit": {
+          "type": "integer",
+          "minimum": 1
+         }
+        },
+        "description": "Allowed input by action (* required): read(path,limit>=1); write(path,limit>=3)."
+       }
+      }
+     },
+     "eager_input_streaming": true
+    }
+   ],
+   "excluded": [],
+   "exclusions": [
+    null
+   ]
+  },
+  {
+   "id": "actions",
+   "provider": "anthropic-oauth",
+   "tools": [
+    {
+     "name": "act",
+     "description": "The act tool",
+     "inputSchema": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "action": {
+          "enum": [
+           "read"
+          ]
+         },
+         "input": {
+          "type": "object",
+          "properties": {
+           "path": {
+            "type": "string"
+           },
+           "limit": {
+            "type": "integer",
+            "minimum": 1
+           }
+          }
+         }
+        }
+       },
+       {
+        "type": "object",
+        "properties": {
+         "action": {
+          "enum": [
+           "write"
+          ]
+         },
+         "input": {
+          "type": "object",
+          "properties": {
+           "path": {
+            "type": "string"
+           },
+           "limit": {
+            "type": "integer",
+            "minimum": 3
+           }
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "sent": [
+    {
+     "name": "act",
+     "description": "The act tool",
+     "input_schema": {
+      "type": "object",
+      "description": "(variant 1: type:object) (variant 2: type:object)",
+      "properties": {
+       "action": {
+        "enum": [
+         "read",
+         "write"
+        ]
+       },
+       "input": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string"
+         },
+         "limit": {
+          "type": "integer",
+          "minimum": 1
+         }
+        },
+        "description": "Allowed input by action (* required): read(path,limit>=1); write(path,limit>=3)."
+       }
+      }
+     },
+     "eager_input_streaming": true
+    }
+   ],
+   "excluded": [],
+   "exclusions": [
+    null
+   ]
+  }
+ ]
+}

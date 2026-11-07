@@ -95,9 +95,9 @@ pub async fn clear_pid_file(lane: DurabilityIo, path: PathBuf) {
     let _ = io_on_lane(lane, move || remove_file(&path)).await;
 }
 
-/// The recorded meta, `None` when the file is absent or not JSON.
-pub async fn read_pid_file(lane: DurabilityIo, path: PathBuf) -> Option<Value> {
-    on_lane(lane, move || read_file(&path)).await.ok().flatten().and_then(|text| serde_json::from_str(&text).ok())
+/// The recorded meta, `Ok(None)` when the file is absent or not JSON; `Err` when the read never ran.
+pub async fn read_pid_file(lane: DurabilityIo, path: PathBuf) -> std::io::Result<Option<Value>> {
+    Ok(on_lane(lane, move || read_file(&path)).await?.and_then(|text| serde_json::from_str(&text).ok()))
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
@@ -418,10 +418,10 @@ mod tests {
         let lane = mixdog_rt::testing::tokens().durability_io;
         let path = pid_file(&dir.path().join("rt").join("bin").join("whisper-server"));
         write_pid_file(lane, path.clone(), &PidMeta { pid: 7, server_cmd: Path::new("s"), model_path: Path::new("m"), thread_count: 2, host: "127.0.0.1", port: 8771, started_at_ms: 5 }).await;
-        let meta = read_pid_file(lane, path.clone()).await.unwrap();
+        let meta = read_pid_file(lane, path.clone()).await.unwrap().unwrap();
         assert_eq!(meta["pid"], 7);
         assert_eq!(meta["runtimeKey"], r#"["s","m",2,"127.0.0.1"]"#);
         clear_pid_file(lane, path.clone()).await;
-        assert!(read_pid_file(lane, path).await.is_none());
+        assert!(read_pid_file(lane, path).await.unwrap().is_none());
     }
 }

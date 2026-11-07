@@ -143,11 +143,12 @@ impl EngineResolver for SystemEngineResolver {
             let catalog = engine_entry(&e.id);
             let source = match e.source.as_str() {
                 "managed" => ResolvedSource::Managed,
-                "missing" => ResolvedSource::Missing,
+                // A lookup that never ran: pending (`probing`), neither installed nor missing.
+                "missing" | "unavailable" => ResolvedSource::Missing,
                 _ => ResolvedSource::Host,
             };
             // The host probe has not answered: pending, neither installed nor missing.
-            let probing = catalog.is_some_and(|c| c.managed_module) && source == ResolvedSource::Missing && !e.command.is_empty() && !self.host_module_probed(&e.command);
+            let probing = e.unavailable.is_some() || (catalog.is_some_and(|c| c.managed_module) && source == ResolvedSource::Missing && !e.command.is_empty() && !self.host_module_probed(&e.command));
             out.push(ResolvedEngine {
                 id: e.id.clone(),
                 source,

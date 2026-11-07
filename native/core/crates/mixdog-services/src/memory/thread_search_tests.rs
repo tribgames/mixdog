@@ -17,6 +17,7 @@ use crate::memory::tests::support::TestPg;
 const GOLDEN: &str = include_str!("../../../../fixtures/thread-search/golden.json");
 
 #[tokio::test]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn search_answers_what_nodes_search_session_content_answered() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let pg = TestPg::start().await;

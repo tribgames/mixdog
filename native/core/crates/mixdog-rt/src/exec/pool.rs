@@ -1,21 +1,26 @@
 //! Lane executors: dedicated thread pools with a bounded FIFO queue, and the thread-per-job
 //! lane (RL §7.1). Lanes never share threads.
 
+use std::collections::HashMap;
 use std::io;
 use std::panic::AssertUnwindSafe;
 use std::panic::catch_unwind;
 use std::sync::Arc;
+use std::sync::Condvar;
+use std::sync::Mutex;
+use std::sync::MutexGuard;
+use std::sync::PoisonError;
 use std::sync::mpsc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::AcqRel;
 use std::sync::atomic::Ordering::Acquire;
 use std::sync::atomic::Ordering::Relaxed;
+use std::time::Duration;
 use std::time::Instant;
 
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
-use crossbeam_channel::TrySendError;
 use tokio::sync::Notify;
 
 use super::hist::HistSummary;
@@ -43,6 +48,8 @@ pub(crate) struct LaneStats {
     freed: Arc<Notify>,
     /// Threads currently alive on the lane.
     live: AtomicUsize,
+    /// Of those, threads whose current job outlived the lane's lease.
+    wedged: AtomicUsize,
     queue_wait: Histogram,
     service: Histogram,
 }
@@ -58,6 +65,7 @@ impl LaneStats {
             priority_failed: AtomicU64::new(0),
             freed: Arc::new(Notify::new()),
             live: AtomicUsize::new(0),
+            wedged: AtomicUsize::new(0),
             queue_wait: Histogram::new(),
             service: Histogram::new(),
         }
@@ -70,6 +78,9 @@ pub struct LaneSnapshot {
     pub kind: LaneKind,
     /// Threads alive on the lane.
     pub threads: usize,
+    /// Of those, threads stuck in a job that outlived the lane's lease. The lane refuses work
+    /// while every thread is in this state.
+    pub wedged: usize,
     /// Jobs waiting in the queue (always 0 for the thread-per-job lane).
     pub queue_depth: usize,
     /// Queue capacity, or the live-job cap of the thread-per-job lane.
@@ -94,6 +105,7 @@ enum Shape {
     Pooled {
         tx: Sender<QueuedJob>,
         capacity: usize,
+        watch: Arc<Watch>,
     },
     /// One thread per job, at most `max_live` at once; no queue.
     PerJob {
@@ -118,6 +130,7 @@ impl LaneExec {
         priority: Priority,
         threads: usize,
         queue: usize,
+        lease: Duration,
         priority_failures: &Arc<AtomicU64>,
     ) -> io::Result<Self> {
         Self::pooled_with(
@@ -125,6 +138,7 @@ impl LaneExec {
             priority,
             threads,
             queue,
+            lease,
             priority_failures,
             set_current_thread,
         )
@@ -135,6 +149,7 @@ impl LaneExec {
         priority: Priority,
         threads: usize,
         queue: usize,
+        lease: Duration,
         priority_failures: &Arc<AtomicU64>,
         apply: ApplyPriority,
     ) -> io::Result<Self> {
@@ -146,16 +161,23 @@ impl LaneExec {
         }
         let (tx, rx) = crossbeam_channel::bounded(queue);
         let stats = Arc::new(LaneStats::new());
+        let watch = Arc::new(Watch {
+            kind,
+            threads,
+            lease,
+            rx,
+            stats: stats.clone(),
+            priority,
+            apply,
+            failures: priority_failures.clone(),
+            next_id: AtomicUsize::new(0),
+            running: Mutex::new(HashMap::new()),
+            stopped: Mutex::new(false),
+            wake: Condvar::new(),
+        });
         let (ready_tx, ready_rx) = mpsc::channel();
-        for index in 0..threads {
-            let rx = rx.clone();
-            let worker_stats = stats.clone();
-            let failures = priority_failures.clone();
-            let ready = ready_tx.clone();
-            std::thread::Builder::new()
-                .name(format!("mixdog-{}-{index}", kind.name()))
-                .spawn(move || worker(&rx, &worker_stats, priority, apply, &failures, &ready))?;
-            stats.live.fetch_add(1, Relaxed);
+        for _ in 0..threads {
+            watch.spawn_worker(Some(ready_tx.clone()))?;
         }
         drop(ready_tx);
         // Returning early drops `tx`, which ends every worker that did start.
@@ -176,6 +198,10 @@ impl LaneExec {
                 }
             }
         }
+        let dog = watch.clone();
+        std::thread::Builder::new()
+            .name(format!("mixdog-{}-watchdog", kind.name()))
+            .spawn(move || watchdog(&dog))?;
         Ok(Self {
             kind,
             priority,
@@ -184,6 +210,7 @@ impl LaneExec {
             shape: Shape::Pooled {
                 tx,
                 capacity: queue,
+                watch,
             },
         })
     }
@@ -232,10 +259,8 @@ impl LaneExec {
 
     pub(crate) fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
         let accepted = match &self.shape {
-            Shape::Pooled { tx, .. } => match tx.try_send(job) {
-                Ok(()) => true,
-                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => false,
-            },
+            // A wedged lane has no worker to run the job: refuse it like a full queue.
+            Shape::Pooled { tx, watch, .. } => watch.healthy() > 0 && tx.try_send(job).is_ok(),
             Shape::PerJob { max_live, apply } => self.spawn_per_job(*max_live, *apply, job),
         };
         if accepted {
@@ -273,14 +298,31 @@ impl LaneExec {
             .is_ok()
     }
 
+    /// `true` while no worker of the lane is healthy. The thread-per-job lane never is: its
+    /// jobs own their threads for as long as the PTY lives.
+    pub(crate) fn is_wedged(&self) -> bool {
+        match &self.shape {
+            Shape::Pooled { watch, .. } => watch.healthy() == 0,
+            Shape::PerJob { .. } => false,
+        }
+    }
+
+    /// One watchdog pass at `now`: marks workers whose job outlived the lease.
+    pub(crate) fn sweep(&self, now: Instant) {
+        if let Shape::Pooled { watch, .. } = &self.shape {
+            watch.sweep(now);
+        }
+    }
+
     pub(crate) fn snapshot(&self) -> LaneSnapshot {
         let (queue_depth, capacity) = match &self.shape {
-            Shape::Pooled { tx, capacity } => (tx.len(), *capacity),
+            Shape::Pooled { tx, capacity, .. } => (tx.len(), *capacity),
             Shape::PerJob { max_live, .. } => (0, *max_live),
         };
         LaneSnapshot {
             kind: self.kind,
             threads: self.stats.live.load(Relaxed),
+            wedged: self.stats.wedged.load(Relaxed),
             queue_depth,
             capacity,
             submitted: self.stats.submitted.load(Relaxed),
@@ -310,23 +352,198 @@ pub(crate) fn apply_priority(priority: Priority, failures: &AtomicU64) {
     }
 }
 
-fn worker(
-    rx: &Receiver<QueuedJob>,
-    stats: &LaneStats,
+impl Drop for LaneExec {
+    fn drop(&mut self) {
+        if let Shape::Pooled { watch, .. } = &self.shape {
+            *lock(&watch.stopped) = true;
+            watch.wake.notify_all();
+        }
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+thread_local! {
+    /// Progress counter of the job running on this lane thread, if any.
+    static PROGRESS: std::cell::RefCell<Option<Arc<AtomicU64>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A running lane job reports that it is still advancing, which restarts its lease. Long jobs
+/// (walks, deletes, censuses) call this once per item; it is a no-op outside a pooled-lane job.
+pub fn job_progress() {
+    PROGRESS.with_borrow(|progress| {
+        if let Some(progress) = progress {
+            progress.fetch_add(1, Relaxed);
+        }
+    });
+}
+
+/// The job lease of one pooled lane (F1). A worker registers each job it runs; the watchdog
+/// marks a worker `wedged` once its job has gone `lease` without [`job_progress`] and starts a
+/// replacement worker while the lane has fewer than `2 * threads` threads. The wedged job is
+/// never abandoned: it keeps running and its handle resolves when it ends, because its effect
+/// may still happen. A lane with no healthy (non-wedged) worker refuses work and drops what is
+/// still queued (never run), so no caller waits on a lane nothing serves. A wedged worker that
+/// finally returns rejoins as healthy, or exits when the lane already has `threads` healthy
+/// workers.
+struct Watch {
+    kind: LaneKind,
+    threads: usize,
+    lease: Duration,
+    rx: Receiver<QueuedJob>,
+    stats: Arc<LaneStats>,
     priority: Priority,
     apply: ApplyPriority,
-    failures: &AtomicU64,
-    ready: &mpsc::Sender<io::Result<()>>,
-) {
-    if let Err(e) = apply(priority) {
-        failures.fetch_add(1, Relaxed);
-        let _ = ready.send(Err(e));
+    failures: Arc<AtomicU64>,
+    next_id: AtomicUsize,
+    running: Mutex<HashMap<usize, Running>>,
+    stopped: Mutex<bool>,
+    wake: Condvar,
+}
+
+struct Running {
+    /// Bumped by [`job_progress`].
+    progress: Arc<AtomicU64>,
+    /// `progress` as the last sweep saw it, and the time of the sweep that first saw it.
+    seen: u64,
+    since: Instant,
+    wedged: bool,
+}
+
+impl Watch {
+    fn healthy(&self) -> usize {
+        self.stats
+            .live
+            .load(Relaxed)
+            .saturating_sub(self.stats.wedged.load(Relaxed))
+    }
+
+    /// Starts one worker. `ready` reports the priority result of a lane's first workers.
+    fn spawn_worker(
+        self: &Arc<Self>,
+        ready: Option<mpsc::Sender<io::Result<()>>>,
+    ) -> io::Result<()> {
+        let id = self.next_id.fetch_add(1, Relaxed);
+        self.stats.live.fetch_add(1, Relaxed);
+        let watch = self.clone();
+        std::thread::Builder::new()
+            .name(format!("mixdog-{}-{id}", self.kind.name()))
+            .spawn(move || worker(&watch, id, ready.as_ref()))
+            .map(drop)
+            .inspect_err(|_| {
+                self.stats.live.fetch_sub(1, Relaxed);
+            })
+    }
+
+    fn begin(&self, id: usize) {
+        let progress = Arc::new(AtomicU64::new(0));
+        PROGRESS.set(Some(progress.clone()));
+        lock(&self.running).insert(
+            id,
+            Running {
+                progress,
+                seen: 0,
+                since: Instant::now(),
+                wedged: false,
+            },
+        );
+    }
+
+    /// The worker's job returned. `true` when the worker is surplus and must exit.
+    fn end(&self, id: usize) -> bool {
+        PROGRESS.set(None);
+        let mut running = lock(&self.running);
+        let Some(entry) = running.remove(&id) else {
+            return false;
+        };
+        if !entry.wedged {
+            return false;
+        }
+        let wedged = self.stats.wedged.fetch_sub(1, Relaxed) - 1;
+        let surplus = self.stats.live.load(Relaxed) - wedged > self.threads;
+        if surplus {
+            self.stats.live.fetch_sub(1, Relaxed);
+        }
+        drop(running);
+        // The lane may accept work again.
+        self.stats.freed.notify_waiters();
+        surplus
+    }
+
+    fn sweep(self: &Arc<Self>, now: Instant) {
+        let mut running = lock(&self.running);
+        let mut tripped = false;
+        for entry in running.values_mut() {
+            let progress = entry.progress.load(Relaxed);
+            if progress != entry.seen {
+                entry.seen = progress;
+                entry.since = now;
+            }
+            if entry.wedged || now.saturating_duration_since(entry.since) < self.lease {
+                continue;
+            }
+            entry.wedged = true;
+            tripped = true;
+            // Spawned before the wedge is counted, so the lane never looks dead in between.
+            // A failed spawn leaves the lane short of workers, which `healthy` then reports.
+            if self.stats.live.load(Relaxed) < 2 * self.threads {
+                let _ = self.spawn_worker(None);
+            }
+            self.stats.wedged.fetch_add(1, Relaxed);
+        }
+        drop(running);
+        if self.healthy() == 0 {
+            // Nothing will run these: dropping them resolves their handles `JobDropped`.
+            while self.rx.try_recv().is_ok() {}
+        }
+        if tripped {
+            // Parked `submit_wait` callers re-check the lane.
+            self.stats.freed.notify_waiters();
+        }
+    }
+}
+
+fn worker(watch: &Arc<Watch>, id: usize, ready: Option<&mpsc::Sender<io::Result<()>>>) {
+    if let Err(e) = (watch.apply)(watch.priority) {
+        watch.failures.fetch_add(1, Relaxed);
+        match ready {
+            Some(ready) => {
+                let _ = ready.send(Err(e));
+            }
+            None => {
+                watch.stats.live.fetch_sub(1, Relaxed);
+            }
+        }
         return;
     }
-    let _ = ready.send(Ok(()));
-    for job in rx.iter() {
-        stats.freed.notify_waiters();
-        run_job(stats, job);
+    if let Some(ready) = ready {
+        let _ = ready.send(Ok(()));
+    }
+    for job in watch.rx.iter() {
+        watch.stats.freed.notify_waiters();
+        watch.begin(id);
+        run_job(&watch.stats, job);
+        if watch.end(id) {
+            return;
+        }
+    }
+}
+
+/// The lane's watchdog thread: one sweep every quarter lease until the lane is dropped.
+fn watchdog(watch: &Arc<Watch>) {
+    let tick = (watch.lease / 4).max(Duration::from_millis(1));
+    loop {
+        let (stopped, _) = watch
+            .wake
+            .wait_timeout_while(lock(&watch.stopped), tick, |stopped| !*stopped)
+            .unwrap_or_else(PoisonError::into_inner);
+        if *stopped {
+            return;
+        }
+        drop(stopped);
+        watch.sweep(Instant::now());
     }
 }
 
@@ -369,6 +586,163 @@ mod tests {
         (QueuedJob::new(lane, CancellationToken::new(), run), rx)
     }
 
+    /// A job that signals `started`, then blocks until `release` is sent or dropped, then
+    /// sends on the returned channel: its late "effect". The channel disconnects without a
+    /// message if the job is dropped unrun.
+    fn blocking_job(
+        started: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+    ) -> (QueuedJob, mpsc::Receiver<()>) {
+        let (done_tx, done_rx) = mpsc::channel();
+        let run = Box::new(move || {
+            started.send(()).unwrap();
+            let _ = release.recv();
+            done_tx.send(()).unwrap();
+        });
+        (
+            QueuedJob::new(LaneKind::CpuBulk, CancellationToken::new(), run),
+            done_rx,
+        )
+    }
+
+    /// Like [`blocking_job`], but after `step` is received it reports progress and signals
+    /// `progressed`, then blocks on `release`.
+    fn advancing_job(
+        started: mpsc::Sender<()>,
+        step: mpsc::Receiver<()>,
+        progressed: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+    ) -> QueuedJob {
+        let run = Box::new(move || {
+            started.send(()).unwrap();
+            step.recv().unwrap();
+            job_progress();
+            progressed.send(()).unwrap();
+            let _ = release.recv();
+        });
+        QueuedJob::new(LaneKind::CpuBulk, CancellationToken::new(), run)
+    }
+
+    const LEASE: Duration = Duration::from_secs(3600);
+
+    /// Far enough past every job's start for its lease to have expired, without sleeping.
+    fn after_lease() -> Instant {
+        Instant::now() + LEASE
+    }
+
+    #[test]
+    fn wedged_workers_are_replaced_then_the_lane_refuses_and_drops_its_queue() {
+        let failures = Arc::new(AtomicU64::new(0));
+        let lane = LaneExec::pooled_with(
+            LaneKind::CpuBulk,
+            Priority::Normal,
+            1,
+            4,
+            LEASE,
+            &failures,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+
+        // Job A takes the only worker and never returns.
+        let (release_a, a_gate) = mpsc::channel::<()>();
+        let (a, a_done) = blocking_job(started_tx.clone(), a_gate);
+        lane.submit(a).unwrap();
+        started_rx.recv().unwrap();
+
+        // Lease expiry: a replacement worker takes over the lane. A is not abandoned: it is
+        // still running, neither finished nor dropped.
+        lane.sweep(after_lease());
+        assert_eq!(a_done.try_recv(), Err(mpsc::TryRecvError::Empty));
+        assert!(!lane.is_wedged());
+        assert_eq!(lane.snapshot().wedged, 1);
+        let (queued, rx) = job(LaneKind::CpuBulk);
+        lane.submit(queued).unwrap();
+        assert_eq!(rx.blocking_recv(), Ok(7));
+
+        // Job B wedges the replacement too: no healthy worker is left.
+        let (release_b, b_gate) = mpsc::channel::<()>();
+        let (b, b_done) = blocking_job(started_tx, b_gate);
+        lane.submit(b).unwrap();
+        started_rx.recv().unwrap();
+        let (c, c_rx) = job(LaneKind::CpuBulk);
+        lane.submit(c).unwrap();
+        lane.sweep(after_lease());
+        assert!(lane.is_wedged());
+        // The queued job never ran and is dropped, not left waiting; new work is refused at
+        // once.
+        assert!(c_rx.blocking_recv().is_err());
+        let (d, _d_rx) = job(LaneKind::CpuBulk);
+        assert_eq!(lane.submit(d), Err(LaneFull { lane: LaneKind::CpuBulk }));
+
+        // The stuck jobs return late: their effects happened, and the lane comes back.
+        drop(release_a);
+        drop(release_b);
+        assert_eq!(a_done.recv(), Ok(()));
+        assert_eq!(b_done.recv(), Ok(()));
+        let freed = lane.freed();
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                // A returning stuck job notifies `freed`; registered before each check.
+                loop {
+                    let notified = freed.notified();
+                    tokio::pin!(notified);
+                    notified.as_mut().enable();
+                    if !lane.is_wedged() {
+                        break;
+                    }
+                    notified.await;
+                }
+            });
+        let (e, e_rx) = job(LaneKind::CpuBulk);
+        lane.submit(e).unwrap();
+        assert_eq!(e_rx.blocking_recv(), Ok(7));
+    }
+
+    #[test]
+    fn a_job_that_reports_progress_keeps_its_lease() {
+        let failures = Arc::new(AtomicU64::new(0));
+        let lane = LaneExec::pooled_with(
+            LaneKind::CpuBulk,
+            Priority::Normal,
+            1,
+            4,
+            LEASE,
+            &failures,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let base = Instant::now();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (step_tx, step_rx) = mpsc::channel();
+        let (progressed_tx, progressed_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        lane.submit(advancing_job(started_tx, step_rx, progressed_tx, release_rx))
+            .unwrap();
+        started_rx.recv().unwrap();
+
+        // Three quarters of the lease with no progress: still within it. The sweep notes the
+        // time at which it last saw the job's progress counter.
+        lane.sweep(base + LEASE * 3 / 4);
+        assert_eq!(lane.snapshot().wedged, 0);
+
+        // The job advances: its lease restarts at the next sweep, so another three quarters
+        // later (1.5 leases after it started) it is still healthy.
+        step_tx.send(()).unwrap();
+        progressed_rx.recv().unwrap();
+        lane.sweep(base + LEASE * 3 / 4);
+        lane.sweep(base + LEASE * 3 / 2);
+        assert_eq!(lane.snapshot().wedged, 0);
+
+        // A full lease with no further progress wedges it.
+        lane.sweep(base + LEASE * 7 / 4 + Duration::from_secs(1));
+        assert_eq!(lane.snapshot().wedged, 1);
+        drop(release_tx);
+    }
+
     #[test]
     fn pooled_lane_that_cannot_take_its_priority_fails_to_start() {
         let failures = Arc::new(AtomicU64::new(0));
@@ -377,6 +751,7 @@ mod tests {
             Priority::BelowNormal,
             2,
             4,
+            LEASE,
             &failures,
             refuse,
         )

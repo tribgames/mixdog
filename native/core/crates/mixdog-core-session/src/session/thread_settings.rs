@@ -522,7 +522,7 @@ impl ThreadSettings {
     async fn descendants(&self, root: &ThreadId) -> Result<Vec<String>, CoreError> {
         let mut rows = Vec::new();
         for id in self.parts.agent_only.agent_only_ids().await? {
-            if let Some(header) = self.parts.directory.stored_header(&ThreadId::from(id.as_str())).await {
+            if let Some(header) = self.parts.directory.try_stored_header(&ThreadId::from(id.as_str())).await? {
                 rows.push((id, header));
             }
         }
@@ -709,7 +709,7 @@ impl DomainService for ThreadSettings {
                 let params: ThreadSetCwdParams = decode(&req)?;
                 let thread = thread_of(params.thread_id)?;
                 let reproduce = || async {
-                    let header = self.parts.directory.stored_header(&thread).await.unwrap_or_default();
+                    let header = self.parts.directory.try_stored_header(&thread).await?.unwrap_or_default();
                     Ok(header.get("cwd").cloned().unwrap_or(Value::Null))
                 };
                 ops.run(&req, None, || self.set_cwd(&thread, &params.path, &own), reproduce).await

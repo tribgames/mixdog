@@ -1,0 +1,3498 @@
+{
+  "hidden": {
+    "explore-agent": {
+      "agent": "explore-agent",
+      "slot": "explore",
+      "description": "One-off read-only explorer, one per query of the explore tool",
+      "invokedBy": "explore",
+      "maintKey": "explore"
+    },
+    "cycle1-agent": {
+      "agent": "cycle1-agent",
+      "slot": "cycle1",
+      "systemFile": "rules/agent/40-cycle1-agent.md",
+      "description": "Chunker/classifier invoked by memory-cycle runCycle1",
+      "invokedBy": "cycle1",
+      "maintKey": "memory",
+      "toolSchemaProfile": "none",
+      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": {
+        "idleSeconds": 300
+      }
+    },
+    "title-agent": {
+      "agent": "title-agent",
+      "slot": "title",
+      "systemFile": "rules/agent/43-title-agent.md",
+      "description": "One-shot session title generator invoked by the desktop host",
+      "invokedBy": "desktop-title",
+      "maintKey": "memory",
+      "toolSchemaProfile": "none",
+      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": {
+        "idleSeconds": 90
+      }
+    }
+  },
+  "dispatches": [
+    {
+      "id": "cycle1-route-object",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model",
+            "effort": "low"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "call": {
+          "idleTimeoutMs": 120000
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full",
+              "effort": "low"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": "low",
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "preset-name",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": "p1",
+          "config": {
+            "presets": [
+              {
+                "id": "p1",
+                "provider": "stub",
+                "model": "stub-model"
+              }
+            ]
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "p1",
+            "preset": {
+              "id": "p1",
+              "provider": "stub",
+              "model": "stub-model"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=p1 model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "call-preset-wins",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": "unused",
+          "config": {
+            "presets": [
+              {
+                "id": "p1",
+                "provider": "stub",
+                "model": "stub-model"
+              }
+            ]
+          }
+        },
+        "call": {
+          "preset": "p1"
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "p1",
+            "preset": {
+              "id": "p1",
+              "provider": "stub",
+              "model": "stub-model"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=p1 model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "preset-name-unknown",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": "nope",
+          "config": {
+            "presets": [
+              {
+                "id": "p1",
+                "provider": "stub",
+                "model": "stub-model"
+              }
+            ]
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [],
+      "stderr": [],
+      "outcome": {
+        "error": "[agent-dispatch] maintenance route for agent \"cycle1-agent\" is neither a {provider,model} route nor a known preset name (\"nope\")"
+      }
+    },
+    {
+      "id": "route-unresolved",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "config": {
+            "presets": []
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [],
+      "stderr": [],
+      "outcome": {
+        "error": "[agent-dispatch] maintenance route unresolved for agent \"cycle1-agent\" (preset=\"\")"
+      }
+    },
+    {
+      "id": "maintainer-route",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "config": {
+            "presets": [],
+            "agents": {
+              "maintainer": {
+                "provider": "stub",
+                "model": "stub-model",
+                "effort": "high",
+                "fast": true
+              }
+            }
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full",
+              "effort": "high",
+              "fast": true
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": "high",
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "maintainer-incomplete-falls-to-default",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "config": {
+            "presets": [],
+            "agents": {
+              "maintainer": {
+                "provider": "stub",
+                "model": " "
+              }
+            },
+            "default": {
+              "provider": "stub",
+              "model": "stub-model"
+            }
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "main-default-route",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "config": {
+            "presets": [],
+            "default": {
+              "provider": "stub",
+              "model": "stub-model",
+              "effort": "medium"
+            }
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full",
+              "effort": "medium"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": "medium",
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "maintainer-disabled",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "config": {
+            "presets": [],
+            "disabledAgents": [
+              "maintainer"
+            ],
+            "agents": {
+              "maintainer": {
+                "provider": "stub",
+                "model": "stub-model"
+              }
+            },
+            "default": {
+              "provider": "stub",
+              "model": "stub-model"
+            }
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [],
+      "stderr": [],
+      "outcome": {
+        "error": "[agent-dispatch] maintenance route unresolved for agent \"cycle1-agent\" (preset=\"\")"
+      }
+    },
+    {
+      "id": "route-context-choice",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model",
+            "contextPercent": 40,
+            "contextTokens": 64000
+          },
+          "config": {
+            "presets": []
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full",
+              "contextPercent": 40,
+              "contextTokens": 64000
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance",
+            "contextPercent": 40,
+            "contextTokens": 64000
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "provider-fails",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "stub": {
+          "fail": "provider exploded"
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "error"
+        ],
+        [
+          "close",
+          "ephemeral-error"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n"
+      ],
+      "outcome": {
+        "error": "provider exploded"
+      }
+    },
+    {
+      "id": "long-reply-brief",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": true,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "stub": {
+          "reply": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n\n... [TRUNCATED — full answer was ~3250 tokens / 13 KB. Re-run with brief:false for the complete synthesis]"
+      }
+    },
+    {
+      "id": "long-reply-not-brief",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "stub": {
+          "reply": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "id": "empty-reply",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "stub": {
+          "reply": ""
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": ""
+      }
+    },
+    {
+      "id": "call-cwd-wins",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "cwd": "/opt/opts",
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "call": {
+          "cwd": "/opt/call"
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": "/opt/call",
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": "/opt/call",
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "opts-cwd",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "cwd": "/opt/opts",
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": "/opt/opts",
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": "/opt/opts",
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "parent-sessions",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "parentSessionId": "<session>",
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": "<session>",
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": "<session>",
+            "ownerSessionId": "<session>",
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "owner-null",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "parentSessionId": "<session>",
+          "ownerSessionId": null,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": "<session>",
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": "<session>",
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "owner-given",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "ownerSessionId": "<session>",
+          "sourceName": "opts-name",
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "call": {
+          "sourceName": "call-name"
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": "<session>",
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "sourceName": "call-name",
+            "parentSessionId": null,
+            "ownerSessionId": "<session>",
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=cycle1-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "explore-route",
+      "input": {
+        "options": {
+          "agent": "explore-agent",
+          "taskType": "maintenance",
+          "config": {
+            "presets": [],
+            "agents": {
+              "explore": {
+                "provider": "stub",
+                "model": "stub-model",
+                "effort": "low"
+              }
+            },
+            "default": {
+              "provider": "other",
+              "model": "m"
+            }
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "explore-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "explore-agent",
+            "presetName": "maint-explore-agent",
+            "preset": {
+              "id": "maint-explore-agent",
+              "name": "MAINT EXPLORE-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full",
+              "effort": "low"
+            },
+            "permission": "read",
+            "cwd": null,
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": null,
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [
+            "find",
+            "glob",
+            "list",
+            "grep",
+            "code_graph",
+            "read",
+            "edit",
+            "Skill",
+            "todo",
+            "load_tool",
+            "call_tool"
+          ],
+          "effort": "low",
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=explore-agent tool-list (11): find,glob,list,grep,code_graph,read,edit,Skill,todo,load_tool,call_tool\n",
+        "[agent-dispatch] agent=explore-agent preset=maint-explore-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=explore-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "explore-disabled",
+      "input": {
+        "options": {
+          "agent": "explore-agent",
+          "config": {
+            "presets": [],
+            "disabledAgents": [
+              "explore"
+            ],
+            "agents": {
+              "explore": {
+                "provider": "stub",
+                "model": "stub-model"
+              }
+            }
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "explore-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [],
+      "stderr": [],
+      "outcome": {
+        "error": "[agent-dispatch] maintenance route unresolved for agent \"explore-agent\" (preset=\"\")"
+      }
+    },
+    {
+      "id": "title-agent-route",
+      "input": {
+        "options": {
+          "agent": "title-agent",
+          "config": {
+            "presets": [],
+            "agents": {
+              "maintainer": {
+                "provider": "stub",
+                "model": "stub-model"
+              }
+            }
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "title-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "title-agent",
+            "presetName": "maint-title-agent",
+            "preset": {
+              "id": "maint-title-agent",
+              "name": "MAINT TITLE-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": []
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=title-agent tool-list (0): \n",
+        "[agent-dispatch] agent=title-agent preset=maint-title-agent model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=title-agent session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "unknown-agent-without-preset",
+      "input": {
+        "options": {
+          "agent": "nobody",
+          "config": {
+            "presets": [],
+            "default": {
+              "provider": "stub",
+              "model": "stub-model"
+            }
+          }
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "nobody",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [],
+      "stderr": [],
+      "outcome": {
+        "error": "[agent-dispatch] maintenance route unresolved for agent \"nobody\" (preset=\"\")"
+      }
+    },
+    {
+      "id": "public-agent",
+      "input": {
+        "options": {
+          "agent": "worker",
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          },
+          "brief": false
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "worker",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "worker",
+            "presetName": "maint-worker",
+            "preset": {
+              "id": "maint-worker",
+              "name": "MAINT WORKER",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": null,
+            "cwd": null,
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": false,
+            "schemaAllowedTools": null
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows\n\n<system-reminder>\nIf this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.\n</system-reminder>",
+          "tools": [
+            "find",
+            "glob",
+            "list",
+            "grep",
+            "code_graph",
+            "read",
+            "edit",
+            "Skill",
+            "todo",
+            "load_tool",
+            "call_tool"
+          ],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=worker tool-list (11): find,glob,list,grep,code_graph,read,edit,Skill,todo,load_tool,call_tool\n",
+        "[agent-dispatch] agent=worker preset=maint-worker model=stub-model provider=stub session=<session>\n",
+        "[agent-dispatch] agent=worker session=<session> elapsed=<ms>\n"
+      ],
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "a-watchdog-stop-throws-even-with-partial-text",
+      "input": {
+        "options": {
+          "agent": "worker",
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          },
+          "brief": false
+        },
+        "stub": [
+          {
+            "reply": "first part",
+            "toolCalls": [
+              {
+                "id": "call_1",
+                "name": "read",
+                "arguments": {
+                  "path": "absent.txt"
+                }
+              }
+            ]
+          },
+          {
+            "streamThenHang": true
+          }
+        ],
+        "call": {
+          "idleTimeoutMs": 1200
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "worker",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "worker",
+            "presetName": "maint-worker",
+            "preset": {
+              "id": "maint-worker",
+              "name": "MAINT WORKER",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": null,
+            "cwd": null,
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": false,
+            "schemaAllowedTools": null
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "error"
+        ],
+        [
+          "close",
+          "ephemeral-error"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows\n\n<system-reminder>\nIf this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.\n</system-reminder>",
+          "tools": [
+            "find",
+            "glob",
+            "list",
+            "grep",
+            "code_graph",
+            "read",
+            "edit",
+            "Skill",
+            "todo",
+            "load_tool",
+            "call_tool"
+          ],
+          "effort": null,
+          "signal": true
+        },
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "user": "summarise the rows\n\n<system-reminder>\nIf this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.\n</system-reminder>",
+          "tools": [
+            "find",
+            "glob",
+            "list",
+            "grep",
+            "code_graph",
+            "read",
+            "edit",
+            "Skill",
+            "todo",
+            "load_tool",
+            "call_tool"
+          ],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=worker tool-list (11): find,glob,list,grep,code_graph,read,edit,Skill,todo,load_tool,call_tool\n",
+        "[agent-dispatch] agent=worker preset=maint-worker model=stub-model provider=stub session=<session>\n"
+      ],
+      "outcome": {
+        "error": "Session \"<session>\" closed: aborted during call: agent task stale (1200ms without stream/tool progress)"
+      }
+    },
+    {
+      "id": "empty-prompt",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "call": {
+          "prompt": ""
+        }
+      },
+      "events": [],
+      "sends": [],
+      "stderr": [],
+      "outcome": {
+        "error": "[agent-dispatch] prompt required for agent \"cycle1-agent\""
+      }
+    },
+    {
+      "id": "admission-refused",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "admissionFails": "admission closed"
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ]
+      ],
+      "sends": [],
+      "stderr": [],
+      "outcome": {
+        "error": "admission closed"
+      }
+    },
+    {
+      "id": "parent-aborts-mid-ask",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "stub": {
+          "hang": true
+        },
+        "abortAfterMs": 300
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": true,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "error"
+        ],
+        [
+          "close",
+          "ephemeral-error"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n"
+      ],
+      "outcome": {
+        "error": "Session \"<session>\" closed: aborted during call: parent aborted"
+      }
+    },
+    {
+      "id": "salvage-keeps-the-text-of-this-run",
+      "input": {
+        "options": {
+          "agent": "worker",
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          },
+          "brief": false
+        },
+        "stub": [
+          {
+            "reply": "first part",
+            "toolCalls": [
+              {
+                "id": "call_1",
+                "name": "read",
+                "arguments": {
+                  "path": "absent.txt"
+                }
+              }
+            ]
+          },
+          {
+            "hang": true
+          }
+        ],
+        "abortAfterMs": 1500,
+        "salvage": true
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "worker",
+            "ownerKey": null,
+            "signal": true,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "worker",
+            "presetName": "maint-worker",
+            "preset": {
+              "id": "maint-worker",
+              "name": "MAINT WORKER",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": null,
+            "cwd": null,
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": false,
+            "schemaAllowedTools": null
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "idle"
+        ],
+        [
+          "close",
+          "ephemeral-done"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows\n\n<system-reminder>\nIf this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.\n</system-reminder>",
+          "tools": [
+            "find",
+            "glob",
+            "list",
+            "grep",
+            "code_graph",
+            "read",
+            "edit",
+            "Skill",
+            "todo",
+            "load_tool",
+            "call_tool"
+          ],
+          "effort": null,
+          "signal": true
+        },
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "user": "summarise the rows\n\n<system-reminder>\nIf this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.\n</system-reminder>",
+          "tools": [
+            "find",
+            "glob",
+            "list",
+            "grep",
+            "code_graph",
+            "read",
+            "edit",
+            "Skill",
+            "todo",
+            "load_tool",
+            "call_tool"
+          ],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=worker tool-list (11): find,glob,list,grep,code_graph,read,edit,Skill,todo,load_tool,call_tool\n",
+        "[agent-dispatch] agent=worker preset=maint-worker model=stub-model provider=stub session=<session>\n"
+      ],
+      "outcome": {
+        "ok": "first part"
+      }
+    },
+    {
+      "id": "a-plain-abort-discards-the-text",
+      "input": {
+        "options": {
+          "agent": "worker",
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          },
+          "brief": false
+        },
+        "stub": [
+          {
+            "reply": "first part",
+            "toolCalls": [
+              {
+                "id": "call_1",
+                "name": "read",
+                "arguments": {
+                  "path": "absent.txt"
+                }
+              }
+            ]
+          },
+          {
+            "hang": true
+          }
+        ],
+        "abortAfterMs": 1500
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "worker",
+            "ownerKey": null,
+            "signal": true,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "worker",
+            "presetName": "maint-worker",
+            "preset": {
+              "id": "maint-worker",
+              "name": "MAINT WORKER",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": null,
+            "cwd": null,
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": false,
+            "schemaAllowedTools": null
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "error"
+        ],
+        [
+          "close",
+          "ephemeral-error"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows\n\n<system-reminder>\nIf this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.\n</system-reminder>",
+          "tools": [
+            "find",
+            "glob",
+            "list",
+            "grep",
+            "code_graph",
+            "read",
+            "edit",
+            "Skill",
+            "todo",
+            "load_tool",
+            "call_tool"
+          ],
+          "effort": null,
+          "signal": true
+        },
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "user": "summarise the rows\n\n<system-reminder>\nIf this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.\n</system-reminder>",
+          "tools": [
+            "find",
+            "glob",
+            "list",
+            "grep",
+            "code_graph",
+            "read",
+            "edit",
+            "Skill",
+            "todo",
+            "load_tool",
+            "call_tool"
+          ],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=worker tool-list (11): find,glob,list,grep,code_graph,read,edit,Skill,todo,load_tool,call_tool\n",
+        "[agent-dispatch] agent=worker preset=maint-worker model=stub-model provider=stub session=<session>\n"
+      ],
+      "outcome": {
+        "error": "Session \"<session>\" closed: aborted during call: parent aborted"
+      }
+    },
+    {
+      "id": "salvage-with-nothing-written",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "stub": {
+          "hang": true
+        },
+        "abortAfterMs": 300,
+        "salvage": true
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": true,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "error"
+        ],
+        [
+          "close",
+          "ephemeral-error"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n"
+      ],
+      "outcome": {
+        "error": "Session \"<session>\" closed: aborted during call: deadline"
+      }
+    },
+    {
+      "id": "watchdog-stops-a-silent-ask",
+      "input": {
+        "options": {
+          "agent": "cycle1-agent",
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false,
+          "preset": {
+            "provider": "stub",
+            "model": "stub-model"
+          },
+          "config": {
+            "presets": []
+          }
+        },
+        "stub": {
+          "streamThenHang": true
+        },
+        "call": {
+          "idleTimeoutMs": 1200
+        }
+      },
+      "events": [
+        [
+          "admission.acquire",
+          "agent",
+          {
+            "label": "cycle1-agent",
+            "ownerKey": null,
+            "signal": false,
+            "aborted": false
+          }
+        ],
+        [
+          "admission.run"
+        ],
+        [
+          "prepare",
+          {
+            "agent": "cycle1-agent",
+            "presetName": "maint-cycle1-agent",
+            "preset": {
+              "id": "maint-cycle1-agent",
+              "name": "MAINT CYCLE1-AGENT",
+              "type": "agent",
+              "provider": "stub",
+              "model": "stub-model",
+              "tools": "full"
+            },
+            "permission": "read",
+            "cwd": null,
+            "sourceType": "memory-cycle",
+            "parentSessionId": null,
+            "ownerSessionId": null,
+            "skipRoleReminder": true,
+            "schemaAllowedTools": [],
+            "taskType": "maintenance"
+          },
+          {
+            "lane": "agent"
+          }
+        ],
+        [
+          "status",
+          "running"
+        ],
+        [
+          "ask",
+          {
+            "prompt": "summarise the rows",
+            "cwd": null,
+            "onToolCall": "object",
+            "askOpts": [
+              "liveProjection",
+              "onCompactEvent"
+            ],
+            "liveProjection": false
+          }
+        ],
+        [
+          "status",
+          "error"
+        ],
+        [
+          "close",
+          "ephemeral-error"
+        ],
+        [
+          "admission.release"
+        ]
+      ],
+      "sends": [
+        {
+          "model": "stub-model",
+          "roles": [
+            "system",
+            "user"
+          ],
+          "user": "summarise the rows",
+          "tools": [],
+          "effort": null,
+          "signal": true
+        }
+      ],
+      "stderr": [
+        "[agent-dispatch] agent=cycle1-agent tool-list (0): \n",
+        "[agent-dispatch] agent=cycle1-agent preset=maint-cycle1-agent model=stub-model provider=stub session=<session>\n"
+      ],
+      "outcome": {
+        "error": "Session \"<session>\" closed: aborted during call: agent task stale (1200ms without stream/tool progress)"
+      }
+    }
+  ],
+  "host": [
+    {
+      "id": "no-dispatch-id",
+      "outcome": {
+        "input": {
+          "payload": {
+            "agent": "cycle1-agent",
+            "params": {
+              "prompt": "p"
+            }
+          },
+          "signalAborted": false
+        },
+        "error": "agent dispatch id is required"
+      }
+    },
+    {
+      "id": "plain",
+      "outcome": {
+        "input": {
+          "payload": {
+            "dispatchId": "d1",
+            "agent": "cycle1-agent",
+            "options": {
+              "taskType": "maintenance",
+              "sourceType": "memory-cycle",
+              "brief": false
+            },
+            "params": {
+              "prompt": "p",
+              "preset": "x",
+              "cwd": "/c",
+              "idleTimeoutMs": 5000
+            }
+          },
+          "signalAborted": false
+        },
+        "ok": "answer:p"
+      },
+      "calls": [
+        {
+          "prepared": true
+        },
+        {
+          "options": {
+            "agent": "cycle1-agent",
+            "taskType": "maintenance",
+            "sourceType": "memory-cycle",
+            "brief": false
+          },
+          "args": {
+            "prompt": "p",
+            "preset": "x",
+            "cwd": "/c",
+            "parentSignal": true,
+            "idleTimeoutMs": 5000
+          }
+        }
+      ]
+    },
+    {
+      "id": "params-normalised",
+      "outcome": {
+        "input": {
+          "payload": {
+            "dispatchId": "d2",
+            "agent": "cycle1-agent",
+            "params": {
+              "prompt": 7,
+              "preset": "",
+              "cwd": "",
+              "idleTimeoutMs": "x"
+            }
+          },
+          "signalAborted": false
+        },
+        "ok": "answer:7"
+      },
+      "calls": [
+        {
+          "prepared": true
+        },
+        {
+          "options": {
+            "agent": "cycle1-agent",
+            "taskType": "maintenance",
+            "sourceType": "memory-cycle",
+            "brief": false
+          },
+          "args": {
+            "prompt": "7",
+            "parentSignal": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "negative-idle-dropped",
+      "outcome": {
+        "input": {
+          "payload": {
+            "dispatchId": "d3",
+            "agent": "cycle1-agent",
+            "params": {
+              "prompt": "p",
+              "idleTimeoutMs": -1
+            }
+          },
+          "signalAborted": false
+        },
+        "ok": "answer:p"
+      },
+      "calls": [
+        {
+          "prepared": true
+        },
+        {
+          "options": {
+            "agent": "cycle1-agent",
+            "taskType": "maintenance",
+            "sourceType": "memory-cycle",
+            "brief": false
+          },
+          "args": {
+            "prompt": "p",
+            "parentSignal": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "duplicate-id",
+      "outcome": {
+        "input": {
+          "payload": {
+            "dispatchId": "d4",
+            "agent": "cycle1-agent",
+            "params": {
+              "prompt": "p"
+            }
+          },
+          "signalAborted": false
+        },
+        "error": "agent dispatch d4 is already running"
+      }
+    },
+    {
+      "id": "abort-all",
+      "outcome": {
+        "error": "host closing"
+      }
+    },
+    {
+      "id": "signal-already-aborted",
+      "outcome": {
+        "input": {
+          "payload": {
+            "dispatchId": "d5",
+            "agent": "cycle1-agent",
+            "params": {
+              "prompt": "p"
+            }
+          },
+          "signalAborted": true
+        },
+        "error": "caller gone"
+      }
+    },
+    {
+      "id": "run-table-cleared",
+      "outcome": {
+        "input": {
+          "payload": {
+            "dispatchId": "d4",
+            "agent": "cycle1-agent",
+            "params": {
+              "prompt": "again"
+            }
+          },
+          "signalAborted": false
+        },
+        "ok": "answer:again"
+      },
+      "calls": [
+        {
+          "prepared": true
+        },
+        {
+          "options": {
+            "agent": "cycle1-agent",
+            "taskType": "maintenance",
+            "sourceType": "memory-cycle",
+            "brief": false
+          },
+          "args": {
+            "prompt": "again",
+            "parentSignal": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "host-closed",
+      "outcome": {
+        "input": {
+          "payload": {
+            "dispatchId": "d6",
+            "agent": "cycle1-agent",
+            "params": {
+              "prompt": "p"
+            }
+          },
+          "signalAborted": false
+        },
+        "error": "session runtime host is closed"
+      }
+    }
+  ]
+}

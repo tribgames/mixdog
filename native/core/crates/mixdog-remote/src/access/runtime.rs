@@ -192,7 +192,8 @@ struct State {
     pending_claims: BTreeMap<String, PendingClaim>,
     pair_code: PairCode,
     pair_effects: Box<dyn PairCodeEffects + Send>,
-    native: Option<NativePushStore>,
+    /// Shared with the lane jobs that change it: a job that never runs leaves the store here.
+    native: Option<Arc<Mutex<NativePushStore>>>,
     /// Relay-owned Web Push targets of the current leg; `None` while the relay is off.
     web: Option<RelayWebPush>,
     retry: Duration,
@@ -537,7 +538,7 @@ impl RemoteRuntime {
         {
             let mut state = self.inner.state();
             state.live = Some(live.clone());
-            state.native = Some(native);
+            state.native = Some(Arc::new(Mutex::new(native)));
             state.web = Some(RelayWebPush::new((*live.identity).clone()));
         }
         self.inner.cfg.link.set(Some(out_tx));
@@ -921,11 +922,10 @@ impl RemoteRuntime {
     }
 
     pub async fn register_native_push(&self, client_id: &str, input: &Value) -> Result<bool, RemoteError> {
-        let mut state_native = lock(&self.inner.state).native.take().ok_or_else(|| RemoteError::Invalid("Native push is unavailable on this connection.".into()))?;
+        let store = lock(&self.inner.state).native.clone().ok_or_else(|| RemoteError::Invalid("Native push is unavailable on this connection.".into()))?;
         let platforms = self.native_platforms();
         let platform_ok = input.get("platform").and_then(Value::as_str).is_some_and(|p| platforms.iter().any(|known| known.name() == p));
         if !platform_ok {
-            lock(&self.inner.state).native = Some(state_native);
             return Err(RemoteError::Invalid("Native push is unavailable for this platform.".into()));
         }
         let id = client_id.to_owned();
@@ -940,14 +940,12 @@ impl RemoteRuntime {
                     public_key: value.get("publicKey").unwrap_or(&Value::Null),
                     sandbox: value.get("sandbox"),
                 };
-                let row = state_native.register(lane, &input, now_ms());
-                (state_native, row)
+                lock(&store).register(lane, &input, now_ms())
             })
             .await;
-        let (store, row) = result?;
+        let row = result?;
         let envelope = {
-            let mut state = self.inner.state();
-            state.native = Some(store);
+            let state = self.inner.state();
             row.as_ref().ok().and_then(|row| bind_envelope(row, &state.caps))
         };
         let row = row.map_err(|e| RemoteError::Invalid(e.to_string()))?;
@@ -959,17 +957,9 @@ impl RemoteRuntime {
     }
 
     pub async fn remove_native_push(&self, client_id: &str, token: Option<&str>) -> Result<bool, RemoteError> {
-        let store = lock(&self.inner.state).native.take().ok_or_else(|| RemoteError::Invalid("Native push is unavailable on this connection.".into()))?;
+        let store = lock(&self.inner.state).native.clone().ok_or_else(|| RemoteError::Invalid("Native push is unavailable on this connection.".into()))?;
         let (id, token) = (client_id.to_owned(), token.map(str::to_owned));
-        let (store, removed) = self
-            .inner
-            .durable(move |lane| {
-                let mut store = store;
-                let removed = store.remove(lane, &id, token.as_deref());
-                (store, removed)
-            })
-            .await?;
-        lock(&self.inner.state).native = Some(store);
+        let removed = self.inner.durable(move |lane| lock(&store).remove(lane, &id, token.as_deref())).await?;
         let removed = removed?;
         for row in &removed {
             self.inner.cfg.link.send(&unbind_envelope(row));
@@ -1052,7 +1042,7 @@ impl RemoteRuntime {
             let web = state.web.as_ref().filter(|_| state.caps.web_push());
             let all: Vec<WebPushTarget> = web.map(|w| w.targets().to_vec()).unwrap_or_default();
             let mine = all.iter().filter(|t| t.client_id == push.device_id).cloned().collect::<Vec<_>>();
-            let native = state.native.as_ref().map(|s| s.list().to_vec()).unwrap_or_default();
+            let native = state.native.as_ref().map(|s| lock(s).list().to_vec()).unwrap_or_default();
             (mine, all, native, state.connected)
         };
         for target in &relay_targets {
@@ -1101,7 +1091,12 @@ impl RemoteRuntime {
                 let store = crate::push::legacy::LegacyPushStore::new(&self.inner.cfg.dir);
                 move |lane| store.list(lane).and_then(|rows| store.keys(lane).map(|keys| (rows, keys)))
             });
-            if let Ok(Ok((rows, keys))) = listed.await {
+            let listed = listed.await;
+            // A list that never ran is a failure to deliver, not a PC with no legacy browsers.
+            if let Err(error) = &listed {
+                failures.push(error.to_string());
+            }
+            if let Ok(Ok((rows, keys))) = listed {
                 let browsers: std::collections::HashSet<&str> = all_targets.iter().map(|t| t.client_id.as_str()).collect();
                 let endpoints: std::collections::HashSet<&str> = all_targets.iter().map(|t| t.endpoint.as_str()).collect();
                 let poster = crate::push::legacy::ReqwestPoster::new();
@@ -1226,7 +1221,7 @@ impl RemoteRuntime {
                     let mut state = self.inner.state();
                     let update = state.caps.handle(&envelope);
                     let bindings: Vec<Value> = if update.rebind_native_push {
-                        state.native.as_ref().map(|s| s.list().iter().filter_map(|row| bind_envelope(row, &state.caps)).collect()).unwrap_or_default()
+                        state.native.as_ref().map(|s| lock(s).list().iter().filter_map(|row| bind_envelope(row, &state.caps)).collect()).unwrap_or_default()
                     } else {
                         Vec::new()
                     };
@@ -1278,17 +1273,11 @@ impl RemoteRuntime {
             }
             Inbound::NativePushResult(result) => {
                 if let Some(token) = invalid_token_of(&result).map(str::to_owned) {
-                    let store = lock(&self.inner.state).native.take();
-                    if let Some(mut store) = store {
-                        let (store, _) = self
-                            .inner
-                            .durable(move |lane| {
-                                let removed = store.remove_token(lane, &token);
-                                (store, removed)
-                            })
-                            .await
-                            .unwrap_or_else(|_| unreachable!("a lane job returns"));
-                        lock(&self.inner.state).native = Some(store);
+                    let store = lock(&self.inner.state).native.clone();
+                    if let Some(store) = store {
+                        // A lane that refuses the job leaves the dead token in place; the next
+                        // refusal from the push service names it again.
+                        let _ = self.inner.durable(move |lane| lock(&store).remove_token(lane, &token)).await;
                     }
                 }
             }

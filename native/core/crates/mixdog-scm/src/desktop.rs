@@ -248,14 +248,14 @@ impl Scm {
         self.git_global_config(cancel).await
     }
 
-    /// Whether the folder is a git repository (a probe, never an error).
-    pub async fn is_repository(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> bool {
+    /// Whether the folder is a git repository. A folder that is not one is `Ok(false)`; a probe
+    /// that did not run (full lane, cancelled) is an error, never that answer.
+    pub async fn is_repository(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<bool, ScmFailure> {
         on_lane(self.lane, cancel, {
             let cwd = cwd.to_path_buf();
             move || crate::repo::discover(&cwd).is_ok()
         })
         .await
-        .unwrap_or(false)
     }
 
     /// The work tree root of the repository containing `cwd`.

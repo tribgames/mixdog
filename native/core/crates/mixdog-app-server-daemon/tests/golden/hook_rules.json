@@ -1,0 +1,762 @@
+{
+  "cases": [
+    {
+      "name": "no file: add the first rule",
+      "file": null,
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "deny"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "no file: delete and toggle find nothing",
+      "file": null,
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 0
+          },
+          "error": "hook rule 0 not found; read status hooks",
+          "file": null
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": false
+          },
+          "error": "hook rule 0 not found; read status hooks",
+          "file": null
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "array document",
+      "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\"\n  },\n  {\n    \"tool\": \"bash*\",\n    \"action\": \"modify\",\n    \"match\": \"rm -rf\",\n    \"patch\": {\n      \"dry\": true,\n      \"apiToken\": \"sekret\"\n    },\n    \"enabled\": false\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\"\n  }\n]",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": false
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\",\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"bash*\",\n    \"action\": \"modify\",\n    \"match\": \"rm -rf\",\n    \"patch\": {\n      \"dry\": true,\n      \"apiToken\": \"sekret\"\n    },\n    \"enabled\": false\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\"\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": true
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\",\n    \"enabled\": true\n  },\n  {\n    \"tool\": \"bash*\",\n    \"action\": \"modify\",\n    \"match\": \"rm -rf\",\n    \"patch\": {\n      \"dry\": true,\n      \"apiToken\": \"sekret\"\n    },\n    \"enabled\": false\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\"\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 1,
+            "enabled": true
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\",\n    \"enabled\": true\n  },\n  {\n    \"tool\": \"bash*\",\n    \"action\": \"modify\",\n    \"match\": \"rm -rf\",\n    \"patch\": {\n      \"dry\": true,\n      \"apiToken\": \"sekret\"\n    },\n    \"enabled\": true\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\"\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 2,
+            "enabled": false
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": false,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\",\n    \"enabled\": true\n  },\n  {\n    \"tool\": \"bash*\",\n    \"action\": \"modify\",\n    \"match\": \"rm -rf\",\n    \"patch\": {\n      \"dry\": true,\n      \"apiToken\": \"sekret\"\n    },\n    \"enabled\": true\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\",\n    \"enabled\": false\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "tool": "grep",
+              "action": "allow"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": false,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": true,\n      \"tool\": \"grep\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\",\n    \"enabled\": true\n  },\n  {\n    \"tool\": \"bash*\",\n    \"action\": \"modify\",\n    \"match\": \"rm -rf\",\n    \"patch\": {\n      \"dry\": true,\n      \"apiToken\": \"sekret\"\n    },\n    \"enabled\": true\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\",\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"grep\",\n    \"action\": \"allow\",\n    \"enabled\": true\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 1
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 1,\n    \"enabled\": true,\n    \"tool\": \"bash*\",\n    \"action\": \"modify\",\n    \"match\": \"rm -rf\",\n    \"cwd\": null,\n    \"reason\": null,\n    \"hasArgumentEdit\": true\n  },\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"grep\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\",\n    \"enabled\": true\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\",\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"grep\",\n    \"action\": \"allow\",\n    \"enabled\": true\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 7
+          },
+          "error": "hook rule 7 not found; read status hooks",
+          "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\",\n    \"enabled\": true\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\",\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"grep\",\n    \"action\": \"allow\",\n    \"enabled\": true\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 9,
+            "enabled": true
+          },
+          "error": "hook rule 9 not found; read status hooks",
+          "file": "[\n  {\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"reason\": \"no reads\",\n    \"enabled\": true\n  },\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\",\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"grep\",\n    \"action\": \"allow\",\n    \"enabled\": true\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 0
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 0,\n    \"enabled\": true,\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"match\": null,\n    \"cwd\": null,\n    \"reason\": \"no reads\",\n    \"hasArgumentEdit\": false\n  },\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"grep\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "[\n  {\n    \"name\": \"edit\",\n    \"decision\": \"ask\",\n    \"contains\": [\n      \"a\",\n      \"b\"\n    ],\n    \"message\": \"check edits\",\n    \"cwd\": \"/work\",\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"grep\",\n    \"action\": \"allow\",\n    \"enabled\": true\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 0
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 0,\n    \"enabled\": false,\n    \"tool\": \"edit\",\n    \"action\": \"ask\",\n    \"match\": [\n      \"a\",\n      \"b\"\n    ],\n    \"cwd\": \"/work\",\n    \"reason\": \"check edits\",\n    \"hasArgumentEdit\": false\n  },\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"grep\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "[\n  {\n    \"tool\": \"grep\",\n    \"action\": \"allow\",\n    \"enabled\": true\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 0
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 0,\n    \"enabled\": true,\n    \"tool\": \"grep\",\n    \"action\": \"allow\",\n    \"match\": null,\n    \"cwd\": null,\n    \"reason\": null,\n    \"hasArgumentEdit\": false\n  },\n  \"rules\": [],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "[]\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "toolBefore document keeps its other keys",
+      "file": "{\n  \"note\": \"mine\",\n  \"toolBefore\": [\n    {\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"reason\": \"no reads\"\n    },\n    {\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"patch\": {\n        \"dry\": true,\n        \"apiToken\": \"sekret\"\n      },\n      \"enabled\": false\n    },\n    {\n      \"name\": \"edit\",\n      \"decision\": \"ask\",\n      \"contains\": [\n        \"a\",\n        \"b\"\n      ],\n      \"message\": \"check edits\",\n      \"cwd\": \"/work\"\n    }\n  ],\n  \"tail\": [\n    1\n  ]\n}",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "tool": "write",
+              "action": "block",
+              "reason": "  padded reason  ",
+              "match": " x ",
+              "cwd": " /p "
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": true,\n      \"tool\": \"write\",\n      \"action\": \"block\",\n      \"match\": \"x\",\n      \"cwd\": \"/p\",\n      \"reason\": \"padded reason\",\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"note\": \"mine\",\n  \"toolBefore\": [\n    {\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"reason\": \"no reads\"\n    },\n    {\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"patch\": {\n        \"dry\": true,\n        \"apiToken\": \"sekret\"\n      },\n      \"enabled\": false\n    },\n    {\n      \"name\": \"edit\",\n      \"decision\": \"ask\",\n      \"contains\": [\n        \"a\",\n        \"b\"\n      ],\n      \"message\": \"check edits\",\n      \"cwd\": \"/work\"\n    },\n    {\n      \"tool\": \"write\",\n      \"action\": \"block\",\n      \"enabled\": true,\n      \"match\": \"x\",\n      \"cwd\": \"/p\",\n      \"reason\": \"padded reason\"\n    }\n  ],\n  \"tail\": [\n    1\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 3,
+            "enabled": false
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": false,\n      \"tool\": \"write\",\n      \"action\": \"block\",\n      \"match\": \"x\",\n      \"cwd\": \"/p\",\n      \"reason\": \"padded reason\",\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"note\": \"mine\",\n  \"toolBefore\": [\n    {\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"reason\": \"no reads\"\n    },\n    {\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"patch\": {\n        \"dry\": true,\n        \"apiToken\": \"sekret\"\n      },\n      \"enabled\": false\n    },\n    {\n      \"name\": \"edit\",\n      \"decision\": \"ask\",\n      \"contains\": [\n        \"a\",\n        \"b\"\n      ],\n      \"message\": \"check edits\",\n      \"cwd\": \"/work\"\n    },\n    {\n      \"tool\": \"write\",\n      \"action\": \"block\",\n      \"enabled\": false,\n      \"match\": \"x\",\n      \"cwd\": \"/p\",\n      \"reason\": \"padded reason\"\n    }\n  ],\n  \"tail\": [\n    1\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 0
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 0,\n    \"enabled\": true,\n    \"tool\": \"read\",\n    \"action\": \"deny\",\n    \"match\": null,\n    \"cwd\": null,\n    \"reason\": \"no reads\",\n    \"hasArgumentEdit\": false\n  },\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 2,\n      \"enabled\": false,\n      \"tool\": \"write\",\n      \"action\": \"block\",\n      \"match\": \"x\",\n      \"cwd\": \"/p\",\n      \"reason\": \"padded reason\",\n      \"hasArgumentEdit\": false\n    }\n  ],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "{\n  \"note\": \"mine\",\n  \"toolBefore\": [\n    {\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"patch\": {\n        \"dry\": true,\n        \"apiToken\": \"sekret\"\n      },\n      \"enabled\": false\n    },\n    {\n      \"name\": \"edit\",\n      \"decision\": \"ask\",\n      \"contains\": [\n        \"a\",\n        \"b\"\n      ],\n      \"message\": \"check edits\",\n      \"cwd\": \"/work\"\n    },\n    {\n      \"tool\": \"write\",\n      \"action\": \"block\",\n      \"enabled\": false,\n      \"match\": \"x\",\n      \"cwd\": \"/p\",\n      \"reason\": \"padded reason\"\n    }\n  ],\n  \"tail\": [\n    1\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "beforeTool document",
+      "file": "{\n  \"beforeTool\": [\n    {\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"reason\": \"no reads\"\n    },\n    {\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"patch\": {\n        \"dry\": true,\n        \"apiToken\": \"sekret\"\n      },\n      \"enabled\": false\n    },\n    {\n      \"name\": \"edit\",\n      \"decision\": \"ask\",\n      \"contains\": [\n        \"a\",\n        \"b\"\n      ],\n      \"message\": \"check edits\",\n      \"cwd\": \"/work\"\n    }\n  ]\n}",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "ask"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"ask\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"beforeTool\": [\n    {\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"reason\": \"no reads\"\n    },\n    {\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"patch\": {\n        \"dry\": true,\n        \"apiToken\": \"sekret\"\n      },\n      \"enabled\": false\n    },\n    {\n      \"name\": \"edit\",\n      \"decision\": \"ask\",\n      \"contains\": [\n        \"a\",\n        \"b\"\n      ],\n      \"message\": \"check edits\",\n      \"cwd\": \"/work\"\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"ask\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": false
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"ask\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"beforeTool\": [\n    {\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"reason\": \"no reads\",\n      \"enabled\": false\n    },\n    {\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"patch\": {\n        \"dry\": true,\n        \"apiToken\": \"sekret\"\n      },\n      \"enabled\": false\n    },\n    {\n      \"name\": \"edit\",\n      \"decision\": \"ask\",\n      \"contains\": [\n        \"a\",\n        \"b\"\n      ],\n      \"message\": \"check edits\",\n      \"cwd\": \"/work\"\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"ask\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 2
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 2,\n    \"enabled\": true,\n    \"tool\": \"edit\",\n    \"action\": \"ask\",\n    \"match\": [\n      \"a\",\n      \"b\"\n    ],\n    \"cwd\": \"/work\",\n    \"reason\": \"check edits\",\n    \"hasArgumentEdit\": false\n  },\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"ask\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "{\n  \"beforeTool\": [\n    {\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"reason\": \"no reads\",\n      \"enabled\": false\n    },\n    {\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"patch\": {\n        \"dry\": true,\n        \"apiToken\": \"sekret\"\n      },\n      \"enabled\": false\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"ask\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "hooks.toolBefore document",
+      "file": "{\n  \"hooks\": {\n    \"toolBefore\": [\n      {\n        \"tool\": \"read\",\n        \"action\": \"deny\",\n        \"reason\": \"no reads\"\n      },\n      {\n        \"tool\": \"bash*\",\n        \"action\": \"modify\",\n        \"match\": \"rm -rf\",\n        \"patch\": {\n          \"dry\": true,\n          \"apiToken\": \"sekret\"\n        },\n        \"enabled\": false\n      },\n      {\n        \"name\": \"edit\",\n        \"decision\": \"ask\",\n        \"contains\": [\n          \"a\",\n          \"b\"\n        ],\n        \"message\": \"check edits\",\n        \"cwd\": \"/work\"\n      }\n    ],\n    \"other\": {\n      \"x\": 1\n    }\n  },\n  \"z\": 1\n}",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "tool": "glob",
+              "action": "deny",
+              "enabled": false
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": false,\n      \"tool\": \"glob\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"hooks\": {\n    \"toolBefore\": [\n      {\n        \"tool\": \"read\",\n        \"action\": \"deny\",\n        \"reason\": \"no reads\"\n      },\n      {\n        \"tool\": \"bash*\",\n        \"action\": \"modify\",\n        \"match\": \"rm -rf\",\n        \"patch\": {\n          \"dry\": true,\n          \"apiToken\": \"sekret\"\n        },\n        \"enabled\": false\n      },\n      {\n        \"name\": \"edit\",\n        \"decision\": \"ask\",\n        \"contains\": [\n          \"a\",\n          \"b\"\n        ],\n        \"message\": \"check edits\",\n        \"cwd\": \"/work\"\n      },\n      {\n        \"tool\": \"glob\",\n        \"action\": \"deny\",\n        \"enabled\": false\n      }\n    ],\n    \"other\": {\n      \"x\": 1\n    }\n  },\n  \"z\": 1\n}\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 1,
+            "enabled": true
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": false,\n      \"tool\": \"glob\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"hooks\": {\n    \"toolBefore\": [\n      {\n        \"tool\": \"read\",\n        \"action\": \"deny\",\n        \"reason\": \"no reads\"\n      },\n      {\n        \"tool\": \"bash*\",\n        \"action\": \"modify\",\n        \"match\": \"rm -rf\",\n        \"patch\": {\n          \"dry\": true,\n          \"apiToken\": \"sekret\"\n        },\n        \"enabled\": true\n      },\n      {\n        \"name\": \"edit\",\n        \"decision\": \"ask\",\n        \"contains\": [\n          \"a\",\n          \"b\"\n        ],\n        \"message\": \"check edits\",\n        \"cwd\": \"/work\"\n      },\n      {\n        \"tool\": \"glob\",\n        \"action\": \"deny\",\n        \"enabled\": false\n      }\n    ],\n    \"other\": {\n      \"x\": 1\n    }\n  },\n  \"z\": 1\n}\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 3
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 3,\n    \"enabled\": false,\n    \"tool\": \"glob\",\n    \"action\": \"deny\",\n    \"match\": null,\n    \"cwd\": null,\n    \"reason\": null,\n    \"hasArgumentEdit\": false\n  },\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"read\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": \"no reads\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"bash*\",\n      \"action\": \"modify\",\n      \"match\": \"rm -rf\",\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"edit\",\n      \"action\": \"ask\",\n      \"match\": [\n        \"a\",\n        \"b\"\n      ],\n      \"cwd\": \"/work\",\n      \"reason\": \"check edits\",\n      \"hasArgumentEdit\": false\n    }\n  ],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "{\n  \"hooks\": {\n    \"toolBefore\": [\n      {\n        \"tool\": \"read\",\n        \"action\": \"deny\",\n        \"reason\": \"no reads\"\n      },\n      {\n        \"tool\": \"bash*\",\n        \"action\": \"modify\",\n        \"match\": \"rm -rf\",\n        \"patch\": {\n          \"dry\": true,\n          \"apiToken\": \"sekret\"\n        },\n        \"enabled\": true\n      },\n      {\n        \"name\": \"edit\",\n        \"decision\": \"ask\",\n        \"contains\": [\n          \"a\",\n          \"b\"\n        ],\n        \"message\": \"check edits\",\n        \"cwd\": \"/work\"\n      }\n    ],\n    \"other\": {\n      \"x\": 1\n    }\n  },\n  \"z\": 1\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "toolBefore wins over the other containers",
+      "file": "{\n  \"toolBefore\": [\n    {\n      \"action\": \"deny\",\n      \"tool\": \"a\"\n    }\n  ],\n  \"beforeTool\": [\n    {\n      \"action\": \"deny\",\n      \"tool\": \"b\"\n    }\n  ],\n  \"hooks\": {\n    \"toolBefore\": [\n      {\n        \"action\": \"deny\",\n        \"tool\": \"c\"\n      }\n    ]\n  }\n}",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "allow"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"a\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"action\": \"deny\",\n      \"tool\": \"a\"\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"enabled\": true\n    }\n  ],\n  \"beforeTool\": [\n    {\n      \"action\": \"deny\",\n      \"tool\": \"b\"\n    }\n  ],\n  \"hooks\": {\n    \"toolBefore\": [\n      {\n        \"action\": \"deny\",\n        \"tool\": \"c\"\n      }\n    ]\n  }\n}\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 0
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 0,\n    \"enabled\": true,\n    \"tool\": \"a\",\n    \"action\": \"deny\",\n    \"match\": null,\n    \"cwd\": null,\n    \"reason\": null,\n    \"hasArgumentEdit\": false\n  },\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"enabled\": true\n    }\n  ],\n  \"beforeTool\": [\n    {\n      \"action\": \"deny\",\n      \"tool\": \"b\"\n    }\n  ],\n  \"hooks\": {\n    \"toolBefore\": [\n      {\n        \"action\": \"deny\",\n        \"tool\": \"c\"\n      }\n    ]\n  }\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "beforeTool wins over hooks.toolBefore",
+      "file": "{\n  \"beforeTool\": [\n    {\n      \"action\": \"deny\",\n      \"tool\": \"b\"\n    }\n  ],\n  \"hooks\": {\n    \"toolBefore\": [\n      {\n        \"action\": \"deny\",\n        \"tool\": \"c\"\n      }\n    ]\n  }\n}",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "allow"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"b\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"beforeTool\": [\n    {\n      \"action\": \"deny\",\n      \"tool\": \"b\"\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"enabled\": true\n    }\n  ],\n  \"hooks\": {\n    \"toolBefore\": [\n      {\n        \"action\": \"deny\",\n        \"tool\": \"c\"\n      }\n    ]\n  }\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "entries that are not objects are dropped by a write and not counted",
+      "file": "[\n  1,\n  \"x\",\n  null,\n  {\n    \"tool\": \"one\",\n    \"action\": \"deny\"\n  },\n  [\n    2\n  ],\n  {\n    \"tool\": \"two\",\n    \"action\": \"ask\"\n  }\n]",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 1,
+            "enabled": false
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"one\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"two\",\n      \"action\": \"ask\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tool\": \"one\",\n    \"action\": \"deny\"\n  },\n  {\n    \"0\": 2,\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"two\",\n    \"action\": \"ask\"\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 2,
+            "enabled": true
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"one\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"two\",\n      \"action\": \"ask\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tool\": \"one\",\n    \"action\": \"deny\"\n  },\n  {\n    \"0\": 2,\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"two\",\n    \"action\": \"ask\",\n    \"enabled\": true\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "deny"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"one\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": false,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"two\",\n      \"action\": \"ask\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tool\": \"one\",\n    \"action\": \"deny\"\n  },\n  {\n    \"0\": 2,\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"two\",\n    \"action\": \"ask\",\n    \"enabled\": true\n  },\n  {\n    \"tool\": \"*\",\n    \"action\": \"deny\",\n    \"enabled\": true\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 0
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 0,\n    \"enabled\": true,\n    \"tool\": \"one\",\n    \"action\": \"deny\",\n    \"match\": null,\n    \"cwd\": null,\n    \"reason\": null,\n    \"hasArgumentEdit\": false\n  },\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"two\",\n      \"action\": \"ask\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "[\n  {\n    \"0\": 2,\n    \"enabled\": false\n  },\n  {\n    \"tool\": \"two\",\n    \"action\": \"ask\",\n    \"enabled\": true\n  },\n  {\n    \"tool\": \"*\",\n    \"action\": \"deny\",\n    \"enabled\": true\n  }\n]\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "a standard hooks document gets a toolBefore list",
+      "file": "{\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"echo\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "tool": "bash",
+              "action": "deny"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"bash\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"echo\"\n          }\n        ]\n      }\n    ]\n  },\n  \"toolBefore\": [\n    {\n      \"tool\": \"bash\",\n      \"action\": \"deny\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": false
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": \"bash\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"echo\"\n          }\n        ]\n      }\n    ]\n  },\n  \"toolBefore\": [\n    {\n      \"tool\": \"bash\",\n      \"action\": \"deny\",\n      \"enabled\": false\n    }\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "a document that is not an object or list",
+      "file": "5",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "deny"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": false
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"enabled\": false\n    }\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "an empty file",
+      "file": "",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "deny"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "a file of NUL bytes",
+      "file": "\u0000\u0000\u0000",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "deny"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "a file that is not JSON",
+      "file": "{ not json",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": true
+          },
+          "error": "hook rule 0 not found; read status hooks",
+          "file": "{ not json"
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "deny"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 1,
+        "recent": [
+          {
+            "summary": "error=failed to parse hooks file {data}\\hooks.",
+            "error": "failed to parse hooks file {data}\\hooks.json: Expected property name or '}' in JSON at position 2 (l..."
+          }
+        ]
+      }
+    },
+    {
+      "name": "modify and rewrite need exactly one edit; the others take none",
+      "file": null,
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "modify"
+            }
+          },
+          "error": "hookRule.modify requires exactly one of patch or args",
+          "file": null
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "rewrite"
+            }
+          },
+          "error": "hookRule.rewrite requires exactly one of patch or args",
+          "file": null
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "modify",
+              "patch": {
+                "a": 1
+              },
+              "args": {
+                "b": 2
+              }
+            }
+          },
+          "error": "hookRule.modify requires exactly one of patch or args",
+          "file": null
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "rewrite",
+              "args": {
+                "b": 2
+              }
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"rewrite\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"rewrite\",\n      \"enabled\": true,\n      \"args\": {\n        \"b\": 2\n      }\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "modify",
+              "patch": {
+                "a": 1
+              }
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"rewrite\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"modify\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"rewrite\",\n      \"enabled\": true,\n      \"args\": {\n        \"b\": 2\n      }\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"modify\",\n      \"enabled\": true,\n      \"patch\": {\n        \"a\": 1\n      }\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "deny",
+              "patch": {
+                "a": 1
+              }
+            }
+          },
+          "error": "hookRule.patch applies only to modify or rewrite rules",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"rewrite\",\n      \"enabled\": true,\n      \"args\": {\n        \"b\": 2\n      }\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"modify\",\n      \"enabled\": true,\n      \"patch\": {\n        \"a\": 1\n      }\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "allow",
+              "args": {
+                "a": 1
+              }
+            }
+          },
+          "error": "hookRule.args applies only to modify or rewrite rules",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"rewrite\",\n      \"enabled\": true,\n      \"args\": {\n        \"b\": 2\n      }\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"modify\",\n      \"enabled\": true,\n      \"patch\": {\n        \"a\": 1\n      }\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "ask",
+              "patch": {}
+            }
+          },
+          "error": "hookRule.patch applies only to modify or rewrite rules",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"rewrite\",\n      \"enabled\": true,\n      \"args\": {\n        \"b\": 2\n      }\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"modify\",\n      \"enabled\": true,\n      \"patch\": {\n        \"a\": 1\n      }\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "action": "block"
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"rewrite\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"modify\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"block\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"*\",\n      \"action\": \"rewrite\",\n      \"enabled\": true,\n      \"args\": {\n        \"b\": 2\n      }\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"modify\",\n      \"enabled\": true,\n      \"patch\": {\n        \"a\": 1\n      }\n    },\n    {\n      \"tool\": \"*\",\n      \"action\": \"block\",\n      \"enabled\": true\n    }\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "long and secret argument edits are reported as present, never shown",
+      "file": null,
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "add_hook_rule",
+            "hookRule": {
+              "tool": "bash",
+              "action": "modify",
+              "patch": {
+                "password": "p",
+                "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "list": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8,
+                  9,
+                  10
+                ]
+              }
+            }
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": true,\n      \"tool\": \"bash\",\n      \"action\": \"modify\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"bash\",\n      \"action\": \"modify\",\n      \"enabled\": true,\n      \"patch\": {\n        \"password\": \"p\",\n        \"note\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\n        \"list\": [\n          1,\n          2,\n          3,\n          4,\n          5,\n          6,\n          7,\n          8,\n          9,\n          10\n        ]\n      }\n    }\n  ]\n}\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": false
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": \"bash\",\n      \"action\": \"modify\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": true\n    }\n  ]\n}",
+          "file": "{\n  \"toolBefore\": [\n    {\n      \"tool\": \"bash\",\n      \"action\": \"modify\",\n      \"enabled\": false,\n      \"patch\": {\n        \"password\": \"p\",\n        \"note\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\n        \"list\": [\n          1,\n          2,\n          3,\n          4,\n          5,\n          6,\n          7,\n          8,\n          9,\n          10\n        ]\n      }\n    }\n  ]\n}\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    },
+    {
+      "name": "a toggle whose write fails is refused and recorded as a hook error",
+      "file": "[\n  {\n    \"tool\": \"a\",\n    \"action\": \"deny\"\n  }\n]",
+      "bakDir": true,
+      "osText": true,
+      "steps": [
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": false
+          },
+          "error": "EPERM: operation not permitted, rename '{data}\\hooks.json.bak.mixdog-tmp-af6d5eb09ce4bf86' -> '{data}\\hooks.json.bak'",
+          "file": "[\n  {\n    \"tool\": \"a\",\n    \"action\": \"deny\"\n  }\n]"
+        }
+      ],
+      "hookErrors": {
+        "count": 1,
+        "recent": [
+          {
+            "summary": "error=debounced hooks save failed: EPERM: operation not permitted, rename 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceed",
+            "error": "debounced hooks save failed: EPERM: operation not permitted, rename '{data}\\hooks.json.bak.mixdog-tm..."
+          }
+        ]
+      }
+    },
+    {
+      "name": "rules with unusual fields list as the summary reads them",
+      "file": "[\n  {\n    \"tools\": [\n      \"a\",\n      \"b\"\n    ],\n    \"decision\": \"deny\",\n    \"contains\": \"x\",\n    \"message\": \"m\"\n  },\n  {\n    \"action\": \"\",\n    \"tool\": \"\"\n  },\n  {\n    \"enabled\": 0,\n    \"action\": \"deny\"\n  },\n  {\n    \"enabled\": false\n  }\n]",
+      "bakDir": false,
+      "osText": false,
+      "steps": [
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 0,
+            "enabled": false
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": [\n        \"a\",\n        \"b\"\n      ],\n      \"action\": \"deny\",\n      \"match\": \"x\",\n      \"cwd\": null,\n      \"reason\": \"m\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": false,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tools\": [\n      \"a\",\n      \"b\"\n    ],\n    \"decision\": \"deny\",\n    \"contains\": \"x\",\n    \"message\": \"m\",\n    \"enabled\": false\n  },\n  {\n    \"action\": \"\",\n    \"tool\": \"\"\n  },\n  {\n    \"enabled\": 0,\n    \"action\": \"deny\"\n  },\n  {\n    \"enabled\": false\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "set_hook_rule_enabled",
+            "ruleIndex": 3,
+            "enabled": true
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": [\n        \"a\",\n        \"b\"\n      ],\n      \"action\": \"deny\",\n      \"match\": \"x\",\n      \"cwd\": null,\n      \"reason\": \"m\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 3,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ]\n}",
+          "file": "[\n  {\n    \"tools\": [\n      \"a\",\n      \"b\"\n    ],\n    \"decision\": \"deny\",\n    \"contains\": \"x\",\n    \"message\": \"m\",\n    \"enabled\": false\n  },\n  {\n    \"action\": \"\",\n    \"tool\": \"\"\n  },\n  {\n    \"enabled\": 0,\n    \"action\": \"deny\"\n  },\n  {\n    \"enabled\": true\n  }\n]\n"
+        },
+        {
+          "args": {
+            "action": "delete_hook_rule",
+            "ruleIndex": 1
+          },
+          "text": "{\n  \"saved\": true,\n  \"scope\": \"installation\",\n  \"appliesTo\": \"subsequent tool calls; no restart required\",\n  \"deleted\": {\n    \"index\": 1,\n    \"enabled\": true,\n    \"tool\": \"\",\n    \"action\": \"allow\",\n    \"match\": null,\n    \"cwd\": null,\n    \"reason\": null,\n    \"hasArgumentEdit\": false\n  },\n  \"rules\": [\n    {\n      \"index\": 0,\n      \"enabled\": false,\n      \"tool\": [\n        \"a\",\n        \"b\"\n      ],\n      \"action\": \"deny\",\n      \"match\": \"x\",\n      \"cwd\": null,\n      \"reason\": \"m\",\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 1,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"deny\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    },\n    {\n      \"index\": 2,\n      \"enabled\": true,\n      \"tool\": \"*\",\n      \"action\": \"allow\",\n      \"match\": null,\n      \"cwd\": null,\n      \"reason\": null,\n      \"hasArgumentEdit\": false\n    }\n  ],\n  \"recovery\": \"The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.\"\n}",
+          "file": "[\n  {\n    \"tools\": [\n      \"a\",\n      \"b\"\n    ],\n    \"decision\": \"deny\",\n    \"contains\": \"x\",\n    \"message\": \"m\",\n    \"enabled\": false\n  },\n  {\n    \"enabled\": 0,\n    \"action\": \"deny\"\n  },\n  {\n    \"enabled\": true\n  }\n]\n"
+        }
+      ],
+      "hookErrors": {
+        "count": 0,
+        "recent": []
+      }
+    }
+  ]
+}

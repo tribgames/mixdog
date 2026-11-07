@@ -145,13 +145,13 @@ impl SecretStore for DpapiStore {
         on_lane(self.io, move || remove(&dir, &account)).await?
     }
 
-    async fn has(&self, account: &str) -> bool {
+    async fn has(&self, account: &str) -> Result<bool, SecretError> {
         // `hasSecret` on Windows is the file's existence: no decryption.
         let path = file(&self.dir, account);
-        on_lane(self.io, move || path.exists()).await.unwrap_or(false)
+        on_lane(self.io, move || path.exists()).await
     }
 
-    async fn is_fallback(&self, _account: &str) -> bool {
-        false
+    async fn is_fallback(&self, _account: &str) -> Result<bool, SecretError> {
+        Ok(false)
     }
 }

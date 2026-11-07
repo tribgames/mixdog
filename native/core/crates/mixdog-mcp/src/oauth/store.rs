@@ -106,19 +106,22 @@ impl MarkerFiles {
     }
 
     #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-    async fn read(&self, name: String) -> Option<String> {
+    /// The marker's text; `Ok(None)` when it cannot be read (Node's `catch { return false }`
+    /// in `hasStoredMcpOAuthTokens`), `Err` when the read job did not run, which says nothing
+    /// about the file and must not read as "signed out".
+    async fn read(&self, name: String) -> Result<Option<String>, StoreError> {
         let path = self.dir.join(name);
-        on_lane(self.io, move || std::fs::read_to_string(path).ok()).await.ok().flatten()
+        on_lane(self.io, move || std::fs::read_to_string(path).ok()).await
     }
 
     /// Whether tokens are stored for `account`, from the marker alone.
-    pub async fn has_tokens(&self, account: &str) -> bool {
-        self.read(format!("{account}.rev")).await.is_some_and(|m| m.ends_with(TOKENS_FLAG))
+    pub async fn has_tokens(&self, account: &str) -> Result<bool, StoreError> {
+        Ok(self.read(format!("{account}.rev")).await?.is_some_and(|m| m.ends_with(TOKENS_FLAG)))
     }
 
-    pub async fn identity(&self, account: &str) -> Option<StoredIdentity> {
-        let text = self.read(format!("{account}.who")).await?;
-        let file: WhoFile = serde_json::from_str(&text).ok()?;
-        Some(StoredIdentity { account: file.account, workspace: file.workspace, forced_choice: file.forced_choice })
+    pub async fn identity(&self, account: &str) -> Result<Option<StoredIdentity>, StoreError> {
+        let Some(text) = self.read(format!("{account}.who")).await? else { return Ok(None) };
+        let file: Option<WhoFile> = serde_json::from_str(&text).ok();
+        Ok(file.map(|file| StoredIdentity { account: file.account, workspace: file.workspace, forced_choice: file.forced_choice }))
     }
 }

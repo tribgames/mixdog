@@ -10,8 +10,13 @@
     "oracles/openai-transport-switch-golden.json (WP-AI-OPENAI)",
     "oracles/openai-ws-delta-golden.json (WP-AI-OPENAI)"
   ],
-  "fileCount": 78,
+  "fileCount": 84,
   "files": [
+    {
+      "bytes": 243065,
+      "path": "action-input-union/cases.json",
+      "sha256": "bfdb4917c223aaa52c349cc9254508bfd589684725f30814491351650ede7c87"
+    },
     {
       "bytes": 309490,
       "path": "anthropic-effort/cases.json",
@@ -118,9 +123,24 @@
       "sha256": "182ca0d9cd4db663d4164edc3b6ced2a3f30187451e40ed93482b1be840583b8"
     },
     {
+      "bytes": 34121,
+      "path": "compat-tool-exclusion/cases.json",
+      "sha256": "b24e108b1b8734594e40a02a2b2eccfc87c134ddb505d58e78b5bc6b567a8f3a"
+    },
+    {
       "bytes": 302826,
       "path": "cursor-models/cases.json",
       "sha256": "75e996193948ca5fde18e4d03d304d7aa03f5bb7639774176223d986d64d19a2"
+    },
+    {
+      "bytes": 12132,
+      "path": "cursor-tool-choice/cases.json",
+      "sha256": "74364ca3cf21cb329b9de1dfba75369942a2e8726c193b57b28ecd877b74afa9"
+    },
+    {
+      "bytes": 34243,
+      "path": "cursor-tools/cases.json",
+      "sha256": "cb85049eaa4a44aac204456bad0b8bec12c391c1b8cd7724b927819e04381440"
     },
     {
       "bytes": 306859,
@@ -131,6 +151,11 @@
       "bytes": 83030,
       "path": "gemini-explicit-cache/cases.json",
       "sha256": "270e08303f3d0cb1d176bf44bd1946be02bd373a7c6e571cac680fb71455eb32"
+    },
+    {
+      "bytes": 47158,
+      "path": "gemini-tool-schema/cases.json",
+      "sha256": "0a0051b814eb27b59ba3d86c92a882827c1eaccedb58963059edf2fc43877b5f"
     },
     {
       "bytes": 47436,
@@ -401,6 +426,11 @@
       "bytes": 1559,
       "path": "request-builders/openai-ws-response-create.json",
       "sha256": "dc163f811f6317e529f2c5adb02fdaae6e00366d955acf5dc15e9f163e7469ee"
+    },
+    {
+      "bytes": 183792,
+      "path": "schema-wording/cases.json",
+      "sha256": "1d057bd5a0227b03800b1218c3d38565872ad50af298279ba641c194952750c8"
     }
   ],
   "product": {
@@ -439,5 +469,5 @@
     "openai-responses-http-sse/truncated-no-completed"
   ],
   "set": "providers",
-  "totalBytes": 1933378
+  "totalBytes": 2487889
 }

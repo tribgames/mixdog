@@ -92,7 +92,7 @@ struct Inner {
     sessions: Vec<Mutex<Session>>,
     with_type_ids: bool,
     lane: mixdog_rt::CpuBulk,
-    dims: usize,
+    dims: std::sync::atomic::AtomicUsize,
     cache: Mutex<VectorCache>,
 }
 
@@ -140,7 +140,7 @@ impl Embedder {
         .await
         .map_err(|error| runtime_error("embedding load", error))??;
         let with_type_ids = sessions[0].inputs().iter().any(|input| input.name() == "token_type_ids");
-        let dims = config::known_dims(&model_id).unwrap_or(0);
+        let known = config::known_dims(&model_id);
         let embedder = Self {
             inner: Arc::new(Inner {
                 pooling: config::pooling(&model_id),
@@ -150,10 +150,24 @@ impl Embedder {
                 sessions: sessions.into_iter().map(Mutex::new).collect(),
                 with_type_ids,
                 lane: config.lane,
-                dims,
+                dims: std::sync::atomic::AtomicUsize::new(0),
                 cache: Mutex::default(),
             }),
         };
+        // `runEmbeddingWarmup`: one embedding measures the model's dimensions (a model the
+        // profiles do not list has no other source), and a profiled model must measure what its
+        // profile says.
+        let measured = embedder.embed("warmup", InputType::Document).await?.len();
+        if measured == 0 {
+            return Err(MemoryError::Embedding("warmup returned no dims \u{2014} model output missing".into()));
+        }
+        if let Some(expected) = known.filter(|expected| *expected != measured) {
+            return Err(MemoryError::Embedding(format!(
+                "embedding dims invariant violation: model={} expected={expected} measured={measured}",
+                embedder.inner.model_id
+            )));
+        }
+        embedder.inner.dims.store(measured, std::sync::atomic::Ordering::Release);
         Ok(embedder)
     }
 
@@ -165,8 +179,9 @@ impl Embedder {
         &self.inner.dtype
     }
 
+    /// The measured dimensions of the loaded model.
     pub fn dims(&self) -> usize {
-        self.inner.dims
+        self.inner.dims.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Token ids of the prepared text (for the golden check).

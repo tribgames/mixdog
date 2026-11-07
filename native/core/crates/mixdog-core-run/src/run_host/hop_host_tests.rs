@@ -112,14 +112,14 @@ impl ProviderBuilder for Builder {
             script: self.script.clone(),
         }))
     }
-    async fn custom_key_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
+    async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
     fn available(&self, name: &str) -> bool {
         !(self.ghost && name == "gemini")
     }
-    async fn oauth_credentials_usable(&self, _: &str) -> bool {
-        false
+    async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+        Ok(false)
     }
 }
 
@@ -172,11 +172,11 @@ impl HopWiring for NoWiring {
 struct NoBots;
 #[async_trait]
 impl BotRoutes for NoBots {
-    async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
-        None
+    async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, crate::run_host::route_chain::RouteReadUnavailable> {
+        Ok(None)
     }
-    async fn stored_bot_route(&self, _: &str) -> Option<Value> {
-        None
+    async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, crate::run_host::route_chain::RouteReadUnavailable> {
+        Ok(None)
     }
 }
 

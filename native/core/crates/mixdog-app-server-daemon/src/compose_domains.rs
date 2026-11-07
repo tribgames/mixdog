@@ -77,6 +77,9 @@ use mixdog_mcp::plugin_admin::PluginAdmin;
 pub use adapters::DoctorHost;
 pub use adapters::LateDomains;
 pub use local::LocalSeams;
+pub use local::build_local_provider;
+/// `package.json` `version` of the install: the build version the providers send as the client version.
+pub(crate) use rows::package_version;
 
 /// The op scopes this file's services take a gate for. `compose.rs` builds one gate per scope
 /// and passes them in [`OpScopeSource`]; `OP_SCOPES` there must list every name here.
@@ -143,13 +146,8 @@ pub struct DomainSeams {
     pub notification_clicks: Arc<dyn NotificationClicks>,
     /// Drops the prompt-rules and context-status caches and publishes the profile change: WP-SESSION.
     pub instructions_changed: Arc<dyn InstructionsChanged>,
-    /// SessionAttachmentLinks over the session directory: WP-SESSION.
-    pub session_attachments: Arc<dyn SessionAttachments>,
     /// The one OS proxy decision of the process: WP-AI-SVC.
     pub system_proxy: Arc<SystemProxy>,
-    /// The doctor's statuses no domain answers: WP-SESSION (provider, notice), WP-CHANNELS
-    /// (worker, setup), WP-MCP (hooks), WP-MIGRATE (session log), WP-INSTALL (JS runtime).
-    pub doctor: Arc<dyn DoctorHost>,
     pub plugins: PluginSeams,
     /// Tells the session whose setup request it is that a desktop surface should claim it
     /// (`notifySessionUi`): WP-SESSION.
@@ -164,6 +162,16 @@ pub struct DomainSeams {
     /// The live route, provider registry and session facts of the workflow, orchestration-mode,
     /// web-search-route, model-preference and onboarding methods: WP-SESSION, WP-AI-SVC.
     pub workflow_host: Arc<dyn WorkflowHost>,
+}
+
+/// The seams of the post-directory stage: both read the session directory, which is built from the
+/// tool pool, which needs the pre-pool stage's services. See [`compose_domains_post`].
+pub struct PostSeams {
+    /// SessionAttachmentLinks over the session directory: WP-SESSION.
+    pub session_attachments: Arc<dyn SessionAttachments>,
+    /// The doctor's statuses no domain answers: WP-SESSION (provider, notice), WP-CHANNELS
+    /// (worker, setup), WP-MCP (hooks), WP-MIGRATE (session log), WP-INSTALL (JS runtime).
+    pub doctor: Arc<dyn DoctorHost>,
 }
 
 /// What `PluginsService` runs on that no crate implements yet.
@@ -201,6 +209,9 @@ pub struct DomainInputs {
     pub limits: Limits,
     /// Stops what the config services started (downloads, ticks).
     pub cancel: CancellationToken,
+    /// The process's one local provider, built before `ProcessServices` by [`build_local_provider`];
+    /// the local-provider service and the tool-modules host hold it.
+    pub local_provider: Arc<mixdog_services::local_provider::LocalProvider>,
     pub seams: DomainSeams,
 }
 
@@ -212,8 +223,6 @@ pub struct ComposedDomains {
     /// The one `StatePublisher` (`state.publisher`), the scoped-route table and the app sections.
     pub state: Arc<StateRuntime>,
     pub config: Config,
-    /// The one local provider (`ProcessInputs.local_provider`).
-    pub local_provider: Arc<mixdog_services::local_provider::LocalProvider>,
     pub tool_modules: Arc<ToolModules>,
     /// Hold for the daemon's lifetime: the config file's external-edit watch.
     pub watcher: ConfigWatcher,
@@ -227,11 +236,32 @@ pub struct ComposedDomains {
     pub setup_requests: Arc<SetupRequests>,
 }
 
-pub async fn compose_domains(inputs: DomainInputs) -> Result<ComposedDomains, ComposeDomainsError> {
+/// What the pool-side services need, built before the tool pool and the session directory:
+/// `mcp_services` takes `tool_modules`, `extensions`, `plugins`, `workflow` and `setup_requests`.
+pub struct PreDomains {
+    pub services: Vec<Arc<dyn DomainService>>,
+    pub transfer_sources: Vec<Arc<dyn TransferSource>>,
+    pub state: Arc<StateRuntime>,
+    pub config: Config,
+    pub tool_modules: Arc<ToolModules>,
+    pub watcher: ConfigWatcher,
+    pub late: Arc<LateDomains>,
+    pub extensions: Arc<ConfigExtensions>,
+    pub setup_requests: Arc<SetupRequests>,
+    /// The `PluginsService` also in `services`.
+    pub plugins: Arc<dyn DomainService>,
+    /// The `WorkflowConfig` also in `services` (`config/getWorkflowPack`).
+    pub workflow: Arc<dyn DomainService>,
+}
+
+/// Stage one: every service that needs nothing of the session directory. Build order of the
+/// composition is local provider, process services, registry, readiness, effects, this stage, the
+/// MCP services, the tool pool, the turn path (which builds the directory), then [`compose_domains_post`].
+pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, ComposeDomainsError> {
     let mut services: Vec<Arc<dyn DomainService>> = Vec::new();
     let (state, config) = (inputs.state.clone(), inputs.config.clone());
     let watcher = ConfigWatcher::start(config.clone()).map_err(ComposeDomainsError::Watch)?;
-    let local = local::build(&inputs, &config).await?;
+    let local = local::build(inputs, &config).await?;
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());
     let settings = Settings::new(config.clone(), inputs.seams.settings_effects.clone(), inputs.env.clone());
     let output_styles = OutputStyles::new(config.clone(), inputs.paths.package_root.join("output-styles"), &inputs.paths.data_dir);
@@ -244,32 +274,54 @@ pub async fn compose_domains(inputs: DomainInputs) -> Result<ComposedDomains, Co
         inputs.seams.network_proxy.clone(),
         inputs.seams.routed_clients.clone(),
     )));
-    let rows = rows::build(&inputs, &config, state.publisher.clone(), tool_modules.clone()).await?;
-    services.extend(rows.services);
     let mut transfer_sources = local.transfer_sources;
-    transfer_sources.extend(rows.transfer_sources);
     transfer_sources.push(ExportSource::new(HostExportRenderer::new(inputs.host.clone(), inputs.seams.session_cwds.clone()), &inputs.tokens));
     services.push(Arc::new(CompactionSettingsService::new(Arc::new(config.clone()), inputs.seams.compaction_host.clone())));
-    services.push(WorkflowConfig::new(
+    let workflow: Arc<dyn DomainService> = WorkflowConfig::new(
         config.clone(),
         WorkflowPaths { root: inputs.paths.package_root.clone(), data: inputs.paths.data_dir.clone() },
         inputs.seams.workflow_host.clone(),
         inputs.scopes.scopes("workflow")?,
         &inputs.tokens,
-    ));
+    );
+    services.push(workflow.clone());
     services.push(Arc::new(BrowserService::new(inputs.host.clone())));
     services.push(Arc::new(VisualizeService::new(inputs.host.clone())));
     let extensions = Arc::new(ConfigExtensions::new(config.clone()));
-    services.push(Arc::new(PluginsService::new(
+    let plugins: Arc<dyn DomainService> = Arc::new(PluginsService::new(
         Arc::new(PluginAdmin::new(inputs.paths.data_dir.clone(), inputs.seams.plugins.git.clone(), inputs.seams.plugins.announce.clone())),
         Arc::new(DeclarationCache::new()),
         extensions.clone(),
         inputs.seams.plugins.host.clone(),
         inputs.tokens.maintenance_io,
-    )));
-    let late = Arc::new(LateDomains::default());
+    ));
+    services.push(plugins.clone());
+    Ok(PreDomains {
+        services,
+        transfer_sources,
+        state,
+        config,
+        tool_modules,
+        watcher,
+        late: Arc::new(LateDomains::default()),
+        extensions,
+        setup_requests,
+        plugins,
+        workflow,
+    })
+}
+
+/// Stage two, after `TurnPath::new` has built the directory: the services that read it
+/// (`session_attachments`, the doctor's live surface) and the ones that need nothing from the pool
+/// but were built after it in Node's order (client, host, instructions, feedback, blob, update,
+/// system, diagnostics).
+pub async fn compose_domains_post(inputs: &DomainInputs, post: PostSeams, pre: PreDomains) -> Result<ComposedDomains, ComposeDomainsError> {
+    let PreDomains { mut services, mut transfer_sources, state, config, tool_modules, watcher, late, extensions, setup_requests, .. } = pre;
+    let rows = rows::build(inputs, &config, state.publisher.clone(), tool_modules.clone(), post.session_attachments).await?;
+    services.extend(rows.services);
+    transfer_sources.extend(rows.transfer_sources);
     services.push(DiagnosticsService::new(
-        Arc::new(ServiceDoctor::new(late.clone(), inputs.seams.doctor.clone())),
+        Arc::new(ServiceDoctor::new(late.clone(), post.doctor)),
         DoctorConfig {
             data_dir: inputs.paths.data_dir.clone(),
             package_version: Some(rows.package_version.clone()),
@@ -278,5 +330,16 @@ pub async fn compose_domains(inputs: DomainInputs) -> Result<ComposedDomains, Co
         inputs.scopes.scopes("diagnostics")?,
         &inputs.tokens,
     ));
-    Ok(ComposedDomains { services, transfer_sources, state, config, local_provider: local.provider, tool_modules, watcher, late, system: rows.system, extensions, setup_requests })
+    Ok(ComposedDomains {
+        services,
+        transfer_sources,
+        state,
+        config,
+        tool_modules,
+        watcher,
+        late,
+        system: rows.system,
+        extensions,
+        setup_requests,
+    })
 }

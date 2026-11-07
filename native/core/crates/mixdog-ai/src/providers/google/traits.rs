@@ -32,6 +32,14 @@ pub enum ThinkingControl {
     Budget(BudgetSpec),
 }
 
+/// `isGeminiFamilyModel`: an id in the Gemini wire family (`gemini-4-argon`,
+/// `models/gemini-3.1-pro`, `google/gemini-3-pro`). It names the family only, never a generation,
+/// and is the one test every route uses (a Gemini model behind an OpenAI-compatible gateway
+/// included).
+pub fn is_gemini_family_model(model: &str) -> bool {
+    GEMINI_FAMILY.is_match(model)
+}
+
 pub trait ModelTraits: Send + Sync {
     /// The Gemini wire family. An Antigravity gateway also serves other
     /// families, which reject the Gemini-only request fields.
@@ -82,7 +90,7 @@ pub struct CatalogGoogleTraits(pub Vec<std::sync::Arc<dyn crate::catalog::ModelT
 
 impl ModelTraits for CatalogGoogleTraits {
     fn is_gemini_family(&self, model: &str) -> bool {
-        GEMINI_FAMILY.is_match(model)
+        is_gemini_family_model(model)
     }
 
     fn thinking(&self, model: &str) -> ThinkingControl {

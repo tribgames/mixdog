@@ -4,6 +4,7 @@
 //! shared codecs; no code branches on a provider name.
 
 pub mod adapter;
+pub(crate) mod ajv_meta;
 pub mod chat;
 pub mod creds;
 pub mod login;

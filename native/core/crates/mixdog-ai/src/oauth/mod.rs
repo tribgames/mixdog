@@ -32,6 +32,8 @@ pub use flow::PkceLoginFlow;
 pub use flow::PkceProvider;
 pub use store::CredentialFile;
 pub use store::CredentialIo;
+pub use store::LaneUnrun;
+pub use store::is_lane_unrun;
 pub use store::Probe;
 pub use pkce::Pkce;
 pub use pkce::random_state;

@@ -215,6 +215,16 @@ impl AgentConnectors {
         Ok(stored.json())
     }
 
+    /// `connectorToolPermission(agentConnectors(agent), mcp__<server>__<tool>)`: the tool's level
+    /// for the agent now, as dispatch reads it (a connector switched off reads `disabled`).
+    pub async fn tool_permission(&self, agent_id: &str, server: &str, tool: &str) -> Result<Permission, AgentsError> {
+        let stored = self.agents.connector_policy(agent_id).await?;
+        if !stored.enabled(server) {
+            return Ok(Permission::Disabled);
+        }
+        Ok(self.permission(&stored.tools(), server, tool))
+    }
+
     /// `getAgentAlwaysAllowedTools`: `[{ connector, tool }]`, the connector tools this agent may
     /// run without asking (an explicit `auto` entry in its own policy).
     pub async fn always_allowed(&self, agent_id: &str) -> Result<Value, AgentsError> {

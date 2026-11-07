@@ -24,6 +24,8 @@ mod effort_tests;
 #[cfg(test)]
 mod models_tests;
 #[cfg(test)]
+mod schema_tests;
+#[cfg(test)]
 mod shared_prefix_tests;
 #[cfg(test)]
 mod tests;
@@ -32,6 +34,7 @@ pub use adapter::AnthropicAdapter;
 pub use adapter::ApiKeySource;
 pub use adapter::Credentials;
 pub use body::CacheStrategy;
+pub use body::anthropic_tool_exclusion;
 pub use body::CacheTtl;
 pub use caps::CapsLookup;
 pub use caps::ModelCaps;

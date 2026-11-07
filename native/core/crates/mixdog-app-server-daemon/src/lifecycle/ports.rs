@@ -17,6 +17,10 @@ pub trait CorePort: Send + Sync {
     fn drain_notice(&self, notice: &DrainNotice);
     /// Publish `core/health{stalledMs}`; `0` means the runtime is answering again.
     fn health(&self, stalled_ms: u64);
+    /// Publish `lane.health{lane, wedged}` when a lane's count of workers stuck past their
+    /// lease changes (F1); `wedged == 0` means the lane is healthy again. Default: not
+    /// published (the compose-seams row for wp-run-host names the real publisher).
+    fn lane_health(&self, _lane: &str, _wedged: usize) {}
     /// Cancel these units of work through their tokens; the tool runtime kills job objects and
     /// process groups. Each registrant drops its guard as it finishes.
     fn cancel_running(&self, running: &[Running]);

@@ -307,7 +307,7 @@ impl AgentEffects for NoEffects {
 }
 
 /// An editor over a fresh data folder whose config file holds `agent`.
-pub(super) async fn writable(agent: Value) -> (tempfile::TempDir, AgentDefinitions) {
+pub(crate) async fn writable(agent: Value) -> (tempfile::TempDir, AgentDefinitions) {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };

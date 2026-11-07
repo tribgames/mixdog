@@ -20,7 +20,7 @@ use tokio::sync::Semaphore;
 use crate::lane::on_lane;
 use mixdog_js::device_paths::{is_unc_path, is_windows_device_path};
 
-use super::candidate::{Candidate, Enumeration, Env, enumerate_candidates, import_origin_key, mtime_ms, source_root};
+use super::candidate::{Candidate, Env, enumerate_candidates, import_origin_key, mtime_ms, source_root};
 use super::codex::{codex_meta_from_truncated_line, rollout_id_of};
 use super::convert::{Conversion, Converter, Limits, MAX_FILE_BYTES, MAX_LINE_BYTES, Source};
 use super::fsutil::{ImportError, Opened, StreamOpts, case_fold, is_compressed, open_verified, real_path, stream_jsonl_lines};
@@ -571,11 +571,15 @@ impl Discovery {
                 let _permit = this.permits.acquire().await.expect("semaphore is never closed");
                 let home = this.codex_home(&cand);
                 let (c, scan) = (cand.clone(), this.scan_max_bytes);
-                let meta = on_lane(this.lane, move || read_prefix_meta(&c, scan, &home))
-                    .await
+                let read = on_lane(this.lane, move || read_prefix_meta(&c, scan, &home)).await;
+                let ran = read.is_ok();
+                let meta = read
                     .unwrap_or_else(|_| Err(ImportError::new("unreadable")))
                     .unwrap_or_else(|e| Meta { error_code: Some(e.0), ..Meta::default() });
-                this.state.lock().unwrap().meta.insert(cand.path.clone(), (cand.stamp_key(), meta.clone()));
+                // A read that never ran is not cached: "unreadable" would stick to the file's stamp.
+                if ran {
+                    this.state.lock().unwrap().meta.insert(cand.path.clone(), (cand.stamp_key(), meta.clone()));
+                }
                 meta
             })
             .await
@@ -592,14 +596,15 @@ impl Discovery {
             .collect()
     }
 
-    async fn enumerate(&self, source: Source) -> (String, Vec<Candidate>) {
+    /// An unreadable root lists nothing (the scan ran); a scan that never ran is an error, not an
+    /// empty listing the view would keep.
+    async fn enumerate(&self, source: Source) -> Result<(String, Vec<Candidate>), ImportError> {
         let env = self.env.clone();
-        // A lane that cannot run the scan lists nothing, like an unreadable root.
-        let found = on_lane(self.lane, move || enumerate_candidates(source, &env)).await.unwrap_or_else(|_| Enumeration { root: String::new(), candidates: Vec::new() });
+        let found = on_lane(self.lane, move || enumerate_candidates(source, &env)).await.map_err(|_| ImportError::new("unreadable"))?;
         for candidate in &found.candidates {
             self.register(candidate.clone());
         }
-        (found.root, found.candidates)
+        Ok((found.root, found.candidates))
     }
 
     fn snapshot(&self, ids: &[String]) -> Vec<(Candidate, Option<Meta>)> {
@@ -681,7 +686,7 @@ impl Discovery {
             needle: mixdog_js::js_trim(&fold_text(&params.query)).to_owned(),
             project: params.project.as_ref().map(|p| mixdog_js::js_trim(p).to_owned()).filter(|p| !p.is_empty()),
         };
-        let (root, candidates) = self.enumerate(source).await;
+        let (root, candidates) = self.enumerate(source).await?;
         let titles = self.load_stored_titles(source).await;
         // Background metadata for everything, newest first; the first page is awaited.
         // Candidates still unclassified stay out of the view (it is incomplete) and join it on a
@@ -794,6 +799,21 @@ impl Discovery {
         })
         .await
         .unwrap_or_else(|_| Err(ImportError::new("unreadable")))
+    }
+}
+
+#[cfg(test)]
+mod lane_tests {
+    use super::*;
+
+    /// A scan that never ran is an error; it is not a listing of nothing that a view would keep.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_listing_whose_scan_never_ran_is_an_error() {
+        let discovery = Discovery::new(Env::from_process(), mixdog_rt::testing::tokens().maintenance_io);
+        let params = ListParams { source: Some(Source::Claude), ..ListParams::default() };
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        assert!(discovery.list_conversations(&params, &Imported::default()).await.is_err());
+        assert!(discovery.state.lock().unwrap().views.is_empty());
     }
 }
 

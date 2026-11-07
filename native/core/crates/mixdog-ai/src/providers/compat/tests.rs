@@ -1759,3 +1759,59 @@ fn per_status_caps_are_carried_as_data() {
     assert_eq!(CompatProfile::xai().retry_policy().status.caps, [(429, 1)]);
     assert_eq!(CompatProfile::mimo_oauth().retry_policy().status.caps, [(429, 5)]);
 }
+
+/// Which tools an OpenAI-compatible chat route sends and what it reports for the ones it leaves
+/// out, against `fixtures/providers/compat-tool-exclusion/cases.json` (recorded by
+/// `record-compat-tool-exclusion.mjs` from the real `OpenAICompatProvider.send`): a Gemini-family
+/// model is held to Google's schema rule, any other model to the OpenAI one, and every report goes
+/// to the request's sink under the rule's own label.
+#[test]
+fn a_gemini_model_behind_a_compat_route_is_held_to_googles_rule() {
+    use std::sync::{Arc, Mutex};
+
+    use mixdog_core_api::domain::provider::{ToolExclusionReport, ToolExclusionSink};
+
+    let golden: JsonValue =
+        serde_json::from_str(include_str!("../../../../../fixtures/providers/compat-tool-exclusion/cases.json")).expect("recorded cases");
+    for case in golden["cases"].as_array().expect("cases") {
+        let id = case["id"].as_str().expect("id");
+        let seen = Arc::new(Mutex::new(Vec::<ToolExclusionReport>::new()));
+        let into = Arc::clone(&seen);
+        let mut request = base_request(case["model"].as_str().expect("model"));
+        request.tools = case["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .map(|t| ToolDefinition {
+                name: t["name"].as_str().expect("name").into(),
+                description: t["description"].as_str().expect("description").into(),
+                input_schema: t["inputSchema"].clone(),
+                defer_loading: false,
+            })
+            .collect();
+        request.options.on_tool_excluded = Some(ToolExclusionSink(Arc::new(move |report: ToolExclusionReport| {
+            into.lock().unwrap().push(report);
+        })));
+        let body = body_of(&plain_codec(), &request);
+        let sent: Vec<JsonValue> = body["tools"]
+            .as_array()
+            .map(|tools| {
+                tools
+                    .iter()
+                    .map(|t| json!({"name": t["function"]["name"], "parameters": t["function"]["parameters"]}))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert_eq!(JsonValue::Array(sent), case["sentTools"], "{id}: tools sent");
+        let reports = seen.lock().unwrap();
+        let want = case["excluded"].as_array().expect("excluded");
+        assert_eq!(reports.len(), want.len(), "{id}: reports {reports:?}");
+        for (got, want) in reports.iter().zip(want) {
+            assert_eq!(got.name, want["name"].as_str().unwrap(), "{id}");
+            assert_eq!(got.index as u64, want["index"].as_u64().unwrap(), "{id}");
+            assert_eq!(got.pointer, want["pointer"].as_str().unwrap(), "{id}");
+            assert_eq!(got.reason, want["reason"].as_str().unwrap(), "{id}");
+            assert_eq!(got.message, want["message"].as_str().unwrap(), "{id}");
+        }
+    }
+}

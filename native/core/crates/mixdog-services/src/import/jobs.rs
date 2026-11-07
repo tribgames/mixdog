@@ -18,7 +18,7 @@ use tokio::sync::Semaphore;
 
 use super::candidate::import_origin_key;
 use super::convert::{Conversion, Limits, Source};
-use super::discovery::{CwdInfo, Discovery, Imported, display_title, resolve_source_cwd};
+use super::discovery::{Discovery, Imported, display_title, resolve_source_cwd};
 use super::fsutil::ImportError;
 use crate::lane::on_lane;
 use super::turns::WARNING_CWD_MISSING;
@@ -460,10 +460,10 @@ impl ImportJobs {
         }
         self.discovery.record_conversion(&candidate, &conversion);
         let raw_cwd = conversion.cwd.clone();
-        // A lane that cannot run the probe reports the directory as missing.
-        let cwd_info = on_lane(self.discovery.lane(), move || resolve_source_cwd(raw_cwd.as_deref(), &mut HashMap::new()))
-            .await
-            .unwrap_or(CwdInfo { exists: false, path: None });
+        // A probe that never ran must not import the chat as one with no folder.
+        let Ok(cwd_info) = on_lane(self.discovery.lane(), move || resolve_source_cwd(raw_cwd.as_deref(), &mut HashMap::new())).await else {
+            return Ok(Outcome::failed(candidate_id, "unreadable", None, Vec::new()));
+        };
         let project_path = if cwd_info.exists { cwd_info.path.clone() } else { None };
         if let Some(code) = &conversion.error_code {
             return Ok(Outcome::failed(candidate_id, code, project_path, conversion.warnings.clone()));

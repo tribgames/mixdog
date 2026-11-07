@@ -41,10 +41,10 @@ fn relay_url(env: &super::EnvReader) -> RelayUrl {
 
 /// The `version` of `package.json` at the package root (`package.json` `version`).
 #[allow(clippy::disallowed_methods, reason = "runs as an interactive-io lane job")]
-async fn package_version(inputs: &DomainInputs) -> Result<String, ComposeDomainsError> {
-    let path = inputs.paths.package_root.join("package.json");
+pub(crate) async fn package_version(package_root: &std::path::Path, lane: mixdog_rt::InteractiveIo) -> Result<String, ComposeDomainsError> {
+    let path = package_root.join("package.json");
     let shown = path.display().to_string();
-    let text = on_lane(inputs.tokens.interactive_io, &CancellationToken::new(), move |_lane| std::fs::read_to_string(path))
+    let text = on_lane(lane, &CancellationToken::new(), move |_lane| std::fs::read_to_string(path))
         .await
         .map_err(|error| ComposeDomainsError::Build(format!("reading {shown}: {error:?}")))?
         .map_err(|error| ComposeDomainsError::Build(format!("reading {shown}: {error}")))?;
@@ -69,6 +69,7 @@ pub(super) async fn build(
     config: &Config,
     publisher: Arc<dyn mixdog_core_api::state::StatePublisher>,
     tool_modules: Arc<ToolModules>,
+    session_attachments: Arc<dyn mixdog_core_ports::ports::domain_sessions::SessionAttachments>,
 ) -> Result<Rows, ComposeDomainsError> {
     let tokens = &inputs.tokens;
     let seams = &inputs.seams;
@@ -96,9 +97,9 @@ pub(super) async fn build(
 
     let blobs = BlobStore::new(&inputs.paths.data_dir);
     services.push(BlobService::new(blobs.clone(), tokens, &inputs.limits));
-    transfer_sources.push(AttachmentSource::new(blobs, seams.session_attachments.clone(), tokens));
+    transfer_sources.push(AttachmentSource::new(blobs, session_attachments, tokens));
 
-    let current_version = package_version(inputs).await?;
+    let current_version = package_version(&inputs.paths.package_root, inputs.tokens.interactive_io).await?;
     let dev = on_lane(tokens.interactive_io, &CancellationToken::new(), {
         let root = inputs.paths.package_root.clone();
         move |lane| StagedInstaller::probe_dev_install(lane, &root)

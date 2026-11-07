@@ -207,6 +207,7 @@ impl BlobStore {
         let mut deleted = Vec::new();
         let mut removed_leftover = false;
         for entry in entries {
+            mixdog_rt::job_progress();
             let entry = entry.map_err(|e| GcError::Io(err(IoOp::List, &dir)(e)))?;
             let name = entry.file_name().to_string_lossy().into_owned();
             let path = entry.path();

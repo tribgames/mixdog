@@ -266,3 +266,20 @@ async fn armed_one_shot_fires_and_completes() {
     let row = f.store.get("once").await.unwrap().unwrap();
     assert_eq!(row.status, ScheduleStatus::Done);
 }
+
+/// The run has no deadline of its own (an unattended run is ended by the progress watchdog, which
+/// the runner sees as an error); what the scheduler guarantees is that the name is released
+/// whenever the fire ends, however it ends.
+#[tokio::test(start_paused = true)]
+async fn an_aborted_fire_releases_its_name() {
+    let f = fixture(vec![cron_row("daily")], Script { gate: Some(Arc::new(Notify::new())), ..Default::default() });
+    let fire = tokio::spawn({
+        let s = f.sched.clone();
+        async move { s.fire_cron_slot("daily", at("2025-01-01T09:00:00Z")).await }
+    });
+    f.runner.started.notified().await;
+    assert!(f.sched.status()[0].running);
+    fire.abort();
+    assert!(fire.await.unwrap_err().is_cancelled());
+    assert!(!f.sched.status()[0].running);
+}

@@ -80,18 +80,18 @@ impl Sessions {
 
 #[async_trait]
 impl RouteSetupSessions for Sessions {
-    async fn caller_chain(&self, _: &ThreadId, _: &Obj) -> Option<CallerChain> {
+    async fn caller_chain(&self, _: &ThreadId, _: &Obj) -> Result<Option<CallerChain>, PortError> {
         let chain = &self.case["chain"];
-        (!chain.is_null()).then(|| CallerChain { position: chain["position"].clone(), source_is_primary: chain["sourceIsPrimary"] == json!(true) })
+        Ok((!chain.is_null()).then(|| CallerChain { position: chain["position"].clone(), source_is_primary: chain["sourceIsPrimary"] == json!(true) }))
     }
 
-    async fn session(&self, id: &str, _: &Obj) -> Option<SessionFacts> {
-        self.facts(id)
+    async fn session(&self, id: &str, _: &Obj) -> Result<Option<SessionFacts>, PortError> {
+        Ok(self.facts(id))
     }
 
-    async fn agent_sessions(&self, agent: &str, _: &Obj) -> Vec<SessionFacts> {
+    async fn agent_sessions(&self, agent: &str, _: &Obj) -> Result<Vec<SessionFacts>, PortError> {
         let ids = self.case["agentSessions"][agent].as_array().cloned().unwrap_or_default();
-        ids.iter().filter_map(|id| self.facts(id.as_str().unwrap())).collect()
+        Ok(ids.iter().filter_map(|id| self.facts(id.as_str().unwrap())).collect())
     }
 
     async fn control(&self, _: &ThreadId, session: &str, method: &str, input: Option<&Obj>) -> Result<Value, PortError> {

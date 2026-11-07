@@ -161,7 +161,7 @@ impl SessionIngest {
         };
         let start = (len - limit).max(0.0);
         let explicit_cwd = args.get("cwd").and_then(Value::as_str);
-        let project_id = resolve_project_scope(inner.lane, explicit_cwd, inner.session_cwd.as_deref()).await;
+        let project_id = resolve_project_scope(inner.lane, explicit_cwd, inner.session_cwd.as_deref()).await?;
 
         let mut state = inner.ordinals.lock().expect("ordinal store").take(session_id);
         state.ensure_durable_loaded(&inner.db, session_id).await;

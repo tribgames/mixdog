@@ -93,6 +93,7 @@ fn count_files(dir: &Path, tracked: &HashSet<String>, workdir: &Path) -> u64 {
     entries
         .flatten()
         .map(|entry| {
+            mixdog_rt::job_progress();
             let path = entry.path();
             match entry.file_type() {
                 Ok(kind) if kind.is_dir() => count_files(&path, tracked, workdir),

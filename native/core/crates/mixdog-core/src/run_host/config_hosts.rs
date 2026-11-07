@@ -43,13 +43,14 @@ use serde_json::json;
 /// The stored header of a thread (`SessionDirectory::stored_header`).
 #[async_trait]
 pub trait ThreadHeaders: Send + Sync {
-    async fn header(&self, thread: &ThreadId) -> Option<Header>;
+    /// `Ok(None)`: no such thread. `Err`: the read never ran, which says nothing about the thread.
+    async fn header(&self, thread: &ThreadId) -> Result<Option<Header>, CoreError>;
 }
 
 #[async_trait]
 impl ThreadHeaders for SessionDirectory {
-    async fn header(&self, thread: &ThreadId) -> Option<Header> {
-        self.stored_header(thread).await
+    async fn header(&self, thread: &ThreadId) -> Result<Option<Header>, CoreError> {
+        self.try_stored_header(thread).await
     }
 }
 
@@ -133,7 +134,7 @@ fn catalog_row(facts: &dyn RouteFacts, provider: &str, model: &str) -> Option<Va
 impl WorkflowHost for ConfigHosts {
     async fn thread_mode_facts(&self, thread_id: &str) -> Result<Value, CoreError> {
         let thread = ThreadId::from(thread_id);
-        let Some(header) = self.headers.header(&thread).await else {
+        let Some(header) = self.headers.header(&thread).await? else {
             return Err(CoreError::ThreadNotFound { thread_id: thread });
         };
         let mut facts = Map::new();

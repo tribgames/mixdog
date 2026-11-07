@@ -115,7 +115,10 @@ impl CatalogService {
     /// Reads the providers' live-roster files from `data_dir` now and again
     /// on every refresh, so `cached_windows` has data without touching disk.
     pub async fn with_rosters(mut self, data_dir: PathBuf, io: CredentialIo) -> Self {
-        self.rosters.store(Arc::new(RosterSnapshot::load(&data_dir, &io).await));
+        // A roster read that never ran leaves the empty snapshot; the next reload fills it.
+        if let Some(snapshot) = RosterSnapshot::load(&data_dir, &io).await {
+            self.rosters.store(Arc::new(snapshot));
+        }
         self.roster_dir = Some((data_dir, io));
         self.publish_listing();
         self
@@ -124,8 +127,11 @@ impl CatalogService {
     /// Re-reads the roster files (after a provider's listing persisted one).
     pub async fn reload_rosters(&self) {
         if let Some((dir, io)) = &self.roster_dir {
-            self.rosters.store(Arc::new(RosterSnapshot::load(dir, io).await));
-            self.publish_listing();
+            // A read that never ran keeps the snapshot already held, not an empty one.
+            if let Some(snapshot) = RosterSnapshot::load(dir, io).await {
+                self.rosters.store(Arc::new(snapshot));
+                self.publish_listing();
+            }
         }
     }
 

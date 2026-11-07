@@ -26,6 +26,7 @@ use super::profile::SystemPlacement;
 use super::profile::ToolChoicePolicy;
 use super::profile::ToolLowering;
 use super::profile::build_body;
+use crate::providers::compat::schema::report_exclusion;
 
 const DEFAULT_INSTRUCTIONS: &str = "You are a helpful assistant.";
 const DEFAULT_EFFORT: &str = "medium";
@@ -128,7 +129,11 @@ pub fn build_with(
     // No continuation here: the first-party routes carry history through the
     // ordered provider replay (Node keeps no slot of its own for them), and a
     // slot on top would send the same reasoning twice.
-    let map = build_body(&profile, &BuildInputs { effort, ..BuildInputs::new(request) }).body;
+    let built = build_body(&profile, &BuildInputs { effort, ..BuildInputs::new(request) });
+    for excluded in built.excluded {
+        report_exclusion(&request.options, excluded);
+    }
+    let map = built.body;
     BuiltBody {
         map,
         service_tier: tier,

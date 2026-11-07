@@ -1,1837 +1,1837 @@
 {
   "cases": [
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an ordinary lead session",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "human"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "an ordinary lead session, heartbeat-marked",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an ordinary lead session, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an ordinary lead session, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an ordinary lead session, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "lead",
         "kind": "agent",
+        "agentId": "lead",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an ordinary lead session, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "bob",
         "kind": "agent",
+        "agentId": "bob",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with no source type",
       "record": {
         "id": "sess_abc"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "human"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a session with no source type, heartbeat-marked",
       "record": {
         "id": "sess_abc"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with no source type, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with no source type, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with no source type, webhook run of \"\"",
       "record": {
         "id": "sess_abc"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "lead",
         "kind": "agent",
+        "agentId": "lead",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with no source type, other run of \"bob\"",
       "record": {
         "id": "sess_abc"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "bob",
         "kind": "agent",
+        "agentId": "bob",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a cli session",
       "record": {
         "id": "sess_abc",
         "sourceType": "CLI"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "human"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a cli session, heartbeat-marked",
       "record": {
         "id": "sess_abc",
         "sourceType": "CLI"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a cli session, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "CLI"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a cli session, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "CLI"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a cli session, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "CLI"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "lead",
         "kind": "agent",
+        "agentId": "lead",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a cli session, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "CLI"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "bob",
         "kind": "agent",
+        "agentId": "bob",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an exec run",
       "record": {
         "id": "sess_abc",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "an exec run, heartbeat-marked",
       "record": {
         "id": "sess_abc",
         "sourceType": "exec"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an exec run, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an exec run, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an exec run, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an exec run, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a task session of another source",
       "record": {
         "id": "sess_abc",
         "sourceType": "task"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a task session of another source, heartbeat-marked",
       "record": {
         "id": "sess_abc",
         "sourceType": "task"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a task session of another source, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "task"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a task session of another source, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "task"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a task session of another source, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "task"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a task session of another source, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "task"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a delegated worker",
       "record": {
         "id": "sess_abc",
-        "owner": "agent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": "agent"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a delegated worker, heartbeat-marked",
       "record": {
         "id": "sess_abc",
-        "owner": "agent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": "agent"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a delegated worker, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "owner": "agent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": "agent"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a delegated worker, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "owner": "agent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": "agent"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a delegated worker, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
-        "owner": "agent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": "agent"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a delegated worker, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
-        "owner": "agent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": "agent"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a worker by its owner spelling",
       "record": {
         "id": "sess_abc",
-        "owner": " Agent ",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": " Agent "
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a worker by its owner spelling, heartbeat-marked",
       "record": {
         "id": "sess_abc",
-        "owner": " Agent ",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": " Agent "
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a worker by its owner spelling, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "owner": " Agent ",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": " Agent "
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a worker by its owner spelling, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "owner": " Agent ",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": " Agent "
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a worker by its owner spelling, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
-        "owner": " Agent ",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": " Agent "
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a worker by its owner spelling, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
-        "owner": " Agent ",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "owner": " Agent "
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an agent-only session that is no worker",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead",
         "visibility": "agent-only"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "human"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "an agent-only session that is no worker, heartbeat-marked",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead",
         "visibility": "agent-only"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an agent-only session that is no worker, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead",
         "visibility": "agent-only"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an agent-only session that is no worker, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead",
         "visibility": "agent-only"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an agent-only session that is no worker, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead",
         "visibility": "agent-only"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "lead",
         "kind": "agent",
+        "agentId": "lead",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "an agent-only session that is no worker, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
         "sourceType": "lead",
         "visibility": "agent-only"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "bob",
         "kind": "agent",
+        "agentId": "bob",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a child session",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": "sess_parent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": "sess_parent"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a child session, heartbeat-marked",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": "sess_parent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": "sess_parent"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a child session, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": "sess_parent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": "sess_parent"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a child session, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": "sess_parent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": "sess_parent"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a child session, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": "sess_parent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": "sess_parent"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a child session, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": "sess_parent",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": "sess_parent"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by another",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_other",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_other"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a session owned by another, heartbeat-marked",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_other",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_other"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by another, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_other",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_other"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by another, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_other",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_other"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by another, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_other",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_other"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by another, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_other",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_other"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by itself",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_abc",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_abc"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "human"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a session owned by itself, heartbeat-marked",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_abc",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_abc"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by itself, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_abc",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_abc"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by itself, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_abc",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_abc"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by itself, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_abc",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_abc"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "lead",
         "kind": "agent",
+        "agentId": "lead",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session owned by itself, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
-        "ownerSessionId": "sess_abc",
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "ownerSessionId": "sess_abc"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "bob",
         "kind": "agent",
+        "agentId": "bob",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with a zero parent",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": 0,
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": 0
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "human"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a session with a zero parent, heartbeat-marked",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": 0,
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": 0
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with a zero parent, schedule run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": 0,
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": 0
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with a zero parent, webhook run of \"ann\"",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": 0,
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": 0
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with a zero parent, webhook run of \"\"",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": 0,
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": 0
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "lead",
         "kind": "agent",
+        "agentId": "lead",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a session with a zero parent, other run of \"bob\"",
       "record": {
         "id": "sess_abc",
-        "parentSessionId": 0,
-        "sourceType": "lead"
+        "sourceType": "lead",
+        "parentSessionId": 0
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "bob",
         "kind": "agent",
+        "agentId": "bob",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "Mixy home",
       "record": {
         "id": "sess_home_lead",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "human"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "Mixy home, heartbeat-marked",
       "record": {
         "id": "sess_home_lead",
         "sourceType": "exec"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
         "kind": "human"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "Mixy home, schedule run of \"ann\"",
       "record": {
         "id": "sess_home_lead",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "Mixy home, webhook run of \"ann\"",
       "record": {
         "id": "sess_home_lead",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "Mixy home, webhook run of \"\"",
       "record": {
         "id": "sess_home_lead",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "lead",
         "kind": "agent",
+        "agentId": "lead",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "Mixy home, other run of \"bob\"",
       "record": {
         "id": "sess_home_lead",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "bob",
         "kind": "agent",
+        "agentId": "bob",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home",
       "record": {
         "id": "sess_home_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "ann"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a contact home, heartbeat-marked",
       "record": {
         "id": "sess_home_ann",
         "sourceType": "exec"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "ann",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "ann"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home, schedule run of \"ann\"",
       "record": {
         "id": "sess_home_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home, webhook run of \"ann\"",
       "record": {
         "id": "sess_home_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home, webhook run of \"\"",
       "record": {
         "id": "sess_home_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home, other run of \"bob\"",
       "record": {
         "id": "sess_home_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home with a dotted id",
       "record": {
         "id": "sess_home_ann_b",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann.b",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "ann.b"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a contact home with a dotted id, heartbeat-marked",
       "record": {
         "id": "sess_home_ann_b",
         "sourceType": "exec"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "ann.b",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "ann.b"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home with a dotted id, schedule run of \"ann\"",
       "record": {
         "id": "sess_home_ann_b",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home with a dotted id, webhook run of \"ann\"",
       "record": {
         "id": "sess_home_ann_b",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home with a dotted id, webhook run of \"\"",
       "record": {
         "id": "sess_home_ann_b",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a contact home with a dotted id, other run of \"bob\"",
       "record": {
         "id": "sess_home_ann_b",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room member seat",
       "record": {
         "id": "sess_rmem_abcdef_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
-        "kind": "room-member"
+        "kind": "room-member",
+        "agentId": "ann"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a room member seat, heartbeat-marked",
       "record": {
         "id": "sess_rmem_abcdef_ann",
         "sourceType": "exec"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "ann",
-        "kind": "room-member"
+        "kind": "room-member",
+        "agentId": "ann"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room member seat, schedule run of \"ann\"",
       "record": {
         "id": "sess_rmem_abcdef_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
-        "kind": "room-member"
+        "kind": "room-member",
+        "agentId": "ann"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room member seat, webhook run of \"ann\"",
       "record": {
         "id": "sess_rmem_abcdef_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
-        "kind": "room-member"
+        "kind": "room-member",
+        "agentId": "ann"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room member seat, webhook run of \"\"",
       "record": {
         "id": "sess_rmem_abcdef_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
-        "kind": "room-member"
+        "kind": "room-member",
+        "agentId": "ann"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room member seat, other run of \"bob\"",
       "record": {
         "id": "sess_rmem_abcdef_ann",
         "sourceType": "exec"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
-        "kind": "room-member"
+        "kind": "room-member",
+        "agentId": "ann"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room log",
       "record": {
         "id": "sess_room_abcdef",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "human"
       },
       "unattended": false
     },
     {
-      "heartbeat": true,
-      "isHeartbeat": true,
       "name": "a room log, heartbeat-marked",
       "record": {
         "id": "sess_room_abcdef",
         "sourceType": "lead"
       },
+      "heartbeat": true,
       "run": null,
+      "isHeartbeat": true,
       "scope": {
-        "agentId": "lead",
-        "kind": "agent"
+        "kind": "agent",
+        "agentId": "lead"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room log, schedule run of \"ann\"",
       "record": {
         "id": "sess_room_abcdef",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "schedule"
+        "kind": "schedule",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room log, webhook run of \"ann\"",
       "record": {
         "id": "sess_room_abcdef",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "ann",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": "ann"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "ann",
         "kind": "agent",
+        "agentId": "ann",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room log, webhook run of \"\"",
       "record": {
         "id": "sess_room_abcdef",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "",
-        "kind": "webhook"
+        "kind": "webhook",
+        "agentId": ""
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "lead",
         "kind": "agent",
+        "agentId": "lead",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "a room log, other run of \"bob\"",
       "record": {
         "id": "sess_room_abcdef",
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": {
-        "agentId": "bob",
-        "kind": "other"
+        "kind": "other",
+        "agentId": "bob"
       },
+      "isHeartbeat": false,
       "scope": {
-        "agentId": "bob",
         "kind": "agent",
+        "agentId": "bob",
         "unattended": true
       },
       "unattended": true
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "no id",
       "record": {
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "no id, heartbeat-marked",
       "record": {
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "no id, schedule run of \"ann\"",
       "record": {
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "no id, webhook run of \"ann\"",
       "record": {
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "no id, webhook run of \"\"",
       "record": {
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },
       "unattended": false
     },
     {
-      "heartbeat": false,
-      "isHeartbeat": false,
       "name": "no id, other run of \"bob\"",
       "record": {
         "sourceType": "lead"
       },
+      "heartbeat": false,
       "run": null,
+      "isHeartbeat": false,
       "scope": {
         "kind": "headless"
       },

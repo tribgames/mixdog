@@ -1333,3 +1333,14 @@ async fn a_worker_snapshot_is_held_by_a_lease_and_removed_when_its_turn_settles(
     worktrees.remove_snapshot(entry["id"].as_str().unwrap(), true, &cancel).await.unwrap();
     assert!(!path.exists());
 }
+
+/// A probe that never ran is an error; it is not the answer "not a repository".
+#[tokio::test(flavor = "current_thread")]
+async fn is_repository_reports_a_probe_that_never_ran() {
+    let folder = std::env::temp_dir().join(format!("mixdog-scm-no-repo-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let (scm, cancel) = (scm(), CancellationToken::new());
+    assert!(!scm.is_repository(&folder, &cancel).await.unwrap());
+    let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+    assert!(scm.is_repository(&folder, &cancel).await.is_err());
+}

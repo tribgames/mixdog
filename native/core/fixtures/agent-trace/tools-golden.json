@@ -1,0 +1,874 @@
+{
+ "note": "recorded by benchmarks/rust-core/recorders/record-agent-trace-tools.mjs against Node (fake clock)",
+ "now": 1700000000000,
+ "cases": [
+  {
+   "sessionId": "t1",
+   "iteration": 1,
+   "toolName": "read",
+   "toolKind": "builtin",
+   "toolMs": 12,
+   "toolArgs": {
+    "file_path": "/a.txt",
+    "offset": 1,
+    "limit": 10,
+    "api_key": "sekret",
+    "extra": 1
+   },
+   "agent": "lead",
+   "resultKind": "ok",
+   "model": "m",
+   "resultText": "file content",
+   "cwd": "/w"
+  },
+  {
+   "sessionId": "t2",
+   "iteration": 2,
+   "toolName": "shell",
+   "toolKind": "builtin",
+   "toolMs": 40,
+   "toolArgs": {
+    "command": "curl -H \"Authorization: Bearer abc123\" https://user:pw123@host/x?token=zz&ok=1 --password hunter2 -p pw TOKEN=abc API_KEY = k2 --api-key=k3",
+    "cwd": "/w",
+    "timeout_ms": 1000,
+    "other": "x"
+   },
+   "resultKind": "ok",
+   "resultText": "done"
+  },
+  {
+   "sessionId": "t3",
+   "iteration": 3,
+   "toolName": "write",
+   "toolKind": "builtin",
+   "toolMs": 5,
+   "toolArgs": {
+    "path": "/f",
+    "content": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+   },
+   "resultKind": "ok",
+   "resultText": ""
+  },
+  {
+   "sessionId": "t4",
+   "iteration": 4,
+   "toolName": "grep",
+   "toolKind": "builtin",
+   "toolMs": 5000,
+   "toolArgs": {
+    "pattern": "foo",
+    "path": "src",
+    "output_mode": "content_with_context"
+   },
+   "agent": "w",
+   "resultKind": "ok",
+   "resultText": "# grep pattern:foo\n# src/a.mjs:10 [lines 9-11]\nline nine\nline ten foo\nline eleven\nsrc/b.mjs:7:hit foo\nsrc/b.mjs-8-context\nC:\\proj\\c.mjs:3:win foo\n# grep src/d.mjs\n12:omitted foo\n13-omitted ctx",
+   "cwd": "/w"
+  },
+  {
+   "sessionId": "t4b",
+   "iteration": 4,
+   "toolName": "grep",
+   "toolMs": 10,
+   "toolArgs": {
+    "pattern": "foo",
+    "path": "src/z.mjs"
+   },
+   "resultKind": "ok",
+   "resultText": "5:five foo\n6-six\n7:seven foo"
+  },
+  {
+   "sessionId": "t4c",
+   "toolName": "grep",
+   "toolMs": 10,
+   "toolArgs": {
+    "pattern": "foo",
+    "output_mode": "files_with_matches"
+   },
+   "resultKind": "ok",
+   "resultText": "a.mjs\nb.mjs"
+  },
+  {
+   "sessionId": "t5",
+   "iteration": 5,
+   "toolName": "shell",
+   "toolKind": "builtin",
+   "toolMs": 100,
+   "toolArgs": {
+    "command": "false"
+   },
+   "agent": "w",
+   "resultKind": "error",
+   "model": "m",
+   "resultText": "Error: [shell-run-failed] exit 1\n[exit code: 1]\nstderr: Authorization: Bearer topsecret token=abc",
+   "cwd": "/w"
+  },
+  {
+   "sessionId": "t6",
+   "iteration": 6,
+   "toolName": "edit",
+   "toolKind": "builtin",
+   "toolMs": 3,
+   "toolArgs": {
+    "file_path": "/a",
+    "old_string": "x",
+    "new_string": "y",
+    "replace_all": false
+   },
+   "resultKind": "error",
+   "resultText": "Error: edit failed (old_string not found in file; unreadable text follows)"
+  },
+  {
+   "sessionId": "t7",
+   "iteration": 7,
+   "toolName": "shell",
+   "toolMs": 1,
+   "toolArgs": {
+    "command": "x"
+   },
+   "resultKind": "error",
+   "resultText": "Session \"abc\" closed: aborted during call"
+  },
+  {
+   "sessionId": "t8",
+   "iteration": 8,
+   "toolName": "read",
+   "toolMs": 2,
+   "toolArgs": {
+    "path": "/nope"
+   },
+   "resultKind": "error",
+   "resultText": {
+    "content": [
+     {
+      "type": "text",
+      "text": "Error: ENOENT no such file"
+     },
+     {
+      "type": "image"
+     },
+     {
+      "type": "text",
+      "text": "second"
+     }
+    ]
+   }
+  },
+  {
+   "sessionId": "t9",
+   "iteration": 9,
+   "toolName": "web_fetch",
+   "toolMs": 2,
+   "toolArgs": {
+    "url": "https://x"
+   },
+   "resultKind": "error",
+   "resultText": "{\"ok\":false,\"error\":\"errorCode: HTTP_ERROR 500\"}"
+  },
+  {
+   "sessionId": "t10",
+   "iteration": 10,
+   "toolName": "apply_patch",
+   "toolMs": 2,
+   "toolArgs": {
+    "base_path": "/w",
+    "patch": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "dry_run": false
+   },
+   "resultKind": "error",
+   "resultText": "apply_patch failed: patch partially applied; rollback was incomplete"
+  },
+  {
+   "sessionId": "t11",
+   "iteration": 11,
+   "toolName": "read",
+   "toolMs": 2000,
+   "toolArgs": {
+    "path": "/a"
+   },
+   "resultKind": "ok",
+   "resultText": "x next_call: read({\"path\": \"b\", \"n\": {\"k\": \")\"}}) y next_call: grep({\"bad\": ) z next_call: glob( {\"p\":\"q\"} )"
+  },
+  {
+   "sessionId": "t12",
+   "iteration": 12,
+   "toolName": "code_graph",
+   "toolKind": "mcp",
+   "toolMs": 3000,
+   "toolArgs": {
+    "mode": "search",
+    "symbols": [
+     "a",
+     "b"
+    ],
+    "files": [
+     "f0",
+     "f1",
+     "f2",
+     "f3",
+     "f4",
+     "f5",
+     "f6",
+     "f7"
+    ],
+    "body": true
+   },
+   "resultKind": "ok",
+   "resultText": "ok",
+   "localSearchTelemetry": {
+    "hits": 3,
+    "ms": 4
+   },
+   "toolTiming": {
+    "dispatchStartedAt": 100,
+    "executionStartedAt": 150.4,
+    "executionCompletedAt": 400,
+    "postprocessStartedAt": "410",
+    "resultCompletedAt": 450
+   },
+   "toolBatchId": "b1",
+   "toolCallId": "c1",
+   "executionIntervals": [
+    [
+     1,
+     2
+    ],
+    [
+     3,
+     4
+    ]
+   ],
+   "resultTelemetry": {
+    "integrity": {
+     "checked": true
+    },
+    "shellMisuse": [
+     "m1"
+    ]
+   }
+  },
+  {
+   "sessionId": "t13",
+   "iteration": 13,
+   "toolName": "custom",
+   "toolKind": "mcp",
+   "toolMs": 1,
+   "toolArgs": {
+    "2": "two",
+    "10": "ten",
+    "a": {
+     "b": {
+      "c": 1
+     }
+    },
+    "list": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8
+    ],
+    "nested": [
+     [
+      1,
+      [
+       2
+      ]
+     ]
+    ],
+    "k1": 1,
+    "k2": 2,
+    "k3": 3,
+    "k4": 4,
+    "k5": 5,
+    "k6": 6,
+    "k7": 7,
+    "k8": 8,
+    "k9": 9,
+    "k10": 10
+   },
+   "resultKind": "ok",
+   "resultText": "r"
+  },
+  {
+   "sessionId": "t14",
+   "toolName": "x"
+  },
+  {
+   "sessionId": "t15",
+   "iteration": null,
+   "toolName": "edit_many",
+   "toolMs": 1,
+   "toolArgs": {
+    "edits": [
+     {
+      "file_path": "f0",
+      "old_string": "o",
+      "new_string": "n"
+     },
+     {
+      "file_path": "f1",
+      "old_string": "o",
+      "new_string": "n"
+     },
+     {
+      "file_path": "f2",
+      "old_string": "o",
+      "new_string": "n"
+     },
+     {
+      "file_path": "f3",
+      "old_string": "o",
+      "new_string": "n"
+     },
+     {
+      "file_path": "f4",
+      "old_string": "o",
+      "new_string": "n"
+     },
+     {
+      "file_path": "f5",
+      "old_string": "o",
+      "new_string": "n"
+     },
+     {
+      "file_path": "f6",
+      "old_string": "o",
+      "new_string": "n"
+     },
+     {
+      "file_path": "f7",
+      "old_string": "o",
+      "new_string": "n"
+     }
+    ],
+    "writes": [
+     1
+    ],
+    "path": [
+     "p1",
+     "p2"
+    ]
+   },
+   "resultKind": "ok",
+   "resultText": "r"
+  },
+  {
+   "sessionId": "t16",
+   "iteration": 16,
+   "toolName": "shell",
+   "toolMs": 1,
+   "toolArgs": {
+    "command": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀tail"
+   },
+   "resultKind": "error",
+   "resultText": "Error: boom éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀"
+  },
+  {
+   "sessionId": "t17",
+   "iteration": 17,
+   "toolName": "task",
+   "toolMs": "7.5",
+   "toolArgs": [
+    "positional",
+    {
+     "action": "status"
+    }
+   ],
+   "resultKind": "ok",
+   "resultText": "r"
+  },
+  {
+   "sessionId": "t18",
+   "iteration": 18,
+   "toolName": "recall",
+   "toolMs": "x",
+   "toolArgs": "text args",
+   "resultKind": "error",
+   "resultText": ""
+  },
+  {
+   "sessionId": "t19",
+   "iteration": 19,
+   "toolName": "grep",
+   "toolMs": 3000,
+   "toolArgs": {
+    "pattern": "p"
+   },
+   "resultKind": "ok",
+   "resultText": "no matches"
+  }
+ ],
+ "jsonl": "{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"m\",\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"tool_ms\":12,\"tool_args\":{\"file_path\":\"/a.txt\",\"offset\":1,\"limit\":10},\"tool_args_hash\":\"6b77702fbd631029\",\"tool_args_summary\":{\"file_path\":\"/a.txt\",\"offset\":1,\"limit\":10},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":12,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":\"/w\",\"ts\":1700000000000,\"session_id\":\"t1\"}\n{\"iteration\":2,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"shell\",\"tool_kind\":\"builtin\",\"tool_ms\":40,\"tool_args\":{\"command\":\"curl -H \\\"Authorization: Bearer [redacted] https://user:[redacted]@host/x?token=[redacted] --password [redacted] -p [redacted] TOKEN=[redacted] API_KEY = [redacted] --api-key=[redac...\",\"cwd\":\"/w\",\"timeout_ms\":1000},\"tool_args_hash\":\"168f9d99bb49c543\",\"tool_args_summary\":{\"command\":\"curl -H \\\"Authorization: Bearer [redacted] https://user:[redacted]@host/x?token=[redacted] --password [redacted] -p [redacted] TOKEN=[redacted] API_KEY = [redacted] --api-key=[redac...\",\"cwd\":\"/w\",\"timeout_ms\":1000},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":4,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t2\"}\n{\"iteration\":3,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"write\",\"tool_kind\":\"builtin\",\"tool_ms\":5,\"tool_args\":{\"path\":\"/f\"},\"tool_args_hash\":\"8d3fa897f8815adc\",\"tool_args_summary\":{\"path\":\"/f\"},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":0,\"result_lines_est\":0,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t3\"}\n{\"iteration\":4,\"kind\":\"tool\",\"agent\":\"w\",\"model\":null,\"tool_name\":\"grep\",\"tool_kind\":\"builtin\",\"tool_ms\":5000,\"tool_args\":{\"pattern\":\"foo\",\"path\":\"src\",\"output_mode\":\"content_with_context\"},\"tool_args_hash\":\"be4a7c2e7ff85928\",\"tool_args_summary\":{\"pattern\":\"foo\",\"path\":\"src\",\"output_mode\":\"content_with_context\"},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":192,\"result_lines_est\":11,\"grep_coverage\":[{\"path\":\"src/a.mjs\",\"line\":9},{\"path\":\"src/a.mjs\",\"line\":10},{\"path\":\"src/a.mjs\",\"line\":11},{\"path\":\"src/b.mjs\",\"line\":7},{\"path\":\"src/b.mjs\",\"line\":8},{\"path\":\"C:/proj/c.mjs\",\"line\":3},{\"path\":\"src\",\"line\":12},{\"path\":\"src\",\"line\":13}],\"local_search\":null,\"payload\":{},\"cwd\":\"/w\",\"ts\":1700000000000,\"session_id\":\"t4\"}\n{\"iteration\":4,\"kind\":\"tool_slow\",\"agent\":\"w\",\"model\":null,\"tool_name\":\"grep\",\"tool_kind\":\"builtin\",\"tool_ms\":5000,\"payload\":{\"threshold_ms\":3000,\"result_kind\":\"ok\",\"tool_args\":{\"pattern\":\"foo\",\"path\":\"src\",\"output_mode\":\"content_with_context\"},\"tool_args_hash\":\"be4a7c2e7ff85928\",\"tool_args_summary\":{\"pattern\":\"foo\",\"path\":\"src\",\"output_mode\":\"content_with_context\"},\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":192,\"result_lines_est\":11,\"local_search\":null,\"cwd\":\"/w\"},\"ts\":1700000000000,\"session_id\":\"t4\"}\n{\"iteration\":4,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"grep\",\"tool_ms\":10,\"tool_args\":{\"pattern\":\"foo\",\"path\":\"src/z.mjs\"},\"tool_args_hash\":\"058f75e9901e6f4a\",\"tool_args_summary\":{\"pattern\":\"foo\",\"path\":\"src/z.mjs\"},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":28,\"result_lines_est\":3,\"grep_coverage\":[{\"path\":\"src/z.mjs\",\"line\":5},{\"path\":\"src/z.mjs\",\"line\":6},{\"path\":\"src/z.mjs\",\"line\":7}],\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t4b\"}\n{\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"grep\",\"tool_ms\":10,\"tool_args\":{\"pattern\":\"foo\",\"output_mode\":\"files_with_matches\"},\"tool_args_hash\":\"cd957ae95c70d01a\",\"tool_args_summary\":{\"pattern\":\"foo\",\"output_mode\":\"files_with_matches\"},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":11,\"result_lines_est\":2,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t4c\"}\n{\"iteration\":5,\"kind\":\"tool\",\"agent\":\"w\",\"model\":\"m\",\"tool_name\":\"shell\",\"tool_kind\":\"builtin\",\"tool_ms\":100,\"tool_args\":{\"command\":\"false\"},\"tool_args_hash\":\"4822a6ea062cc397\",\"tool_args_summary\":{\"command\":\"false\"},\"result_kind\":\"error\",\"result_error_first_line\":\"Error: [shell-run-failed] exit 1\",\"result_error_category\":\"command-exit\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":97,\"result_lines_est\":3,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":\"/w\",\"ts\":1700000000000,\"session_id\":\"t5\"}\n{\"iteration\":6,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"tool_ms\":3,\"tool_args\":{\"file_path\":\"/a\",\"replace_all\":false},\"tool_args_hash\":\"091e363b6a5483e2\",\"tool_args_summary\":{\"file_path\":\"/a\",\"replace_all\":false},\"result_kind\":\"error\",\"result_error_first_line\":\"Error: edit failed (old_string not found in file; unreadable text follows)\",\"result_error_category\":\"runtime/failure\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":74,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t6\"}\n{\"iteration\":7,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"shell\",\"tool_ms\":1,\"tool_args\":{\"command\":\"x\"},\"tool_args_hash\":\"cf35b664f0e85cbf\",\"tool_args_summary\":{\"command\":\"x\"},\"result_kind\":\"error\",\"result_error_first_line\":\"Session \\\"abc\\\" closed: aborted during call\",\"result_error_category\":\"expected-cancellation\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":41,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t7\"}\n{\"iteration\":8,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"read\",\"tool_ms\":2,\"tool_args\":{\"path\":\"/nope\"},\"tool_args_hash\":\"b9ecb773e950422d\",\"tool_args_summary\":{\"path\":\"/nope\"},\"result_kind\":\"error\",\"result_error_first_line\":\"Error: ENOENT no such file\",\"result_error_category\":\"navigation/miss\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":0,\"result_lines_est\":0,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t8\"}\n{\"iteration\":9,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"web_fetch\",\"tool_ms\":2,\"tool_args\":{\"url\":\"https://x\"},\"tool_args_hash\":\"894ca098fbf643e6\",\"tool_args_summary\":{\"url\":\"https://x\"},\"result_kind\":\"error\",\"result_error_first_line\":\"errorCode: HTTP_ERROR 500\",\"result_error_category\":\"upstream/http\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":48,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t9\"}\n{\"iteration\":10,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"apply_patch\",\"tool_ms\":2,\"tool_args\":{\"base_path\":\"/w\",\"dry_run\":false},\"tool_args_hash\":\"aa40b3017de573b8\",\"tool_args_summary\":{\"base_path\":\"/w\",\"dry_run\":false},\"result_kind\":\"error\",\"result_error_first_line\":\"apply_patch failed: patch partially applied; rollback was incomplete\",\"result_error_category\":\"patch/partial-apply\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":68,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t10\"}\n{\"iteration\":11,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"read\",\"tool_ms\":2000,\"tool_args\":{\"path\":\"/a\"},\"tool_args_hash\":\"b755d9a3d6caddc4\",\"tool_args_summary\":{\"path\":\"/a\"},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":true,\"result_next_call_count\":2,\"result_bytes_est\":108,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t11\"}\n{\"iteration\":12,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"code_graph\",\"tool_kind\":\"mcp\",\"tool_ms\":3000,\"tool_args\":{\"mode\":\"search\",\"files\":[\"f0\",\"f1\",\"f2\",\"f3\",\"f4\",\"f5\"],\"symbols\":[\"a\",\"b\"],\"body\":true},\"tool_args_hash\":\"0b46ae5438730f4a\",\"tool_args_summary\":{\"mode\":\"search\",\"files\":[\"f0\",\"f1\",\"f2\",\"f3\",\"f4\",\"f5\"],\"symbols\":[\"a\",\"b\"],\"body\":true},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":2,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":{\"hits\":3,\"ms\":4},\"payload\":{\"timing\":{\"dispatch_wait_ms\":50,\"execution_ms\":250,\"result_collection_wait_ms\":10,\"postprocess_ms\":40,\"total_ms\":350},\"batch\":{\"batch_id\":\"b1\",\"tool_call_id\":\"c1\"},\"execution_intervals\":[[1,2],[3,4]],\"integrity\":{\"checked\":true},\"shell_misuse\":[\"m1\"]},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t12\"}\n{\"iteration\":12,\"kind\":\"tool_slow\",\"agent\":null,\"model\":null,\"tool_name\":\"code_graph\",\"tool_kind\":\"mcp\",\"tool_ms\":3000,\"payload\":{\"threshold_ms\":3000,\"result_kind\":\"ok\",\"tool_args\":{\"mode\":\"search\",\"files\":[\"f0\",\"f1\",\"f2\",\"f3\",\"f4\",\"f5\"],\"symbols\":[\"a\",\"b\"],\"body\":true},\"tool_args_hash\":\"0b46ae5438730f4a\",\"tool_args_summary\":{\"mode\":\"search\",\"files\":[\"f0\",\"f1\",\"f2\",\"f3\",\"f4\",\"f5\"],\"symbols\":[\"a\",\"b\"],\"body\":true},\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":2,\"result_lines_est\":1,\"local_search\":{\"hits\":3,\"ms\":4},\"cwd\":null},\"ts\":1700000000000,\"session_id\":\"t12\"}\n{\"iteration\":13,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"custom\",\"tool_kind\":\"mcp\",\"tool_ms\":1,\"tool_args\":{\"2\":\"two\",\"10\":\"ten\",\"a\":{\"b\":{\"c\":1}},\"list\":[1,2,3,4,5,6],\"nested\":[[1,\"[1 items]\"]],\"k1\":1,\"k2\":2,\"k3\":3},\"tool_args_hash\":\"efe6e8a98356d01a\",\"tool_args_summary\":{\"2\":\"two\",\"10\":\"ten\",\"a\":{\"b\":{\"c\":1}},\"list\":[1,2,3,4,5,6],\"nested\":[[1,\"[1 items]\"]],\"k1\":1,\"k2\":2,\"k3\":3},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":1,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t13\"}\n{\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"x\",\"tool_args\":null,\"tool_args_hash\":null,\"tool_args_summary\":null,\"result_kind\":null,\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":0,\"result_lines_est\":0,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t14\"}\n{\"iteration\":null,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"edit_many\",\"tool_ms\":1,\"tool_args\":{\"edits\":[{\"file_path\":\"f0\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f1\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f2\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f3\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f4\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f5\",\"old_string\":\"o\",\"new_string\":\"n\"}],\"edits_count\":8,\"writes_count\":1,\"path_count\":2},\"tool_args_hash\":\"f426a71dae5094a5\",\"tool_args_summary\":{\"edits\":[{\"file_path\":\"f0\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f1\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f2\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f3\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f4\",\"old_string\":\"o\",\"new_string\":\"n\"},{\"file_path\":\"f5\",\"old_string\":\"o\",\"new_string\":\"n\"}],\"edits_count\":8,\"writes_count\":1,\"path_count\":2},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":1,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t15\"}\n{\"iteration\":16,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"shell\",\"tool_ms\":1,\"tool_args\":{\"command\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\ud83d...\"},\"tool_args_hash\":\"6a65f24c99e7c0d2\",\"tool_args_summary\":{\"command\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\ud83d...\"},\"result_kind\":\"error\",\"result_error_first_line\":\"Error: boom éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\",\"result_error_category\":\"command-exit\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":1416,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t16\"}\n{\"iteration\":17,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"task\",\"tool_ms\":\"7.5\",\"tool_args\":null,\"tool_args_hash\":\"5a94c885983a3e61\",\"tool_args_summary\":null,\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":1,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t17\"}\n{\"iteration\":18,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"recall\",\"tool_ms\":\"x\",\"tool_args\":null,\"tool_args_hash\":null,\"tool_args_summary\":null,\"result_kind\":\"error\",\"result_error_first_line\":null,\"result_error_category\":\"runtime/failure\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":0,\"result_lines_est\":0,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t18\"}\n{\"iteration\":19,\"kind\":\"tool\",\"agent\":null,\"model\":null,\"tool_name\":\"grep\",\"tool_ms\":3000,\"tool_args\":{\"pattern\":\"p\"},\"tool_args_hash\":\"0744e9954603914d\",\"tool_args_summary\":{\"pattern\":\"p\"},\"result_kind\":\"ok\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":10,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{},\"cwd\":null,\"ts\":1700000000000,\"session_id\":\"t19\"}\n{\"iteration\":19,\"kind\":\"tool_slow\",\"agent\":null,\"model\":null,\"tool_name\":\"grep\",\"tool_ms\":3000,\"payload\":{\"threshold_ms\":3000,\"result_kind\":\"ok\",\"tool_args\":{\"pattern\":\"p\"},\"tool_args_hash\":\"0744e9954603914d\",\"tool_args_summary\":{\"pattern\":\"p\"},\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":10,\"result_lines_est\":1,\"local_search\":null,\"cwd\":null},\"ts\":1700000000000,\"session_id\":\"t19\"}\n",
+ "failures": "{\"ts\":1700000000000,\"session_id\":\"t5\",\"iteration\":5,\"tool_name\":\"shell\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"command-exit\",\"agent\":\"w\",\"model\":\"m\",\"cwd\":\"/w\",\"tool_ms\":100,\"tool_args\":{\"command\":\"false\"},\"error_first_line\":\"Error: [shell-run-failed] exit 1\",\"error_preview\":\"Error: [shell-run-failed] exit 1\\n[exit code: 1]\\nstderr: Authorization: Bearer [redacted] token=[redacted]\",\"result_bytes_est\":105,\"result_lines_est\":3}\n{\"ts\":1700000000000,\"session_id\":\"t6\",\"iteration\":6,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":null,\"cwd\":null,\"tool_ms\":3,\"tool_args\":{\"file_path\":\"/a\",\"replace_all\":false},\"error_first_line\":\"Error: edit failed (old_string not found in file; unreadable text follows)\",\"error_preview\":\"Error: edit failed (old_string not found in file; unreadable text follows)\",\"result_bytes_est\":74,\"result_lines_est\":1}\n{\"ts\":1700000000000,\"session_id\":\"t8\",\"iteration\":8,\"tool_name\":\"read\",\"tool_kind\":null,\"result_kind\":\"error\",\"category\":\"navigation/miss\",\"agent\":null,\"model\":null,\"cwd\":null,\"tool_ms\":2,\"tool_args\":{\"path\":\"/nope\"},\"error_first_line\":\"Error: ENOENT no such file\",\"error_preview\":\"Error: ENOENT no such file\\nsecond\",\"result_bytes_est\":33,\"result_lines_est\":2}\n{\"ts\":1700000000000,\"session_id\":\"t9\",\"iteration\":9,\"tool_name\":\"web_fetch\",\"tool_kind\":null,\"result_kind\":\"error\",\"category\":\"upstream/http\",\"agent\":null,\"model\":null,\"cwd\":null,\"tool_ms\":2,\"tool_args\":{\"url\":\"https://x\"},\"error_first_line\":\"errorCode: HTTP_ERROR 500\",\"error_preview\":\"{\\\"ok\\\":false,\\\"error\\\":\\\"errorCode: HTTP_ERROR 500\\\"}\",\"result_bytes_est\":48,\"result_lines_est\":1}\n{\"ts\":1700000000000,\"session_id\":\"t10\",\"iteration\":10,\"tool_name\":\"apply_patch\",\"tool_kind\":null,\"result_kind\":\"error\",\"category\":\"patch/partial-apply\",\"agent\":null,\"model\":null,\"cwd\":null,\"tool_ms\":2,\"tool_args\":{\"base_path\":\"/w\",\"dry_run\":false},\"error_first_line\":\"apply_patch failed: patch partially applied; rollback was incomplete\",\"error_preview\":\"apply_patch failed: patch partially applied; rollback was incomplete\",\"result_bytes_est\":68,\"result_lines_est\":1}\n{\"ts\":1700000000000,\"session_id\":\"t16\",\"iteration\":16,\"tool_name\":\"shell\",\"tool_kind\":null,\"result_kind\":\"error\",\"category\":\"command-exit\",\"agent\":null,\"model\":null,\"cwd\":null,\"tool_ms\":1,\"tool_args\":{\"command\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\ud83d...\"},\"error_first_line\":\"Error: boom éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\",\"error_preview\":\"Error: boom éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀\",\"result_bytes_est\":1416,\"result_lines_est\":1}\n{\"ts\":1700000000000,\"session_id\":\"t18\",\"iteration\":18,\"tool_name\":\"recall\",\"tool_kind\":null,\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":null,\"cwd\":null,\"tool_ms\":null,\"tool_args\":null,\"error_first_line\":\"\",\"error_preview\":\"\",\"result_bytes_est\":0,\"result_lines_est\":0}\n",
+ "classify": [
+  {
+   "text": "[shell-tool-failed] shell arg \"x\" is unsupported here",
+   "tool": "shell",
+   "out": "schema/args"
+  },
+  {
+   "text": "Error: [shell-tool-failed] spawn broke",
+   "tool": "shell",
+   "out": "tool-call/failure"
+  },
+  {
+   "text": "[shell-run-failed] [timeout: 5s] x",
+   "tool": "shell",
+   "out": "timeout/abort"
+  },
+  {
+   "text": "[shell-run-failed] cause: timeout",
+   "tool": "shell",
+   "out": "timeout/abort"
+  },
+  {
+   "text": "[shell-run-failed] cause: output-limit",
+   "tool": "shell",
+   "out": "runtime/failure"
+  },
+  {
+   "text": "[shell-run-failed] [signal: SIGKILL]",
+   "tool": "shell",
+   "out": "process/signal"
+  },
+  {
+   "text": "[shell-run-failed] exit 2",
+   "tool": "shell",
+   "out": "command-exit"
+  },
+  {
+   "text": "edit failed (old_string not found in file: unreadable)",
+   "tool": "edit",
+   "out": "runtime/failure"
+  },
+  {
+   "text": "edit failed (old_string found 3 times)",
+   "tool": "edit",
+   "out": "runtime/failure"
+  },
+  {
+   "text": "read compacted-history placeholder",
+   "tool": "read",
+   "out": "expected-preflight"
+  },
+  {
+   "text": "x [tool-input-validation] bad",
+   "tool": "read",
+   "out": "schema/args"
+  },
+  {
+   "text": "Browser command interrupted by local user input.",
+   "tool": "browser",
+   "out": "expected-cancellation"
+  },
+  {
+   "text": "Error: computer_session_aborted: closed",
+   "tool": "computer",
+   "out": "expected-cancellation"
+  },
+  {
+   "text": "The arguments provided to `edit` are invalid JSON and could not be parsed: x",
+   "tool": "edit",
+   "out": "schema/args"
+  },
+  {
+   "text": "goal task exceeds 500 characters",
+   "tool": "goal",
+   "out": "schema/args"
+  },
+  {
+   "text": "goal tasks support at most 20 entries; got 30",
+   "tool": "goal",
+   "out": "schema/args"
+  },
+  {
+   "text": "Unsupported field for GitHub issues.list.",
+   "tool": "github",
+   "out": "schema/args"
+  },
+  {
+   "text": "browser action \"click\" requires input.",
+   "tool": "browser",
+   "out": "schema/args"
+  },
+  {
+   "text": "Computer Use click must be integer",
+   "tool": "computer",
+   "out": "schema/args"
+  },
+  {
+   "text": "regex parse error: oops",
+   "tool": "grep",
+   "out": "schema/args"
+  },
+  {
+   "text": "errorCode: HTTP_ERROR 502",
+   "tool": "web_fetch",
+   "out": "upstream/http"
+  },
+  {
+   "text": "generation failed on x provider failed (503): y",
+   "tool": "media",
+   "out": "upstream/http"
+  },
+  {
+   "text": "Web search failed: native web search failed: x: runtime is closing",
+   "tool": "web_search",
+   "out": "lifecycle/closing"
+  },
+  {
+   "text": "apply_patch: patch partially applied",
+   "tool": "apply_patch",
+   "out": "patch/partial-apply"
+  },
+  {
+   "text": "apply_patch: add file target already exists",
+   "tool": "apply_patch",
+   "out": "expected-preflight"
+  },
+  {
+   "text": "advisory lock timeout waiting",
+   "tool": "edit",
+   "out": "resource/lock"
+  },
+  {
+   "text": "EACCES: permission denied",
+   "tool": "read",
+   "out": "path/permission"
+  },
+  {
+   "text": "apply_patch: patch too large (byte cap)",
+   "tool": "apply_patch",
+   "out": "patch/limit"
+  },
+  {
+   "text": "apply_patch: multiple operations target one file",
+   "tool": "apply_patch",
+   "out": "patch/duplicate-target"
+  },
+  {
+   "text": "apply_patch: hunk rejected: nearest line 4",
+   "tool": "apply_patch",
+   "out": "patch/stale-context"
+  },
+  {
+   "text": "apply_patch: context not found",
+   "tool": "apply_patch",
+   "out": "patch/context"
+  },
+  {
+   "text": "apply_patch: V4A parse failed",
+   "tool": "apply_patch",
+   "out": "patch/parse"
+  },
+  {
+   "text": "apply_patch: contained no file sections",
+   "tool": "apply_patch",
+   "out": "patch/parse"
+  },
+  {
+   "text": "apply_patch: target(s) fall outside the write root",
+   "tool": "apply_patch",
+   "out": "path/outside-root"
+  },
+  {
+   "text": "apply_patch: target unreadable",
+   "tool": "apply_patch",
+   "out": "path/enoent"
+  },
+  {
+   "text": "apply_patch: preflight rejected: x",
+   "tool": "apply_patch",
+   "out": "patch/verification"
+  },
+  {
+   "text": "apply_patch: stat x for delete y (os error 2)",
+   "tool": "apply_patch",
+   "out": "path/enoent"
+  },
+  {
+   "text": "requires either path or query",
+   "tool": "recall",
+   "out": "schema/args"
+  },
+  {
+   "text": "value must be a string",
+   "tool": "recall",
+   "out": "schema/args"
+  },
+  {
+   "text": "tool is not allowed here",
+   "tool": "x",
+   "out": "permission"
+  },
+  {
+   "text": "anything",
+   "tool": "shell",
+   "out": "command-exit"
+  },
+  {
+   "text": "[exit code: 2]\nout",
+   "tool": "x",
+   "out": "command-exit"
+  },
+  {
+   "text": "Error: no such file or directory",
+   "tool": "read",
+   "out": "navigation/miss"
+  },
+  {
+   "text": "symbol \"foo\" not found in graph",
+   "tool": "code_graph",
+   "out": "navigation/miss"
+  },
+  {
+   "text": "executable not found in this environment",
+   "tool": "x",
+   "out": "environment/unavailable"
+  },
+  {
+   "text": "file not found in graph",
+   "tool": "x",
+   "out": "path/enoent"
+  },
+  {
+   "text": "request timed out",
+   "tool": "x",
+   "out": "timeout/abort"
+  },
+  {
+   "text": "unknown tool abc",
+   "tool": "x",
+   "out": "tool-surface"
+  },
+  {
+   "text": "something odd",
+   "tool": "x",
+   "out": "runtime/failure"
+  },
+  {
+   "text": "{\"ok\":false,\"error\":\"permission denied\"}",
+   "tool": "x",
+   "out": "path/permission"
+  },
+  {
+   "text": "Session \"s\" closed: closed during call",
+   "tool": "x",
+   "out": "expected-cancellation"
+  },
+  {
+   "text": "UNKNOWN TOOL abc",
+   "tool": "x",
+   "out": "tool-surface"
+  },
+  {
+   "text": "TİMEOUT happened",
+   "tool": "x",
+   "out": "runtime/failure"
+  },
+  {
+   "text": "TIMEOUT happened",
+   "tool": "x",
+   "out": "timeout/abort"
+  },
+  {
+   "text": "ENOENT no such file",
+   "tool": "GREP",
+   "out": "navigation/miss"
+  },
+  {
+   "text": "ENOENT no such file",
+   "tool": "GRİP",
+   "out": "path/enoent"
+  },
+  {
+   "text": "İNVALID ARGUMENTS",
+   "tool": "x",
+   "out": "runtime/failure"
+  },
+  {
+   "text": "INVALID ARGUMENTS",
+   "tool": "x",
+   "out": "schema/args"
+  },
+  {
+   "text": "ΑΣ NOT ALLOWED",
+   "tool": "x",
+   "out": "permission"
+  },
+  {
+   "text": {
+    "content": [
+     {
+      "type": "text",
+      "text": "Error: ENOENT"
+     }
+    ]
+   },
+   "tool": "read",
+   "out": "navigation/miss"
+  },
+  {
+   "text": null,
+   "tool": "x",
+   "out": "runtime/failure"
+  },
+  {
+   "text": [
+    "a",
+    "b"
+   ],
+   "tool": "x",
+   "out": "runtime/failure"
+  },
+  {
+   "text": {
+    "a": 1
+   },
+   "tool": "x",
+   "out": "runtime/failure"
+  }
+ ],
+ "summarize": [
+  {
+   "tool": "read",
+   "args": {
+    "file_path": "/a",
+    "secret": "x",
+    "offset": 3
+   },
+   "out": {
+    "file_path": "/a",
+    "offset": 3
+   }
+  },
+  {
+   "tool": "custom",
+   "args": {
+    "a": 1,
+    "token": "z",
+    "body": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+    "list": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7
+    ],
+    "deep": {
+     "x": {
+      "y": 1
+     }
+    },
+    "deeper": [
+     [
+      [
+       1
+      ]
+     ]
+    ]
+   },
+   "out": {
+    "a": 1,
+    "token": "[redacted]",
+    "body": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq...",
+    "list": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "deep": {
+     "x": {
+      "y": 1
+     }
+    },
+    "deeper": [
+     [
+      "[1 items]"
+     ]
+    ]
+   }
+  },
+  {
+   "tool": "shell",
+   "args": {
+    "command": "run --token=abc"
+   },
+   "out": {
+    "command": "run --token=[redacted]"
+   }
+  },
+  {
+   "tool": "x",
+   "args": null,
+   "out": null
+  },
+  {
+   "tool": "x",
+   "args": "str",
+   "out": null
+  },
+  {
+   "tool": "x",
+   "args": [],
+   "out": null
+  },
+  {
+   "tool": "x",
+   "args": {},
+   "out": null
+  },
+  {
+   "tool": "",
+   "args": {
+    "only": "one"
+   },
+   "out": {
+    "only": "one"
+   }
+  }
+ ],
+ "nextCalls": [
+  {
+   "text": "",
+   "n": 0
+  },
+  {
+   "text": "none",
+   "n": 0
+  },
+  {
+   "text": "next_call: read({\"a\":1})",
+   "n": 1
+  },
+  {
+   "text": "next_call:read( {\"a\":{\"b\":\")\"}} )",
+   "n": 1
+  },
+  {
+   "text": "next_call: read({\"a\":1}",
+   "n": 0
+  },
+  {
+   "text": "next_call: read({\"a\":})",
+   "n": 0
+  },
+  {
+   "text": "next_call: 1x({})",
+   "n": 0
+  },
+  {
+   "text": "next_call: a({}) next_call: b({\"x\":\"\\\"}\"})",
+   "n": 2
+  }
+ ]
+}

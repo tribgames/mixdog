@@ -98,8 +98,10 @@ pub trait RouteSession: Send + Sync {
     /// `rebuildToolSurfaceForProviderWithMigration`.
     async fn rebuild_tool_surface(&self, thread: &ThreadId, provider: &str) -> Result<(), PortError>;
     /// The fallback chain of a Lead-class session on `provider/model` (`ownerRouteFallbacks`);
-    /// `None` for a session with no owner agent (an agent's session keeps its own).
-    async fn owner_fallbacks(&self, thread: &ThreadId, header: &Header, provider: &str, model: &str) -> Option<Vec<Value>>;
+    /// `None` for a session with no owner agent (an agent's session keeps its own). `Err` when
+    /// the bot route store could not be read: the switch then fails rather than take a chain
+    /// from the wrong source.
+    async fn owner_fallbacks(&self, thread: &ThreadId, header: &Header, provider: &str, model: &str) -> Result<Option<Vec<Value>>, PortError>;
     /// `writeStatuslineRoute`.
     fn write_statusline(&self, thread: &ThreadId, route: &Route);
     /// `invalidateContextStatusCache`.
@@ -259,12 +261,12 @@ impl SessionRoutes {
         Ok(messages.iter().any(|m| m.get("role").and_then(Value::as_str) == Some("assistant") || is_summary_anchor(m)))
     }
 
-    async fn fallback_fields(&self, thread: &ThreadId, header: &Header, route: &Route) -> Route {
+    async fn fallback_fields(&self, thread: &ThreadId, header: &Header, route: &Route) -> Result<Route, PortError> {
         let mut fields = Route::new();
-        if let Some(chain) = self.session.owner_fallbacks(thread, header, text(route, "provider"), text(route, "model")).await {
+        if let Some(chain) = self.session.owner_fallbacks(thread, header, text(route, "provider"), text(route, "model")).await? {
             fields.insert("routeFallbacks".into(), Value::Array(chain));
         }
-        fields
+        Ok(fields)
     }
 
     /// `updateSessionInPlace`: the addressed session takes the route it was asked to run on.
@@ -286,7 +288,7 @@ impl SessionRoutes {
         }
         fields.insert("contextTokens".into(), or_null("contextTokens"));
         fields.insert("selectedContextWindow".into(), or_null("selectedContextWindow"));
-        fields.extend(self.fallback_fields(thread, header, &route).await);
+        fields.extend(self.fallback_fields(thread, header, &route).await?);
         if !self.session.update_route(thread, fields.clone(), cross_provider).await? {
             self.threads.patch_header(thread, fields, Vec::new()).await?;
         }
@@ -324,7 +326,7 @@ impl SessionRoutes {
     /// `refreshSessionFallbacks`: a same-model selection restarts the chain when the owner's no
     /// longer matches the session's.
     async fn refresh_fallbacks(&self, thread: &ThreadId, header: &Header) -> Result<(), PortError> {
-        let fields = self.fallback_fields(thread, header, &self.live.route(thread)).await;
+        let fields = self.fallback_fields(thread, header, &self.live.route(thread)).await?;
         let Some(chain) = fields.get("routeFallbacks") else { return Ok(()) };
         let held = header.get("routeFallbacks").filter(|v| truthy(Some(*v))).cloned().unwrap_or(Value::Array(Vec::new()));
         if mixdog_js::json_stringify(chain) == mixdog_js::json_stringify(&held) {
@@ -639,8 +641,8 @@ mod tests {
             self.calls.log(format!("surface {provider}"));
             Ok(())
         }
-        async fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Option<Vec<Value>> {
-            None
+        async fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Result<Option<Vec<Value>>, PortError> {
+            Ok(None)
         }
         fn write_statusline(&self, _: &ThreadId, _: &Route) {
             self.calls.log("statusline");

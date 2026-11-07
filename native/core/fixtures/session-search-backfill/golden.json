@@ -1,0 +1,141 @@
+{
+  "files": {
+    "sess_child.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"bf37ce192955ce34d4d2b5be\",\"id\":\"sess_child\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_child\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"parentSessionId\":\"sess_plain\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"Where is the heron survey stored?\",\"ts\":1700000001000}]}\n",
+    "sess_compacted.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"beef47429706f88e75624bc7\",\"id\":\"sess_compacted\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_compacted\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"Where is the heron survey stored?\",\"ts\":1700000001000},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"survey.md\\\"}\"}}],\"ts\":1700000002000},{\"role\":\"tool\",\"tool_call_id\":\"call_1\",\"content\":\"heron survey: 14 nests\",\"ts\":1700000003000},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"The heron survey lists 14 nests.\"}],\"timestamp\":\"2023-11-14T22:13:24.000Z\"},{\"role\":\"user\",\"content\":\"Thanks <system-reminder>hidden note</system-reminder> noted.\",\"ts\":1700000005000}]}\n{\"t\":\"compacted\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"Summary: the heron survey lists 14 nests.\",\"ts\":1700000006000},{\"role\":\"assistant\",\"content\":\"Continuing from the summary.\",\"ts\":1700000007000}]}\n",
+    "sess_declared.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"6c979dc14513cd8b64c776fa\",\"id\":\"sess_declared\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_declared\",\"owner\":\"user\",\"agent\":\"reviewer\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"visibility\":\"agent-only\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"Where is the heron survey stored?\",\"ts\":1700000001000}]}\n",
+    "sess_legacy.json": "{\"id\":\"sess_legacy\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"messages\":[{\"role\":\"user\",\"content\":\"Where is the heron survey stored?\",\"ts\":1700000001000},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"survey.md\\\"}\"}}],\"ts\":1700000002000}]}",
+    "sess_plain.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"a95db812e004dfbcbb0b96f8\",\"id\":\"sess_plain\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_plain\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"Where is the heron survey stored?\",\"ts\":1700000001000},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"survey.md\\\"}\"}}],\"ts\":1700000002000},{\"role\":\"tool\",\"tool_call_id\":\"call_1\",\"content\":\"heron survey: 14 nests\",\"ts\":1700000003000}]}\n{\"t\":\"compacted\",\"s\":2,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"Where is the heron survey stored?\",\"ts\":1700000001000},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"survey.md\\\"}\"}}],\"ts\":1700000002000},{\"role\":\"tool\",\"tool_call_id\":\"call_1\",\"content\":\"heron survey: 14 nests\",\"ts\":1700000003000},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"The heron survey lists 14 nests.\"}],\"timestamp\":\"2023-11-14T22:13:24.000Z\"},{\"role\":\"user\",\"content\":\"Thanks <system-reminder>hidden note</system-reminder> noted.\",\"ts\":1700000005000}]}\n",
+    "sess_rootlead.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"bdfd444ca37dcd2f23f55e45\",\"id\":\"sess_rootlead\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_rootlead\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"ownerSessionId\":\"sess_rootlead\",\"visibility\":\"agent-only\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"The heron survey lists 14 nests.\"}],\"timestamp\":\"2023-11-14T22:13:24.000Z\"},{\"role\":\"user\",\"content\":\"Thanks <system-reminder>hidden note</system-reminder> noted.\",\"ts\":1700000005000}]}\n"
+  },
+  "sessions": [
+    {
+      "agentOnly": true,
+      "id": "sess_child",
+      "read": "sess_child",
+      "rows": [
+        {
+          "content": "Where is the heron survey stored?",
+          "ordinal": 0,
+          "role": "user",
+          "sessionId": "sess_child",
+          "sourceRef": "session:sess_child:358f2538a86308a42378e8c9",
+          "ts": 1700000001000
+        }
+      ],
+      "stamped": true
+    },
+    {
+      "agentOnly": false,
+      "id": "sess_compacted",
+      "read": "sess_compacted",
+      "rows": [
+        {
+          "content": "Summary: the heron survey lists 14 nests.",
+          "ordinal": 0,
+          "role": "user",
+          "sessionId": "sess_compacted",
+          "sourceRef": "session:sess_compacted:fbcf577ea7392a74e5e58037",
+          "ts": 1700000006000
+        },
+        {
+          "content": "Continuing from the summary.",
+          "ordinal": 1,
+          "role": "assistant",
+          "sessionId": "sess_compacted",
+          "sourceRef": "session:sess_compacted:c286af3a2682b800dd358976",
+          "ts": 1700000007000
+        }
+      ],
+      "stamped": true
+    },
+    {
+      "agentOnly": true,
+      "id": "sess_declared",
+      "read": "sess_declared",
+      "rows": [
+        {
+          "content": "Where is the heron survey stored?",
+          "ordinal": 0,
+          "role": "user",
+          "sessionId": "sess_declared",
+          "sourceRef": "session:sess_declared:358f2538a86308a42378e8c9",
+          "ts": 1700000001000
+        }
+      ],
+      "stamped": true
+    },
+    {
+      "agentOnly": false,
+      "id": "sess_legacy",
+      "read": "sess_legacy",
+      "rows": [
+        {
+          "content": "Where is the heron survey stored?",
+          "ordinal": 0,
+          "role": "user",
+          "sessionId": "sess_legacy",
+          "sourceRef": "session:sess_legacy:358f2538a86308a42378e8c9",
+          "ts": 1700000001000
+        }
+      ],
+      "stamped": true
+    },
+    {
+      "agentOnly": false,
+      "id": "sess_plain",
+      "read": "sess_plain",
+      "rows": [
+        {
+          "content": "Where is the heron survey stored?",
+          "ordinal": 0,
+          "role": "user",
+          "sessionId": "sess_plain",
+          "sourceRef": "session:sess_plain:358f2538a86308a42378e8c9",
+          "ts": 1700000001000
+        },
+        {
+          "content": "The heron survey lists 14 nests.",
+          "ordinal": 3,
+          "role": "assistant",
+          "sessionId": "sess_plain",
+          "sourceRef": "session:sess_plain:96176553f529c1a6b0b65c07",
+          "ts": 1700000004000
+        },
+        {
+          "content": "Thanks   noted.",
+          "ordinal": 4,
+          "role": "user",
+          "sessionId": "sess_plain",
+          "sourceRef": "session:sess_plain:bd5e643289650ae74843b429",
+          "ts": 1700000005000
+        }
+      ],
+      "stamped": true
+    },
+    {
+      "agentOnly": false,
+      "id": "sess_rootlead",
+      "read": "sess_rootlead",
+      "rows": [
+        {
+          "content": "The heron survey lists 14 nests.",
+          "ordinal": 0,
+          "role": "assistant",
+          "sessionId": "sess_rootlead",
+          "sourceRef": "session:sess_rootlead:96176553f529c1a6b0b65c07",
+          "ts": 1700000004000
+        },
+        {
+          "content": "Thanks   noted.",
+          "ordinal": 1,
+          "role": "user",
+          "sessionId": "sess_rootlead",
+          "sourceRef": "session:sess_rootlead:bd5e643289650ae74843b429",
+          "ts": 1700000005000
+        }
+      ],
+      "stamped": true
+    }
+  ],
+  "stampChangesOnSave": true
+}

@@ -80,13 +80,6 @@ impl mixdog_core_api::DesktopPresence for Outgoing {
     }
 }
 
-impl mixdog_core_api::SessionSurfaces for Outgoing {
-    fn surface_on(&self, thread: &mixdog_core_api::ids::ThreadId) -> bool {
-        let feed = FeedId::from(thread.as_str());
-        self.all_connections().iter().any(|conn| conn.is_surface_on(&feed))
-    }
-}
-
 struct Claim {
     host: HostId,
     generation: u64,

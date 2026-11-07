@@ -129,20 +129,19 @@ impl RosterSnapshot {
     }
 
     /// Reads every roster file as a lane job; an absent or unreadable file
-    /// is no rows.
-    pub async fn load(dir: &Path, io: &CredentialIo) -> Self {
+    /// is no rows. `None` when a read job never ran: that is not "no rows", and the
+    /// caller keeps the snapshot it already has.
+    pub async fn load(dir: &Path, io: &CredentialIo) -> Option<Self> {
         let reads = ALL_FILES.iter().map(|name| {
             let path = dir.join(name);
             let job = io.read.submit(&CancellationToken::new(), move |_| read_file(&path).map(|b| parse_rows(&b)));
             async move {
-                let rows = match job {
-                    Ok(job) => job.await.ok().flatten().unwrap_or_default(),
-                    Err(_) => Vec::new(),
-                };
-                ((*name).to_owned(), rows)
+                let rows = job.ok()?.await.ok()?.unwrap_or_default();
+                Some(((*name).to_owned(), rows))
             }
         });
-        Self::from_rows(futures::future::join_all(reads).await)
+        let files = futures::future::join_all(reads).await.into_iter().collect::<Option<Vec<_>>>()?;
+        Some(Self::from_rows(files))
     }
 
     /// `getProviderCachedModelSync`: the first row of the provider's files

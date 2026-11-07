@@ -1,0 +1,415 @@
+{
+  "cases": [
+    {
+      "name": "split-full",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+        "bp3EnvironmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.\n\n---\n\n# Language\n\nReply in Korean."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+          "cacheTier": "tier3"
+        },
+        {
+          "role": "system",
+          "content": "# Session\nCwd: {WORK}\\repo\nModel: GPT-5.5\n\n---\n\n- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.\n\n---\n\n# Language\n\nReply in Korean.",
+          "cacheTier": "env"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\repo",
+        "environmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+        "coreMemoryContext": "Name: Sam\n\nLikes tea.",
+        "instructionFilesContext": "# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs."
+      }
+    },
+    {
+      "name": "combined-full",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+        "bp3EnvironmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.\n\n---\n\n# Language\n\nReply in Korean."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.\n\n---\n\n# Session\nCwd: {WORK}\\repo\nModel: GPT-5.5\n\n---\n\n- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.\n\n---\n\n# Language\n\nReply in Korean.",
+          "cacheTier": "tier3"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\repo",
+        "environmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+        "coreMemoryContext": "Name: Sam\n\nLikes tea.",
+        "instructionFilesContext": "# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs."
+      }
+    },
+    {
+      "name": "split-session-cwd-wins",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+        "bp3EnvironmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+          "cacheTier": "tier3"
+        },
+        {
+          "role": "system",
+          "content": "# Session\nCwd: {WORK}\\rooted\nModel: GPT-5.5\n\n---\n\n- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+          "cacheTier": "env"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\rooted",
+        "environmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+        "coreMemoryContext": "Name: Sam\n\nLikes tea.",
+        "instructionFilesContext": ""
+      }
+    },
+    {
+      "name": "split-not-refreshed-worker-cwd",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.",
+        "bp3EnvironmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.",
+          "cacheTier": "tier3"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\repo",
+        "environmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+        "coreMemoryContext": "",
+        "instructionFilesContext": "# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs."
+      }
+    },
+    {
+      "name": "legacy-core-order",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.",
+        "bp3EnvironmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.",
+          "cacheTier": "tier3"
+        },
+        {
+          "role": "system",
+          "content": "# Session\nCwd: {WORK}\\repo\nModel: GPT-5.5\n\n---\n\n- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+          "cacheTier": "env"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\repo",
+        "environmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+        "coreMemoryContext": "Name: Sam\n\nLikes tea.",
+        "instructionFilesContext": "# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs."
+      }
+    },
+    {
+      "name": "tail-without-facts",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+        "bp3EnvironmentContext": "# Language\n\nReply in Korean."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+          "cacheTier": "tier3"
+        },
+        {
+          "role": "system",
+          "content": "# Session\nCwd: {WORK}\\repo\nModel: GPT-5.5\n\n---\n\n# Language\n\nReply in Korean.",
+          "cacheTier": "env"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\repo",
+        "environmentContext": "",
+        "coreMemoryContext": "Name: Sam\n\nLikes tea.",
+        "instructionFilesContext": ""
+      }
+    },
+    {
+      "name": "agent-owner-no-session-block",
+      "header": {
+        "owner": "agent",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.",
+        "bp3EnvironmentContext": "- Shell: Bash."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.",
+          "cacheTier": "tier3"
+        },
+        {
+          "role": "system",
+          "content": "- Shell: Bash.",
+          "cacheTier": "env"
+        }
+      ],
+      "presented": {
+        "cwd": null,
+        "environmentContext": "- Shell: Bash.",
+        "coreMemoryContext": "",
+        "instructionFilesContext": ""
+      }
+    },
+    {
+      "name": "no-tail",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+          "cacheTier": "tier3"
+        }
+      ],
+      "presented": {
+        "cwd": null,
+        "environmentContext": "",
+        "coreMemoryContext": "Name: Sam\n\nLikes tea.",
+        "instructionFilesContext": ""
+      }
+    },
+    {
+      "name": "no-tier3-message",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+        "bp3EnvironmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Session\nCwd: {WORK}\\repo\nModel: GPT-5.5\n\n---\n\n- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+          "cacheTier": "env"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\repo",
+        "environmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+        "coreMemoryContext": "",
+        "instructionFilesContext": ""
+      }
+    },
+    {
+      "name": "spaced-facts-cwd",
+      "header": {
+        "owner": "agent",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.",
+        "bp3EnvironmentContext": "- Cwd:   {WORK}\\repo  — the active Project root; relative paths and shell commands resolve here.\n- Shell: Bash."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.",
+          "cacheTier": "tier3"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\repo",
+        "environmentContext": "- Cwd:   {WORK}\\repo  — the active Project root; relative paths and shell commands resolve here.\n- Shell: Bash.",
+        "coreMemoryContext": "",
+        "instructionFilesContext": ""
+      }
+    },
+    {
+      "name": "empty-memory-heading",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3EnvSplit": true,
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\n",
+        "bp3EnvironmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Core Memory\n",
+          "cacheTier": "tier3"
+        },
+        {
+          "role": "system",
+          "content": "# Session\nCwd: {WORK}\\repo\nModel: GPT-5.5\n\n---\n\n- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+          "cacheTier": "env"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\repo",
+        "environmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+        "coreMemoryContext": "",
+        "instructionFilesContext": ""
+      }
+    },
+    {
+      "name": "combined-not-refreshed",
+      "header": {
+        "owner": "cli",
+        "cwd": "{WORK}\\repo",
+        "model": "gpt-5.5-2026-01-02",
+        "bp3CoreContext": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+        "bp3EnvironmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean."
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "# Rules\n\nBase rules."
+        },
+        {
+          "role": "system",
+          "content": "# Meta\n\nStable."
+        },
+        {
+          "role": "system",
+          "content": "# Active Workflow: Coding\n\nWork in small steps.\n\n---\n\n# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs.\n\n---\n\n# Core Memory\nName: Sam\n\nLikes tea.",
+          "cacheTier": "tier3"
+        }
+      ],
+      "presented": {
+        "cwd": "{WORK}\\repo",
+        "environmentContext": "- Cwd: {WORK}\\repo — the active Project root; relative paths and shell commands resolve here.\n- Shell: PowerShell.\n- Git startup state: clean.",
+        "coreMemoryContext": "Name: Sam\n\nLikes tea.",
+        "instructionFilesContext": "# Instruction Files\n\n## C:/work/AGENTS.md\n\nBe careful.\n\n---\n\n## C:/work/proj/CLAUDE.md\n\nUse tabs."
+      }
+    }
+  ]
+}

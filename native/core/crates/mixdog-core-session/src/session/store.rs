@@ -248,6 +248,16 @@ impl StoreThreads {
         self.sessions.join(session)
     }
 
+    /// `<data>/sessions`: one folder per stored session.
+    pub(crate) fn sessions_dir(&self) -> &Path {
+        &self.sessions
+    }
+
+    /// The core's index the thread store projects into.
+    pub(crate) fn index(&self) -> &SqliteStore {
+        &self.index
+    }
+
     fn not_found(id: &ThreadId) -> CoreError {
         CoreError::ThreadNotFound {
             thread_id: id.clone(),
@@ -499,17 +509,21 @@ impl SessionSearchTurns {
     }
 }
 
-/// What one completed turn hands the session-search writer: the session's model context, and
-/// `isAgentOnlySession` (store-summary-visibility.mjs) of its header.
+/// What the session-search writer takes of a session: its model context, and
+/// `isAgentOnlySession` (store-summary-visibility.mjs) of the session record. Node's record is
+/// the header with its `id` (`{ ...header, id }`); a stored header carries no `id`, and a root
+/// Lead is recognized by its owner link naming that id.
 pub(crate) fn search_session(
     id: &ThreadId,
     header: &mixdog_store::schema::record::Header,
     messages: Vec<Value>,
 ) -> mixdog_services::memory::session_search::ingest::IngestSession {
+    let mut session = header.clone();
+    session.insert("id".into(), Value::String(id.as_str().to_owned()));
     mixdog_services::memory::session_search::ingest::IngestSession {
         id: id.as_str().to_owned(),
         messages,
-        agent_only: mixdog_store::summary::session_visibility(header) == "agent-only",
+        agent_only: mixdog_store::summary::session_visibility(&session) == "agent-only",
     }
 }
 

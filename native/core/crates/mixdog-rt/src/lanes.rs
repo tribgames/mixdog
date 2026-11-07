@@ -73,6 +73,21 @@ impl std::fmt::Display for LaneFull {
 
 impl std::error::Error for LaneFull {}
 
+/// Every worker of the lane is stuck in a job that outlived its lease (F1): the lane accepts no
+/// work until a stuck job returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LaneWedged {
+    pub lane: LaneKind,
+}
+
+impl std::fmt::Display for LaneWedged {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "lane {} wedged", self.lane.name())
+    }
+}
+
+impl std::error::Error for LaneWedged {}
+
 /// Why [`crate::LaneToken::submit_wait`] gave up without enqueuing the job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubmitWaitError {
@@ -80,6 +95,8 @@ pub enum SubmitWaitError {
     Cancelled,
     /// The backend cannot signal free capacity, so waiting is impossible.
     Full(LaneFull),
+    /// The lane has no healthy worker left, so waiting for room would never end.
+    Wedged(LaneWedged),
 }
 
 impl std::fmt::Display for SubmitWaitError {
@@ -87,6 +104,7 @@ impl std::fmt::Display for SubmitWaitError {
         match self {
             SubmitWaitError::Cancelled => f.write_str("cancelled while waiting for lane capacity"),
             SubmitWaitError::Full(full) => full.fmt(f),
+            SubmitWaitError::Wedged(wedged) => wedged.fmt(f),
         }
     }
 }
@@ -146,7 +164,8 @@ impl QueuedJob {
     }
 }
 
-/// The job was dropped before producing a result: cancelled at dequeue, or it panicked.
+/// The job was dropped before producing a result: cancelled at dequeue, discarded unrun by a
+/// wedged lane, or it panicked. Except for a panic, the job never ran.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct JobDropped;
 
@@ -159,7 +178,9 @@ impl std::fmt::Display for JobDropped {
 impl std::error::Error for JobDropped {}
 
 /// Result of a submitted job. Cancel-safe: dropping the handle does not cancel the job; the
-/// job's [`CancellationToken`] does.
+/// job's [`CancellationToken`] does. A running job's handle resolves only when the job ends,
+/// however late: a lane lease never abandons a running job, because its effect (a committed
+/// write) may still happen and the caller must not be told it did not.
 pub struct JobHandle<R> {
     rx: oneshot::Receiver<R>,
 }

@@ -54,6 +54,32 @@ pub async fn remove_dir<L: LaneToken>(lane: L, path: &Path) -> io::Result<()> {
     io_on_lane(lane, move || std::fs::remove_dir(path)).await
 }
 
+/// The names directly inside `path`; a directory that cannot be read has none (`readdirSync` in a
+/// `try`).
+#[allow(clippy::disallowed_methods, reason = "the call is a lane job")]
+pub async fn list_names<L: LaneToken>(lane: L, path: &Path) -> Vec<String> {
+    let path = path.to_owned();
+    let names = io_on_lane(lane, move || match std::fs::read_dir(path) {
+        Ok(read) => Ok(read.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect()),
+        Err(_) => Ok(Vec::new()),
+    })
+    .await;
+    names.unwrap_or_default()
+}
+
+/// Makes the file runnable (`chmodSync(path, 0o755)`, best effort); nothing to do off Unix.
+#[allow(clippy::disallowed_methods, reason = "the call is a lane job")]
+pub async fn make_executable<L: LaneToken>(lane: L, path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = path.to_owned();
+        let _ = io_on_lane(lane, move || std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))).await;
+    }
+    #[cfg(not(unix))]
+    let _ = (lane, path);
+}
+
 /// Whether `path` exists; a lane failure is an error, not "absent".
 #[allow(clippy::disallowed_methods, reason = "the call is a lane job")]
 pub async fn exists<L: LaneToken>(lane: L, path: &Path) -> io::Result<bool> {

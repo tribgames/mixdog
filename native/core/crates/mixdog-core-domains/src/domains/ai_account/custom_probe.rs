@@ -69,7 +69,7 @@ pub trait CustomProbeHost: Send + Sync {
     async fn create(&self, id: &str, config: &Value, api_key: &str) -> Result<Arc<dyn CustomEndpoint>, Failure>;
 
     /// `customProviderKeyIds(id)`: the additional keys saved for a provider.
-    async fn key_ids(&self, id: &str) -> Vec<String>;
+    async fn key_ids(&self, id: &str) -> Result<Vec<String>, Failure>;
 
     /// `process.env[name]`.
     fn env(&self, name: &str) -> Option<String>;
@@ -221,7 +221,7 @@ impl CustomProbes {
             && resolved.config.get("apiKeyEnv").and_then(Value::as_str).is_none_or(str::is_empty)
             && resolved.config.get("auth").and_then(Value::as_str) != Some("none");
         let key_ids = match (&resolved.id, own_keys) {
-            (Some(id), true) => self.host.key_ids(id).await,
+            (Some(id), true) => self.host.key_ids(id).await.map_err(|failure| thrown(failure.message()))?,
             _ => Vec::new(),
         };
         let served = bounded(provider.send_test(&model, &key_ids), TEST_TIMEOUT, "connection test")

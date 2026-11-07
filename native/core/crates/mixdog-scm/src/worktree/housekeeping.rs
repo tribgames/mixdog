@@ -215,6 +215,7 @@ fn unrecorded_links(record: &WorktreeRecord) -> Result<Vec<String>, (&'static st
         };
         for entry in entries.filter_map(|e| e.ok()) {
             scanned += 1;
+            mixdog_rt::job_progress();
             if scanned > LINK_SCAN_LIMIT {
                 return Err((
                     "too-many-entries",

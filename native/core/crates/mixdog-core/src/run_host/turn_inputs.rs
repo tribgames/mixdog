@@ -15,11 +15,11 @@ use std::sync::Arc;
 
 use mixdog_ai::catalog::CatalogService;
 use mixdog_core_config::config::is_store_bot;
-use mixdog_rt::{CancellationToken, InLane, InteractiveIo, LaneToken};
+use mixdog_rt::{CancellationToken, InLane, InteractiveIo};
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value};
 
-use mixdog_core_run::run_host::route_chain::BotRoutes;
+use mixdog_core_run::run_host::route_chain::{BotRoutes, RouteReadUnavailable};
 use super::settings::{OutputCeilingSource, OutputCeilings};
 
 const BOTS_DIR: &str = "bots";
@@ -40,10 +40,11 @@ impl BotRouteStore {
         Self { reads: Arc::new(BotReads { data_dir: data_dir.into() }), io }
     }
 
-    /// One lane job; a lane that cannot run it answers as a store with nothing in it.
-    async fn on_lane<T: Send + 'static>(&self, read: impl FnOnce(&BotReads, &InLane<InteractiveIo>) -> T + Send + 'static) -> Option<T> {
+    /// One lane job. A lane that cannot run it is an error, never a store with nothing in it:
+    /// "no route" would hand the bot's turn to the config's route, a different model.
+    async fn on_lane<T: Send + 'static>(&self, read: impl FnOnce(&BotReads, &InLane<InteractiveIo>) -> T + Send + 'static) -> Result<T, RouteReadUnavailable> {
         let reads = self.reads.clone();
-        self.io.submit(&CancellationToken::new(), move |lane| read(&reads, lane)).ok()?.await.ok()
+        mixdog_core_base::support::on_lane(self.io, &CancellationToken::new(), move |lane| read(&reads, lane)).await.map_err(|_| RouteReadUnavailable)
     }
 }
 
@@ -79,15 +80,15 @@ impl BotReads {
 #[async_trait::async_trait]
 impl BotRoutes for BotRouteStore {
     /// `readBotRoute`: `None` when `agent_id` is no store bot, `Some(None)` for a bot without a route.
-    async fn bot_route(&self, agent_id: &str) -> Option<Option<Value>> {
+    async fn bot_route(&self, agent_id: &str) -> Result<Option<Option<Value>>, RouteReadUnavailable> {
         let id = agent_id.to_owned();
-        self.on_lane(move |reads, lane| reads.bot_route(lane, &id)).await.flatten()
+        self.on_lane(move |reads, lane| reads.bot_route(lane, &id)).await
     }
 
     /// `storedBotRoute`: Mixy (runtime id `lead`) reads `bots/mixy`.
-    async fn stored_bot_route(&self, agent_id: &str) -> Option<Value> {
+    async fn stored_bot_route(&self, agent_id: &str) -> Result<Option<Value>, RouteReadUnavailable> {
         let id = agent_id.to_owned();
-        self.on_lane(move |reads, lane| reads.stored_bot_route(lane, &id)).await.flatten()
+        self.on_lane(move |reads, lane| reads.stored_bot_route(lane, &id)).await
     }
 }
 
@@ -188,21 +189,21 @@ mod tests {
         let store = BotRouteStore::new(data, io());
         write(data.join("bots/botty/agent.json"), r#"{"route":{"provider":"xai","model":"grok-4","fallbacks":[{"provider":"a","model":"b"}]},"x":1}"#);
         // Before the split nobody is a store bot: the config decides.
-        assert_eq!(store.bot_route("botty").await, None);
+        assert_eq!(store.bot_route("botty").await.unwrap(), None);
         write(data.join("bots/migration.json"), r#"{"version":1,"bots":["moved"]}"#);
-        assert_eq!(store.bot_route("botty").await, Some(Some(json!({"provider":"xai","model":"grok-4","fallbacks":[{"provider":"a","model":"b"}]}))));
+        assert_eq!(store.bot_route("botty").await.unwrap(), Some(Some(json!({"provider":"xai","model":"grok-4","fallbacks":[{"provider":"a","model":"b"}]}))));
         // A bot the split moved but without a folder has no route; an unknown id is no bot.
-        assert_eq!(store.bot_route("moved").await, Some(None));
-        assert_eq!(store.bot_route("stranger").await, None);
+        assert_eq!(store.bot_route("moved").await.unwrap(), Some(None));
+        assert_eq!(store.bot_route("stranger").await.unwrap(), None);
         // A route without a model is not a route.
         write(data.join("bots/half/agent.json"), r#"{"route":{"provider":"xai"}}"#);
-        assert_eq!(store.bot_route("half").await, Some(None));
+        assert_eq!(store.bot_route("half").await.unwrap(), Some(None));
         // Mixy is no ordinary bot; the Lead's runtime id reads Mixy's folder.
         write(data.join("bots/mixy/agent.json"), r#"{"route":{"provider":"openai","model":"gpt-5"}}"#);
-        assert_eq!(store.bot_route("mixy").await, None);
-        assert_eq!(store.stored_bot_route("lead").await, Some(json!({"provider":"openai","model":"gpt-5"})));
-        assert_eq!(store.stored_bot_route("botty").await.unwrap()["model"], "grok-4");
-        assert_eq!(store.stored_bot_route("stranger").await, None);
+        assert_eq!(store.bot_route("mixy").await.unwrap(), None);
+        assert_eq!(store.stored_bot_route("lead").await.unwrap(), Some(json!({"provider":"openai","model":"gpt-5"})));
+        assert_eq!(store.stored_bot_route("botty").await.unwrap().unwrap()["model"], "grok-4");
+        assert_eq!(store.stored_bot_route("stranger").await.unwrap(), None);
     }
 
     /// Node's watcher cache invalidates on every change, so an edit is seen by the next read.
@@ -213,9 +214,9 @@ mod tests {
         write(data.join("bots/migration.json"), r#"{"version":1}"#);
         write(data.join("bots/botty/agent.json"), r#"{"route":{"provider":"p","model":"one"}}"#);
         let store = BotRouteStore::new(data, io());
-        assert_eq!(store.stored_bot_route("botty").await.unwrap()["model"], "one");
+        assert_eq!(store.stored_bot_route("botty").await.unwrap().unwrap()["model"], "one");
         write(data.join("bots/botty/agent.json"), r#"{"route":{"provider":"p","model":"two"}}"#);
-        assert_eq!(store.stored_bot_route("botty").await.unwrap()["model"], "two");
+        assert_eq!(store.stored_bot_route("botty").await.unwrap().unwrap()["model"], "two");
     }
 
     #[tokio::test]
@@ -225,13 +226,13 @@ mod tests {
         write(data.join("bots/migration.json"), r#"{"version":1}"#);
         write(data.join("bots/botty/agent.json"), "{ not json");
         write(data.join("bots/botty/agent.json.bak"), r#"{"route":{"provider":"p","model":"m"}}"#);
-        assert_eq!(BotRouteStore::new(data, io()).bot_route("botty").await, Some(Some(json!({"provider":"p","model":"m"}))));
+        assert_eq!(BotRouteStore::new(data, io()).bot_route("botty").await.unwrap(), Some(Some(json!({"provider":"p","model":"m"}))));
     }
 
     #[tokio::test]
     async fn no_data_dir_means_no_bots() {
         let store = BotRouteStore::new("", io());
-        assert_eq!((store.bot_route("botty").await, store.stored_bot_route("lead").await), (None, None));
+        assert_eq!((store.bot_route("botty").await.unwrap(), store.stored_bot_route("lead").await.unwrap()), (None, None));
     }
 
     #[test]
