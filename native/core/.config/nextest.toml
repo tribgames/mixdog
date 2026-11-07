@@ -29,3 +29,11 @@ test-group = 'pg-cluster'
 [[profile.default.overrides]]
 filter = 'package(mixdog-core-session) & (test(=project::tests::every_recorded_step_equals_nodes_over_real_state) | test(=session::worktree::worktree_service_tests::the_safety_scenarios_leave_the_git_and_disk_state_nodes_left))'
 threads-required = 'num-test-threads'
+
+# DS-WS-5 gates a real latency: an external write must reach the subscriber within 400 ms (250 ms of that is the watcher's batching
+# window). The OS watch cannot be given a clock, so the claim can only be measured on a machine that is not busy; beside the git replays
+# of mixdog-scm (chains of git processes, 15-60 s each) the test's setup took 6 s longer than alone and no event came in 3 s. It
+# takes every test thread, so it runs alone.
+[[profile.default.overrides]]
+filter = 'package(mixdog-workspace) & test(=nothing_runs_while_idle_and_external_writes_are_pushed)'
+threads-required = 'num-test-threads'

@@ -320,6 +320,8 @@ async fn interrupted_batch_is_listed_inspected_and_restored_to_the_pre_image() {
 #[tokio::test(flavor = "multi_thread")]
 async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() {
     let env = env();
+    // No event can reach the watcher before the watch exists, so every flush is at least a window after this instant.
+    let began = std::time::Instant::now();
     let reply = env
         .service
         .call(request("fs/watch", json!({ "watchId": "w1", "path": env.root.to_string_lossy(), "recursive": true })))
@@ -340,7 +342,11 @@ async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() 
         (0..300).all(|i| all.contains(&format!("t{i}.txt")))
     };
     let frames: Vec<String> = conn.drain_text_until(covered).await.into_iter().filter(|f| f.contains("fs/changed")).collect();
-    assert!((1..=5).contains(&frames.len()), "{} notifications", frames.len());
+    // A batch is flushed one window after the first event it holds and the next batch starts after that flush, so n
+    // notifications need n windows. The count is bounded by how long the burst took, whatever the disk's speed; a watcher that
+    // announced each event on its own would send hundreds in the same time.
+    let windows = began.elapsed().as_millis() / u128::from(mixdog_workspace::watch::BATCH_WINDOW_MS);
+    assert!(!frames.is_empty() && frames.len() as u128 <= windows, "{} notifications in {windows} windows", frames.len());
     let all = frames.join("");
     assert!((0..300).all(|i| all.contains(&format!("t{i}.txt"))), "every path is covered");
     env.service.connection_closed(&ConnectionId(1));
