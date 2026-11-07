@@ -149,6 +149,9 @@ pub struct ResponsesDecoder {
     compat: bool,
     /// `state.model`: the model the response named (`response.created`, a terminal frame).
     model: Option<String>,
+    /// The runtime label Node prefixes to a stream error (`errLabel`, `httpLabel`, the compatible route's
+    /// `<provider>:responses`); empty: no prefix.
+    label: String,
 }
 
 fn str_of<'a>(value: &'a Value, key: &str) -> &'a str {
@@ -311,6 +314,7 @@ impl ResponsesDecoder {
             reasoning_ids: HashSet::new(),
             compat: false,
             model: None,
+            label: String::new(),
         }
     }
 
@@ -543,6 +547,16 @@ impl ResponsesDecoder {
         } else {
             Collector::HttpSse
         }
+    }
+
+    /// The label Node's collector puts in front of every error text of this stream.
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    fn labelled(&self, text: String) -> String {
+        if self.label.is_empty() { text } else { format!("{} {text}", self.label) }
     }
 
     /// The stream of a compatible route over HTTP/SSE, which Node folds in `openai-compat-responses-events`.
@@ -1009,14 +1023,21 @@ impl ResponsesDecoder {
                 // clean length stop.
                 self.terminal = true;
                 let mut err = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-                err.message = if collector == Collector::Compat {
-                    format!("incomplete ({reason}) with tool call in flight")
+                err.message = self.labelled(if collector == Collector::Compat {
+                    format!("SSE stream truncated: incomplete ({reason}) with tool call in flight")
                 } else {
                     format!("{frame} (max_output_tokens) with tool call in flight")
-                };
+                });
                 err.code = Some(reason);
                 let mut err = self.billed(self.fail(err), response, true);
                 err.exposure.tool_input_cut = true;
+                // Only the WebSocket collector keeps the replay of what it had finished (`partialState`).
+                if collector == Collector::WebSocket && !self.outcome.output_items.is_empty() {
+                    err.partial_replay = Some(Box::new(ProviderReplay {
+                        owner: self.replay_owner.clone(),
+                        items: Value::Array(self.outcome.output_items.clone()),
+                    }));
+                }
                 return Err(err);
             }
             self.finish_turn(response, Some(StopReason::MaxTokens), out);
@@ -1029,7 +1050,7 @@ impl ResponsesDecoder {
             ErrorKind::Unknown
         };
         let mut err = ProviderError::new(kind, DeliveryState::Accepted);
-        err.message = if collector == Collector::Compat { format!("stream {frame}: {reason}") } else { format!("{frame}: {reason}") };
+        err.message = self.labelled(if collector == Collector::Compat { format!("stream {frame}: {reason}") } else { format!("{frame}: {reason}") });
         err.code = Some(reason.to_ascii_lowercase());
         // The WebSocket collector's plain failure carries the billed usage only.
         let with_model = collector != Collector::WebSocket;
@@ -1130,13 +1151,14 @@ mod progress_tests {
                 "ws" => Framing::WebSocket,
                 _ => Framing::Sse,
             };
-            let mut decoder = ResponsesDecoder::new(framing, Arc::new(Ctx), ProviderId::from("openai"));
+            let mut decoder = ResponsesDecoder::new(framing, Arc::new(Ctx), ProviderId::from("openai")).with_label(scenario["framing"].as_str().expect("framing"));
             if scenario["framing"] == "compat" {
                 decoder = decoder.compat_events();
             }
             let at = |step: &Value| format!("{} / {}: {}", scenario["framing"], scenario["name"], step["wire"]);
             let mut failure = None;
             let mut stop = None;
+            let mut streamed = Vec::new();
             for step in scenario["steps"].as_array().expect("steps") {
                 let unit = match framing {
                     Framing::WebSocket => step["wire"].to_string(),
@@ -1145,6 +1167,7 @@ mod progress_tests {
                 match decoder.feed(unit.as_bytes()) {
                     Ok(events) => {
                         assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", at(step));
+                        streamed.extend(events.iter().cloned());
                         for event in &events {
                             if let StreamEvent::Completed { stop: reason, .. } = event {
                                 stop = Some(reason.clone());
@@ -1170,10 +1193,22 @@ mod progress_tests {
                 (Value::Null, Some(error)) => panic!("{} / {name}: unexpected {error:?}", scenario["framing"]),
                 (node, Some(error)) => {
                     let label = format!("{} / {name}", scenario["framing"]);
-                    assert!(node["message"].as_str().expect("message").ends_with(&error.message), "{label}: {} vs {}", node["message"], error.message);
+                    assert_eq!(node["message"].as_str(), Some(error.message.as_str()), "{label}");
                     assert_eq!(error.exposure.tool_input_cut, node["pendingToolUse"] == true, "{label}");
                     assert_eq!(error.partial_usage.is_some(), node["partialUsage"] == true, "{label}");
                     assert_eq!(error.partial_model.as_deref(), node["partialModel"].as_str(), "{label}");
+                    // What the cut stream kept (`partialContent`, `partialToolCalls`, `partialProviderReplay`): the loop's builder
+                    // folds the first two from the events, the error carries the replay.
+                    let content: String = streamed.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(t.as_str()) } else { None }).collect();
+                    assert_eq!(Some(content.as_str()), node["partial"]["content"].as_str().or(Some("")), "{label}: content");
+                    let calls: Vec<&str> = streamed.iter().filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(c.id.as_str()) } else { None }).collect();
+                    let node_calls: Vec<&str> = node["partial"]["calls"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+                    assert_eq!(calls, node_calls, "{label}: calls");
+                    let replay: Option<Vec<&str>> = error.partial_replay.as_ref().and_then(|r| r.items.as_array()).map(|items| {
+                        items.iter().filter_map(|i| ["id", "call_id", "type"].iter().find_map(|k| i.get(*k).and_then(Value::as_str))).collect()
+                    });
+                    let node_replay: Option<Vec<&str>> = node["partial"]["replay"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect());
+                    assert_eq!(replay, node_replay, "{label}: replay");
                     if let Some(reason) = node["incompleteReason"].as_str() {
                         assert_eq!(error.code.as_deref().map(str::to_lowercase), Some(reason.to_lowercase()), "{label}");
                     }

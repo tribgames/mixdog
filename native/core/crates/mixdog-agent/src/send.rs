@@ -329,9 +329,16 @@ impl Run {
     ) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
         let mut builder = ResponseBuilder::new(&self.model, ToolCallIds::new(&self.messages));
         let fail = |error: ProviderError, builder: ResponseBuilder, midstream, shown, reasoning| {
+            let mut partial = builder.finish();
+            // What the provider kept of a cut stream beyond the events (`partialProviderReplay`).
+            if partial.replay.is_empty()
+                && let Some(replay) = &error.partial_replay
+            {
+                partial.replay.push((**replay).clone());
+            }
             Err(Box::new(Failure {
                 error,
-                partial: builder.finish(),
+                partial,
                 midstream,
                 shown_chars: shown,
                 reasoning_shown: reasoning,
@@ -398,9 +405,16 @@ impl Run {
         mut builder: ResponseBuilder,
     ) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
         let fail = |error: ProviderError, builder: ResponseBuilder, midstream, shown, reasoning| {
+            let mut partial = builder.finish();
+            // What the provider kept of a cut stream beyond the events (`partialProviderReplay`).
+            if partial.replay.is_empty()
+                && let Some(replay) = &error.partial_replay
+            {
+                partial.replay.push((**replay).clone());
+            }
             Err(Box::new(Failure {
                 error,
-                partial: builder.finish(),
+                partial,
                 midstream,
                 shown_chars: shown,
                 reasoning_shown: reasoning,
