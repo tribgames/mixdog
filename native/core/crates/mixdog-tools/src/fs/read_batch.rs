@@ -46,7 +46,7 @@ pub(super) fn merge_overlapping(entries: Vec<WEntry>, key: &dyn Fn(&str) -> Stri
     let mut by_path: Vec<(String, Vec<(usize, u64, u64)>)> = Vec::new();
     for (i, e) in entries.iter().enumerate() {
         let k = key(&e.path);
-        let item = (i, e.offset, e.offset + e.limit.max(1));
+        let item = (i, e.offset, e.offset.saturating_add(e.limit.max(1)));
         match by_path.iter_mut().find(|(p, _)| *p == k) {
             Some((_, items)) => items.push(item),
             None => by_path.push((k, vec![item])),
@@ -99,7 +99,7 @@ pub(super) fn coalesce(entries: Vec<WEntry>, key: &dyn Fn(&str) -> String) -> Ve
     let mut groups: Vec<(String, Vec<(usize, u64, u64)>)> = Vec::new();
     for (i, e) in entries.iter().enumerate() {
         let k = key(&e.path);
-        let item = (i, e.offset, e.offset + e.limit);
+        let item = (i, e.offset, e.offset.saturating_add(e.limit));
         match groups.iter_mut().find(|(p, _)| *p == k) {
             Some((_, items)) => items.push(item),
             None => groups.push((k, vec![item])),
@@ -110,7 +110,7 @@ pub(super) fn coalesce(entries: Vec<WEntry>, key: &dyn Fn(&str) -> String) -> Ve
         let mut clusters: Vec<(u64, u64, Vec<usize>)> = Vec::new();
         for (index, offset, end) in items {
             match clusters.last_mut() {
-                Some(c) if offset <= c.1 + COALESCE_GAP_LINES => {
+                Some(c) if offset <= c.1.saturating_add(COALESCE_GAP_LINES) => {
                     c.1 = c.1.max(end);
                     c.2.push(index);
                 }
@@ -217,7 +217,8 @@ fn marker(from: u64, to: u64, total: Option<u64>, next: Option<u64>) -> String {
 /// `sliceReadBodyByLines`: cut one caller's window `[off+1, off+lim]` out of a union read's body.
 pub(super) fn slice_read_body(body: &str, off: u64, lim: u64, base: u64) -> String {
     let first_line = off + 1;
-    let last_line = off + lim;
+    // An unbounded caller window (`limit:0`) reaches to the end of the file.
+    let last_line = off.saturating_add(lim);
     let mut kept: Vec<&str> = Vec::new();
     let mut footer_idx: Option<usize> = None;
     let (mut min_seen, mut max_seen) = (u64::MAX, 0_u64);
