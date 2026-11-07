@@ -232,8 +232,7 @@ fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
 }
 
 /// Largest staged upload and its chunk size (`shared/server-files.ts`).
-const UPLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
-const UPLOAD_CHUNK_BYTES: u64 = 2 * 1024 * 1024;
+use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES};
 
 fn opt_bool(params: &Value, key: &str) -> bool {
     params.get(key).and_then(Value::as_bool).unwrap_or(false)
@@ -363,7 +362,7 @@ impl WorkspaceService {
             },
             Reason::Overloaded => CoreError::QueueFull { queue: "workspace".into() },
             Reason::Cancelled => CoreError::Cancelled { by: "caller".into() },
-            ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), message: None, detail: None },
+            ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), message: Some(error.message.clone().into()), detail: None },
         }
     }
 
@@ -779,13 +778,12 @@ impl WorkspaceService {
             }
             "transfer/writeChunk" => {
                 let id = s(params, "transferId")?.to_owned();
-                let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(s(params, "bytesB64")?)
-                    .map_err(|_| WsError::invalid("bytesB64 is invalid."))?;
+                // Validated in `Transfers::write_chunk`, in Node's order and with its sentences.
+                let offset = params.get("offset").and_then(Value::as_u64);
+                let encoded = params.get("bytesB64").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let written = run_fallible(self.lanes.durability, &cancel, move || t.write_chunk(&owner, &id, offset, &bytes)).await?;
-                value(json!({ "written": written }))
+                let received = run_fallible(self.lanes.durability, &cancel, move || t.write_chunk(&owner, &id, offset, &encoded)).await?;
+                value(json!({ "received": received }))
             }
             "transfer/commit" => {
                 let id = s(params, "transferId")?.to_owned();

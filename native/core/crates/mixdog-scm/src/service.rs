@@ -376,6 +376,38 @@ impl ScmService {
         if params.known.as_deref() == Some(key.as_str()) {
             return Ok(json!({ "key": key, "unchanged": true }));
         }
+        // `gitReviewDiffs`: one answer for the whole list, `{patches, omitted}` as Node builds it.
+        if base_name.is_some() && params.files.is_some() {
+            let requested: Vec<review::BatchFile> = params
+                .files
+                .iter()
+                .flatten()
+                .filter_map(|file| {
+                    Some(review::BatchFile {
+                        path: file.get("path")?.as_str()?.to_owned(),
+                        untracked: file.get("untracked").and_then(Value::as_bool) == Some(true),
+                    })
+                })
+                .collect();
+            let mut held: HashMap<String, String> = HashMap::new();
+            let mut pending = None;
+            for file in &requested {
+                if review::batch_unmatchable(&file.path) || held.contains_key(&file.path) {
+                    continue;
+                }
+                match self.scm.inspector.review_page(&summary.key, Some(&file.path), None).map_err(crate::mutate::scm_error)? {
+                    Cached::Ready(page) => {
+                        held.insert(file.path.clone(), page.patch);
+                    }
+                    Cached::Pending { key } => pending = Some(key_text(&key)),
+                }
+            }
+            let mut reply = review::review_batch(&requested, |path| held.get(path).cloned().unwrap_or_default());
+            if let Some(key) = pending {
+                reply["pending"] = json!({ "key": key });
+            }
+            return Ok(reply);
+        }
         let files: Vec<Value> = summary
             .files
             .iter()
@@ -415,14 +447,6 @@ impl ScmService {
             }
         }
         if let Some(name) = base_name {
-            // `gitReviewDiffs`: `{patches, omitted}`.
-            if params.files.is_some() {
-                let mut shaped = json!({ "patches": out["patches"], "omitted": [] });
-                if let Some(pending) = out.get("pending") {
-                    shaped["pending"] = pending.clone();
-                }
-                return Ok(shaped);
-            }
             // `gitReviewDiff`: the patch text itself.
             if params.path.is_some() {
                 return Ok(match out.get("patch") {

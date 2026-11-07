@@ -102,7 +102,7 @@ sections! {
     Notice => "notice", "notice/updated", App, keyed: true;
     /// Update status (core updater and the desktop's `host/update/report`).
     Update => "update", "update/status/updated", App, keyed: false;
-    /// Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences`.
+    /// Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences` (desktop-published), or `remoteViewing` (core-published: the session ids paired devices show).
     HostState => "hostState", "host/state/updated", App, keyed: true;
     /// Computer use: `{active, observeOnly, controller, sessionThreadId}` (R40).
     Computer => "computer", "computer/updated", App, keyed: false;

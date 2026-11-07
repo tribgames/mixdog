@@ -20,6 +20,8 @@ pub enum Reason {
     Changed,
     Expired,
     Busy,
+    /// An upload chunk that does not start where the received bytes end.
+    OutOfOrder,
     FolderTooLarge,
     /// A `RECOVERY_*` code of the recovery journal.
     Recovery(&'static str),
@@ -44,6 +46,7 @@ impl Reason {
             Self::Changed => "changed",
             Self::Expired => "expired",
             Self::Busy => "busy",
+            Self::OutOfOrder => "outOfOrder",
             Self::FolderTooLarge => "folderTooLarge",
             Self::Recovery(code) => code,
             Self::InvalidEncoding => "invalidEncoding",

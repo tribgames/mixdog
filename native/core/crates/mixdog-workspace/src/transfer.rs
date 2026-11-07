@@ -33,6 +33,10 @@ use crate::pathguard::canonical;
 use crate::pathguard::project_entry_path;
 
 pub const RANGE_MAX_BYTES: u64 = 4 * 1024 * 1024;
+/// Raw bytes of one upload chunk at most (`SERVER_UPLOAD_CHUNK_BYTES`).
+pub const UPLOAD_CHUNK_BYTES: u64 = 2 * 1024 * 1024;
+/// Largest upload (`SERVER_UPLOAD_MAX_BYTES`).
+pub const UPLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
 pub const ZIP_MAX_BYTES: u64 = 64 * 1024 * 1024;
 pub const ZIP_MAX_FILES: usize = 2_000;
 const MAX_OPEN_READS: usize = 64;
@@ -96,6 +100,8 @@ struct Upload {
     written: u64,
     /// A staged upload: the name is made unique at commit (name (2).ext) instead of refused.
     unique: bool,
+    /// A chunk is being written (Node's `upload.writing`): a second one is refused, not queued.
+    writing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -328,7 +334,7 @@ impl Transfers {
         self.writes
             .lock()
             .expect("transfer writes")
-            .insert(id.clone(), Upload { owner: owner.to_owned(), temp, target, file, size, written: 0, unique: false });
+            .insert(id.clone(), Upload { owner: owner.to_owned(), temp, target, file, size, written: 0, unique: false, writing: false });
         Ok(id)
     }
 
@@ -341,22 +347,65 @@ impl Transfers {
         let file = File::options().write(true).create_new(true).open(&temp)?;
         self.writes.lock().expect("transfer writes").insert(
             id.clone(),
-            Upload { owner: owner.to_owned(), temp, target: dir.join(upload_file_name(name)), file, size, written: 0, unique: true },
+            Upload { owner: owner.to_owned(), temp, target: dir.join(upload_file_name(name)), file, size, written: 0, unique: true, writing: false },
         );
         Ok(id)
     }
 
-    pub fn write_chunk(&self, owner: &str, id: &str, offset: u64, bytes: &[u8]) -> WsResult<u64> {
+    /// `serverUploadChunk(id, offset, data)`, check for check as Node orders them: the upload
+    /// must exist, the offset must be an integer within the declared size, the data canonical
+    /// base64 of 1..=[`UPLOAD_CHUNK_BYTES`] bytes. A chunk the upload already holds as its last
+    /// one is acknowledged, not rewritten; one that does not start at the received bytes is out
+    /// of order; one that arrives while another is being written is refused; one that would pass
+    /// the declared size discards the upload. Answers the bytes received.
+    pub fn write_chunk(&self, owner: &str, id: &str, offset: Option<u64>, encoded: &str) -> WsResult<u64> {
+        let (file, bytes) = {
+            let mut writes = self.writes.lock().expect("transfer writes");
+            let (size, written, writing) = {
+                let write = writes.get(id).filter(|w| w.owner == owner).ok_or_else(upload_gone)?;
+                (write.size, write.written, write.writing)
+            };
+            let offset = offset.filter(|offset| *offset <= size).ok_or_else(|| WsError::invalid("offset is invalid."))?;
+            let bytes = decode_chunk(encoded)?;
+            let length = bytes.len() as u64;
+            if offset < written && offset + length == written {
+                return Ok(written);
+            }
+            if offset != written {
+                return Err(WsError::new(Reason::OutOfOrder, "The upload chunk is out of order."));
+            }
+            if writing {
+                return Err(WsError::new(Reason::Busy, "The upload is already writing a chunk."));
+            }
+            if written + length > size {
+                if let Some(discarded) = writes.remove(id) {
+                    let _ = std::fs::remove_file(discarded.temp);
+                }
+                return Err(WsError::new(Reason::TooLarge, "The upload is larger than it declared."));
+            }
+            let write = writes.get_mut(id).expect("checked above");
+            let file = write.file.try_clone()?;
+            write.writing = true;
+            (file, bytes)
+        };
+        // The write runs outside the table lock so a second chunk meets `writing` instead of waiting.
+        let outcome = (&file).write_all(&bytes);
         let mut writes = self.writes.lock().expect("transfer writes");
-        let write = writes.get_mut(id).filter(|w| w.owner == owner).ok_or_else(WsError::expired)?;
-        if offset != write.written || write.written + bytes.len() as u64 > write.size {
-            return Err(WsError::invalid("Upload chunk is out of order."));
+        match outcome {
+            Ok(()) => {
+                let write = writes.get_mut(id).ok_or_else(upload_gone)?;
+                write.written += bytes.len() as u64;
+                write.writing = false;
+                Ok(write.written)
+            }
+            Err(error) => {
+                if let Some(discarded) = writes.remove(id) {
+                    let _ = std::fs::remove_file(discarded.temp);
+                }
+                Err(error.into())
+            }
         }
-        write.file.write_all(bytes)?;
-        write.written += bytes.len() as u64;
-        Ok(write.written)
     }
-
     pub fn commit(&self, owner: &str, id: &str) -> WsResult<(u64, PathBuf)> {
         let write = {
             let mut writes = self.writes.lock().expect("transfer writes");
@@ -419,6 +468,19 @@ impl Transfers {
 
 pub type SharedTransfers = Arc<Transfers>;
 
+fn upload_gone() -> WsError {
+    WsError::new(Reason::Expired, "The upload is gone: it was cancelled or sat idle too long.")
+}
+
+/// The bytes of one base64 upload chunk, which must round-trip exactly (`decodeUploadChunk`).
+fn decode_chunk(encoded: &str) -> WsResult<Vec<u8>> {
+    let invalid = || WsError::invalid("chunk data is invalid.");
+    let bytes = STANDARD.decode(encoded).map_err(|_| invalid())?;
+    if bytes.is_empty() || bytes.len() as u64 > UPLOAD_CHUNK_BYTES || STANDARD.encode(&bytes) != encoded {
+        return Err(invalid());
+    }
+    Ok(bytes)
+}
 /// `serverFileReadRange(root, rel, offset, length)`: one stateless read of up to
 /// [`RANGE_MAX_BYTES`] at `offset`, as `{data, offset, size, mtimeMs}` (`data` base64).
 pub fn read_path_range(root: &Path, rel: &str, offset: u64, length: u64) -> WsResult<serde_json::Value> {
@@ -535,15 +597,55 @@ mod tests {
         assert!(base.path().exists() && opened.size == 3);
     }
 
+    /// Node's `serverUploadChunk` outcomes, recorded by `fixtures/desktop/chunks/record.mjs`.
+    #[test]
+    fn chunk_outcomes_match_the_recorded_node_cases() {
+        let recorded: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/desktop/chunks/corpus.json"
+        )))
+        .unwrap();
+        let case = |label: &str| {
+            recorded["cases"].as_array().unwrap().iter().find(|c| c["label"] == label).unwrap_or_else(|| panic!("{label}")).clone()
+        };
+        // The answer must equal the recorded one: bytes received, or the recorded message.
+        let same = |recorded: &serde_json::Value, got: WsResult<u64>| match recorded.get("ok") {
+            Some(ok) => assert_eq!(got.unwrap(), ok["received"].as_u64().unwrap(), "{recorded}"),
+            None => assert_eq!(got.unwrap_err().message, recorded["error"]["message"].as_str().unwrap(), "{recorded}"),
+        };
+        let (_d, root) = project();
+        let t = Transfers::default();
+        let id = t.begin_write("o", &root, "up.txt", 4).unwrap();
+        let small = t.begin_write("o", &root, "small.txt", 2).unwrap();
+        same(&case("first chunk"), t.write_chunk("o", &id, Some(0), "aGk="));
+        same(&case("retry of the last chunk"), t.write_chunk("o", &id, Some(0), "aGk="));
+        same(&case("chunk ahead of the received bytes"), t.write_chunk("o", &id, Some(3), "aGk="));
+        same(&case("data that is not canonical base64"), t.write_chunk("o", &id, Some(2), "!!"));
+        same(&case("empty data"), t.write_chunk("o", &id, Some(2), ""));
+        same(&case("offset past the declared size"), t.write_chunk("o", &id, Some(5), "aGk="));
+        same(&case("offset that is not an integer"), t.write_chunk("o", &id, None, "aGk="));
+        same(&case("unknown upload"), t.write_chunk("o", "nope", Some(0), "aGk="));
+        // Two chunks at one offset at once: the second meets the first mid-write.
+        let both = case("two chunks at the same offset at once");
+        t.writes.lock().unwrap().get_mut(&id).unwrap().writing = true;
+        same(&both["results"][1], t.write_chunk("o", &id, Some(2), "aGk="));
+        t.writes.lock().unwrap().get_mut(&id).unwrap().writing = false;
+        same(&both["results"][0], t.write_chunk("o", &id, Some(2), "aGk="));
+        same(&case("retry after the upload completed"), t.write_chunk("o", &id, Some(2), "aGk="));
+        same(&case("chunk larger than declared"), t.write_chunk("o", &small, Some(0), "YWJj"));
+        same(&case("the upload is gone after that"), t.write_chunk("o", &small, Some(0), "YWI="));
+    }
+
     #[test]
     fn path_outside_is_refused_and_upload_commits_by_rename() {
         let (_d, root) = project();
         let t = Transfers::default();
         assert!(t.begin_project_read("o", &root, "../x").is_err());
         let id = t.begin_write("o", &root, "in/up.txt", 5).unwrap();
-        t.write_chunk("o", &id, 0, b"he").unwrap();
-        assert!(t.write_chunk("o", &id, 0, b"xx").is_err());
-        t.write_chunk("o", &id, 2, b"llo").unwrap();
+        t.write_chunk("o", &id, Some(0), "aGU=").unwrap();
+        // The last chunk again is acknowledged, not rewritten.
+        assert_eq!(t.write_chunk("o", &id, Some(0), "eHg=").unwrap(), 2);
+        t.write_chunk("o", &id, Some(2), "bGxv").unwrap();
         assert_eq!(t.commit("o", &id).unwrap().0, 5);
         assert_eq!(std::fs::read(root.join("in/up.txt")).unwrap(), b"hello");
     }

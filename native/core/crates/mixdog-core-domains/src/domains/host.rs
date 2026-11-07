@@ -29,6 +29,7 @@ use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_protocol::SectionName;
+use mixdog_remote::registry::DeviceRegistry;
 use serde_json::Value;
 use serde_json::json;
 use url::Host;
@@ -38,6 +39,34 @@ use mixdog_core_base::support::decode;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
 use mixdog_core_base::state::change_of;
+
+/// `hostState` key `remoteViewing`: the sessions a paired device shows, which Node answered per
+/// call as `visualizeRemoteViewing` (`viewsSessionLane`). The core owns the fact, so it publishes
+/// it and the desktop reads membership instead of asking.
+pub fn remote_viewing_value(registry: &DeviceRegistry) -> Value {
+    json!({ "sessionIds": registry.shown_sessions() })
+}
+
+/// Publishes [`remote_viewing_value`] now and after each change of who is attached or what is
+/// shown; ends when the registry is dropped.
+pub async fn publish_remote_viewing(registry: std::sync::Weak<DeviceRegistry>, publisher: Arc<dyn StatePublisher>) {
+    let Some(first) = registry.upgrade() else { return };
+    let mut changes = first.watch();
+    drop(first);
+    let mut last: Option<Value> = None;
+    loop {
+        let Some(live) = registry.upgrade() else { return };
+        let value = remote_viewing_value(&live);
+        drop(live);
+        if last.as_ref() != Some(&value) {
+            publisher.publish(SectionName::HostState, Some("remoteViewing".to_owned()), change_of(&value));
+            last = Some(value);
+        }
+        if changes.changed().await.is_err() {
+            return;
+        }
+    }
+}
 
 /// The SSH server core phone connections are bridged to.
 #[derive(Clone, Debug, PartialEq, Eq)]
