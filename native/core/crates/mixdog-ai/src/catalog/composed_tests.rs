@@ -143,3 +143,19 @@ async fn the_audit_judges_the_picker_id_and_every_wire_id_once() {
     assert_eq!(rows.iter().map(|r| r.model.as_str()).collect::<Vec<_>>(), ["zz-a", "zz-b"]);
     assert!(rows.iter().all(|r| !r.priced() && r.provider == "openai-oauth" && r.missing_rates == ["inputCostPerM", "outputCostPerM"]));
 }
+
+/// `settle` of the provider catalog refresh wakes the parked warm-ups, a failed refresh too.
+#[tokio::test]
+async fn every_settled_refresh_tells_the_registered_waker() {
+    let (_dir, _http, service) = composed(true).await;
+    let woken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = woken.clone();
+    service.on_refresh_settled(Arc::new(move || {
+        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
+    service.refresh().await;
+    assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 1, "the failed fetches settle too");
+    service.refresh_matching("anything").await;
+    service.refresh_due().await;
+    assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 3, "each kind of refresh settles once");
+}

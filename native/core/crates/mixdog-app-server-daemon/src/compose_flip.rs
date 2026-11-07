@@ -1771,6 +1771,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         prewarm: mixdog_core::run_host::code_graph_prewarm::SessionPrewarm { prewarm: code_graph_prewarm, lazy: prewarm_lazy },
         catalog: b.catalog_warmup.clone(),
     });
+    // The third wake source: a provider catalog refresh settling (failed or not) wakes every parked background warm-up
+    // (`provider-readiness.mjs` `settle` -> `rt.wakeDeferredWarmups()`), the same wake the sessions' busy-state changes give.
+    b.catalog.on_refresh_settled({
+        let signals = session_prewarm.clone();
+        Arc::new(move || signals.wake())
+    });
     let owed = Owed {
         liveness: liveness.clone(),
         search_usage,

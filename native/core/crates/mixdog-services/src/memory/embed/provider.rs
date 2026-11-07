@@ -56,7 +56,7 @@ impl EmbeddingProvider {
     }
 
     /// `getEmbeddingInfo()` on a host with no ONNX runtime to build a provider over: Node answers the same metadata there
-    /// (nothing loaded, `supported: false`), where the provider does not exist.
+    /// (nothing loaded, `supported` true wherever onnxruntime ships a binding), where the provider does not exist.
     pub fn info_unbuilt(model_id: &str, dtype: Option<&str>) -> Value {
         let model = js_trim(model_id);
         info_of(model, dtype, config::known_dims(model), false)
@@ -164,6 +164,7 @@ mod unbuilt_tests {
         assert_eq!(info["model"], config::DEFAULT_MODEL_ID);
         assert_eq!((info["dtype"].as_str(), info["dimensions"].as_u64(), info["device"].as_str()), (Some("q8"), Some(384), Some("")));
         assert_eq!(info["engine"], "Transformers.js · ONNX Runtime");
-        assert_eq!(info["supported"], onnx_runtime_supported());
+        // Node recorded supported: true on win32/x64 (onnxRuntimeSupported(): only macOS Intel has no binding).
+        assert_eq!(info["supported"], !(cfg!(target_os = "macos") && cfg!(target_arch = "x86_64")));
     }
 }
