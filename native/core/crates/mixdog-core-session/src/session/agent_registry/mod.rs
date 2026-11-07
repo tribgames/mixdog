@@ -26,6 +26,7 @@ mod lead_row;
 mod sessions;
 mod workers;
 mod worker_view;
+mod pool_docs;
 pub mod restart;
 pub mod signals;
 pub mod status_rows;
@@ -130,6 +131,9 @@ struct State {
     /// A Lead pool row's worker map as this process last wrote it, until the stored header shows
     /// it (lead_row.rs).
     leads: HashMap<String, Row>,
+    /// The sessions whose row this process wrote as active (`activeWorkerKeys`/`trackActiveRow`):
+    /// settled as failed when the process exits (restart.rs).
+    active: HashSet<String>,
 }
 
 impl State {
@@ -330,6 +334,11 @@ impl AgentRegistry {
     }
 
     fn persist(&self, st: &mut State, session: &str, map: Option<Row>) {
+        if map.as_ref().is_some_and(restart::is_active_worker_row) {
+            st.active.insert(session.to_owned());
+        } else {
+            st.active.remove(session);
+        }
         st.put(session, map.clone());
         self.store.write(session, map);
     }
@@ -1047,10 +1056,16 @@ impl super::TurnStarts for AgentRegistry {
 pub struct StoreWorkers {
     index: SqliteStore,
     threads: Arc<dyn ThreadState>,
-    writes: mpsc::UnboundedSender<(String, Option<Row>)>,
+    writes: mpsc::UnboundedSender<WriteOp>,
     io: InteractiveIo,
     /// `registry.onWorkerRowsChange` (`agent-tool.mjs`), bound once by the composition.
     signals: std::sync::OnceLock<Arc<dyn signals::StatusSignals>>,
+}
+
+/// What the writer task is asked: one session's map, or to say when everything before it was applied.
+enum WriteOp {
+    Write(String, Option<Row>),
+    Barrier(tokio::sync::oneshot::Sender<()>),
 }
 
 /// Whether `path` names a directory.
@@ -1062,10 +1077,17 @@ fn is_dir(_lane: &InLane<InteractiveIo>, path: &str) -> bool {
 impl StoreWorkers {
     /// Call on the runtime the session tasks run on.
     pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>, io: InteractiveIo) -> Self {
-        let (writes, mut rx) = mpsc::unbounded_channel::<(String, Option<Row>)>();
+        let (writes, mut rx) = mpsc::unbounded_channel::<WriteOp>();
         let patcher = threads.clone();
         drop(mixdog_rt::spawn("agent-worker-writes", TaskClass::Work, async move {
-            while let Some((session, worker)) = rx.recv().await {
+            while let Some(op) = rx.recv().await {
+                let (session, worker) = match op {
+                    WriteOp::Write(session, worker) => (session, worker),
+                    WriteOp::Barrier(done) => {
+                        let _ = done.send(());
+                        continue;
+                    }
+                };
                 let thread = ThreadId::from(session.as_str());
                 // A failed patch leaves the registry's own copy in force; it is retried by the
                 // next write of the session.
@@ -1110,7 +1132,7 @@ impl WorkerStore for StoreWorkers {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
-        let _ = self.writes.send((session.to_owned(), worker));
+        let _ = self.writes.send(WriteOp::Write(session.to_owned(), worker));
         // Node's registry announces a row change where it makes it, not when the file settles.
         if let Some(signals) = self.signals.get() {
             signals.worker_rows(session);
@@ -1119,6 +1141,15 @@ impl WorkerStore for StoreWorkers {
 }
 
 impl StoreWorkers {
+    /// Resolves once every write made before the call is applied to the headers: the exit path awaits
+    /// it after `AgentRegistry::flush_active_worker_rows` (Node's `store.flushSync()`).
+    pub async fn settled(&self) {
+        let (done, applied) = tokio::sync::oneshot::channel();
+        if self.writes.send(WriteOp::Barrier(done)).is_ok() {
+            let _ = applied.await;
+        }
+    }
+
     /// Binds the status signals; a second bind is refused.
     pub fn bind_signals(&self, signals: Arc<dyn signals::StatusSignals>) -> Result<(), Arc<dyn signals::StatusSignals>> {
         self.signals.set(signals)

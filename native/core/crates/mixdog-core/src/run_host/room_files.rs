@@ -146,6 +146,9 @@ mod tests {
     use mixdog_core_session::session::testing::Rig;
 
     const REF: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    // Node's attachment records are unique by ref, so the three files of the test have three.
+    const REF_TEXT: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const REF_FILE: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
     const GOLDEN: &str = include_str!("room_files/golden.json");
     const PNG: &str = "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da636460f85f0f0002870180eb47ba920000000049454e44ae426082";
@@ -201,12 +204,12 @@ mod tests {
         let fields = stored_file_fields(&[
             json!({ "id": REF, "kind": "image", "name": "a.png", "mimeType": "image/png", "size": 3, "path": "/a.png" }),
             json!({ "path": "/skipped" }),
-            json!({ "id": REF, "kind": "text", "name": "n.txt", "mimeType": "text/plain", "size": 1 }),
-            json!({ "id": REF, "kind": "file", "name": "d.pdf", "mimeType": "application/pdf", "size": 2 }),
+            json!({ "id": REF_TEXT, "kind": "text", "name": "n.txt", "mimeType": "text/plain", "size": 1 }),
+            json!({ "id": REF_FILE, "kind": "file", "name": "d.pdf", "mimeType": "application/pdf", "size": 2 }),
         ]);
         let parts = fields["parts"].as_array().unwrap();
         assert_eq!(parts[0], json!({ "type": "image", "attachmentRef": REF, "mimeType": "image/png", "filename": "a.png", "sizeBytes": 3 }));
-        assert_eq!(parts[1], json!({ "type": "text", "attachmentRef": REF, "textKind": "file", "mimeType": "text/plain", "filename": "n.txt", "sizeBytes": 1 }));
+        assert_eq!(parts[1], json!({ "type": "text", "attachmentRef": REF_TEXT, "textKind": "file", "mimeType": "text/plain", "filename": "n.txt", "sizeBytes": 1 }));
         assert_eq!(parts[2]["type"], "file");
         assert_eq!(fields["attachments"].as_array().unwrap().len(), 3);
     }

@@ -18,6 +18,7 @@ use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::fs::WritePrecondition;
 use mixdog_core_api::domain::fs::WriteRequest;
+use mixdog_core_api::domain::tool::Freeform;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
@@ -90,6 +91,8 @@ const SEEN_FILES_CAP: usize = 300;
 
 pub struct ApplyPatchTool {
     spec: ToolSpec,
+    /// The raw-text form of the definition (`freeformDescription`, `freeform`).
+    freeform: Freeform,
     /// Files each thread has patched, for the repeat-gated post-patch excerpt.
     seen: Mutex<Vec<(String, Vec<String>)>>,
     /// What the session remembers of its files; a patch tells it what it wrote.
@@ -98,8 +101,13 @@ pub struct ApplyPatchTool {
 
 impl ApplyPatchTool {
     pub fn new() -> Self {
+        let entry: JsonValue = serde_json::from_str(PATCH_SPEC).expect("embedded tool spec is valid JSON");
         Self {
             spec: spec_from_def(PATCH_SPEC, false, &["fs-write"]),
+            freeform: Freeform {
+                description: entry["freeformDescription"].as_str().expect("the spec's freeformDescription").to_owned(),
+                grammar: entry["freeform"].clone(),
+            },
             seen: Mutex::new(Vec::new()),
             state: None,
         }
@@ -1241,6 +1249,10 @@ fn thrown(code: ToolErrorCode, message: &str) -> ToolError {
 impl Tool for ApplyPatchTool {
     fn spec(&self) -> &ToolSpec {
         &self.spec
+    }
+
+    fn freeform(&self) -> Option<&Freeform> {
+        Some(&self.freeform)
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {

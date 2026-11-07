@@ -12,10 +12,8 @@
 //! What the process does about a change (connecting, announcing, the sign-in flows and the status
 //! rows) is the host's: [`ExtensionHost`] and [`McpRuntime`]; the config is [`ExtensionConfig`].
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
@@ -189,8 +187,8 @@ pub struct McpService {
     home: PathBuf,
     /// One account addition of a connector at a time, each reading the servers the one before it
     /// saved: two at once never take the same name, nor does one's save drop the other's account.
-    #[allow(clippy::disallowed_types, reason = "held across the awaits of one account addition on purpose: the next addition waits for the save of the one before")]
-    adds: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// A waiting addition leaves on its request's cancel, and so does a stuck one.
+    adds: mixdog_rt::KeyedGate,
 }
 
 impl McpService {
@@ -201,7 +199,7 @@ impl McpService {
         secrets: Arc<McpServerSecrets>,
         home: PathBuf,
     ) -> Self {
-        Self { config, host, runtime, secrets, home, adds: Mutex::default() }
+        Self { config, host, runtime, secrets, home, adds: mixdog_rt::KeyedGate::new() }
     }
 
     fn agent(&self) -> Value {
@@ -274,12 +272,6 @@ impl McpService {
         ExtensionScopes::from_config(self.config.agent().get("extensionScopes").unwrap_or(&Value::Null))
     }
 
-    #[allow(clippy::disallowed_types, reason = "the per-connector addition lock is held across awaits on purpose (see `adds`)")]
-    fn connector_lock(&self, connector: &str) -> Arc<tokio::sync::Mutex<()>> {
-        let mut adds = self.adds.lock().unwrap_or_else(|e| e.into_inner());
-        Arc::clone(adds.entry(connector.to_owned()).or_default())
-    }
-
     async fn mcp_status(&self, params: &Value) -> Result<Value, Failure> {
         let cwd = self.host.current_cwd(params.get("threadId").and_then(Value::as_str)).await?;
         Ok(decorate_mcp(&self.runtime.status().await, &self.scopes(), &cwd))
@@ -301,15 +293,15 @@ impl McpService {
 
     // ── Adding ────────────────────────────────────────────────────────────────────────────
 
-    async fn add_mcp_server(&self, input: &Value) -> Result<Value, Failure> {
+    /// `Err(GateCancelled)`: `cancel` fired while the addition waited for, or held, its
+    /// connector's turn.
+    async fn add_mcp_server(&self, input: &Value, cancel: &mixdog_rt::CancellationToken) -> Result<Result<Value, Failure>, mixdog_rt::GateCancelled> {
         // A catalog connector's account (as its own server config) joins that connector's one server.
         let connector = text(field(input, "connector"));
         if !connector.is_empty() && !field(input, "accounts").is_array() {
-            let lock = self.connector_lock(&connector);
-            let _turn = lock.lock().await;
-            return self.add_server_now(input).await;
+            return self.adds.run(&connector, cancel, self.add_server_now(input)).await;
         }
-        self.add_server_now(input).await
+        Ok(self.add_server_now(input).await)
     }
 
     /// One more account of catalog connector `input.connector`, connected as its catalog entry
@@ -317,24 +309,26 @@ impl McpService {
     /// sign-in service; the user's own OAuth client rides on `oauthClientId` / `oauthClientSecret`.
     /// The account gets a free name (`notion`, `notion-2`…) and joins the connector's one server,
     /// which is made when there is none. Resolves `{ name, account, status }`.
-    async fn add_connector_account(&self, input: &Value) -> Result<Value, Failure> {
+    async fn add_connector_account(&self, input: &Value, cancel: &mixdog_rt::CancellationToken) -> Result<Result<Value, Failure>, mixdog_rt::GateCancelled> {
         let wanted = text(field(input, "connector"));
-        let Some(entry) = connector(&wanted) else { return Err(format!("Unknown connector: {wanted}")) };
-        let lock = self.connector_lock(entry.id);
-        let _turn = lock.lock().await;
-        // Its name is picked from the servers the additions before it saved.
-        let name = self.free_name(&self.user_servers().await, entry.id).await;
-        let mut account = if entry.app_password_only {
-            gmail_app_password_server_input(&name, field(input, "email"), field(input, "appPassword"))?
-        } else {
-            connector_server_input(entry, &name, field(input, "key"))?
-        };
-        let own_client = text(field(input, "oauthClientId"));
-        if !own_client.is_empty() {
-            account["oauthClientId"] = json!(own_client);
-            account["oauthClientSecret"] = field(input, "oauthClientSecret").clone();
-        }
-        self.add_server_now(&account).await
+        let Some(entry) = connector(&wanted) else { return Ok(Err(format!("Unknown connector: {wanted}"))) };
+        self.adds
+            .run(entry.id, cancel, async {
+                // Its name is picked from the servers the additions before it saved.
+                let name = self.free_name(&self.user_servers().await, entry.id).await;
+                let mut account = if entry.app_password_only {
+                    gmail_app_password_server_input(&name, field(input, "email"), field(input, "appPassword"))?
+                } else {
+                    connector_server_input(entry, &name, field(input, "key"))?
+                };
+                let own_client = text(field(input, "oauthClientId"));
+                if !own_client.is_empty() {
+                    account["oauthClientId"] = json!(own_client);
+                    account["oauthClientSecret"] = field(input, "oauthClientSecret").clone();
+                }
+                self.add_server_now(&account).await
+            })
+            .await
     }
 
     /// `listConnectorTools`: the tools connector `connector_id` offers, with the server's own
@@ -967,11 +961,12 @@ impl DomainService for McpService {
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let p = &req.params;
+        let cancelled = || CoreError::Cancelled { by: "caller".into() };
         let value = match req.method.as_str() {
             "mcp/mcpStatus" => self.mcp_status(p).await,
             "mcp/getMcpServerConfig" => self.runtime.server_config(&text(field(p, "name"))).await,
             "mcp/reconnectMcp" => self.reconnect_mcp(p.get("name").and_then(Value::as_str)).await,
-            "mcp/addMcpServer" => self.add_mcp_server(field(p, "input")).await,
+            "mcp/addMcpServer" => self.add_mcp_server(field(p, "input"), &req.ctx.cancel).await.map_err(|_| cancelled())?,
             "mcp/saveMcpServer" => self.save_mcp_server(field(p, "input")).await,
             "mcp/removeMcpServer" => self.remove_mcp_server(&text(field(p, "name"))).await,
             "mcp/setMcpServerEnabled" => self.set_mcp_server_enabled(&text(field(p, "name")), field(p, "enabled")).await,
@@ -982,7 +977,7 @@ impl DomainService for McpService {
             "mcp/completeMcpOAuthLogin" => self.runtime.complete_login(&text(field(p, "flowId")), &text(field(p, "callbackUrl"))).await,
             "mcp/signOutMcpServer" => self.sign_out_mcp_server(&text(field(p, "name"))).await,
             "mcp/probeMcpServerAuth" => self.probe_mcp_server_auth(field(p, "cfg")).await,
-            "connector/addConnectorAccount" => self.add_connector_account(field(p, "input")).await,
+            "connector/addConnectorAccount" => self.add_connector_account(field(p, "input"), &req.ctx.cancel).await.map_err(|_| cancelled())?,
             "connector/listConnectorTools" => Ok(self.list_connector_tools(&text(field(p, "connectorId")))),
             other => {
                 return Err(CoreError::CapabilityUnavailable { capability: other.into(), detail: "not served by the MCP service".into() });

@@ -1,0 +1,18 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-restart-notify.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 9693,
+      "path": "golden.json",
+      "sha256": "8bbd422d8e0eb2dbecfb6a47e74e552015d57421baba51ef027b9e6db0eed4ae"
+    }
+  ],
+  "product": {
+    "tree": "product tree loaded by the recorder",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-restart-notify.mjs",
+  "set": "restart-notify",
+  "totalBytes": 9693
+}

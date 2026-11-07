@@ -178,18 +178,20 @@ pub trait RunParts: Send + Sync + 'static {
 
 pub struct RunHostFactory {
     parts: Arc<dyn RunParts>,
+    /// The map TurnLiveness writes: one entry per run, read by the pool, the thread list and the report host.
+    liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
 }
 
 impl RunHostFactory {
-    pub fn new(parts: Arc<dyn RunParts>) -> Self {
-        Self { parts }
+    pub fn new(liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>, parts: Arc<dyn RunParts>) -> Self {
+        Self { parts, liveness }
     }
 }
 
 impl RunFactory for RunHostFactory {
     fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
-        let parts = self.parts.clone();
-        Box::pin(drive(parts, run))
+        let (parts, liveness) = (self.parts.clone(), self.liveness.clone());
+        Box::pin(drive(parts, liveness, run))
     }
 }
 
@@ -512,8 +514,10 @@ pub(crate) fn system_messages(header: &mixdog_store::schema::record::Header) -> 
         .collect()
 }
 
-async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
+async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>, run: RunStart) -> RunOutcome {
     let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, skill_selection: routine_selection, input: submitted, input_item, .. } = run;
+    // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
+    let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, Value::Object(header.clone()), progress.subscribe(), cancel.clone());
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
         Some(turn) => {
             let hook = turn.hooks.notify;
@@ -943,7 +947,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1011,7 +1015,7 @@ mod tests {
         let rig = Rig::new();
         let settle = Arc::new(Settle { add: ("featureDeniedTools", json!(["web_search"])), seen: Mutex::default() });
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()) })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: Some(settle.clone()) })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1050,7 +1054,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1170,7 +1174,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None })));
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: vec![Arc::new(reporter)], settle: None })));
         let directory = SessionDirectory::new(Arc::new(deps));
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -1490,6 +1494,7 @@ mod tests {
         let store = Arc::new(super::super::side_question_store::SideQuestionStore::new());
         let next = super::super::next_request_source::NextRequestSource::new();
         let (kept, side_store, side_next) = (store.clone(), store.clone(), next.clone());
+        let liveness = mixdog_services::task_reports::runtime_state::RuntimeLiveness::new();
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
             clock: clock.clone(),
@@ -1531,6 +1536,7 @@ mod tests {
             settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff) },
             ladder: Arc::new(NoLadder),
             shells: None,
+            liveness,
             deps: Box::new({
                 let store = rig.store.clone();
                 let rig_deps = rig.deps_parts(store);

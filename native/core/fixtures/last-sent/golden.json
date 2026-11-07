@@ -1,0 +1,479 @@
+{
+  "cases": [
+    {
+      "name": "ends_with_the_reply",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor."
+        },
+        {
+          "role": "assistant",
+          "content": "Reading first."
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": null,
+      "answer": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the Lead.",
+            "source": null
+          },
+          {
+            "role": "user",
+            "content": "Refactor.",
+            "source": null
+          }
+        ],
+        "sentAt": 1700000000000,
+        "model": "claude-test",
+        "tools": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "two_trailing_replies",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "Refactor."
+        },
+        {
+          "role": "assistant",
+          "content": "One."
+        },
+        {
+          "role": "assistant",
+          "content": "Two."
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": null,
+      "answer": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the Lead.",
+            "source": null
+          },
+          {
+            "role": "user",
+            "content": "Refactor.",
+            "source": null
+          }
+        ],
+        "sentAt": 1700000000000,
+        "model": "claude-test",
+        "tools": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "a_later_turn",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        },
+        {
+          "role": "user",
+          "content": "c"
+        },
+        {
+          "role": "assistant",
+          "content": "d"
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": null,
+      "answer": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the Lead.",
+            "source": null
+          },
+          {
+            "role": "user",
+            "content": "a",
+            "source": null
+          },
+          {
+            "role": "assistant",
+            "content": "b",
+            "source": null
+          },
+          {
+            "role": "user",
+            "content": "c",
+            "source": null
+          }
+        ],
+        "sentAt": 1700000000000,
+        "model": "claude-test",
+        "tools": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "a_tool_round_keeps_everything_before_the_last_reply",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a.mjs"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "x"
+        },
+        {
+          "role": "assistant",
+          "content": "done"
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": null,
+      "answer": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the Lead.",
+            "source": null
+          },
+          {
+            "role": "user",
+            "content": "a",
+            "source": null
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "source": null
+          },
+          {
+            "role": "tool",
+            "content": "x",
+            "source": null
+          }
+        ],
+        "sentAt": 1700000000000,
+        "model": "claude-test",
+        "tools": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "ends_with_a_user_message",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        },
+        {
+          "role": "user",
+          "content": "c"
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": null,
+      "answer": null
+    },
+    {
+      "name": "ends_with_a_tool_result",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a.mjs"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": "x"
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": null,
+      "answer": null
+    },
+    {
+      "name": "no_send_time",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        }
+      ],
+      "sendTime": null,
+      "overrides": null,
+      "answer": null
+    },
+    {
+      "name": "a_zero_send_time",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        }
+      ],
+      "sendTime": 0,
+      "overrides": null,
+      "answer": null
+    },
+    {
+      "name": "a_negative_send_time",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        }
+      ],
+      "sendTime": -5,
+      "overrides": null,
+      "answer": null
+    },
+    {
+      "name": "a_numeric_string_send_time",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        }
+      ],
+      "sendTime": "1600000000000",
+      "overrides": null,
+      "answer": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the Lead.",
+            "source": null
+          },
+          {
+            "role": "user",
+            "content": "a",
+            "source": null
+          }
+        ],
+        "sentAt": 1600000000000,
+        "model": "claude-test",
+        "tools": [
+          "read"
+        ]
+      }
+    },
+    {
+      "name": "an_unreadable_send_time",
+      "decidedBy": "trim",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        }
+      ],
+      "sendTime": "soon",
+      "overrides": null,
+      "answer": null
+    },
+    {
+      "name": "no_user_conversation",
+      "decidedBy": "next",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": null,
+      "answer": null
+    },
+    {
+      "name": "an_agent_owned_session",
+      "decidedBy": "next",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": {
+        "owner": "agent"
+      },
+      "answer": null
+    },
+    {
+      "name": "a_closed_session",
+      "decidedBy": "next",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": {
+        "closed": true
+      },
+      "answer": null
+    },
+    {
+      "name": "an_unregistered_provider",
+      "decidedBy": "next",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the Lead."
+        },
+        {
+          "role": "user",
+          "content": "a"
+        },
+        {
+          "role": "assistant",
+          "content": "b"
+        }
+      ],
+      "sendTime": 1700000000000,
+      "overrides": {
+        "provider": "nobody"
+      },
+      "answer": null
+    }
+  ]
+}

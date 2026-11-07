@@ -86,3 +86,28 @@ async fn classes_are_counted_apart() {
     let reply = client.response(30).await;
     assert!(reply.get("result").is_some(), "{reply}");
 }
+
+/// The core is told of each admitted request for as long as its slot is held (`CoreHandle::request_started`): the daemon's lifecycle
+/// counts them as Node's `inFlightWork().activeCalls`. A request refused at the class cap never took a slot, so it is no call.
+#[tokio::test(start_paused = true)]
+async fn an_admitted_request_is_a_call_in_flight_until_its_slot_is_freed() {
+    let rig = Rig::gated(&["terminal"]);
+    let client = rig.ready(1, json!({}));
+    assert_eq!(rig.core.mock.requests_in_flight(), 0);
+    let cap = 8;
+    for id in 1..=cap {
+        focus(&client, id);
+    }
+    settle().await;
+    assert_eq!(rig.gate("terminal").log().len(), cap as usize);
+    assert_eq!(rig.core.mock.requests_in_flight(), cap as usize, "every admitted request is a call in flight");
+
+    focus(&client, 9);
+    assert_eq!(reason(&client.drain()[0].body), "inflightLimit");
+    assert_eq!(rig.core.mock.requests_in_flight(), cap as usize, "the refused one took no slot");
+
+    rig.gate("terminal").permits.add_permits(cap as usize);
+    let answered = client.frames(cap as usize).await;
+    assert!(answered.iter().all(|wire| wire.body.get("result").is_some()));
+    assert_eq!(rig.core.mock.requests_in_flight(), 0, "the slots are free before the responses are written");
+}

@@ -232,6 +232,10 @@ impl CoreHandle for TestCore {
     fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
         self.mock.connection_closed(connection);
     }
+
+    fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {
+        self.mock.request_started()
+    }
 }
 
 pub(crate) fn config() -> ServerConfig {

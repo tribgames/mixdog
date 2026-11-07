@@ -85,6 +85,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use mixdog_core_session::session::testing::RecordTranscript;
     use mixdog_core_session::session::testing::Rig;
 
     /// Over the real directory: posted messages read back as rows, the snapshot of an idle session
@@ -93,7 +94,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_room_log_reads_back_and_an_idle_member_aborts_quietly() {
         let rig = Rig::new();
-        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        // The rows are read through the stored-record transcript, the one that shows a room message as its room line.
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcript = Arc::new(RecordTranscript::new());
+        let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
         let told = Arc::new(Mutex::new(Vec::<String>::new()));
         let (sessions, catalog) = (told.clone(), told.clone());
         let daemon = DirectoryRoomDaemon::new(

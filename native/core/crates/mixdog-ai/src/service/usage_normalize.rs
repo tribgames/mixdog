@@ -521,27 +521,32 @@ pub fn normalize_anthropic_usage(data: &Value, source: &str, now_ms: i64) -> Opt
 
 // -- Grok Build billing ---------------------------------------------------------
 
-/// `(label, period)` of the billing cadence.
-pub fn grok_billing_cadence(config: &Value, now_ms: i64) -> (&'static str, &'static str) {
-    let current = or_truthy(config, &["currentPeriod", "current_period"]);
-    let kind = clean(current.and_then(|c| c.get("type"))).unwrap_or_default().to_uppercase();
+/// `(label, period)` of the billing cadence; `None` where Node's `grokBillingCadence` throws.
+///
+/// Node reads the period type as `cleanString(currentPeriod?.type ?? current_period?.type ?? '')` and
+/// calls `.toUpperCase()` on the result, which is `null` for an absent, blank or non-string type: the
+/// call throws, and `probeGrokBilling` skips that answer for the next candidate. So an answer that
+/// names no period type never yields a window, whatever else it holds.
+pub fn grok_billing_cadence(config: &Value, now_ms: i64) -> Option<(&'static str, &'static str)> {
+    let kind = ["currentPeriod", "current_period"].iter().find_map(|key| config.get(*key).and_then(|p| p.get("type")).filter(|t| !t.is_null()));
+    let kind = clean(kind)?.to_uppercase();
     if kind.contains("WEEKLY") {
-        return ("W", "weekly");
+        return Some(("W", "weekly"));
     }
     if kind.contains("MONTHLY") {
-        return ("M", "monthly");
+        return Some(("M", "monthly"));
     }
     if first(config, &["weeklyLimit", "weekly_limit"]).is_some() {
-        return ("W", "weekly");
+        return Some(("W", "weekly"));
     }
     let start = reset_at_ms(first(config, &["billingPeriodStart", "billing_period_start"]), None, now_ms);
     let end = reset_at_ms(first(config, &["billingPeriodEnd", "billing_period_end"]), None, now_ms);
     if let (Some(s), Some(e)) = (start, end) {
         if e > s && e - s <= 10.0 * 86_400_000.0 {
-            return ("W", "weekly");
+            return Some(("W", "weekly"));
         }
     }
-    ("M", "monthly")
+    Some(("M", "monthly"))
 }
 
 /// `{val}` or a plain number.
@@ -561,7 +566,7 @@ pub fn credit_window_from_billing(config: &Value, now_ms: i64) -> Option<Value> 
     if !config.is_object() {
         return None;
     }
-    let (label, _) = grok_billing_cadence(config, now_ms);
+    let (label, _) = grok_billing_cadence(config, now_ms)?;
     let current = or_truthy(config, &["currentPeriod", "current_period"]);
     let end = current
         .and_then(|c| c.get("end"))
@@ -629,10 +634,11 @@ pub fn balance_from_grok_billing(config: &Value, now_ms: i64) -> Value {
     }
     let cap = num(val(config.get("onDemandCap")), None);
     let used = num_or(val(config.get("onDemandUsed")), 0.0);
-    match cap {
-        Some(cap) if cap > 0.0 => obj(vec![
+    // Only reached once the credit window exists, which needs a period type.
+    match (cap, grok_billing_cadence(config, now_ms)) {
+        (Some(cap), Some((_, period))) if cap > 0.0 => obj(vec![
             ("source", "grok-build-on-demand".into()),
-            ("period", grok_billing_cadence(config, now_ms).1.into()),
+            ("period", period.into()),
             ("budgetCredits", jn(round(cap, 2))),
             ("spentCredits", jn(round(used, 2))),
             ("remainingCredits", jn(round((cap - used).max(0.0), 2))),

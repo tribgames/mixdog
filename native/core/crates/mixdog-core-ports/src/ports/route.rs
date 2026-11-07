@@ -474,13 +474,20 @@ pub trait ChatRouteSetter: Send + Sync {
 pub struct AgentRouteFollow {
     chats: Arc<dyn AgentChats>,
     setter: Arc<dyn ChatRouteSetter>,
-    #[allow(clippy::disallowed_types, reason = "held across a chat's set_route on purpose: the chat takes the next update once the one before settled")]
-    tails: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// A chat takes the next update once the one before settled.
+    tails: mixdog_rt::KeyedGate,
+    /// Ends every queued update and the one in flight ([`Self::close`]).
+    cancel: mixdog_rt::CancellationToken,
 }
 
 impl AgentRouteFollow {
     pub fn new(chats: Arc<dyn AgentChats>, setter: Arc<dyn ChatRouteSetter>) -> Self {
-        Self { chats, setter, tails: Mutex::new(HashMap::new()) }
+        Self { chats, setter, tails: mixdog_rt::KeyedGate::new(), cancel: mixdog_rt::CancellationToken::new() }
+    }
+
+    /// Shutdown: a slow setter no longer holds the chats behind it.
+    pub fn close(&self) {
+        self.cancel.cancel();
     }
 
     /// `sessionRoutePick`.
@@ -504,17 +511,12 @@ impl AgentRouteFollow {
         let pick = Self::pick_of(route);
         let options = FollowOptions { defer_until_next_turn: true, switch_established: true, ..FollowOptions::default() };
         let queued = chats.iter().map(|thread| {
-            let turn = self
-                .tails
-                .lock()
-                .expect("tails lock")
-                .entry(thread.as_str().to_owned())
-                .or_default()
-                .clone();
             let (pick, options) = (pick.clone(), options.clone());
             async move {
-                let _turn = turn.lock().await;
-                self.setter.set_route(thread, pick, options).await
+                self.tails
+                    .run(thread.as_str(), &self.cancel, self.setter.set_route(thread, pick, options))
+                    .await
+                    .unwrap_or_else(|_| Err(PortError::Failed { capability: "agent route".into(), message: "cancelled".into() }))
             }
         });
         let failures = futures_lite_join(queued).await.into_iter().filter(Result::is_err).count();

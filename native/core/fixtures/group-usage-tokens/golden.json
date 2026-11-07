@@ -1,0 +1,422 @@
+{
+ "domain": "group-usage-tokens",
+ "recorder": "benchmarks/rust-core/recorders/record-group-usage-tokens.mjs",
+ "steps": [
+  {
+   "name": "no ledger open yet",
+   "open": false,
+   "rows": [],
+   "groups": [
+    [
+     "lead",
+     [
+      "lead",
+      "w1"
+     ]
+    ]
+   ],
+   "first": {},
+   "wakes": 0,
+   "second": {},
+   "truth": {}
+  },
+  {
+   "name": "ledger open, nothing recorded",
+   "open": true,
+   "rows": [],
+   "groups": [
+    [
+     "lead",
+     [
+      "lead",
+      "w1"
+     ]
+    ]
+   ],
+   "first": {},
+   "wakes": 1,
+   "second": {
+    "lead": "0.0.0.0"
+   },
+   "truth": {
+    "lead": "0.0.0.0"
+   }
+  },
+  {
+   "name": "same stamp and groups: not asked again",
+   "open": true,
+   "rows": [],
+   "groups": [
+    [
+     "lead",
+     [
+      "lead",
+      "w1"
+     ]
+    ]
+   ],
+   "first": {
+    "lead": "0.0.0.0"
+   },
+   "wakes": 0,
+   "second": {
+    "lead": "0.0.0.0"
+   },
+   "truth": {
+    "lead": "0.0.0.0"
+   }
+  },
+  {
+   "name": "a row of the group",
+   "open": true,
+   "rows": [
+    {
+     "ts": 1772000001000,
+     "day": "2026-02-25",
+     "provider": "anthropic",
+     "model": "claude-x",
+     "kind": "api",
+     "sessionId": "w1",
+     "ownerSessionId": "lead",
+     "sourceType": "user",
+     "input": 11,
+     "output": 5,
+     "cacheRead": 1,
+     "cacheWrite": 2,
+     "costUsd": 0.01,
+     "costSource": "provider",
+     "rates": "{\"requestedModel\":null,\"pricingModel\":\"claude-x\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"provider\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "row-1"
+    }
+   ],
+   "groups": [
+    [
+     "lead",
+     [
+      "lead",
+      "w1"
+     ]
+    ]
+   ],
+   "first": {
+    "lead": "0.0.0.0"
+   },
+   "wakes": 1,
+   "second": {
+    "lead": "0.2.1.1"
+   },
+   "truth": {
+    "lead": "0.2.1.1"
+   }
+  },
+  {
+   "name": "a row of nobody listed",
+   "open": true,
+   "rows": [
+    {
+     "ts": 1772000002000,
+     "day": "2026-02-25",
+     "provider": "anthropic",
+     "model": "claude-x",
+     "kind": "api",
+     "sessionId": "stranger",
+     "sourceType": "user",
+     "input": 12,
+     "output": 5,
+     "cacheRead": 1,
+     "cacheWrite": 2,
+     "costUsd": 0.02,
+     "costSource": "provider",
+     "rates": "{\"requestedModel\":null,\"pricingModel\":\"claude-x\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"provider\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "row-2"
+    }
+   ],
+   "groups": [
+    [
+     "lead",
+     [
+      "lead",
+      "w1"
+     ]
+    ]
+   ],
+   "first": {
+    "lead": "0.2.1.1"
+   },
+   "wakes": 0,
+   "second": {
+    "lead": "0.2.1.1"
+   },
+   "truth": {
+    "lead": "0.2.1.1"
+   }
+  },
+  {
+   "name": "a second row of the group",
+   "open": true,
+   "rows": [
+    {
+     "ts": 1772000003000,
+     "day": "2026-02-25",
+     "provider": "anthropic",
+     "model": "claude-x",
+     "kind": "api",
+     "sessionId": "w1",
+     "ownerSessionId": "lead",
+     "sourceType": "user",
+     "input": 13,
+     "output": 5,
+     "cacheRead": 1,
+     "cacheWrite": 2,
+     "costUsd": 0.03,
+     "costSource": "provider",
+     "rates": "{\"requestedModel\":null,\"pricingModel\":\"claude-x\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"provider\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "row-3"
+    },
+    {
+     "ts": 1772000004000,
+     "day": "2026-02-25",
+     "provider": "anthropic",
+     "model": "claude-x",
+     "kind": "api",
+     "sessionId": "lead",
+     "sourceType": "user",
+     "input": 14,
+     "output": 5,
+     "cacheRead": 1,
+     "cacheWrite": 2,
+     "costUsd": 0.04,
+     "costSource": "provider",
+     "rates": "{\"requestedModel\":null,\"pricingModel\":\"claude-x\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"provider\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "row-4"
+    }
+   ],
+   "groups": [
+    [
+     "lead",
+     [
+      "lead",
+      "w1"
+     ]
+    ]
+   ],
+   "first": {
+    "lead": "0.2.1.1"
+   },
+   "wakes": 1,
+   "second": {
+    "lead": "0.2.3.1"
+   },
+   "truth": {
+    "lead": "0.2.3.1"
+   }
+  },
+  {
+   "name": "ids in another order, same group",
+   "open": true,
+   "rows": [],
+   "groups": [
+    [
+     "lead",
+     [
+      "w1",
+      "lead"
+     ]
+    ]
+   ],
+   "first": {
+    "lead": "0.2.3.1"
+   },
+   "wakes": 0,
+   "second": {
+    "lead": "0.2.3.1"
+   },
+   "truth": {
+    "lead": "0.2.3.1"
+   }
+  },
+  {
+   "name": "a second group",
+   "open": true,
+   "rows": [
+    {
+     "ts": 1772000005000,
+     "day": "2026-02-25",
+     "provider": "anthropic",
+     "model": "claude-x",
+     "kind": "api",
+     "sessionId": "x1",
+     "ownerSessionId": "other",
+     "sourceType": "user",
+     "input": 15,
+     "output": 5,
+     "cacheRead": 1,
+     "cacheWrite": 2,
+     "costUsd": 0.05,
+     "costSource": "provider",
+     "rates": "{\"requestedModel\":null,\"pricingModel\":\"claude-x\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"provider\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "row-5"
+    }
+   ],
+   "groups": [
+    [
+     "lead",
+     [
+      "lead",
+      "w1"
+     ]
+    ],
+    [
+     "other",
+     [
+      "other",
+      "x1"
+     ]
+    ]
+   ],
+   "first": {
+    "lead": "0.2.3.1"
+   },
+   "wakes": 1,
+   "second": {
+    "lead": "0.2.3.1",
+    "other": "0.2.1.1"
+   },
+   "truth": {
+    "lead": "0.2.3.1",
+    "other": "0.2.1.1"
+   }
+  },
+  {
+   "name": "one group dropped",
+   "open": true,
+   "rows": [],
+   "groups": [
+    [
+     "other",
+     [
+      "other",
+      "x1"
+     ]
+    ]
+   ],
+   "first": {
+    "other": "0.2.1.1"
+   },
+   "wakes": 0,
+   "second": {
+    "other": "0.2.1.1"
+   },
+   "truth": {
+    "other": "0.2.1.1"
+   }
+  },
+  {
+   "name": "a group with more ids",
+   "open": true,
+   "rows": [],
+   "groups": [
+    [
+     "other",
+     [
+      "other",
+      "x1",
+      "x2"
+     ]
+    ]
+   ],
+   "first": {
+    "other": "0.2.1.1"
+   },
+   "wakes": 0,
+   "second": {
+    "other": "0.2.1.1"
+   },
+   "truth": {
+    "other": "0.2.1.1"
+   }
+  },
+  {
+   "name": "nothing listed",
+   "open": true,
+   "rows": [],
+   "groups": [],
+   "first": {},
+   "wakes": 0,
+   "second": {},
+   "truth": {}
+  },
+  {
+   "name": "listed again after nothing",
+   "open": true,
+   "rows": [],
+   "groups": [
+    [
+     "lead",
+     [
+      "lead",
+      "w1"
+     ]
+    ]
+   ],
+   "first": {},
+   "wakes": 1,
+   "second": {
+    "lead": "0.2.3.1"
+   },
+   "truth": {
+    "lead": "0.2.3.1"
+   }
+  }
+ ]
+}

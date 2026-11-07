@@ -30,6 +30,8 @@ use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::computer::ComputerSessions;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_session::session::secret_input::ComputerSecretHosts;
+use mixdog_core_session::session::shell_jobs::OwnedShells;
+use mixdog_core_session::session::turn_snapshots::TurnSnapshots;
 use mixdog_rt::TimerHandle;
 use mixdog_tools::state::secrets::ComputerSecretHost;
 use mixdog_core_api::domain::fs::FileService;
@@ -226,38 +228,109 @@ impl ComputerSessionPool {
         (entry.process.clone(), entry.backend.clone())
     }
 
-    /// `releaseComputerSession(id)`: the session's helper state is dropped now. A call still
-    /// running keeps its backend until it ends. False when the session never reached the helper.
-    pub fn release(&self, session: &str) -> bool {
+    /// `releaseComputerSession(id)`: the helper is told to release the session (`release_session`),
+    /// stopped and cleaned up, and the session's state is dropped. A call still running keeps its
+    /// backend until it ends. False when the session never reached the helper or the release was
+    /// not confirmed.
+    pub async fn release(&self, session: &str) -> bool {
         let removed = self.entries().remove(&session_key(session));
-        match removed {
-            Some(mut entry) => {
-                if let Some(timer) = entry.idle.take() {
-                    let _disarmed = timer.cancel();
-                }
-                true
-            }
+        let Some(mut entry) = removed else { return false };
+        if let Some(timer) = entry.idle.take() {
+            let _disarmed = timer.cancel();
+        }
+        entry.process.release_session().await
+    }
+
+    /// `endComputerExecution(id)`: the turn's execution ends, the helper stays warm. False for a
+    /// session with no open execution.
+    pub async fn end_execution(&self, session: &str) -> bool {
+        let process = self.entries().get(&session_key(session)).map(|entry| entry.process.clone());
+        match process {
+            Some(process) => process.end_execution().await,
             None => false,
         }
     }
 
     /// `deferComputerSessionRelease(id)`: releases the session after two idle minutes. False for a
-    /// session that never reached the helper (it owns nothing there).
+    /// session that never reached the helper, or was aborted since (it owns nothing there). Must
+    /// run inside the runtime: the release is a task.
     pub fn defer_release(self: &Arc<Self>, session: &str) -> bool {
         let key = session_key(session);
         let mut entries = self.entries();
-        let Some(entry) = entries.get_mut(&key) else { return false };
+        let Some(entry) = entries.get_mut(&key).filter(|entry| entry.process.is_bound()) else { return false };
         if let Some(timer) = entry.idle.take() {
             let _disarmed = timer.cancel();
         }
-        let pool = Arc::downgrade(self);
-        let id = key.clone();
+        let (pool, runtime, id) = (Arc::downgrade(self), tokio::runtime::Handle::current(), key.clone());
         entry.idle = Some(mixdog_rt::ticker().register(Instant::now() + IDLE_RELEASE, move || {
             if let Some(pool) = pool.upgrade() {
-                pool.release(&id);
+                runtime.spawn(async move { pool.release(&id).await });
             }
         }));
         true
+    }
+}
+
+/// The shells of a closing session and its computer helper go together: Node's teardown stops
+/// both under the one `teardownReapsWork && closingSessionId` gate (`runtime-stops.mjs:53-71`:
+/// `shutdownShellJobs` and `releaseComputerSession(closingSessionId)`). Every real close in the
+/// session layer cancels the owner's shells through `OwnedShells::cancel_owned`
+/// (`close.rs:104` `stop_session_work`, used by `SessionClose`, `AgentSessions` and the context
+/// switch; `purge.rs:292` for a delete), so the computer release rides that one seam. An unload
+/// (a `keepBackgroundWork` eviction in Node) never cancels shells, so it leaves the helper state
+/// to the idle release, as Node does. Pass this wherever
+/// the composition passes the `ShellControl` as `Arc<dyn OwnedShells>`.
+pub struct ReapingShells {
+    shells: Arc<dyn OwnedShells>,
+    computer: Arc<ComputerSessionPool>,
+}
+
+impl ReapingShells {
+    pub fn new(shells: Arc<dyn OwnedShells>, computer: Arc<ComputerSessionPool>) -> Self {
+        Self { shells, computer }
+    }
+}
+
+impl OwnedShells for ReapingShells {
+    fn cancel_owned(&self, owner: &ThreadId) {
+        self.shells.cancel_owned(owner);
+        let (computer, session) = (self.computer.clone(), owner.as_str().to_owned());
+        tokio::spawn(async move { computer.release(&session).await });
+    }
+}
+
+/// A turn's settlement ends its computer execution and arms the idle release: Node's `settleTurn`
+/// runs `releaseComputerUse` (`endComputerExecution`, then `deferComputerSessionRelease`,
+/// `turn-settle.mjs:70-82`) immediately before `turn.releaseWorkspace()` (`:97`), and the session
+/// calls `TurnSnapshots::turn_settled` at that same point (actor `run_ended`). Pass this as
+/// `SessionDeps.snapshots`, around the `WorktreeTurnSnapshots`.
+pub struct SettlingSnapshots {
+    snapshots: Arc<dyn TurnSnapshots>,
+    computer: Arc<ComputerSessionPool>,
+}
+
+impl SettlingSnapshots {
+    pub fn new(snapshots: Arc<dyn TurnSnapshots>, computer: Arc<ComputerSessionPool>) -> Self {
+        Self { snapshots, computer }
+    }
+}
+
+impl TurnSnapshots for SettlingSnapshots {
+    fn turn_settled(&self, thread: &ThreadId) {
+        let (computer, session) = (self.computer.clone(), thread.as_str().to_owned());
+        tokio::spawn(async move {
+            computer.end_execution(&session).await;
+            computer.defer_release(&session);
+        });
+        self.snapshots.turn_settled(thread);
+    }
+
+    fn runtime_stopped(&self, thread: &ThreadId) {
+        self.snapshots.runtime_stopped(thread);
+    }
+
+    fn dispose(&self) {
+        self.snapshots.dispose();
     }
 }
 
@@ -279,6 +352,11 @@ impl ComputerSecretHosts for ComputerSessionPool {
 mod tests {
     use std::collections::HashSet;
     use std::collections::HashMap;
+
+    use mixdog_core_api::domain::computer::ComputerAction;
+    use mixdog_core_api::domain::computer::ComputerRequest;
+    use serde_json::json;
+    use tokio_util::sync::CancellationToken;
 
     use super::*;
 
@@ -373,6 +451,65 @@ mod tests {
     /// Node keeps the helper's state per request session: two threads never share a backend, a
     /// thread keeps its own across calls, a request naming no thread is the `default` session, and
     /// a released session starts over with fresh state.
+    async fn eventually(mut done: impl FnMut() -> bool) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !done() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the spawned step ran");
+    }
+
+    struct Shells(Mutex<Vec<String>>);
+
+    impl OwnedShells for Shells {
+        fn cancel_owned(&self, owner: &ThreadId) {
+            self.0.lock().unwrap_or_else(PoisonError::into_inner).push(owner.as_str().to_owned());
+        }
+    }
+
+    /// A real close of a session cancels its shells and releases its helper state, as Node's
+    /// teardown stops both under one gate; another session keeps its state.
+    #[tokio::test]
+    async fn closing_a_session_releases_its_computer_state_with_its_shells() {
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain()).await.expect("helper");
+        let _ = (pool.backend("closing"), pool.backend("other"));
+        let shells = Arc::new(Shells(Mutex::default()));
+        ReapingShells::new(shells.clone(), pool.clone()).cancel_owned(&ThreadId::from("closing"));
+        assert_eq!(*shells.0.lock().unwrap_or_else(PoisonError::into_inner), vec!["closing".to_owned()]);
+        eventually(|| !pool.entries().contains_key("closing")).await;
+        assert!(pool.entries().contains_key("other"));
+    }
+
+    struct Snapshots(Mutex<Vec<String>>);
+
+    impl TurnSnapshots for Snapshots {
+        fn turn_settled(&self, thread: &ThreadId) {
+            self.0.lock().unwrap_or_else(PoisonError::into_inner).push(thread.as_str().to_owned());
+        }
+        fn runtime_stopped(&self, _: &ThreadId) {}
+        fn dispose(&self) {}
+    }
+
+    /// A settled turn arms its session's idle release when the session reached the helper; a
+    /// session that never did owns nothing there.
+    #[tokio::test]
+    async fn a_settled_turn_arms_the_idle_release_of_a_session_that_reached_the_helper() {
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain()).await.expect("helper");
+        let backend = pool.backend("used");
+        // The helper cannot start, but the action reached it: the session is bound.
+        let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        assert!(backend.run(read, CancellationToken::new()).await.is_err());
+        let snapshots = Arc::new(Snapshots(Mutex::default()));
+        let settling = SettlingSnapshots::new(snapshots.clone(), pool.clone());
+        settling.turn_settled(&ThreadId::from("never"));
+        settling.turn_settled(&ThreadId::from("used"));
+        assert_eq!(snapshots.0.lock().unwrap_or_else(PoisonError::into_inner).len(), 2, "the workspace release still runs");
+        eventually(|| pool.entries().get("used").is_some_and(|entry| entry.idle.is_some())).await;
+        assert!(!pool.entries().contains_key("never"), "a session that never reached the helper owns nothing there");
+    }
+
     #[tokio::test]
     async fn two_threads_get_separate_helper_state() {
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain()).await.expect("helper");
@@ -383,8 +520,10 @@ mod tests {
         assert!(!Arc::ptr_eq(&a, &pool.backend("")));
         // The secret fill drives the helper of the same session its tool calls use.
         assert!(pool.secret_host(&ThreadId::from("thread-b")).is_some());
-        assert!(pool.release("thread-a"));
-        assert!(!pool.release("thread-a"), "release is idempotent");
+        // The fake helper path cannot run its cleanup, so the release is unconfirmed; the state goes anyway.
+        assert!(!pool.release("thread-a").await);
+        assert!(!pool.entries().contains_key("thread-a"));
+        assert!(!pool.release("thread-a").await, "release is idempotent");
         assert!(!Arc::ptr_eq(&a, &pool.backend("thread-a")), "a released session starts over");
         assert!(Arc::ptr_eq(&b, &pool.backend("thread-b")), "another thread's state is untouched");
         assert!(!pool.defer_release("never-used"), "a session that never reached the helper owns nothing");

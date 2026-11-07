@@ -119,6 +119,13 @@ impl ToolSpec {
     }
 }
 
+/// A definition's `freeformDescription` and `freeform` (`{ type: "grammar", syntax, definition }`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Freeform {
+    pub description: String,
+    pub grammar: JsonValue,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum SurfaceKind {
     Lead,
@@ -354,6 +361,23 @@ pub trait Tool: Send + Sync {
     /// wait default); `None` where the agent's text is the Lead's.
     fn agent_spec(&self) -> Option<&ToolSpec> {
         None
+    }
+
+    /// The custom-tool form of the definition, where it has one: a route that takes raw text for
+    /// a tool sends it under this grammar instead of JSON arguments.
+    fn freeform(&self) -> Option<&Freeform> {
+        None
+    }
+
+    /// The definition object ([`ToolSpec::definition`]) with `freeformDescription` and `freeform`
+    /// where the tool has them.
+    fn definition(&self) -> JsonValue {
+        let mut definition = self.spec().definition();
+        if let (Some(freeform), Some(keys)) = (self.freeform(), definition.as_object_mut()) {
+            keys.insert("freeformDescription".to_owned(), JsonValue::String(freeform.description.clone()));
+            keys.insert("freeform".to_owned(), freeform.grammar.clone());
+        }
+        definition
     }
 
     /// Typed outbound classification for the policy (replaces the name list):

@@ -106,6 +106,8 @@ pub(crate) enum Registered {
 pub(crate) struct Slot {
     conn: Arc<Connection>,
     class: RequestClass,
+    /// What the core holds for the request while it runs ([`mixdog_core_api::handle::CoreHandle::request_started`]); freed with the slot.
+    _request: mixdog_core_api::handle::RequestGuard,
 }
 
 impl Drop for Slot {
@@ -156,7 +158,13 @@ impl Connection {
     }
 
     /// Takes an in-flight slot of `class`, or answers the class cap.
-    pub(crate) fn admit(self: &Arc<Self>, class: RequestClass, cap: u32) -> Result<Slot, u32> {
+    /// `request_started` runs only for an admitted request: its guard goes into the slot.
+    pub(crate) fn admit(
+        self: &Arc<Self>,
+        class: RequestClass,
+        cap: u32,
+        request_started: impl FnOnce() -> mixdog_core_api::handle::RequestGuard,
+    ) -> Result<Slot, u32> {
         self.inflight[class_index(class)]
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 (count < cap).then_some(count + 1)
@@ -164,6 +172,7 @@ impl Connection {
             .map(|_| Slot {
                 conn: Arc::clone(self),
                 class,
+                _request: request_started(),
             })
             .map_err(|_| cap)
     }

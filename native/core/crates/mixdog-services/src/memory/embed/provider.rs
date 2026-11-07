@@ -13,8 +13,7 @@
 use mixdog_js::{js_trim};
 use async_trait::async_trait;
 use serde_json::{Value, json};
-#[allow(clippy::disallowed_types, reason = "the install gate is held across the awaited install on purpose: installs run one at a time")]
-use tokio::sync::Mutex;
+use mixdog_rt::Gate;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
@@ -30,8 +29,8 @@ pub struct EmbeddingProvider {
     hub: String,
     /// The load, shared by every caller; a failure stays.
     loaded: OnceCell<Result<Embedder, String>>,
-    #[allow(clippy::disallowed_types, reason = "held across the awaited install on purpose: installs run one at a time")]
-    installing: Mutex<()>,
+    /// Installs run one at a time; `cancel` ends both the wait and a stuck install.
+    installing: Gate,
     tick: StateTick,
 }
 
@@ -42,9 +41,7 @@ impl EmbeddingProvider {
 
     /// `tick` is bumped whenever `info()` may have changed.
     pub fn with_tick(config: EmbedConfig, tick: StateTick) -> Self {
-        #[allow(clippy::disallowed_types, reason = "builds the install gate")]
-        let installing = Mutex::new(());
-        Self { config, hub: install::HUB.to_owned(), loaded: OnceCell::new(), installing, tick }
+        Self { config, hub: install::HUB.to_owned(), loaded: OnceCell::new(), installing: Gate::new(), tick }
     }
 
     /// `getEmbeddingInfo()`: metadata only, never loads the model.
@@ -116,14 +113,18 @@ impl EmbeddingProvider {
     /// arrive. A model that is already loaded keeps its files. Needs no timer:
     /// bytes arriving drive it, and `cancel` ends it.
     pub async fn install(&self, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<(), InstallError> {
-        let _one_at_a_time = self.installing.lock().await;
-        if self.is_ready() {
-            return Ok(());
-        }
-        self.tick.bump();
-        let outcome = install::install(&self.config, &self.hub, progress, cancel).await;
-        self.tick.bump();
-        outcome
+        self.installing
+            .run(cancel, async {
+                if self.is_ready() {
+                    return Ok(());
+                }
+                self.tick.bump();
+                let outcome = install::install(&self.config, &self.hub, progress, cancel).await;
+                self.tick.bump();
+                outcome
+            })
+            .await
+            .map_err(|_| InstallError::Cancelled)?
     }
 
     /// The change tick this provider bumps.

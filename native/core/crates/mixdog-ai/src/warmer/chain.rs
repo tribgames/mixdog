@@ -53,6 +53,15 @@ pub trait WarmRequest: Send + Sync {
     fn owner_session_id(&self) -> Option<&str> {
         None
     }
+    /// `opts.fast === true`: the real send went out in fast mode.
+    fn fast(&self) -> bool;
+    /// `cacheWarmSend(request)` before its one-token cap (the provider's warm applies that): the
+    /// saved messages plus the tail reminder of the moment (read now, not at capture), the tools
+    /// and the send options. `Err` when the session cannot be read now.
+    fn warm_request(&self) -> Result<mixdog_core_api::domain::provider::ModelRequest, String>;
+    /// The registry generation of the provider instance the request was captured on, `None` when
+    /// that instance is no longer registered (`registeredProvider(name) === request.provider`).
+    fn provider_generation(&self) -> Option<u64>;
 }
 
 /// `cacheCapabilityForProvider(name) === 'explicit-breakpoint'`.

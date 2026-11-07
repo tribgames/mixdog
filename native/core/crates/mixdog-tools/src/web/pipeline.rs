@@ -10,6 +10,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use mixdog_rt::Scope;
+use mixdog_rt::Scoped;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -160,16 +162,17 @@ struct Trace {
 }
 
 struct HostGate {
-    #[allow(
-        clippy::disallowed_types,
-        reason = "held across the host's whole operation on purpose: it queues same-host callers in turn"
-    )]
-    ready_at: tokio::sync::Mutex<Instant>,
+    /// Queues same-host callers in turn.
+    turn: mixdog_rt::Gate,
+    /// When the next operation on the host may start; held for an instruction, never across an await.
+    ready_at: Mutex<Instant>,
 }
 
 #[derive(Default)]
 pub struct HostPacer {
     hosts: Mutex<HashMap<String, Arc<HostGate>>>,
+    /// Ends every queued caller and the operation in flight ([`Self::close`]).
+    cancel: mixdog_rt::CancellationToken,
 }
 
 impl HostPacer {
@@ -181,14 +184,10 @@ impl HostPacer {
         // Idle hosts whose gap has passed carry no state worth keeping.
         hosts.retain(|_, gate| {
             Arc::strong_count(gate) > 1
-                || gate
-                    .ready_at
-                    .try_lock()
-                    .map_or(true, |ready| *ready > Instant::now())
+                || gate.turn.is_busy()
+                || *gate.ready_at.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) > Instant::now()
         });
-        #[allow(clippy::disallowed_types, reason = "see HostGate::ready_at")]
-        let ready_at = tokio::sync::Mutex::new(Instant::now());
-        let gate = Arc::new(HostGate { ready_at });
+        let gate = Arc::new(HostGate { turn: mixdog_rt::Gate::new(), ready_at: Mutex::new(Instant::now()) });
         hosts.insert(host.to_string(), gate.clone());
         gate
     }
@@ -200,17 +199,27 @@ impl HostPacer {
         operation: impl std::future::Future<Output = Result<T, FetchError>>,
     ) -> Result<T, FetchError> {
         let gate = self.gate(host);
-        let mut ready_at = gate.ready_at.lock().await;
-        tokio::time::sleep_until(tokio::time::Instant::from_std(*ready_at)).await;
-        let result = operation.await;
-        let mut next = Instant::now() + HOST_INTERVAL;
-        if let Err(error) = &result
-            && !error.retry_after.is_zero()
-        {
-            next = next.max(Instant::now() + error.retry_after);
-        }
-        *ready_at = next;
-        result
+        gate.turn
+            .run(&self.cancel, async {
+                let ready_at = *gate.ready_at.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                tokio::time::sleep_until(tokio::time::Instant::from_std(ready_at)).await;
+                let result = operation.await;
+                let mut next = Instant::now() + HOST_INTERVAL;
+                if let Err(error) = &result
+                    && !error.retry_after.is_zero()
+                {
+                    next = next.max(Instant::now() + error.retry_after);
+                }
+                *gate.ready_at.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = next;
+                result
+            })
+            .await
+            .unwrap_or_else(|_| Err(FetchError::new(FetchKind::Cancelled, "fetch cancelled")))
+    }
+
+    /// Shutdown: queued fetches leave and a stuck one is dropped.
+    pub fn close(&self) {
+        self.cancel.cancel();
     }
 }
 
@@ -247,14 +256,13 @@ impl Pipeline {
         let mut trace = Trace::default();
         let outcome = {
             let work = self.run_stages(url, deadline, cancel, &mut trace);
-            tokio::select! {
-                biased;
-                () = cancel.cancelled() => Err(FetchError::new(FetchKind::Cancelled, "Fetch cancelled")),
-                () = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => Err(FetchError::new(
+            match Scope::new().cancel(cancel).deadline(Some(deadline)).run(work).await {
+                Scoped::Done(result) => result,
+                Scoped::Cancelled => Err(FetchError::new(FetchKind::Cancelled, "Fetch cancelled")),
+                Scoped::DeadlineExceeded => Err(FetchError::new(
                     FetchKind::Timeout,
                     format!("Fetch exceeded {}ms total budget", budget.as_millis()),
                 )),
-                result = work => result,
             }
         };
         match outcome {

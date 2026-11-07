@@ -321,6 +321,12 @@ impl HostRunParts {
         );
         Some((parts.provider, request))
     }
+
+    /// The source of the tail reminder the session's sends carry (`withTailReminder`): what the
+    /// turn's own assembly gives the loop, and what a cache warm adds to the request it replays.
+    pub fn tail_reminder(&self, header: &Header) -> Arc<dyn mixdog_agent::env::TailReminder> {
+        super::tail::session_tail_reminder(self.services.seams.tail_context(header))
+    }
 }
 
 #[async_trait]

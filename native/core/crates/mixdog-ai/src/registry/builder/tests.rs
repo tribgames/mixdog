@@ -84,6 +84,9 @@ async fn each_family_builds_under_its_own_id() {
 mod adc {
     use std::collections::HashMap;
 
+    use mixdog_rt::LaneToken as _;
+    use tokio_util::sync::CancellationToken;
+
     use super::*;
 
     const GOLDEN: &str = include_str!("../../../../../fixtures/vertex-adc/golden.json");
@@ -114,8 +117,14 @@ mod adc {
             let dir = tempfile::tempdir().unwrap();
             for (relative, text) in scenario["files"].as_object().unwrap() {
                 let path = dir.path().join(relative);
-                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-                std::fs::write(path, text.as_str().unwrap()).unwrap();
+                let bytes = text.as_str().unwrap().as_bytes().to_vec();
+                mixdog_rt::testing::tokens()
+                    .durability_io
+                    .submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, &bytes, &mixdog_statefile::Opts::default()))
+                    .unwrap()
+                    .await
+                    .unwrap()
+                    .unwrap();
             }
             let mut env: HashMap<String, String> =
                 scenario["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();

@@ -18,6 +18,31 @@ use super::*;
 
 const GOLDEN: &str = include_str!("../../../../../fixtures/agent-dispatch/golden.json");
 
+/// The runs the dispatch reports, counted while they are in its table.
+#[derive(Default)]
+struct Watch(Arc<std::sync::atomic::AtomicUsize>);
+
+struct Held(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Watch {
+    fn live(&self) -> usize {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl RunWatch for Watch {
+    fn started(&self) -> RunHold {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::new(Held(self.0.clone()))
+    }
+}
+
 /// Epoch milliseconds that follow the paused tokio clock.
 const T0: i64 = 1_000_000;
 
@@ -426,9 +451,10 @@ async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let case = |id: &str| golden["host"].as_array().unwrap().iter().find(|case| case["id"] == id).unwrap().clone();
     let world = Arc::new(HostFake { closed: false, calls: Mutex::default() });
-    let host = Arc::new(InlineAgentDispatch::new(Arc::new(Echo(world.clone())), world.clone()));
+    let watch = Arc::new(Watch::default());
+    let host = Arc::new(InlineAgentDispatch::new(Arc::new(Echo(world.clone())), world.clone(), watch.clone()));
     let closed_world = Arc::new(HostFake { closed: true, calls: Mutex::default() });
-    let closed_host = InlineAgentDispatch::new(Arc::new(Echo(closed_world.clone())), closed_world);
+    let closed_host = InlineAgentDispatch::new(Arc::new(Echo(closed_world.clone())), closed_world, watch.clone());
     // What the dispatcher saw since the last check, when Node's check read it.
     let verify = |id: &str, got: Value| {
         let case = case(id);
@@ -451,12 +477,16 @@ async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }
+    // Only the hanging run is in the table: a refused duplicate enters nothing and leaves nothing.
+    assert_eq!(watch.live(), 1, "the hanging run alone is watched");
     verify("duplicate-id", go(&host, &case("duplicate-id")["outcome"]["input"]).await);
+    assert_eq!(watch.live(), 1, "a refused duplicate is not a run");
     host.abort_all("host closing");
     verify("abort-all", match hanging.await.unwrap() {
         Ok(answer) => json!({ "ok": answer }),
         Err(error) => json!({ "error": error }),
     });
+    assert_eq!(watch.live(), 0, "the run left the table when it ended");
     verify("signal-already-aborted", go(&host, &case("signal-already-aborted")["outcome"]["input"]).await);
     verify("run-table-cleared", go(&host, &case("run-table-cleared")["outcome"]["input"]).await);
     let closed = go(&closed_host, &case("host-closed")["outcome"]["input"]).await;

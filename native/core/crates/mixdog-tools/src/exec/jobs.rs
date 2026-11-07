@@ -5,6 +5,7 @@
 //! captured output with its read cursors and the model-facing text.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -601,6 +602,25 @@ pub fn most_significant_duration(ms: u64) -> String {
     }
 }
 
+/// One waited task's silence (`{ taskId, silentMs, hung }`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WaitedSilence {
+    pub task_id: String,
+    pub silent_ms: u64,
+    pub hung: bool,
+}
+
+/// `waitedJobSilence`'s pick: the longest silence, the first of equals (Node compares with `>`), `hung` at the warn threshold.
+pub fn quietest(silences: impl IntoIterator<Item = (String, u64)>, warn_ms: f64) -> Option<WaitedSilence> {
+    let mut worst: Option<WaitedSilence> = None;
+    for (task_id, silent_ms) in silences {
+        if worst.as_ref().is_none_or(|w| silent_ms > w.silent_ms) {
+            worst = Some(WaitedSilence { task_id, silent_ms, hung: silent_ms as f64 >= warn_ms });
+        }
+    }
+    worst
+}
+
 /// `describeShellOutputSilence`: the warning for a silence at or past the threshold.
 pub fn describe_silence(silent_ms: u64) -> Option<String> {
     (silent_ms as f64 >= silence_warn_ms()).then(|| {
@@ -802,8 +822,13 @@ impl Job {
         if state.finished {
             return None;
         }
-        let since = state.last_output_ms.unwrap_or(0).max(self.shown_started(&state));
-        describe_silence(now_ms.saturating_sub(since))
+        describe_silence(self.silent_ms(&state, now_ms))
+    }
+
+    /// Milliseconds since the task last wrote output, floored at when it became a task.
+    fn silent_ms(&self, state: &JobState, now_ms: u64) -> u64 {
+        let since = state.last_output_ms.unwrap_or(0).max(self.shown_started(state));
+        now_ms.saturating_sub(since)
     }
 
     pub fn render(&self, owner_tool: bool, body: Option<&str>) -> String {
@@ -1047,6 +1072,23 @@ impl ExecRuntime {
     /// `hasActiveBackgroundTasks({ callerSessionId: owner, surface: 'shell', awaitedOnly, match })`.
     pub fn has_active(&self, owner: &ThreadId, awaited_only: bool, user_cycle: Option<u64>) -> bool {
         lock(&self.jobs).values().any(|job| &job.owner == owner && job.counts_as_active(awaited_only, user_cycle))
+    }
+
+    /// `activeBackgroundTaskSessionIds({ surface: 'shell', awaitedOnly: true })`: the owner of every running awaited task, from one pass over
+    /// the runtime's table. Node's task registry is process-wide, so a session that is not loaded but owns an awaited job is listed too.
+    pub fn awaited_owners(&self) -> HashSet<ThreadId> {
+        lock(&self.jobs).values().filter(|job| job.counts_as_active(true, None)).map(|job| job.owner.clone()).collect()
+    }
+
+    /// `waitedJobSilence(taskIds, { now })`: the quietest of the running tasks among `ids` (a task of any owner, as Node's registry is
+    /// process-wide), in `ids` order.
+    pub fn waited_silence(&self, ids: &[String], now_ms: u64) -> Option<WaitedSilence> {
+        let table = lock(&self.jobs);
+        let silences = ids.iter().filter_map(|id| {
+            let job = table.get(id)?;
+            job.counts_as_active(false, None).then(|| (id.clone(), job.silent_ms(&job.state(), now_ms)))
+        });
+        quietest(silences, silence_warn_ms())
     }
 
     pub fn now_ms(&self) -> u64 {
@@ -1319,6 +1361,14 @@ mod tests {
         assert_eq!(most_significant_duration(601_000), "10m");
         assert_eq!(most_significant_duration(7_300_000), "2h");
         assert_eq!(describe_silence(599_000), None);
+    }
+
+    #[test]
+    fn the_quietest_waited_job_wins_and_the_first_of_equals_keeps_it() {
+        let rows = |v: &[(&str, u64)]| v.iter().map(|(id, ms)| (id.to_string(), *ms)).collect::<Vec<_>>();
+        assert_eq!(quietest(rows(&[]), 600_000.0), None);
+        assert_eq!(quietest(rows(&[("a", 10), ("b", 30), ("c", 30)]), 600_000.0), Some(WaitedSilence { task_id: "b".into(), silent_ms: 30, hung: false }));
+        assert_eq!(quietest(rows(&[("a", 600_000)]), 600_000.0), Some(WaitedSilence { task_id: "a".into(), silent_ms: 600_000, hung: true }));
     }
 
     #[test]

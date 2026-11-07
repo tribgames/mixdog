@@ -184,6 +184,8 @@ pub struct ComposedCore {
     local_processes: LocalProcessManager,
     /// The five owners of per-connection state, bound once the composition has built them (erify_bound checks it).
     connection_owners: crate::connection_close::ConnectionOwnersCell,
+    /// The lifecycle, built by `serving::start` after `compose()` and bound there before the listener accepts: the service-call count reads it.
+    lifecycle: Arc<crate::late_lifecycle::LateLifecycle>,
     /// The one shell registry and kill route of the process (xec.runtime).
     shell_control: Arc<mixdog_tools::exec::ShellControl>,
     stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
@@ -375,6 +377,10 @@ impl ComposedCore {
     }
 
     /// Bind the terminal, screen, workspace, system and device owners once; a close before that is written to the daemon log.
+    pub fn lifecycle(&self) -> &Arc<crate::late_lifecycle::LateLifecycle> {
+        &self.lifecycle
+    }
+
     pub fn connection_owners(&self) -> &crate::connection_close::ConnectionOwnersCell {
         &self.connection_owners
     }
@@ -446,6 +452,17 @@ impl CoreHandle for ComposedCore {
 
     fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
         self.connection_owners.connection_closed(connection, &self.log);
+    }
+
+    fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {
+        match self.lifecycle.get() {
+            Some(lifecycle) => Box::new(lifecycle.begin_call()),
+            // A startup bug (the listener accepts only after the bind): said, not silently left out of the count.
+            None => {
+                self.log.log("a request was admitted before the lifecycle was bound; it is not counted");
+                Box::new(())
+            }
+        }
     }
 }
 
@@ -647,6 +664,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         tidy_processes,
         local_processes,
         connection_owners: Default::default(),
+        lifecycle: Default::default(),
         shell_control,
         stop_steps: std::sync::Mutex::new(Vec::new()),
         final_barriers: std::sync::Mutex::new(Vec::new()),

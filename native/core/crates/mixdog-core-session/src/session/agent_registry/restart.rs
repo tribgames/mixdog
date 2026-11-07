@@ -7,6 +7,11 @@
 //! The recorded Node run is `fixtures/restart-settlement/golden.json`
 //! (`record-restart-settlement.mjs`).
 
+use mixdog_agent::agent_tool::board::Completion;
+use mixdog_agent::agent_tool::board::JobBoard;
+use mixdog_agent::agent_tool::board::JobMeta;
+use mixdog_agent::agent_tool::board::JobOwner;
+use mixdog_agent::agent_tool::board::NewJob;
 use mixdog_agent::agent_tool::scope::positive_int;
 use mixdog_agent::agent_tool::stamp::iso_from_ms;
 use mixdog_js::JsRegex;
@@ -206,11 +211,72 @@ pub fn restart_notification_id(row: &Row) -> String {
     format!("restart:{}", if task.is_empty() { format!("{}:{}", clean(row.get("sessionId")), clean(row.get("finishedAt"))) } else { task })
 }
 
+/// `registerFailedTask(row)`: lets `agent status <id>` resolve the lost task after the restart. A row
+/// that never recorded a task id, or whose id the board already holds, registers nothing. The
+/// completion is acknowledged and not announced (the queued notification above is the announcement).
+pub fn register_failed_task(board: &JobBoard, row: &Row) {
+    let task = clean(row.get("task_id"));
+    if task.is_empty() || board.get(&task, &Scope::default()).is_some() {
+        return;
+    }
+    let owner = Some(clean(row.get("ownerSessionId")));
+    let kept = |key: &str| Some(clean(row.get(key))).filter(|s| !s.is_empty());
+    let registered = board.register(NewJob {
+        task_id: Some(task.clone()),
+        operation: "restart".into(),
+        label: kept("tag"),
+        owner: JobOwner { caller_session_id: owner.clone(), owner_session_id: owner, host_pid: positive_int(row.get("clientHostPid")) },
+        meta: JobMeta {
+            tag: kept("tag"),
+            session_id: kept("sessionId"),
+            agent: kept("agent"),
+            provider: kept("provider"),
+            model: kept("model"),
+            preset: kept("preset"),
+            effort: kept("effort"),
+            ..JobMeta::default()
+        },
+        ..NewJob::default()
+    });
+    // A task the board refused is a status lookup that finds nothing, as Node's best-effort catch.
+    if registered.is_err() {
+        return;
+    }
+    board.complete(
+        &task,
+        Completion { error: Some(RESTART_FAILURE_ERROR.into()), notify: false, terminal_reason: Some(PROCESS_RESTART_FAILURE.into()), ..Completion::new("failed") },
+    );
+    board.acknowledge(&task);
+}
+
+impl AgentRegistry {
+    /// `flushActiveWorkerRows()` at process exit: the rows this process wrote as active and still holds
+    /// as active settle as failed (`process-restart`, stamped now), so a crash of the host never leaves
+    /// them running; a row another process took over is left alone. The caller then awaits
+    /// `StoreWorkers::settled` for the writes to reach the headers.
+    pub fn flush_active_worker_rows(&self, live: &Liveness<'_>) {
+        let mut st = self.lock();
+        let keys: Vec<String> = st.active.drain().collect();
+        for key in keys {
+            let Some(current) = st.map(&key).cloned() else { continue };
+            if positive_int(current.get("runtimePid")) != Some(live.own_pid) || !is_active_worker_row(&current) {
+                continue;
+            }
+            self.persist(&mut st, &key, Some(live.failed_row(&current, PROCESS_RESTART_FAILURE, true)));
+        }
+    }
+}
+
 /// `notifyRestartFailures()`: tells each owner, once, that its agent task died with the previous process.
 /// The notification is queued under its stable execution id first (`TaskNotifier::finished`, which the
 /// session directory queues for the owner's model), and only then is the row stamped, so a crash between
 /// the two retries the row and the id makes the retry exactly-once. Returns how many owners were told.
-pub async fn notify_restart_failures(registry: &AgentRegistry, notifier: &dyn mixdog_tools::exec::TaskNotifier, stamp: &str) -> Result<usize, String> {
+pub async fn notify_restart_failures(
+    registry: &AgentRegistry,
+    notifier: &dyn mixdog_tools::exec::TaskNotifier,
+    board: &JobBoard,
+    stamp: &str,
+) -> Result<usize, String> {
     let mut told = 0;
     for (session, row) in registry.pending_restart_failures().await? {
         let execution = restart_notification_id(&row);
@@ -225,6 +291,7 @@ pub async fn notify_restart_failures(registry: &AgentRegistry, notifier: &dyn mi
         );
         notifier.finished(&ThreadId::from(clean(row.get("ownerSessionId")).as_str()), "agent", &execution, "failed", text).await;
         registry.mark_restart_notified(&[session], stamp).await?;
+        register_failed_task(board, &row);
         told += 1;
     }
     Ok(told)

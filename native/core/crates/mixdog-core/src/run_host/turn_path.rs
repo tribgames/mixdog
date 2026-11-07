@@ -110,6 +110,8 @@ pub struct TurnPathParts {
     pub hops: Box<dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory>,
     /// The runtime's shell control: the progress watchdog's stop reaps a turn's shells through it.
     pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
+    /// The runtime liveness map the runs write, made by the composition: the code-graph prewarm's busy probe (inside deps) and the path's readers hold the same Arc.
+    pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -141,13 +143,15 @@ pub struct TurnPath {
     /// Bind the settings host here once it exists (LeadSurfaceHost as TurnSettings); every turn start
     /// reconciles through it, and a turn before the bind fails.
     pub turn_settings: Arc<super::turn_settings::LateTurnSettings>,
+    /// The runtime liveness map the runs write: the pool's `running`, the thread list's `working` and the report host read it.
+    pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
 }
 
 impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
             tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
-            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells,
+            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
@@ -188,8 +192,9 @@ impl TurnPath {
             shells,
             exclusions: exclusions.clone(),
             turn_settings: turn_settings.clone(),
+            liveness: liveness.clone(),
         };
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
-        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions, turn_settings })
+        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions, turn_settings, liveness })
     }
 }

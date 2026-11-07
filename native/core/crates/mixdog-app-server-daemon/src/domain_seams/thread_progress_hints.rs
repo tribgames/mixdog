@@ -127,6 +127,8 @@ mod tests {
 
     #[tokio::test]
     async fn hints_are_published_in_order_on_the_runtime_section_and_cleared_once() {
+        // The publisher is spawned on the work lane, which the process installs once.
+        let _lanes = mixdog_rt::testing::tokens();
         let threads = Arc::new(Published::default());
         let hint = ThreadProgressHints::new(threads.clone()).hint_for(&ThreadId("t1".into()));
         hint.show("⬇ Voice model ▓░░░░░ 9%".into(), Some(9));

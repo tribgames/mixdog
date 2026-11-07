@@ -60,7 +60,9 @@ async fn the_ledger_row_is_the_one_node_writes() {
             usage,
             session_id: case["sessionId"].as_str().unwrap_or_default(),
             source_type: case["sourceType"].as_str().unwrap_or_default(),
-            account: "",
+            // The account is the ledger's to resolve (`ledger_account_of`): the row builder
+            // writes the one it is handed.
+            account: case["row"]["account"].as_str().unwrap(),
         };
         record_media_usage(&sink, &Unpriced, &|| "00000000-0000-4000-8000-000000000001".to_owned(), now, call).await;
         let mut got = serde_json::to_value(sink.0.lock().unwrap().first().expect("a row")).unwrap();

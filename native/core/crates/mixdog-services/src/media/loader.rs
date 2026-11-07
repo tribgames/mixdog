@@ -57,6 +57,21 @@ struct State {
     retry_after: HashMap<String, Retry>,
 }
 
+/// The load that started a request owns its entry in `pending` and removes it when it is done
+/// with the answer (`.finally(() => pending.delete(key))`, a turn after the request settles).
+/// Calls made together with it all reach `pending` before it is gone, whichever of them the
+/// executor happens to drive the request to its end.
+struct Pending {
+    state: Arc<Mutex<State>>,
+    key: String,
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        self.state.lock().unwrap().pending.remove(&self.key);
+    }
+}
+
 pub struct ModelLoader {
     source: Arc<dyn CatalogSource>,
     cache: Arc<dyn CatalogCache>,
@@ -77,25 +92,23 @@ impl ModelLoader {
     /// `loadMediaModels(lane)`.
     pub async fn load(&self, lane: &str) -> Result<CatalogRows, CatalogFailure> {
         let Target { key, revision, cached } = self.source.target(lane).await?;
-        let flight = {
+        let (flight, _owner) = {
             let mut state = self.state.lock().unwrap();
             // Joining a load in flight: the guard ends with this block, before any await.
             if let Some(flight) = state.pending.get(&key).cloned() {
-                flight
+                (flight, None)
             } else {
             let changed = state.revisions.get(&key).is_some_and(|known| *known != revision);
             let retry = state.retry_after.get(&key).filter(|retry| retry.revision == revision).map(|retry| (retry.at, retry.error.clone()));
             let (source, cache, now, shared) = (self.source.clone(), self.cache.clone(), self.now.clone(), self.state.clone());
             let (lane, key_owned) = (lane.to_owned(), key.clone());
             let flight: Flight = async move {
-                let result = Self::resolve(&source, &cache, &now, &shared, &lane, &key_owned, revision, cached, changed, retry).await;
-                shared.lock().unwrap().pending.remove(&key_owned);
-                result
+                Self::resolve(&source, &cache, &now, &shared, &lane, &key_owned, revision, cached, changed, retry).await
             }
             .boxed()
             .shared();
-            state.pending.insert(key, flight.clone());
-            flight
+            state.pending.insert(key.clone(), flight.clone());
+            (flight, Some(Pending { state: self.state.clone(), key }))
             }
         };
         flight.await

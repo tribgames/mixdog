@@ -109,6 +109,8 @@ impl SetupHost for Host {
 }
 
 fn world(ready: bool) -> (CachedProviderSetup, Arc<Builder>, Arc<Keychain>, Arc<Host>) {
+    // The warm-up behind a cold read is a runtime task.
+    mixdog_rt::testing::tokens();
     let builder = Arc::new(Builder::default());
     let keychain = Arc::new(Keychain { ready: AtomicBool::new(ready), recovers: AtomicBool::new(false), changes: AtomicBool::new(false), interactive: Mutex::default(), forced: Mutex::default() });
     let host = Arc::new(Host::default());

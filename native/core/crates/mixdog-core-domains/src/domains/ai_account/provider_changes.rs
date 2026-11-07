@@ -51,17 +51,38 @@ pub trait ProviderChangeEffects: Send + Sync + 'static {
     fn release_admission_cooldowns(&self);
     /// `reinitProviders()`: the registry is rebuilt from the reloaded config.
     fn reinit_providers(&self) -> BoxFuture<'static, Result<(), String>>;
+    /// `console.warn`: a line for the operator. Required, so no production effect can fall back to stderr
+    /// unseen: the daemon's goes to its log (`LiveProviderEffects::warn`), a fake records it.
+    fn warn(&self, line: &str);
+}
+
+/// `failed(domain, error)` of `createConfigChangeEffects`: the line to warn with, once per
+/// distinct message. A retry failing the same way is not warned about again until the effect
+/// recovers (the caller clears `warned` then).
+pub fn failure_notice(warned: &mut Option<String>, message: &str) -> Option<String> {
+    if warned.as_deref() == Some(message) {
+        return None;
+    }
+    *warned = Some(message.to_owned());
+    Some(format!("[config] applying the providers change failed: {message}"))
 }
 
 /// The live services behind [`ProviderChangeEffects`].
 pub struct LiveProviderEffects {
     pub admission: Arc<Admission>,
     pub readiness: Arc<ProviderReadiness>,
+    /// Where `console.warn` goes: in the daemon, `DaemonLog::console_warn_sink` (its redirect writes
+    /// `[console.warn] <line>` to daemon.log; there is no stderr to see).
+    pub warn: Arc<dyn Fn(&str) + Send + Sync>,
 }
 
 impl ProviderChangeEffects for LiveProviderEffects {
     fn release_admission_cooldowns(&self) {
         self.admission.reset_cooldowns(None);
+    }
+
+    fn warn(&self, line: &str) {
+        (self.warn)(line);
     }
 
     fn reinit_providers(&self) -> BoxFuture<'static, Result<(), String>> {
@@ -83,6 +104,7 @@ pub fn spawn_provider_changes(
         let signature = || providers_signature(&config, &secrets.tokens());
         // `None`: an effect failed, so it differs from every signature and the next pass runs it.
         let mut applied = Some(signature());
+        let mut warned: Option<String> = None;
         let mut attempt = 0usize;
         loop {
             let backoff = (applied.is_none() && !retry_delays.is_empty()).then(|| retry_delays[attempt.min(retry_delays.len() - 1)]);
@@ -106,10 +128,16 @@ pub fn spawn_provider_changes(
             effects.release_admission_cooldowns();
             match effects.reinit_providers().await {
                 Ok(()) => {
+                    warned = None;
                     applied = Some(now);
                     attempt = 0;
                 }
-                Err(_) => applied = None,
+                Err(message) => {
+                    if let Some(line) = failure_notice(&mut warned, &message) {
+                        effects.warn(&line);
+                    }
+                    applied = None;
+                }
             }
         }
     })
@@ -136,6 +164,10 @@ mod tests {
     impl ProviderChangeEffects for Recording {
         fn release_admission_cooldowns(&self) {
             self.calls.lock().unwrap().push("releaseAdmissionCooldowns".to_owned());
+        }
+
+        fn warn(&self, line: &str) {
+            self.calls.lock().unwrap().push(format!("warn: {line}"));
         }
 
         fn reinit_providers(&self) -> BoxFuture<'static, Result<(), String>> {
@@ -230,6 +262,18 @@ mod tests {
         w.task.abort();
     }
 
+    /// `failed()`: the same failure again is not warned about until the effect recovers.
+    #[test]
+    fn a_failure_is_warned_about_once_per_message() {
+        let mut warned = None;
+        let line = failure_notice(&mut warned, "registry refused");
+        assert_eq!(line.as_deref(), Some("[config] applying the providers change failed: registry refused"));
+        assert_eq!(failure_notice(&mut warned, "registry refused"), None);
+        assert!(failure_notice(&mut warned, "another").is_some(), "a different message is warned about");
+        warned = None;
+        assert!(failure_notice(&mut warned, "another").is_some(), "after a recovery the same message is warned about again");
+    }
+
     /// A re-init that fails is run again after the backoff, with the cooldowns released again.
     #[tokio::test(start_paused = true)]
     async fn a_failed_reinit_is_retried_after_the_backoff() {
@@ -245,9 +289,11 @@ mod tests {
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(30)).await;
-        assert_eq!(*w.effects.calls.lock().unwrap(), provider_calls(strings(&golden["retried"]["firstAttempt"])));
+        assert_eq!(provider_calls(w.effects.calls.lock().unwrap().clone()), provider_calls(strings(&golden["retried"]["firstAttempt"])));
+        let warnings = |calls: &[String]| calls.iter().filter(|c| c.starts_with("warn: ")).cloned().collect::<Vec<_>>();
+        assert_eq!(warnings(&w.effects.calls.lock().unwrap()), ["warn: [config] applying the providers change failed: registry refused"]);
         quiet().await;
-        assert_eq!(*w.effects.calls.lock().unwrap(), provider_calls(strings(&golden["retried"]["afterBackoff"])));
+        assert_eq!(provider_calls(w.effects.calls.lock().unwrap().clone()), provider_calls(strings(&golden["retried"]["afterBackoff"])));
         w.task.abort();
     }
 }

@@ -225,8 +225,13 @@ impl Shared {
             Ok(body) if body.reason == StopReason::NoClients => {
                 bad_request("noClients is the core's own trigger", out)
             }
-            Ok(body) => self.command(out, |lifecycle| {
-                lifecycle.stop(body.mode, body.reason, body.confirm_token.as_deref())
+            // Node's replacement text names the build (`daemon.mjs:589`): a replacement stop without one has nothing to say.
+            Ok(body) if body.reason.is_replacement() && body.replacement.is_none() => {
+                bad_request("a replacement stop names the build that replaces this one (replacement{revision, version})", out)
+            }
+            Ok(body) => self.command(out, |lifecycle| match &body.replacement {
+                Some(build) => lifecycle.stop_noting(body.mode, body.reason, body.confirm_token.as_deref(), &build.node_text()),
+                None => lifecycle.stop(body.mode, body.reason, body.confirm_token.as_deref()),
             }),
             Err(error) => bad_request(&error.to_string(), out),
         }

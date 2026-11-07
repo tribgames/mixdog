@@ -32,6 +32,7 @@ use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::thread::Decision;
 use mixdog_core_base::support::on_lane;
 use mixdog_rt::LaneToken;
+use mixdog_rt::Scope;
 use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
 use serde_json::json;
@@ -63,14 +64,19 @@ pub struct SessionHandle {
     /// One room post (`thread/roomRows/append`) or `thread/reactions/set` at a time, in
     /// order (`agent-room-delivery.mjs` `serialized`): each reads the conversation, then
     /// writes it.
-    pub(crate) reactions: Arc<mixdog_rt::SerialChain>,
+    pub(crate) reactions: mixdog_rt::Gate,
     /// Sends reach the actor in the order they arrive, though one first claims its staged
     /// originals (session-turns.mjs keeps the claim synchronous so a later send cannot
     /// overtake an earlier one).
-    pub(crate) submits: Arc<mixdog_rt::SerialChain>,
+    pub(crate) submits: mixdog_rt::Gate,
     /// The order threads were loaded in (the order of Node's `_liveSessions` Map, which lists
     /// sessions in the order they entered it).
     pub(crate) loaded_seq: u64,
+}
+
+/// A caller's cancel ended a wait on one of the handle's gates or on the actor.
+fn caller_cancelled(_: mixdog_rt::GateCancelled) -> CoreError {
+    CoreError::Cancelled { by: "caller".into() }
 }
 
 fn window_of(window: &ResumeWindow) -> Window {
@@ -131,6 +137,11 @@ impl SessionHandle {
     /// The session's latest acked header (`SessionGate`'s `LiveHeader`).
     pub fn live_header(&self) -> Arc<dyn LiveHeader> {
         self.cell.clone()
+    }
+
+    /// `!!controller && !controller.signal.aborted`: a turn is running and its signal is not aborted.
+    pub fn controller_live(&self) -> bool {
+        self.cell.run.load().as_ref().is_some_and(|run| !run.cancel.is_aborted())
     }
 
     /// The session's "Allow for this session" grants (`SessionGate`'s `session_grants`).
@@ -195,12 +206,20 @@ impl SessionHandle {
         self.enqueue(req).await?.await.map_err(|_| self.closing())?
     }
 
+    /// `to_actor` for a caller that holds a gate: the request's cancel ends the wait on a full
+    /// inbox or a silent actor, so the gate is never held past it.
+    async fn to_actor_cancellable(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let cancel = req.ctx.cancel.clone();
+        Scope::new().cancel(&cancel).run(self.to_actor(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?
+    }
+
     /// `turn/start` (`session-turns.mjs` `submitAdmitted`): the originals a composer staged for
     /// the message's images are claimed first, so staging limits can no longer take them; one
     /// that is gone (or cannot be claimed in time) is dropped from the message, leaving the
     /// resized copy. The claim and the enqueue are not interleaved with another send's.
     async fn turn_start(&self, mut req: CoreRequest) -> Result<Reply, CoreError> {
-        let in_order = self.submits.acquire().await;
+        let cancel = req.ctx.cancel.clone();
+        let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
         let named = super::staged_originals::named_originals(&req.params);
         if !named.is_empty() {
             let originals = self.deps.staged_originals.clone();
@@ -208,7 +227,8 @@ impl SessionHandle {
             let claimed = on_lane(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
             super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
         }
-        let answer = self.enqueue(req).await?;
+        // A full inbox must not hold the gate past the caller's cancel.
+        let answer = Scope::new().cancel(&cancel).run(self.enqueue(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)??;
         drop(in_order);
         answer.await.map_err(|_| self.closing())?
     }
@@ -275,7 +295,7 @@ impl SessionHandle {
             Some(back) => back.as_u64().ok_or_else(|| invalid("messagesBack", "a count"))?,
         };
         let others_keep = params.get("othersKeep").and_then(Value::as_bool).unwrap_or(false);
-        let _one_at_a_time = self.reactions.acquire().await;
+        let _one_at_a_time = self.reactions.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
             lanes: self.deps.lanes,
@@ -336,7 +356,7 @@ impl SessionHandle {
             "turn": row.turn.as_ref().map(|turn| turn.as_str()),
             "items": items,
         });
-        self.to_actor(CoreRequest { method: mixdog_core_api::ids::Method("thread/reactions/apply"), params: apply, op: None, ctx: req.ctx }).await?;
+        self.to_actor_cancellable(CoreRequest { method: mixdog_core_api::ids::Method("thread/reactions/apply"), params: apply, op: None, ctx: req.ctx }).await?;
         reply["changed"] = Value::Bool(true);
         Ok(Reply::Value(reply))
     }
@@ -350,7 +370,7 @@ impl SessionHandle {
             path: "messages".into(),
             expected: "the room row messages".into(),
         })?;
-        let _one_at_a_time = self.reactions.acquire().await;
+        let _one_at_a_time = self.reactions.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
             lanes: self.deps.lanes,
@@ -379,7 +399,7 @@ impl SessionHandle {
             op: None,
             ctx: req.ctx,
         };
-        self.to_actor(append).await
+        self.to_actor_cancellable(append).await
     }
 
     /// `thread/revertTurnReview {checkpointId?}` / `thread/revertTurnReviewFile {file, checkpointId?}`:

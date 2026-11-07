@@ -11,8 +11,11 @@ use sha2::Digest;
 use sha2::Sha256;
 
 use super::model::ActivityInfo;
+use super::model::BUSY_WORK_SETTLED;
+use super::model::SERVICE_CALLS_SETTLED;
 use super::model::Blocked;
 use super::model::BlockedStatus;
+use super::model::ClientKind;
 use super::model::CommandError;
 use super::model::CoreStatus;
 use super::model::DiscoveryPhase;
@@ -62,8 +65,13 @@ pub struct Machine {
     /// client left", so a core that nobody has reached yet is not stopped by a work item
     /// finishing before its launcher connects.
     client_seen: bool,
+    /// Service calls in flight (Node's `inFlightWork().activeCalls`, `daemon.mjs:444-449`): they keep the core from stopping itself with
+    /// nobody attached, but are not listed as running work and do not hold an explicit stop.
+    calls: usize,
     next_id: u64,
     activities: BTreeMap<u64, Running>,
+    /// Node's self-shutdown text for the work that ends last, by activity id (absent: [`BUSY_WORK_SETTLED`]).
+    settle_texts: BTreeMap<u64, &'static str>,
     seq: u64,
     release_started: bool,
     effects: Vec<Effect>,
@@ -79,8 +87,10 @@ impl Machine {
             hold: false,
             clients: 0,
             client_seen: false,
+            calls: 0,
             next_id: 1,
             activities: BTreeMap::new(),
+            settle_texts: BTreeMap::new(),
             seq: 0,
             release_started: false,
             effects: Vec::new(),
@@ -94,7 +104,14 @@ impl Machine {
     // ---- inputs from the running core -------------------------------------------------
 
     pub fn begin_activity(&mut self, info: ActivityInfo) -> u64 {
+        self.begin_activity_settling(info, BUSY_WORK_SETTLED)
+    }
+
+    /// As [`Machine::begin_activity`], with the text Node's self-shutdown carries when this is the work whose end lets the core stop
+    /// (`SERVICE_CALLS_SETTLED`, `MEMORY_AGENT_ACTIVITY_CHANGED`, or the default `BUSY_WORK_SETTLED`).
+    pub fn begin_activity_settling(&mut self, info: ActivityInfo, settled: &'static str) -> u64 {
         let id = self.next_id;
+        self.settle_texts.insert(id, settled);
         self.next_id += 1;
         self.activities.insert(
             id,
@@ -113,7 +130,9 @@ impl Machine {
     pub fn end_activity(&mut self, id: u64) {
         if self.activities.remove(&id).is_some() {
             self.seq += 1;
-            self.settle();
+            // The last work ending with nobody attached is Node's deferred self-shutdown settling (`daemon.mjs:543`, `:556`, `:1065`).
+            let text = self.settle_texts.remove(&id).unwrap_or(BUSY_WORK_SETTLED);
+            self.settle(text);
         }
     }
 
@@ -123,10 +142,23 @@ impl Machine {
         self.seq += 1;
     }
 
-    pub fn client_closed(&mut self) {
+    pub fn call_started(&mut self) {
+        self.calls += 1;
+        self.seq += 1;
+    }
+
+    /// The last call ending with nobody attached is Node's deferred self-shutdown settling on the calls (`daemon.mjs:543`).
+    pub fn call_ended(&mut self) {
+        self.calls = self.calls.saturating_sub(1);
+        self.seq += 1;
+        self.settle(SERVICE_CALLS_SETTLED);
+    }
+
+    /// `kind` is the registry the client was in: the last one leaving names Node's self-shutdown text.
+    pub fn client_closed(&mut self, kind: ClientKind) {
         self.clients = self.clients.saturating_sub(1);
         self.seq += 1;
-        self.settle();
+        self.settle(kind.node_text());
     }
 
     // ---- boot transitions (LR §3) -----------------------------------------------------
@@ -393,7 +425,8 @@ impl Machine {
         let discovery = self.discovery();
         self.effects.push(Effect::Discovery(discovery));
         self.announce_drain();
-        self.settle();
+        // Already draining: the serving branch of `settle` (the only reader of the trigger) is not taken.
+        self.settle("");
     }
 
     fn announce_drain(&mut self) {
@@ -409,8 +442,10 @@ impl Machine {
 
     /// Ends an idle wait on the event "the busy set is empty", and runs the `noClients`
     /// trigger on "the last client left and nothing keeps the core alive".
-    fn settle(&mut self) {
-        let busy = self.activities.values().any(|a| a.kind.blocks_idle());
+    /// `trigger` is Node's text of what made the core idle with nobody attached (`ClientKind::node_text`, `BUSY_WORK_SETTLED`).
+    fn settle(&mut self, trigger: &'static str) {
+        // A service call in flight defers a drain like busy work does (`drainDeferral`, `daemon-drain-policy.mjs`: calls, then busy).
+        let busy = self.calls > 0 || self.activities.values().any(|a| a.kind.blocks_idle());
         match &mut self.phase {
             Phase::Draining(drain) if !drain.releasing && !busy => {
                 drain.releasing = true;
@@ -419,8 +454,9 @@ impl Machine {
                 self.begin_release(cause);
             }
             Phase::Serving
-                if self.client_seen && self.clients == 0 && self.activities.is_empty() =>
+                if self.client_seen && self.clients == 0 && self.activities.is_empty() && self.calls == 0 =>
             {
+                self.effects.push(Effect::NodeTrigger(trigger));
                 self.commit_drain(StopReason::NoClients);
             }
             _ => {}
@@ -505,7 +541,7 @@ mod tests {
     fn last_client_leaving_an_idle_core_releases_at_once() {
         let mut m = machine();
         m.client_opened();
-        m.client_closed();
+        m.client_closed(ClientKind::Session);
         let effects = m.take_effects();
         assert_eq!(releases(&effects), 1);
         assert!(matches!(
@@ -516,6 +552,42 @@ mod tests {
             Some(ReleaseCause::Stop(StopReason::NoClients))
         ));
         assert_eq!(m.status().state, StateName::Draining);
+    }
+
+    /// Node's `maybeSelfShutdown` texts (`daemon.mjs:1245`, `:917`, `:1159`, `:556`), each before the release it names.
+    fn node_triggers(effects: &[Effect]) -> Vec<&'static str> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::NodeTrigger(text) => Some(*text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_self_shutdown_names_the_registry_that_emptied_or_the_work_that_settled() {
+        for (kind, text) in [
+            (ClientKind::Session, "no live session clients"),
+            (ClientKind::Channel, "no live channel clients"),
+            (ClientKind::Remote, "remote clients changed"),
+        ] {
+            let mut m = machine();
+            m.client_opened();
+            m.client_closed(kind);
+            let effects = m.take_effects();
+            assert_eq!(node_triggers(&effects), [text]);
+            let trigger = effects.iter().position(|e| matches!(e, Effect::NodeTrigger(_))).unwrap();
+            let begin = effects.iter().position(|e| matches!(e, Effect::BeginRelease(_))).unwrap();
+            assert!(trigger < begin, "the text is noted before the release begins");
+        }
+        let mut m = machine();
+        m.client_opened();
+        let id = m.begin_activity(work(ActivityKind::Turn));
+        m.client_closed(ClientKind::Session);
+        assert!(node_triggers(&m.take_effects()).is_empty(), "work keeps it alive: no trigger yet");
+        m.end_activity(id);
+        assert_eq!(node_triggers(&m.take_effects()), ["busy service work settled"]);
     }
 
     #[test]
@@ -532,7 +604,7 @@ mod tests {
         let mut m = machine();
         m.client_opened();
         let id = m.begin_activity(work(ActivityKind::Turn));
-        m.client_closed();
+        m.client_closed(ClientKind::Session);
         assert_eq!(m.status().state, StateName::Serving);
         m.end_activity(id);
         assert_eq!(releases(&m.take_effects()), 1);
@@ -544,7 +616,7 @@ mod tests {
             let mut m = machine();
             m.client_opened();
             let id = m.begin_activity(work(kind));
-            m.client_closed();
+            m.client_closed(ClientKind::Session);
             assert_eq!(m.status().state, StateName::Serving, "{kind:?}");
             assert_eq!(releases(&m.take_effects()), 0);
             m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();

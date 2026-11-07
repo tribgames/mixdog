@@ -18,7 +18,7 @@ use super::*;
 
 /// `normalizeLeadRows` of one row: its existing keys stay where they are, the missing ones follow
 /// in the order 1.4.5 spells them.
-fn normalized(row: &Row, id: &str) -> Row {
+pub(super) fn normalized(row: &Row, id: &str) -> Row {
     let mut out = row.clone();
     let text = |key: &str| clean(row.get(key));
     let or_null = |text: String| if text.is_empty() { Value::Null } else { Value::String(text) };

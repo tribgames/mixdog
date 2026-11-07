@@ -151,21 +151,30 @@ pub struct WebhookAutomation {
     service: Arc<WebhookService>,
     listener: Arc<dyn WebhookListener>,
     listening: Mutex<Option<WorkGuard>>,
-    #[allow(clippy::disallowed_types, reason = "a gate held across the awaited sync on purpose: syncs run one at a time")]
-    gate: tokio::sync::Mutex<()>,
+    /// Syncs run one at a time.
+    gate: mixdog_rt::Gate,
+    /// Ends the syncs that began before the last `stop`, so a stop never waits behind a stuck one.
+    epoch: Mutex<tokio_util::sync::CancellationToken>,
 }
 
 impl WebhookAutomation {
-    #[allow(clippy::disallowed_types, reason = "builds the sync gate")]
     pub fn new(settings: Arc<dyn ChannelSettings>, service: Arc<WebhookService>, listener: Arc<dyn WebhookListener>) -> Self {
-        Self { settings, service, listener, listening: Mutex::new(None), gate: tokio::sync::Mutex::new(()) }
+        Self { settings, service, listener, listening: Mutex::new(None), gate: mixdog_rt::Gate::new(), epoch: Mutex::default() }
     }
-}
 
-#[async_trait]
-impl AutomationServices for WebhookAutomation {
-    async fn sync(&self, reload: bool) -> Result<(), String> {
-        let _turn = self.gate.lock().await;
+    fn epoch(&self) -> tokio_util::sync::CancellationToken {
+        self.epoch.lock().unwrap().clone()
+    }
+
+    /// Cuts short every sync in flight and returns the token of the epoch that starts now.
+    fn supersede(&self) -> tokio_util::sync::CancellationToken {
+        let mut epoch = self.epoch.lock().unwrap();
+        epoch.cancel();
+        *epoch = tokio_util::sync::CancellationToken::new();
+        epoch.clone()
+    }
+
+    async fn sync_turn(&self, reload: bool) -> Result<(), String> {
         let settings = self.settings.webhook().await?;
         if !settings.enabled {
             self.listening.lock().unwrap().take();
@@ -185,12 +194,25 @@ impl AutomationServices for WebhookAutomation {
         Ok(())
     }
 
-    async fn stop(&self) {
-        let _turn = self.gate.lock().await;
+    async fn stop_turn(&self) {
         self.listening.lock().unwrap().take();
         if let Err(error) = self.listener.stop().await {
             tracing::warn!("mixdog channels: webhook listener stop failed: {error}");
         }
+    }
+}
+
+#[async_trait]
+impl AutomationServices for WebhookAutomation {
+    async fn sync(&self, reload: bool) -> Result<(), String> {
+        // A sync a stop cut short has nothing left to do: the stop closed the listener.
+        self.gate.run(&self.epoch(), self.sync_turn(reload)).await.unwrap_or(Ok(()))
+    }
+
+    async fn stop(&self) {
+        let epoch = self.supersede();
+        // Cancelled only by a later stop, which does this teardown.
+        drop(self.gate.run(&epoch, self.stop_turn()).await);
     }
 }
 

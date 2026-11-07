@@ -153,8 +153,8 @@ pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &H
 /// policy and the tool surface a route change rebuilds.
 pub struct AiRouteFacts {
     pub catalog: Arc<CatalogService>,
-    /// The config's `autoClear` section.
-    pub auto_clear: Value,
+    /// The config's `autoClear` section, read at each call: Node loads it per `buildSessionProviderCacheOpts`, so a settings change reaches the next route change.
+    pub auto_clear: Arc<dyn Fn() -> Value + Send + Sync>,
     pub surface_host: Arc<dyn SurfaceHost>,
     pub clock: Arc<dyn Clock>,
     /// `_prepareResumeTools` for the header's new route; `None` keeps the stored tools.
@@ -169,7 +169,7 @@ impl RouteFacts for AiRouteFacts {
     }
 
     fn cache_opts(&self, provider: &str, session_id: &str, agent: Option<&str>, header: &Header) -> Option<Value> {
-        session_provider_cache_opts(provider, session_id, agent, header, &self.auto_clear)
+        session_provider_cache_opts(provider, session_id, agent, header, &(self.auto_clear)())
     }
 
     fn surface_change(&self, header: &Header, _previous: &Route) -> HeaderChange {

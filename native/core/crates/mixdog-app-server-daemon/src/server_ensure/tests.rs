@@ -8,6 +8,7 @@ use std::time::Duration;
 use sha2::Digest;
 
 use super::*;
+use crate::control::api::ReplacementBuild;
 use crate::lifecycle::ActivityKind;
 use crate::lifecycle::DiscoveryPhase;
 use crate::lifecycle::RunningWork;
@@ -89,11 +90,11 @@ impl CoreAccess for Access {
         self.calls.borrow_mut().push(format!("hold:{on}"));
         Ok(())
     }
-    fn stop_when_idle(&self, _: &ServerCore, reason: StopReason) -> Result<DrainReport, EnsureError> {
+    fn stop_when_idle(&self, _: &ServerCore, reason: StopReason, _: Option<&ReplacementBuild>) -> Result<DrainReport, EnsureError> {
         self.calls.borrow_mut().push(format!("stop_when_idle:{reason:?}"));
         Ok(DrainReport { drain_id: "d".into(), running: self.running.clone(), confirm_token: "ct".into() })
     }
-    fn stop_confirmed(&self, _: &ServerCore, _: StopReason, token: &str) -> Result<(), EnsureError> {
+    fn stop_confirmed(&self, _: &ServerCore, _: StopReason, token: &str, _: Option<&ReplacementBuild>) -> Result<(), EnsureError> {
         self.calls.borrow_mut().push(format!("stop_confirmed:{token}"));
         Ok(())
     }

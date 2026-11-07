@@ -1,0 +1,30 @@
+{
+  "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-commit-scratch.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1540,
+      "path": "golden.json",
+      "sha256": "5512bc5a486bd94271ec4a2d663ff4a09216183237edeedbe45cf24c92a89b91"
+    }
+  ],
+  "product": {
+    "appsSha256": "c8f72abc147389b830ed4f991290d1744b94a29892bafea6efe9d942f16b22a9",
+    "commit": "4aefe126aa8048fcfdb5c872b2b64cf3659d38c6",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "4aefe126aa8048fcfdb5c872b2b64cf3659d38c6",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-commit-scratch.mjs",
+  "set": "commit-scratch",
+  "totalBytes": 1540
+}

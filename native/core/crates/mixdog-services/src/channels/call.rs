@@ -11,9 +11,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_rt::Scope;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 use super::running::RunningWork;
 use super::tools::ACTIVATE_TOOL;
@@ -111,7 +113,7 @@ fn call_signature(name: &str, args: &Value) -> String {
     Sha256::digest(canonical.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Binding {
     remote_acquired: bool,
     pinned_session_id: Option<String>,
@@ -127,9 +129,12 @@ pub struct CallDispatch {
     work: RunningWork,
     ttl: Duration,
     cache: Arc<Mutex<HashMap<String, Arc<Entry>>>>,
-    /// Serializes the binding tool; the guarded state is the one remote-control binding.
-    #[allow(clippy::disallowed_types, reason = "the guard is held across the awaited binding call by design: that is the serialization")]
-    binding: tokio::sync::Mutex<Binding>,
+    /// The one remote-control binding; held for a few instructions, never across the call.
+    binding: Mutex<Binding>,
+    /// Orders the binding tool's calls: a call reads the binding, runs, then records its outcome.
+    binding_turn: mixdog_rt::Gate,
+    /// Ends every wait on `binding_turn` and every binding call in flight ([`Self::close`]).
+    cancel: CancellationToken,
 }
 
 fn is_soft_error(result: &Value) -> bool {
@@ -142,7 +147,20 @@ impl CallDispatch {
     }
 
     pub fn with_ttl(handler: Arc<dyn ChannelCallHandler>, work: RunningWork, ttl: Duration) -> Arc<Self> {
-        Arc::new(Self { handler, work, ttl, cache: Default::default(), binding: Default::default() })
+        Arc::new(Self {
+            handler,
+            work,
+            ttl,
+            cache: Default::default(),
+            binding: Default::default(),
+            binding_turn: mixdog_rt::Gate::new(),
+            cancel: CancellationToken::new(),
+        })
+    }
+
+    /// Shutdown: queued binding calls and the one in flight end as dropped calls.
+    pub fn close(&self) {
+        self.cancel.cancel();
     }
 
     pub fn cached_calls(&self) -> usize {
@@ -205,7 +223,9 @@ impl CallDispatch {
         let session = remote_session_id_from_binding(&req.name, &req.args);
         let activating = req.args["active"] == Value::Bool(true);
         let deactivating = req.args["active"] == Value::Bool(false);
-        let mut binding = self.binding.lock().await;
+        let dropped = || CallError::Failed("channel call dropped".into());
+        let _turn = self.binding_turn.enter(&self.cancel).await.map_err(|_| dropped())?;
+        let binding = self.binding.lock().unwrap().clone();
         // Automatic activation is retired: a valid manual ON always names its session.
         if activating && (req.args["claimIfVacant"] == Value::Bool(true) || session.is_none()) {
             return Ok(json!({
@@ -220,14 +240,14 @@ impl CallDispatch {
                 "releaseSkipped": true
             }));
         }
-        let result = self.plain(client, req).await;
+        let result = Scope::new().cancel(&self.cancel).run(self.plain(client, req)).await.done().ok_or_else(dropped)?;
         // A soft `isError` envelope is a failed call: it must leave the binding as it was.
         match &result {
             Ok(value) if !is_soft_error(value) => {
                 if deactivating {
-                    *binding = Binding::default();
+                    *self.binding.lock().unwrap() = Binding::default();
                 } else if activating {
-                    *binding = Binding { remote_acquired: true, pinned_session_id: session };
+                    *self.binding.lock().unwrap() = Binding { remote_acquired: true, pinned_session_id: session };
                 }
             }
             _ => {}

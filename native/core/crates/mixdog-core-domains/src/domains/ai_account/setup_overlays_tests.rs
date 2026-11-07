@@ -22,7 +22,7 @@ impl CatalogFailures for Held {
 fn the_catalog_errors_land_on_the_rows_as_node_puts_them() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let scenarios = golden["scenarios"].as_array().unwrap();
-    assert_eq!(scenarios.len(), 10);
+    assert_eq!(scenarios.len(), 14);
     for scenario in scenarios {
         let held = Held(
             scenario["held"]

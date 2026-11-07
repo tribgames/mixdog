@@ -30,6 +30,7 @@ use super::keys::ProviderKey;
 use super::providers::OAUTH_PROVIDER_NAMES;
 use super::providers::ProviderBuilder;
 use crate::accounts::AccountStore;
+use crate::accounts::CredentialState;
 use crate::catalog::ListingLookup;
 use crate::oauth::CredentialFile;
 use crate::oauth::Pace;
@@ -1038,6 +1039,15 @@ impl ProviderBuilder for DefaultProviderBuilder {
         // An unreadable file counts as present: it is never a logout, so a credential read that
         // never ran (`Probe::Unreadable`) already reads as present here and cannot be missing.
         Ok(OAUTH_PROVIDER_NAMES.contains(&name) && self.env.accounts.has_credential(name, "default").await.unwrap_or(false))
+    }
+
+    async fn oauth_credential_state(&self, name: &str) -> Result<CredentialState, String> {
+        // oauthCredentialProbeState: a dev-gated provider whose option is off always reads absent.
+        if !OAUTH_PROVIDER_NAMES.contains(&name) || !self.available(name) {
+            return Ok(CredentialState::Absent);
+        }
+        // A read that never ran is a momentary failure (Node's catch), not a logout.
+        Ok(self.env.accounts.credential_state(name, "default").await.unwrap_or(CredentialState::Unreadable))
     }
 }
 

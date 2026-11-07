@@ -33,6 +33,7 @@ use crate::lifecycle::StopReason;
 use crate::control::api::ErrorReply;
 use crate::control::api::HOLD_PATH;
 use crate::control::api::HoldRequest;
+use crate::control::api::ReplacementBuild;
 use crate::control::api::STOP_PATH;
 use crate::control::api::StatusReply;
 use crate::control::api::StopRequest;
@@ -174,8 +175,8 @@ impl OsAccess {
         Err(EnsureError::Core(format!("{}: {}", refusal.code, refusal.message)))
     }
 
-    fn stop(core: &ServerCore, mode: StopMode, reason: StopReason, token: Option<&str>) -> Result<StatusReply, EnsureError> {
-        let request = StopRequest { mode, reason, confirm_token: token.map(str::to_owned) };
+    fn stop(core: &ServerCore, mode: StopMode, reason: StopReason, token: Option<&str>, replacement: Option<&ReplacementBuild>) -> Result<StatusReply, EnsureError> {
+        let request = StopRequest { mode, reason, confirm_token: token.map(str::to_owned), replacement: replacement.cloned() };
         Self::call(core, STOP_PATH, &request)
     }
 }
@@ -234,8 +235,8 @@ impl CoreAccess for OsAccess {
         Self::call(core, HOLD_PATH, &HoldRequest { on }).map(drop)
     }
 
-    fn stop_when_idle(&self, core: &ServerCore, reason: StopReason) -> Result<DrainReport, EnsureError> {
-        let status = Self::stop(core, StopMode::WhenIdle, reason, None)?;
+    fn stop_when_idle(&self, core: &ServerCore, reason: StopReason, replacement: Option<&ReplacementBuild>) -> Result<DrainReport, EnsureError> {
+        let status = Self::stop(core, StopMode::WhenIdle, reason, None, replacement)?;
         let drain = status
             .status
             .drain
@@ -243,8 +244,8 @@ impl CoreAccess for OsAccess {
         Ok(DrainReport { drain_id: drain.drain_id, running: status.status.running, confirm_token: drain.confirm_token })
     }
 
-    fn stop_confirmed(&self, core: &ServerCore, reason: StopReason, confirm_token: &str) -> Result<(), EnsureError> {
-        Self::stop(core, StopMode::AbortConfirmed, reason, Some(confirm_token)).map(drop)
+    fn stop_confirmed(&self, core: &ServerCore, reason: StopReason, confirm_token: &str, replacement: Option<&ReplacementBuild>) -> Result<(), EnsureError> {
+        Self::stop(core, StopMode::AbortConfirmed, reason, Some(confirm_token), replacement).map(drop)
     }
 
     fn wait_exit(&self, core: &ServerCore) -> Result<(), EnsureError> {

@@ -25,6 +25,7 @@ use mixdog_core_api::domain::provider::ProviderAdapter;
 use serde_json::Map;
 
 use super::accounted::{AccountedAdapter, AccountingDeps};
+use crate::accounts::CredentialState;
 use serde_json::Value;
 
 /// Error code of an init that has no enabled provider.
@@ -89,17 +90,28 @@ pub trait ProviderBuilder: Send + Sync {
     /// Whether an OAuth provider's stored credential reads as present. `Err` only when the check
     /// never ran: that is neither "present" nor "missing".
     async fn oauth_credentials_usable(&self, name: &str) -> Result<bool, String>;
+
+    /// `oauthCredentialProbeState`: the credential as present, absent (a logout, or a dev-gated
+    /// provider that is off) or unreadable (never a logout). The default reads the yes/no check;
+    /// a builder that can tell an unreadable file from a missing one overrides it.
+    async fn oauth_credential_state(&self, name: &str) -> Result<CredentialState, String> {
+        Ok(if self.oauth_credentials_usable(name).await? { CredentialState::Present } else { CredentialState::Absent })
+    }
 }
 
 struct Entry {
     adapter: Arc<dyn ProviderAdapter>,
     /// `None`: never matches, so the next sync rebuilds it.
     signature: Option<String>,
+    /// Which registration this is: every `register` takes the next one.
+    generation: u64,
 }
 
 #[derive(Default)]
 struct State {
     providers: HashMap<String, Entry>,
+    /// The last generation handed to an entry.
+    generation: u64,
     init_errors: HashMap<String, String>,
     explicitly_disabled: HashSet<String>,
     catalog_revision: u64,
@@ -218,9 +230,10 @@ impl ProviderRegistry {
 
     /// Ensures the providers `config` enables are registered (additive). A
     /// registered one is left as it is. Errors with `NO_ENABLED_PROVIDERS`
-    /// when the registry is still empty afterwards.
+    /// (Node's "all providers disabled" refusal) when no entry of the config is registered afterwards
+    /// and no OAuth instance is preserved.
     pub async fn init_providers(&self, config: &Map<String, Value>) -> Result<(), RegistryError> {
-        // _initProvidersUnsynchronized: an empty config never clears (or settles) the registry, whatever it
+        // `_initProvidersUnsynchronized`: an empty config never clears (or settles) the registry, whatever it
         // holds. Checked first: with providers registered the nothing-pending shortcut below would accept it.
         if config.is_empty() {
             return Err(RegistryError {
@@ -229,7 +242,9 @@ impl ProviderRegistry {
             });
         }
         let plan = Plan { config: self.with_custom_key_ids(config).await?, rebuild: false, add: true, is_off: None };
-        if !self.state().providers.is_empty() && self.pending(&plan).is_empty() {
+        let nothing_pending = !self.state().providers.is_empty() && self.pending(&plan).is_empty();
+        if nothing_pending {
+            self.refuse_if_nothing_left(&plan.config, &[]).await?;
             self.ready.send_replace(true);
             return Ok(());
         }
@@ -259,16 +274,60 @@ impl ProviderRegistry {
         self.apply_plan(Plan { config, rebuild: true, add: false, is_off }).await
     }
 
+    /// The registered OAuth providers whose credential decides the guard of `refuse_if_nothing_left`;
+    /// `None` when an entry of the config is registered, so there is nothing to refuse. A separate
+    /// function so the registry lock is never part of the awaiting future.
+    fn oauth_to_check(&self, config: &Map<String, Value>) -> Option<Vec<&'static str>> {
+        let state = self.state();
+        if config.iter().any(|(name, cfg)| self.enabled_for_init(name, cfg) && state.providers.contains_key(name)) {
+            return None;
+        }
+        Some(OAUTH_PROVIDER_NAMES.iter().copied().filter(|name| state.providers.contains_key(*name)).collect())
+    }
+
+    /// An entry an init admits: enabled, available (a dev-gated provider is on) and not retired.
+    fn enabled_for_init(&self, name: &str, cfg: &Value) -> bool {
+        cfg.get("enabled").and_then(Value::as_bool) == Some(true)
+            && self.builder.available(name)
+            && !RETIRED_PROVIDER_ALIASES.iter().any(|(old, _)| *old == name)
+    }
+
+    /// The guard of `_initProvidersUnsynchronized`: no entry of the config is registered and no OAuth
+    /// instance is preserved, so the init refuses rather than leave the registry dark. An OAuth
+    /// instance not in the config is kept unless its credential reads absent (a logout); one the
+    /// config switches off is kept only when that is a probe that could not read
+    /// (`credentialProbeUnavailable`), never for an explicit opt-out.
+    async fn refuse_if_nothing_left(&self, config: &Map<String, Value>, skipped: &[String]) -> Result<(), RegistryError> {
+        let Some(registered_oauth) = self.oauth_to_check(config) else {
+            return Ok(());
+        };
+        for name in registered_oauth {
+            let opted_out = config.get(name).is_some_and(|cfg| {
+                cfg.get("enabled").and_then(Value::as_bool) != Some(true)
+                    && cfg.get("credentialProbeUnavailable").and_then(Value::as_bool) != Some(true)
+            });
+            if opted_out {
+                continue;
+            }
+            let probe = self.builder.oauth_credential_state(name).await.unwrap_or(CredentialState::Unreadable);
+            if probe != CredentialState::Absent {
+                return Ok(());
+            }
+        }
+        let tail = if skipped.is_empty() { String::new() } else { format!("; invalid custom providers skipped: {}", skipped.join("; ")) };
+        Err(RegistryError {
+            message: format!("[provider] all providers disabled in config — refusing to clear registry{tail}"),
+            code: Some(NO_ENABLED_PROVIDERS),
+        })
+    }
+
     /// Entries of the plan that need a build: missing ones when it adds,
     /// changed ones when it rebuilds.
     fn pending(&self, plan: &Plan) -> Vec<(String, Value, Option<String>)> {
         let state = self.state();
         let mut out = Vec::new();
         for (name, cfg) in &plan.config {
-            if cfg.get("enabled").and_then(Value::as_bool) != Some(true) {
-                continue;
-            }
-            if !self.builder.available(name) || RETIRED_PROVIDER_ALIASES.iter().any(|(old, _)| old == name) {
+            if !self.enabled_for_init(name, cfg) {
                 continue;
             }
             let sig = Some(config_signature(cfg));
@@ -305,6 +364,18 @@ impl ProviderRegistry {
                 }
             }
         }
+        let skipped = self.settle(&plan, built);
+        if plan.add {
+            self.refuse_if_nothing_left(&plan.config, &skipped).await?;
+        }
+        Ok(())
+    }
+
+    /// Registers what a plan built and removes what it turned off, under the registry lock; returns
+    /// the invalid custom providers it skipped. Sync, so the guard (not `Send`) is out of scope before
+    /// the credential probe awaits: an explicit `drop` in an async fn does not end its liveness for the
+    /// compiler's `Send` analysis.
+    fn settle(&self, plan: &Plan, built: Vec<(String, Result<(Arc<dyn ProviderAdapter>, Option<String>), String>)>) -> Vec<String> {
         let mut skipped = Vec::new();
         let mut state = self.state();
         for (name, result) in built {
@@ -328,22 +399,13 @@ impl ProviderRegistry {
             state.explicitly_disabled =
                 OAUTH_PROVIDER_NAMES.iter().filter(|n| is_off(n)).map(|n| (*n).to_owned()).collect();
         }
-        if plan.add && state.providers.is_empty() {
-            let tail = if skipped.is_empty() {
-                String::new()
-            } else {
-                format!("; invalid custom providers skipped: {}", skipped.join("; "))
-            };
-            return Err(RegistryError {
-                message: format!("[provider] no provider is enabled{tail}"),
-                code: Some(NO_ENABLED_PROVIDERS),
-            });
-        }
-        Ok(())
+        skipped
     }
 
     fn register(state: &mut State, name: &str, adapter: Arc<dyn ProviderAdapter>, signature: Option<String>) {
-        state.providers.insert(name.to_owned(), Entry { adapter, signature });
+        state.generation += 1;
+        let generation = state.generation;
+        state.providers.insert(name.to_owned(), Entry { adapter, signature, generation });
         state.explicitly_disabled.remove(name);
         state.init_errors.remove(name);
         state.catalog_revision += 1;
@@ -363,6 +425,19 @@ impl ProviderRegistry {
     /// registration (`registeredProvider`).
     pub fn registered(&self, name: &str) -> Option<Arc<dyn ProviderAdapter>> {
         self.state().providers.get(name).map(|e| Arc::clone(&e.adapter))
+    }
+
+    /// The registration of `name` that is live now. A holder of an earlier request compares it with
+    /// [`generation_of`](Self::generation_of) taken at capture: a provider registered again (a sync
+    /// that rebuilt it, a removal) differs, as `registeredProvider(name) !== captured` does.
+    pub fn generation(&self, name: &str) -> Option<u64> {
+        self.state().providers.get(name).map(|e| e.generation)
+    }
+
+    /// The registration `adapter` (an instance handed out by this registry) is live under, `None`
+    /// when it is no longer registered.
+    pub fn generation_of(&self, adapter: &Arc<dyn ProviderAdapter>) -> Option<u64> {
+        self.state().providers.values().find(|e| Arc::ptr_eq(&e.adapter, adapter)).map(|e| e.generation)
     }
 
     /// `typeof registeredProvider(name)?.sendCacheWarm === 'function'`: the registered provider
@@ -528,7 +603,7 @@ mod tests {
         let cfg = json!({"gated": {"enabled": true}, "off": {"enabled": false}});
         let err = r.init_providers(cfg.as_object().unwrap()).await.unwrap_err();
         assert_eq!(err.code, Some(NO_ENABLED_PROVIDERS));
-        assert_eq!(err.message, "[provider] no provider is enabled");
+        assert_eq!(err.message, "[provider] all providers disabled in config — refusing to clear registry");
     }
 
     #[tokio::test]
@@ -545,7 +620,7 @@ mod tests {
         let r = registry();
         let cfg = json!({"custom-1": {"enabled": true, "type": "custom", "auth": "none"}});
         let err = r.init_providers(cfg.as_object().unwrap()).await.unwrap_err();
-        assert!(err.message.starts_with("[provider] no provider is enabled; invalid custom providers skipped: "));
+        assert!(err.message.starts_with("[provider] all providers disabled in config — refusing to clear registry; invalid custom providers skipped: "));
         assert!(r.init_errors().contains_key("custom-1"));
     }
 
@@ -720,6 +795,61 @@ mod tests {
         }
     }
 
+    /// Builds every name; its OAuth credential reads as the file the recording used.
+    struct Probing(CredentialState);
+
+    #[async_trait]
+    impl ProviderBuilder for Probing {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(self.0 != CredentialState::Absent)
+        }
+        async fn oauth_credential_state(&self, _name: &str) -> Result<CredentialState, String> {
+            Ok(self.0)
+        }
+    }
+
+    /// An init whose config leaves nothing registered is refused with Node's text and code, unless a
+    /// registered OAuth provider is preserved (`fixtures/provider-refusal/golden.json`, from the real
+    /// `initProviders`): one the config does not name or whose probe could not read, while its
+    /// credential is not a logout; an explicit opt-out is never preserved.
+    #[tokio::test]
+    async fn the_refusal_when_nothing_is_left_is_nodes() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/provider-refusal/golden.json")).expect("fixture");
+        let config = |name: &str| golden["configs"][name].as_object().expect("config").clone();
+        for scenario in golden["scenarios"].as_array().expect("scenarios") {
+            let name = scenario["name"].as_str().expect("name");
+            let probe = match scenario["probe"].as_str() {
+                None | Some("present") => CredentialState::Present,
+                Some("absent") => CredentialState::Absent,
+                Some("unreadable") => CredentialState::Unreadable,
+                Some(other) => panic!("{name}: probe {other}"),
+            };
+            let registry = ProviderRegistry::new(Arc::new(Probing(probe)));
+            if scenario["registered"] == true {
+                registry.init_providers(json!({"anthropic-oauth": {"enabled": true}}).as_object().unwrap()).await.expect("the live provider registers");
+            }
+            for step in scenario["steps"].as_array().expect("steps") {
+                let result = registry.init_providers(&config(step["config"].as_str().expect("config"))).await;
+                match (step["outcome"].as_str().expect("outcome"), result) {
+                    ("ok", Ok(())) => {}
+                    ("refused", Err(error)) => {
+                        assert_eq!(json!(error.message), step["message"], "{name}: {step}");
+                        assert_eq!(error.code, Some(NO_ENABLED_PROVIDERS), "{name}: {step}");
+                    }
+                    (outcome, result) => panic!("{name}: Node {outcome}, Rust {result:?}: {step}"),
+                }
+            }
+        }
+    }
     /// Whether `wait_initialized` has resolved, with no waiting: the task gets event-loop turns,
     /// not wall time.
     async fn resolved(task: &tokio::task::JoinHandle<()>) -> bool {
@@ -775,6 +905,27 @@ mod tests {
         assert!(!resolved(&waiting).await);
         r.init_providers(cfg.as_object().unwrap()).await.unwrap();
         assert!(resolved(&waiting).await);
+    }
+
+    /// A registration is told from the next one: a sync that rebuilds the provider, or a removal,
+    /// leaves the instance a request was captured on without its generation.
+    #[tokio::test]
+    async fn a_replaced_provider_has_a_new_generation() {
+        let r = ProviderRegistry::new(Arc::new(Scripted));
+        let with = |n: u32| json!({"openai": {"enabled": true, "n": n}}).as_object().unwrap().clone();
+        r.init_providers(&with(1)).await.unwrap();
+        let first = r.registered("openai").unwrap();
+        let held = r.generation_of(&first).expect("registered");
+        assert_eq!(r.generation("openai"), Some(held));
+        r.sync_providers(&with(1), None).await.unwrap();
+        assert_eq!(r.generation("openai"), Some(held), "an unchanged config keeps the instance");
+        r.sync_providers(&with(2), None).await.unwrap();
+        assert_ne!(r.generation("openai"), Some(held));
+        assert_eq!(r.generation_of(&first), None, "the replaced instance is no longer registered");
+        let second = r.registered("openai").unwrap();
+        assert_eq!(r.generation_of(&second), r.generation("openai"));
+        assert!(r.disable("openai"));
+        assert_eq!(r.generation("openai"), None);
     }
 
     /// A provider with a cache-warm mode: it never sends.

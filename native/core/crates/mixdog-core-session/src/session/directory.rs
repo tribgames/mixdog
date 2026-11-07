@@ -118,6 +118,8 @@ pub(crate) struct DirInner {
     opens: std::sync::atomic::AtomicU64,
     /// Handles built, ever: each handle's `loaded_seq`.
     loads: std::sync::atomic::AtomicU64,
+    /// Creates in flight (`getSessionCreatePromise()`): the idle probes of the background warm-ups read it.
+    creating: std::sync::atomic::AtomicUsize,
     /// `onGoalStatusChange`: each change goes to its loaded thread's Goal lane.
     goal_events: Mutex<Option<mixdog_core_goal::goal::Subscription>>,
     /// Cancels the staged-originals deadline timer when the directory goes.
@@ -141,6 +143,22 @@ pub struct SessionDirectory {
     inner: Arc<DirInner>,
 }
 
+/// Counts a create while it runs.
+struct CreateInFlight<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl<'a> CreateInFlight<'a> {
+    fn enter(count: &'a std::sync::atomic::AtomicUsize) -> Self {
+        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(count)
+    }
+}
+
+impl Drop for CreateInFlight<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// A loaded log as the actor starts from it.
 struct Opened {
     state: SessionState,
@@ -160,6 +178,7 @@ impl SessionDirectory {
             me: me.clone(),
             opens: Default::default(),
             loads: Default::default(),
+            creating: Default::default(),
             goal_events: Mutex::new(None),
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
@@ -408,6 +427,11 @@ impl SessionDirectory {
             .collect();
         handles.sort_by_key(|handle| handle.loaded_seq);
         handles
+    }
+
+    /// Whether a thread is being created now (`getSessionCreatePromise()`).
+    pub fn creating(&self) -> bool {
+        self.inner.creating.load(std::sync::atomic::Ordering::SeqCst) > 0
     }
 
     /// Creates the thread under a fixed `id` (agent homes and room sessions are derived keys, not
@@ -901,6 +925,7 @@ impl DirInner {
         // The create settling, whichever way, is a busy-state change (`rt.wakeDeferredWarmups`):
         // a warm parked on it re-checks.
         let _settled = super::prewarm_signals::WakeOnDrop(self.deps.code_graph_prewarm.clone());
+        let _creating = CreateInFlight::enter(&self.creating);
         let id = spec.id.unwrap_or_else(|| ThreadId::from(new_id()));
         let invalid = |path: &str| CoreError::InvalidParams {
             path: path.into(),
@@ -1133,5 +1158,25 @@ impl ThreadDirectory for SessionDirectory {
                 expected: "a session-directory method".into(),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod create_count_tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use super::CreateInFlight;
+
+    #[test]
+    fn a_create_counts_while_its_guard_lives_and_two_count_twice() {
+        let count = AtomicUsize::new(0);
+        let first = CreateInFlight::enter(&count);
+        let second = CreateInFlight::enter(&count);
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        drop(first);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        drop(second);
+        assert_eq!(count.load(Ordering::SeqCst), 0);
     }
 }

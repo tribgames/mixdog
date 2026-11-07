@@ -144,25 +144,53 @@ impl ReleaseCause {
     }
 
     /// The reason Node's `shutdown(reason)` carries (`daemon.mjs:272`), which `sessionRuntimeHost.close(reason)` (`:316`) hands to
-    /// `agent-dispatch.mjs:60` `abortAll(reason)` as the error every aborted run fails with. A signal's name (`SIGTERM`, `SIGINT`,
-    /// `SIGHUP`, `SIGBREAK`, `:1298-1308`) is noted by the trigger itself (`Lifecycle::note_trigger`); these are the texts of the causes
-    /// that have a Node counterpart. Rust's single `NoClients` trigger is Node's self-shutdown of `maybeSelfShutdown` (`:506`), whose
-    /// reasons are 'no live session clients' (`:1245`), 'no live channel clients' (`:917`), 'remote clients changed' (`:1159`),
-    /// 'memory agent activity changed' (`:1065`) and the rechecks 'service calls settled' (`:543`) and 'busy service work settled' (`:556`);
-    /// it fires when the last client is gone, which is `:1245`. A replacement (`:589`) reads `daemon replacement by revision/build <rev>/<ver>`;
-    /// the stop request carries neither number, so the text stops at 'daemon replacement'. A user's stop or quit is the parent's IPC
-    /// message (`:1311`, 'IPC shutdown'). A lost owner lock is `fenceDaemon` (`:655`, 'owner lock file <path> was deleted or replaced';
-    /// the path is not part of the fence), and the other fences have no Node counterpart: they keep their own name.
+    /// `agent-dispatch.mjs:60` `abortAll(reason)` as the error every aborted run fails with, for the causes whose text is fixed.
+    /// The texts that carry a fact are noted by the trigger that knows it (`Lifecycle::note_trigger`) and win over this one:
+    /// a signal's name (`SIGTERM`, `SIGINT`, `SIGHUP`, `SIGBREAK`, `:1298-1308`); the self-shutdown texts of `NoClients` (`ClientKind`,
+    /// the machine's `NodeTrigger`: `:1245`, `:917`, `:1159`, `:556`); a replacement's `daemon replacement by revision/build <rev>/<ver>`
+    /// (`:589`, from the stop request's build); the lost owner lock's `owner lock file <path> was deleted or replaced` (`:655`,
+    /// `Lifecycle::fence_at`).
+    ///
+    /// `Quit` and `UserStop` have no Node counterpart of their own: Node's daemon is stopped by a signal, by the parent's IPC message
+    /// (`:1311`, the only non-signal request from a parent; the desktop sends it as `child.send({ type: 'shutdown' })`) or by itself.
+    /// They read 'IPC shutdown', the text of the parent's request; this is not a claim that Node sends both through that path.
+    /// The other fences have no Node counterpart: they keep their own name, as do the carrying causes when no fact was noted.
     pub fn node_text(self) -> String {
         match self {
-            ReleaseCause::Stop(StopReason::NoClients) => "no live session clients".to_owned(),
-            ReleaseCause::Stop(StopReason::Update | StopReason::Restart | StopReason::FastDeploy | StopReason::SshReplace) => "daemon replacement".to_owned(),
             ReleaseCause::Stop(StopReason::Quit | StopReason::UserStop) => "IPC shutdown".to_owned(),
-            ReleaseCause::Fenced(FenceReason::LockFileReplaced) => "owner lock file was deleted or replaced".to_owned(),
-            ReleaseCause::Fenced(_) => self.text(),
+            _ => self.text(),
         }
     }
 }
+
+/// What kind of client connection closed: the three registries Node's `maybeSelfShutdown` is called from when one empties.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientKind {
+    /// The session transport's clients (`onClientsEmpty`, `daemon.mjs:1245`): 'no live session clients'.
+    Session,
+    /// The channels runtime's clients (`daemon.mjs:917`): 'no live channel clients'.
+    Channel,
+    /// The remote (phone / SSH) clients (`onExternalClientsChanged`, `daemon.mjs:1159`): 'remote clients changed'.
+    Remote,
+}
+
+impl ClientKind {
+    pub const fn node_text(self) -> &'static str {
+        match self {
+            ClientKind::Session => "no live session clients",
+            ClientKind::Channel => "no live channel clients",
+            ClientKind::Remote => "remote clients changed",
+        }
+    }
+}
+
+/// Node's recheck text when the busy work of a deferred self-shutdown has settled (`daemon.mjs:556`, `busySessions` / `busyMemoryAgents`).
+pub const BUSY_WORK_SETTLED: &str = "busy service work settled";
+/// The recheck when the in-flight service calls have settled (`daemon.mjs:543`, `activeCalls` / `queuedCalls`): the text of the last
+/// call ending (`Lifecycle::begin_call`; a call is no listed work, so it is counted apart from the activities).
+pub const SERVICE_CALLS_SETTLED: &str = "service calls settled";
+/// The memory agents' own callback (`daemon.mjs:1065`, `onActivityChanged`): the text of a memory-agent activity.
+pub const MEMORY_AGENT_ACTIVITY_CHANGED: &str = "memory agent activity changed";
 
 /// Something the machine decided that happens outside it, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,5 +199,7 @@ pub enum Effect {
     DrainNotice(DrainNotice),
     CancelRunning(Vec<Running>),
     ReleaseDecision { pid: u32 },
+    /// Node's text of the self-shutdown that is about to begin (`Lifecycle::note_trigger`), before its `BeginRelease`.
+    NodeTrigger(&'static str),
     BeginRelease(ReleaseCause),
 }

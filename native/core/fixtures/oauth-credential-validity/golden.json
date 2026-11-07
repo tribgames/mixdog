@@ -1,0 +1,550 @@
+{
+  "cases": [
+    {
+      "provider": "anthropic-oauth",
+      "name": "signed in, no expiry",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "dummy-access",
+          "scopes": [
+            "user:inference"
+          ]
+        }
+      },
+      "state": "present"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "expiry zero",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "dummy-access",
+          "scopes": [
+            "user:inference"
+          ],
+          "expiresAt": 0
+        }
+      },
+      "state": "present"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "expired without a refresh token",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "dummy-access",
+          "scopes": [
+            "user:inference"
+          ],
+          "expiresAt": 1000000000000
+        }
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "expired with a refresh token",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "dummy-access",
+          "refreshToken": "dummy-refresh",
+          "scopes": [
+            "user:inference"
+          ],
+          "expiresAt": 1000000000000
+        }
+      },
+      "state": "present"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "future expiry",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "dummy-access",
+          "scopes": [
+            "user:inference"
+          ],
+          "expiresAt": 4000000000000
+        }
+      },
+      "state": "present"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "snake case expiry, expired",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "dummy-access",
+          "scopes": [
+            "user:inference"
+          ],
+          "expires_at": 1000000000000
+        }
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "null camel expiry falls to the snake one",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "dummy-access",
+          "scopes": [
+            "user:inference"
+          ],
+          "expiresAt": null,
+          "expires_at": 1000000000000
+        }
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "no inference scope",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "dummy-access",
+          "scopes": [
+            "user:profile"
+          ]
+        }
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "scopes not an array",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "dummy-access",
+          "scopes": "user:inference"
+        }
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "empty access token",
+      "document": {
+        "claudeAiOauth": {
+          "accessToken": "",
+          "scopes": [
+            "user:inference"
+          ]
+        }
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "no oauth key",
+      "document": {},
+      "state": "absent"
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "oauth not an object",
+      "document": {
+        "claudeAiOauth": "x"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "access and refresh token",
+      "document": {
+        "access_token": "dummy-access",
+        "refresh_token": "dummy-refresh"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "access only, future seconds",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": 4000000000
+      },
+      "state": "present"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "access only, past seconds",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": 1000000000
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "access only, future milliseconds",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": 4000000000000
+      },
+      "state": "present"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "access only, camel case expiry",
+      "document": {
+        "access_token": "dummy-access",
+        "expiresAt": 4000000000
+      },
+      "state": "present"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "numeric string expiry",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": "4000000000"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "iso string expiry, future",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": "2096-01-01T00:00:00Z"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "iso string expiry, past",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": "2001-01-01T00:00:00Z"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "unparseable string expiry",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": "soon"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "opaque access token, no expiry",
+      "document": {
+        "access_token": "dummy-access"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "jwt access token, future exp",
+      "document": {
+        "access_token": {
+          "$jwt": 4000000000
+        }
+      },
+      "state": "present"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "jwt access token, past exp",
+      "document": {
+        "access_token": {
+          "$jwt": 1000000000
+        }
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "refresh token without access token",
+      "document": {
+        "refresh_token": "dummy-refresh"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "grok-oauth",
+      "name": "both tokens",
+      "document": {
+        "access_token": "dummy-access",
+        "refresh_token": "dummy-refresh"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "grok-oauth",
+      "name": "access only",
+      "document": {
+        "access_token": "dummy-access"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "grok-oauth",
+      "name": "refresh only",
+      "document": {
+        "refresh_token": "dummy-refresh"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "grok-oauth",
+      "name": "empty tokens",
+      "document": {
+        "access_token": "",
+        "refresh_token": ""
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "mimo-oauth",
+      "name": "api key",
+      "document": {
+        "apiKey": "dummy-key"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "mimo-oauth",
+      "name": "empty api key",
+      "document": {
+        "apiKey": ""
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "mimo-oauth",
+      "name": "no api key",
+      "document": {},
+      "state": "absent"
+    },
+    {
+      "provider": "command-code-oauth",
+      "name": "api key",
+      "document": {
+        "apiKey": "dummy-key"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "command-code-oauth",
+      "name": "blank api key",
+      "document": {
+        "apiKey": "   "
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "command-code-oauth",
+      "name": "api key not a string",
+      "document": {
+        "apiKey": 5
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "muse-code-oauth",
+      "name": "access token and api key",
+      "document": {
+        "accessToken": "dummy-access",
+        "apiKey": "dummy-key"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "muse-code-oauth",
+      "name": "access token only",
+      "document": {
+        "accessToken": "dummy-access"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "muse-code-oauth",
+      "name": "blank api key",
+      "document": {
+        "accessToken": "dummy-access",
+        "apiKey": "  "
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "opencode-go-oauth",
+      "name": "both tokens",
+      "document": {
+        "access_token": "dummy-access",
+        "refresh_token": "dummy-refresh"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "opencode-go-oauth",
+      "name": "blank refresh token",
+      "document": {
+        "access_token": "dummy-access",
+        "refresh_token": "  "
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "opencode-go-oauth",
+      "name": "access only",
+      "document": {
+        "access_token": "dummy-access"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "antigravity-oauth",
+      "name": "tokens and project",
+      "document": {
+        "access_token": "dummy-access",
+        "refresh_token": "dummy-refresh",
+        "project_id": "dummy-project"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "antigravity-oauth",
+      "name": "no project",
+      "document": {
+        "access_token": "dummy-access",
+        "refresh_token": "dummy-refresh"
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "antigravity-oauth",
+      "name": "empty project",
+      "document": {
+        "access_token": "dummy-access",
+        "refresh_token": "dummy-refresh",
+        "project_id": ""
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "access token only",
+      "document": {
+        "access_token": "dummy-access"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "marked for re-login",
+      "document": {
+        "access_token": "dummy-access",
+        "reauth_required": true
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "marked for re-login, with a refresh token",
+      "document": {
+        "access_token": "dummy-access",
+        "refresh_token": "dummy-refresh",
+        "reauth_required": true
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "expired without a refresh token",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": 1000000000000
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "expired with a refresh token",
+      "document": {
+        "access_token": "dummy-access",
+        "refresh_token": "dummy-refresh",
+        "expires_at": 1000000000000
+      },
+      "state": "present"
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "future expiry",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": 4000000000000
+      },
+      "state": "present"
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "empty access token",
+      "document": {
+        "access_token": ""
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "devin-oauth",
+      "name": "access token only",
+      "document": {
+        "access_token": "dummy-access"
+      },
+      "state": "present"
+    },
+    {
+      "provider": "devin-oauth",
+      "name": "expired",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": 1000000000000
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "devin-oauth",
+      "name": "future expiry",
+      "document": {
+        "access_token": "dummy-access",
+        "expires_at": 4000000000000
+      },
+      "state": "present"
+    },
+    {
+      "provider": "devin-oauth",
+      "name": "expiry zero, jwt past exp",
+      "document": {
+        "access_token": {
+          "$jwt": 1000000000
+        },
+        "expires_at": 0
+      },
+      "state": "absent"
+    },
+    {
+      "provider": "devin-oauth",
+      "name": "no expiry field, jwt future exp",
+      "document": {
+        "access_token": {
+          "$jwt": 4000000000
+        }
+      },
+      "state": "present"
+    },
+    {
+      "provider": "devin-oauth",
+      "name": "no access token",
+      "document": {
+        "refresh_token": "dummy-refresh"
+      },
+      "state": "absent"
+    }
+  ]
+}

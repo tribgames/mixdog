@@ -6,8 +6,6 @@
 //! No timer decides the outcome: a device code the user never enters ends when gh exits (its
 //! own expiry), and the user cancels when they give up.
 
-#![allow(clippy::disallowed_types, reason = "the receiver's tokio Mutex is held across the awaited wait for the next login state")]
-
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
@@ -116,7 +114,12 @@ pub fn find_device_url(output: &str) -> Option<String> {
 
 struct Shared {
     state: watch::Sender<LoginState>,
-    receiver: tokio::sync::Mutex<watch::Receiver<LoginState>>,
+    /// The shared cursor over `state`. Taken out for the wait on `next_turn`, never locked across it.
+    receiver: std::sync::Mutex<Option<watch::Receiver<LoginState>>>,
+    /// One `next` waits for the following state at a time; the rest queue here.
+    next_turn: mixdog_rt::Gate,
+    /// Fires once the terminal state was delivered: queued `next` callers then end with `None`.
+    ended: tokio_util::sync::CancellationToken,
     delivered_terminal: std::sync::atomic::AtomicBool,
     handle: ProcessHandle,
     processes: Arc<dyn ProcessManager>,
@@ -147,13 +150,21 @@ impl LoginSession for Session {
         if self.0.delivered_terminal.load(Ordering::Acquire) {
             return None;
         }
-        let mut receiver = self.0.receiver.lock().await;
-        if receiver.changed().await.is_err() {
-            return None;
-        }
-        let state = receiver.borrow_and_update().clone();
+        let state = self
+            .0
+            .next_turn
+            .run(&self.0.ended, async {
+                let mut receiver = self.0.receiver.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()?;
+                let changed = receiver.changed().await;
+                let state = changed.ok().map(|()| receiver.borrow_and_update().clone());
+                *self.0.receiver.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(receiver);
+                state
+            })
+            .await
+            .ok()??;
         if state.is_terminal() {
             self.0.delivered_terminal.store(true, Ordering::Release);
+            self.0.ended.cancel();
         }
         Some(state)
     }
@@ -266,7 +277,9 @@ impl LoginFlow for GithubLogin {
         let (sender, receiver) = watch::channel(LoginState::Starting);
         let shared = Arc::new(Shared {
             state: sender,
-            receiver: tokio::sync::Mutex::new(receiver),
+            receiver: std::sync::Mutex::new(Some(receiver)),
+            next_turn: mixdog_rt::Gate::new(),
+            ended: tokio_util::sync::CancellationToken::new(),
             delivered_terminal: std::sync::atomic::AtomicBool::new(false),
             handle,
             processes: self.processes.clone(),

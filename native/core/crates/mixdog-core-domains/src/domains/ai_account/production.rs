@@ -246,7 +246,7 @@ pub async fn forget_file(id: &str, file: &CredentialFile) -> Result<Value, Strin
             // Only the sign-in goes: the file's other keys stay.
             let had = document.shift_remove("claudeAiOauth").is_some();
             if had {
-                file.save(&document).await.map_err(|error| error.to_string())?;
+                file.replace(document).await.map_err(|error| error.to_string())?;
             }
             had
         }
@@ -254,7 +254,7 @@ pub async fn forget_file(id: &str, file: &CredentialFile) -> Result<Value, Strin
         ("antigravity-oauth", _) => {
             // Overwritten in place with an empty document (the file stays), so the secret does not
             // survive in a freed block.
-            file.save(&Map::<String, Value>::new()).await.map_err(|error| error.to_string())?;
+            file.replace(Map::new()).await.map_err(|error| error.to_string())?;
             true
         }
         _ => {
