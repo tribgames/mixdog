@@ -481,9 +481,11 @@ impl ScmService {
                 row["revision"] = json!(revision);
             }
             out["untrackedOmitted"] = json!(summary.omitted);
-            // Node's `gitReview` row has no `key` (it answers the rows, not a cache key to ask `known` against).
+            // Node's `gitReview` answers `{repository, root, base, files, untrackedOmitted}` (`git-history.ts` `GitReviewResult`): no `key`
+            // (the cache key `known` is asked against) and no `totals`, which are the thread review's.
             if let Some(fields) = out.as_object_mut() {
                 fields.remove("key");
+                fields.remove("totals");
             }
             out["repository"] = json!(true);
             out["root"] = json!(root.to_string_lossy());
