@@ -141,6 +141,7 @@ impl CursorCodec {
     pub fn cursor_decoder(&self) -> CursorDecoder {
         CursorDecoder::new(self.run.blobs.clone(), self.run.tools.clone(), self.run.cloud_rule.clone())
             .with_pricing_model(self.target.selection.pricing_model.clone())
+            .with_known_tools(self.run.tools.iter().map(|tool| tool.name.clone()).collect())
     }
 }
 

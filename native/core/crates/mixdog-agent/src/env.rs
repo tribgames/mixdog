@@ -335,8 +335,9 @@ pub enum RunEvent {
     /// The summary model's usage of a compaction pass (`accumulateCompactUsage`): one usage report of the turn,
     /// at the loop's next iteration index, with the reasoning figure `reasoningUsage(usage)` reads of it.
     CompactUsage { iteration: u32, usage: Usage, reasoning_tokens: Option<u64>, reasoning_tokens_complete: bool },
-    /// A tool result that settled but was not committed in call order when the turn was stopped
-    /// (`__earlyNotify`): the interruption keeps it.
+    /// A call that ran settled (Node's early notice, `notifyEarlyResult`: `onToolResult` with `__earlyNotify`), the
+    /// instant it does and in completion order, before its result commits in call order: the UI's live row and the
+    /// interruption (which keeps what the stop left uncommitted) both read it. `Error` kind only for a thrown call.
     EarlyResult(AgentMessage),
 }
 
