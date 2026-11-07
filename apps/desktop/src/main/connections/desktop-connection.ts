@@ -32,6 +32,7 @@ import type { ConnectionIdentity, ConnectionProgress } from './contract';
 import { createReattachReport } from './reattach-report';
 import type { ServerPortForwards } from './server-port-forwards';
 import { createServiceTerminalHost } from './terminal-host';
+import { createCapabilityLane } from '../protocol/capability-route';
 import type { ProtocolConnection } from '../protocol/connection';
 
 /** How long a server's tunnel may take to accept its first connection. */
@@ -294,6 +295,7 @@ function createServiceClient({
   binding,
   graceMs,
   live,
+  protocol,
 }: {
   spec: DesktopConnectionSpec;
   deps: DesktopConnectionDependencies;
@@ -301,8 +303,11 @@ function createServiceClient({
   binding: RemoteBinding | null;
   graceMs: number;
   live: ClientLive;
+  protocol: ProtocolConnection | null;
 }): DesktopServiceClient {
-  const client = new DesktopServiceClient({
+  const client: DesktopServiceClient = new DesktopServiceClient({
+    // A connection with a core endpoint sends its session capabilities there (capability-route.ts).
+    ...(protocol ? { capabilityLane: createCapabilityLane({ protocol, snapshot: () => client.getSnapshot() }) } : {}),
     connect: () => {
       live.transport = new SessionTransport(
         deps.moduleUrl(),
@@ -399,7 +404,7 @@ export function createDesktopConnection(
   const graceMs = spec.graceMs ?? remoteClientGraceMs(deps.remoteGraceMs);
   const protocol = deps.createProtocol?.(identity, binding?.connector ?? null) ?? null;
   const live: ClientLive = { transport: null, panels: null };
-  const client = createServiceClient({ spec, deps, identity, binding, graceMs, live });
+  const client = createServiceClient({ spec, deps, identity, binding, graceMs, live, protocol });
   const notices = new Set<(notice: DesktopConnectionNotice) => void>();
   const emitNotice = (notice: DesktopConnectionNotice): void => {
     for (const listener of notices) listener(notice);

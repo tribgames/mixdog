@@ -29,6 +29,7 @@ import type {
   SerializableDesktopServiceOptions,
 } from './desktop-service-contract';
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
+import type { CapabilityLane } from './protocol/capability-route';
 import { filterSessionIds } from './desktop-state';
 import { longRunningRequestTimeout } from './local-provider-install-timeout';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
@@ -48,6 +49,9 @@ interface DesktopServiceClientOptions {
   connect(): DesktopTransport;
   sessionOptions(): SerializableDesktopServiceOptions;
   initialSnapshot?: SessionSnapshot;
+  /** The connection's core, when it has one: session capabilities are requests of that core, not calls of the Node
+   *  service. Removed with the Node lane at K1. */
+  capabilityLane?: CapabilityLane;
   requestTimeoutMs?: number;
   startupTimeoutMs?: number;
   restartBaseDelayMs?: number;
@@ -1029,10 +1033,13 @@ export class DesktopServiceClient implements DesktopService {
     args: unknown[] = [],
     sessionId?: string
   ): Promise<DesktopCapabilityResult<T>> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.invoke<T>(capability, args, sessionId);
     return this.invoke('invokeCapability', [capability, args, sessionId], longRunningRequestTimeout(capability, args));
   }
   readCapabilities(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]> {
-    return this.invokeRead('readCapabilities', [requests]);
+    const lane = this.options.capabilityLane;
+    return lane ? lane.read(requests) : this.invokeRead('readCapabilities', [requests]);
   }
   invokeDesktopOperation(method: string, args: unknown[] = []): Promise<unknown> {
     return this.invoke('invokeDesktopOperation', [method, wireArgs(args)], longRunningRequestTimeout(method, args));
