@@ -511,7 +511,15 @@ fn display_line(raw: &str, index: usize) -> &str {
     if index == 0 { line.strip_prefix('\u{feff}').unwrap_or(line) } else { line }
 }
 
-fn window_rows(lines: &[&str], start: usize, n: usize) -> String {
+/// What a head or tail answer showed whole: lines start..=end of a file of 	otal.
+pub(super) struct Seen {
+    pub start: u64,
+    pub end: u64,
+    pub total: u64,
+    pub whole: bool,
+}
+
+fn window_rows(lines: &[&str], start: usize, n: usize) -> (String, Option<Seen>) {
     let rows = lines
         .iter()
         .enumerate()
@@ -520,14 +528,17 @@ fn window_rows(lines: &[&str], start: usize, n: usize) -> String {
         .map(|(i, l)| format!("{}{LINE_SEP}{}", i + 1, display_line(l, i)))
         .collect::<Vec<_>>()
         .join("\n");
-    cap_shell_output(&rows)
+    let shown = lines.len().saturating_sub(start).min(n);
+    let out = cap_shell_output(&rows);
+    let seen = (out == rows && shown > 0).then(|| Seen { start: start as u64 + 1, end: (start + shown) as u64, total: lines.len() as u64, whole: shown >= lines.len() });
+    (out, seen)
 }
 
-pub(super) fn head_rows(content: &str, n: usize) -> String {
+pub(super) fn head_rows(content: &str, n: usize) -> (String, Option<Seen>) {
     window_rows(&raw_lines(content), 0, n)
 }
 
-pub(super) fn tail_rows(content: &str, n: usize) -> String {
+pub(super) fn tail_rows(content: &str, n: usize) -> (String, Option<Seen>) {
     let lines = raw_lines(content);
     window_rows(&lines, lines.len().saturating_sub(n), n)
 }

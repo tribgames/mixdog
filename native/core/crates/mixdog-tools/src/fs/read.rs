@@ -32,6 +32,7 @@ use super::common::*;
 use crate::orch::util::spec_from_def;
 use super::read_batch::*;
 use super::read_legacy;
+use super::read_paths;
 use super::read_state::*;
 use super::search::glob_files;
 
@@ -98,13 +99,6 @@ struct Entry {
     ranged: bool,
     full: bool,
     base: u64,
-}
-
-impl Entry {
-    /// A window the public form (or a survey, or a batch child) asks for.
-    fn window(path: String, offset: u64, limit: u64, base: u64) -> Self {
-        Self { path, offset, limit, ranged: true, full: false, base }
-    }
 }
 
 /// What a read saw of a file, for the session's read state: the identity it read and what that
@@ -175,7 +169,7 @@ impl Mode {
 /// explicit, with a 0-based offset.
 struct Public {
     single: bool,
-    entries: Vec<Entry>,
+    entries: Vec<BEntry>,
     /// Distinct files past the per-call cap, named to the caller.
     skipped: Vec<String>,
     pages: Option<String>,
@@ -252,7 +246,7 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
         let Some((offset, limit)) = valid_window(offset, limit) else {
             return Err(bad("offset", "range", format!("read target {} {WINDOW_RANGE_TEXT}", index + 1)));
         };
-        entries.push(Entry::window(path.to_owned(), offset, limit, 1));
+        entries.push(BEntry { path: path.to_owned(), offset: Some(offset as f64), limit: Some(limit as f64), ..BEntry::default() });
     }
     // The cap counts distinct files, not windows; files past it are named to the caller.
     let mut kept: Vec<String> = Vec::new();
@@ -280,6 +274,7 @@ impl Tool for ReadTool {
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let mut args = args;
         if let JsonValue::Object(map) = &mut args {
+            self.split_joined_path_scopes(ctx, map).await?;
             read_legacy::prepare(map);
         }
         if args.get("file_path").is_none() {
@@ -294,9 +289,12 @@ impl Tool for ReadTool {
         }
         if public.single {
             let e = public.entries.remove(0);
-            return self.single_or_survey(ctx, e, public.pages.as_deref()).await;
+            return self.run_top(ctx, e, 1, public.pages.as_deref()).await;
         }
-        let results = self.pipeline(ctx, public.entries, true, READ_MAX_OUTPUT_BYTES, true).await?;
+        let results = self.pipeline(ctx, public.entries, true, READ_MAX_OUTPUT_BYTES, true, 1).await?;
+        if args.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
+            return text_output(rejected(&results));
+        }
         if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
             return Ok(ToolOutput { parts: render_rich(&results), ..ToolOutput::default() });
         }
@@ -333,7 +331,7 @@ fn normalize_input_path(p: &str) -> String {
     {
         out = format!("{}{}", home.to_string_lossy(), &out[1..]);
     }
-    out.nfc().collect()
+    read_paths::host_spelling(&out).nfc().collect()
 }
 
 /// `hasLineCoordinate`: the path names a `#L5` / `:5-7` coordinate.
@@ -368,7 +366,18 @@ impl ReadTool {
             state.ensure_scope(&scope_of(ctx)).await;
         }
         match map.get("path").cloned() {
-            Some(JsonValue::String(raw)) => self.legacy_single(ctx, &map, &raw).await,
+            Some(JsonValue::String(raw)) => {
+                let be = BEntry {
+                    path: raw,
+                    mode: map.get("mode").and_then(JsonValue::as_str).map(str::to_owned),
+                    n: map.get("n").filter(|v| !v.is_null()).cloned(),
+                    offset: map.get("offset").and_then(JsonValue::as_f64),
+                    limit: map.get("limit").and_then(JsonValue::as_f64),
+                    full: map.get("full").and_then(JsonValue::as_bool),
+                    ..BEntry::default()
+                };
+                self.run_top(ctx, be, 0, map.get("pages").and_then(JsonValue::as_str)).await
+            }
             Some(JsonValue::Array(items)) => self.legacy_batch(ctx, &map, &items).await,
             other => {
                 let got = read_legacy::describe_type(&other.unwrap_or(JsonValue::Null));
@@ -377,195 +386,210 @@ impl ReadTool {
         }
     }
 
-    /// One file: a URL is refused, a glance mode answers by its own reader, anything else is a window.
-    async fn legacy_single(&self, ctx: &ToolContext, map: &read_legacy::Obj, raw: &str) -> ToolOutcome {
-        static URL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        if URL.get_or_init(|| regex::Regex::new(r"(?i)^\s*https?://").expect("a fixed pattern")).is_match(raw) {
-            return text_output("Error: this is a URL; use web_fetch".to_owned());
-        }
-        if raw.is_empty() {
-            return text_output("Error: path is required.".to_owned());
-        }
-        let path = normalize_input_path(raw);
-        let number = |k: &str| map.get(k).filter(|v| !v.is_null()).and_then(JsonValue::as_f64);
-        let (has_offset, has_limit) = (map.get("offset").is_some_and(|v| !v.is_null()), map.get("limit").is_some_and(|v| !v.is_null()));
-        let mut mode = map.get("mode").and_then(JsonValue::as_str);
-        // A window (or a path:line coordinate) beats a glance mode that would read from a file end.
-        if (has_offset || has_limit || has_line_coordinate(&path)) && matches!(mode, Some("head" | "tail" | "summary")) {
-            mode = None;
-        }
-        let coordinate = line_coordinate(ctx, &path).await?;
-        let (mut offset, mut limit) = (number("offset"), number("limit"));
-        if let Some((_, start, end)) = &coordinate
-            && matches!(mode, None | Some("full"))
-            && offset.is_none()
-        {
-            offset = Some((*start as f64 - 1.0).max(0.0));
-            if limit.is_none() {
-                limit = Some((end.unwrap_or(*start) as f64 - *start as f64 + 1.0).max(1.0));
-            }
-        }
-        let path = coordinate.map_or(path, |c| c.0);
-        if let Some(mode @ ("head" | "tail" | "count" | "summary" | "hex")) = mode {
-            return self.glance(ctx, &path, mode, map, offset).await;
-        }
-        let full = map.get("full") == Some(&JsonValue::Bool(true));
-        let e = Entry {
-            path,
-            offset: match offset {
-                Some(n) if n.is_finite() && n > 0.0 => n.trunc() as u64,
-                _ => 0,
-            },
-            limit: limit_arg(limit, if full { u64::MAX } else { 2000 }),
-            ranged: offset.is_some() || limit.is_some(),
-            full,
-            base: 0,
-        };
-        self.single_or_survey(ctx, e, map.get("pages").and_then(JsonValue::as_str)).await
-    }
-
-    /// `executeBatchRead` over a `path` array: region objects are merged and coalesced, plain
-    /// strings take the call's one window each. Entries with a mode of their own are refused.
+    /// `executeBatchRead` over a `path` array. Region objects (`batchEntriesFromArgs` /
+    /// `objectBatchEntry`) carry their own options and are merged and coalesced; a string, or an
+    /// object met after a string, takes the call's.
     async fn legacy_batch(&self, ctx: &ToolContext, map: &read_legacy::Obj, items: &[JsonValue]) -> ToolOutcome {
         let object = matches!(items.first(), Some(JsonValue::Object(_)));
-        let top = |k: &str| map.get(k).filter(|v| !v.is_null());
         let mut entries = Vec::with_capacity(items.len());
         for item in items {
-            // Region objects carry their own options; a string, or an object met after a string,
-            // takes the call's (`batchEntriesFromArgs`).
-            let own = if object { Some(item) } else { None };
-            let from = |k: &str| own.and_then(|o| o.get(k)).filter(|v| !v.is_null()).or_else(|| if object { None } else { top(k) });
+            let pick = |k: &str| -> Option<&JsonValue> {
+                if object { item.get(k) } else { map.get(k) }.filter(|v| !v.is_null())
+            };
             let (raw_path, alias) = match item {
                 JsonValue::Object(o) => match (o.get("path").and_then(JsonValue::as_str), o.get("file_path").and_then(JsonValue::as_str)) {
                     (Some(p), _) => (p, false),
-                    (None, Some(p)) => (p, true),
+                    (None, Some(p)) => (p, !p.is_empty()),
                     (None, None) => ("", false),
                 },
                 JsonValue::String(s) if !object => (s.as_str(), false),
                 _ => ("", false),
             };
-            if matches!(from("mode").and_then(JsonValue::as_str), Some(m) if m != "full") || from("full") == Some(&JsonValue::Bool(true)) {
-                return Err(unsupported_form("a mode or full on a batch entry".to_owned()));
-            }
-            let norm = normalize_input_path(raw_path);
-            if norm.is_empty() {
-                return Err(unsupported_form("a batch entry without a path".to_owned()));
-            }
-            let (mut offset, mut limit) = (from("offset").and_then(JsonValue::as_f64), from("limit").and_then(JsonValue::as_f64));
-            if alias && let Some(o) = offset.filter(|o| o.is_finite() && *o > 0.0) {
+            let mode = pick("mode").and_then(JsonValue::as_str).map(str::to_owned);
+            let mut offset = pick("offset").and_then(JsonValue::as_f64);
+            let mut limit = pick("limit").and_then(JsonValue::as_f64);
+            // A per-entry `file_path` is 1-based, like the public form.
+            if object && alias && let Some(o) = offset.filter(|o| o.is_finite() && *o > 0.0) {
                 offset = Some(o.trunc() - 1.0);
             }
-            let path = match line_coordinate(ctx, &norm).await? {
-                Some((p, start, end)) => {
-                    if offset.is_none() {
-                        offset = Some((start as f64 - 1.0).max(0.0));
-                        if limit.is_none() {
-                            limit = Some((end.unwrap_or(start) as f64 - start as f64 + 1.0).max(1.0));
-                        }
+            let mut path = normalize_input_path(raw_path);
+            if let Some((stripped, start, end)) = line_coordinate(ctx, &path).await? {
+                if matches!(mode.as_deref(), None | Some("full")) && offset.is_none() {
+                    offset = Some((start as f64 - 1.0).max(0.0));
+                    if limit.is_none() {
+                        limit = Some((end.unwrap_or(start) as f64 - start as f64 + 1.0).max(1.0));
                     }
-                    p
                 }
-                None => norm,
-            };
-            let start = match offset {
-                Some(n) if n.is_finite() && n > 0.0 => n.trunc() as u64,
-                _ => 0,
-            };
-            entries.push(Entry::window(path, start, limit_arg(limit, 2000), 0));
+                path = stripped;
+            }
+            entries.push(BEntry {
+                path,
+                mode,
+                n: pick("n").cloned(),
+                offset,
+                limit,
+                full: pick("full").and_then(JsonValue::as_bool),
+                ..BEntry::default()
+            });
         }
-        let results = self.pipeline(ctx, entries, object, READ_MAX_OUTPUT_BYTES, true).await?;
+        let results = self.pipeline(ctx, entries, object, READ_MAX_OUTPUT_BYTES, true, 0).await?;
+        if map.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
+            return text_output(rejected(&results));
+        }
         if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
             return Ok(ToolOutput { parts: render_rich(&results), ..ToolOutput::default() });
         }
         text_output(rows_for_model(&render_text(&results)))
     }
 
-    /// A single file's window, or the survey of a glob that names no real file.
-    async fn single_or_survey(&self, ctx: &ToolContext, e: Entry, pages: Option<&str>) -> ToolOutcome {
-        let top = Mode::Single { max_output: READ_MAX_OUTPUT_BYTES, raw: false, suppress: false };
-        if has_glob_magic(&e.path) && !exists(ctx, &e.path).await {
-            match self.survey(ctx, &e, SURVEY_BUDGET, true).await? {
-                Some(Survey::Many(results, capped)) => {
-                    return Ok(ToolOutput { parts: survey_parts(&results, capped), ..ToolOutput::default() });
-                }
-                Some(Survey::One(one)) => {
-                    let mode = Mode::Single { max_output: SURVEY_BUDGET, raw: false, suppress: false };
-                    return self.single(ctx, &one, pages, mode).await;
-                }
-                None => {}
+    /// `splitJoinedPathScopes`: one string that joins several existing paths with commas or
+    /// whitespace is those paths, when every piece lies strictly inside the working directory.
+    async fn split_joined_path_scopes(&self, ctx: &ToolContext, map: &mut read_legacy::Obj) -> Result<(), ToolError> {
+        const LIMIT: usize = 10;
+        let refuse = |text: String| invalid("path", "joined", text);
+        let real = |path: std::path::PathBuf| async move {
+            mixdog_workspace::lanes::run(ctx.io.interactive, &ctx.cancel, move || mixdog_workspace::pathguard::canonical(&path).ok())
+                .await
+                .ok()
+                .flatten()
+        };
+        for key in ["path", "file_path"] {
+            let Some(JsonValue::String(value)) = map.get(key) else { continue };
+            let value = value.clone();
+            if !value.trim().contains(|c: char| c == ',' || mixdog_js::is_js_space(c)) || exists(ctx, &normalize_input_path(&value)).await {
+                continue;
             }
+            let pieces: Vec<String> = value.split(|c: char| c == ',' || mixdog_js::is_js_space(c)).filter(|p| !p.is_empty()).map(str::to_owned).collect();
+            if pieces.len() < 2 {
+                continue;
+            }
+            let mut all_exist = true;
+            for piece in &pieces {
+                all_exist &= exists(ctx, &normalize_input_path(piece)).await;
+            }
+            if !all_exist {
+                continue;
+            }
+            // Containment is judged on the real targets: a link that leaves the directory is outside.
+            let root = real(ctx.cwd.as_path().to_path_buf()).await;
+            let mut inside = true;
+            for piece in &pieces {
+                let piece = normalize_input_path(piece);
+                let target = match (&root, piece.as_str()) {
+                    (_, "." | "..") | (None, _) => None,
+                    (Some(_), _) => match resolve_path(&ctx.cwd, &piece) {
+                        Ok(abs) => real(abs.as_path().to_path_buf()).await,
+                        Err(_) => None,
+                    },
+                };
+                inside &= match (&root, target) {
+                    (Some(root), Some(target)) => target != *root && mixdog_workspace::pathguard::is_within(root, &target),
+                    _ => false,
+                };
+            }
+            if !inside {
+                return Err(refuse(format!(
+                    "Error: read arg \"{key}\" joins several paths in one string, and one is \".\", \"..\", a parent of the working directory or outside it, so it is not split automatically. To pass several paths, send an array (path[]), not a comma- or space-joined string."
+                )));
+            }
+            if pieces.len() > LIMIT {
+                return Err(refuse(format!(
+                    "Error: read arg \"{key}\" joins {} paths in one string ({} given, max {LIMIT}); split or pass the parent directory.",
+                    pieces.len(),
+                    pieces.len()
+                )));
+            }
+            map.insert(key.to_owned(), JsonValue::Array(pieces.into_iter().map(JsonValue::String).collect()));
         }
-        self.single(ctx, &e, pages, top).await
+        Ok(())
     }
-
     /// `executeHeadTool` / `executeTailTool` / `executeWcTool` / `executeSummaryTool` /
-    /// `executeHexTool` over a file read whole. A file past the buffered cap is refused.
-    async fn glance(&self, ctx: &ToolContext, path: &str, mode: &str, map: &read_legacy::Obj, offset: Option<f64>) -> ToolOutcome {
+    /// `executeHexTool` over a file read whole: the numbered text a mode answers with.
+    async fn glance_text(&self, ctx: &ToolContext, path: &str, mode: &str, n: Option<&JsonValue>, offset: Option<f64>, seen: &mut Option<Observed>) -> Result<String, ToolError> {
         if let Some(reason) = path_string_guard(path) {
-            return text_output(format!("Error: {reason}: {path}"));
+            return Ok(format!("Error: {reason}: {path}"));
         }
         let abs = resolve_path(&ctx.cwd, path)?;
+        if let Some(reason) = path_string_guard(&fwd(abs.as_path())) {
+            return Ok(format!("Error: {reason}: {}", fwd(abs.as_path())));
+        }
         let shown = display_path(abs.as_path(), &ctx.cwd);
         let named = path.replace('\\', "/");
         let stat = match guarded(ctx, "read", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
             Err(err) if err.kind == FsErrorKind::NotFound || err.kind == FsErrorKind::NotADirectory => {
                 // The summary reader words the missing path relative to the working directory.
-                let at = if mode == "summary" { shown.clone() } else { fwd(abs.as_path()) };
-                return text_output(Self::glance_not_found(ctx, &abs, &at).await);
+                return Ok(Self::glance_not_found(ctx, &abs, mode == "summary").await);
             }
             Err(err) => return Err(fs_failure(&err, &shown)),
         };
         match stat.kind {
-            EntryKind::Dir => return text_output("Error: EISDIR: illegal operation on a directory, read".to_owned()),
+            EntryKind::Dir => return Ok("Error: EISDIR: illegal operation on a directory, read".to_owned()),
             EntryKind::Special => {
-                return text_output(format!("Error: cannot read special file (FIFO / character / block device / socket): {path}"));
+                return Ok(format!("Error: cannot read special file (FIFO / character / block device / socket): {path}"));
             }
             _ => {}
         }
         if stat.len > MAX_FILE_BYTES {
             return Err(unsupported_form(format!("the {mode} mode on a file of {} bytes", stat.len)));
         }
+        let key_path = fwd(abs.as_path());
+        let version = FileVersion::of(&stat);
+        let mut observe = |meta: SnapshotMeta| {
+            *seen = version.map(|v| Observed { path: key_path.clone(), version: v, meta });
+        };
         if mode == "hex" {
-            let n = read_legacy::mode_count(map.get("n"), 256, 16, 8192) as u64;
+            let count = read_legacy::mode_count(n, 256, 16, 8192) as u64;
             let from = offset.filter(|o| o.is_finite() && *o > 0.0).map_or(0, |o| o.trunc() as u64);
-            let bytes = read_range(ctx, &abs, &shown, from, n).await?;
-            return text_output(rows_for_model(&read_legacy::hex_text(&named, &bytes, from, stat.len)));
+            let bytes = read_range(ctx, &abs, &shown, from, count).await?;
+            observe(SnapshotMeta { ranges: Some(Vec::new()), ..SnapshotMeta::new("read_hex") });
+            return Ok(read_legacy::hex_text(&named, &bytes, from, stat.len));
         }
         let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await? {
             Ok(b) => b.bytes,
             Err(err) => return Err(fs_failure(&err, &shown)),
         };
         let content = match decode_for_read(&bytes) {
-            ReadText::Binary => return text_output(format!("Error: file appears to be binary (contains null bytes): {named}")),
+            ReadText::Binary => return Ok(format!("Error: file appears to be binary (contains null bytes): {named}")),
             ReadText::Text { text, utf16: true } => text,
             ReadText::Text { utf16: false, .. } => {
                 let body = bytes.strip_prefix(&[0xef, 0xbb, 0xbf][..]).unwrap_or(&bytes);
                 match std::str::from_utf8(body) {
                     Ok(text) => text.to_owned(),
                     Err(_) => {
-                        return text_output("Error: invalid UTF-8 in text file: The encoded data was not valid for encoding utf-8".to_owned());
+                        return Ok("Error: invalid UTF-8 in text file: The encoded data was not valid for encoding utf-8".to_owned());
                     }
                 }
             }
         };
-        let out = match mode {
-            "head" => read_legacy::head_rows(&content, read_legacy::mode_count(map.get("n"), 20, 1, 2000) as usize),
-            "tail" => read_legacy::tail_rows(&content, read_legacy::mode_count(map.get("n"), 20, 1, 2000) as usize),
+        let streamed = stat.len > READ_STREAM_RANGE_MIN_BYTES;
+        let window = |rows: (String, Option<read_legacy::Seen>), source: &str, observe: &mut dyn FnMut(SnapshotMeta)| {
+            if let Some(s) = rows.1 {
+                let ranges = if s.whole { vec![LineRange::WHOLE] } else { vec![LineRange { start: s.start, end: Some(s.end) }] };
+                observe(SnapshotMeta { ranges: Some(ranges), content_hash: s.whole.then(|| hash_text(&content)), file_line_count: Some(s.total), ..SnapshotMeta::new(source) });
+            }
+            rows.0
+        };
+        Ok(match mode {
+            "head" => window(read_legacy::head_rows(&content, read_legacy::mode_count(n, 20, 1, 2000) as usize), if streamed { "read_head_stream" } else { "read_head" }, &mut observe),
+            "tail" => window(read_legacy::tail_rows(&content, read_legacy::mode_count(n, 20, 1, 2000) as usize), if streamed { "read_tail_window" } else { "read_tail" }, &mut observe),
             "count" => read_legacy::text_stats(&content, stat.len),
             _ => {
-                let given = map.get("n").filter(|v| !v.is_null()).or_else(|| map.get("limit"));
-                let limit = read_legacy::mode_count(given, 200, 1, 1000) as usize;
-                read_legacy::summary_text(&named, &content, stat.len, limit, &render_read_line)
+                observe(SnapshotMeta { ranges: Some(Vec::new()), ..SnapshotMeta::new("read_summary") });
+                read_legacy::summary_text(&named, &content, stat.len, read_legacy::mode_count(n, 200, 1, 1000) as usize, &render_read_line)
             }
-        };
-        text_output(rows_for_model(&out))
+        })
     }
 
     /// `openTextPathForReadMeta`'s missing-file message: the stat error, a near name, the siblings.
-    async fn glance_not_found(ctx: &ToolContext, abs: &AbsPath, at: &str) -> String {
+    async fn glance_not_found(ctx: &ToolContext, abs: &AbsPath, relative: bool) -> String {
+        let cwd = fwd(ctx.cwd.as_path());
+        // The summary reader normalizes the message a second time, against the working directory.
+        let first = read_paths::redact(&fwd(abs.as_path()), None);
+        let named = |p: &str| if relative { read_paths::redact(p, Some(&cwd)) } else { p.to_owned() };
+        let at = if relative && (first.starts_with('/') || first.as_bytes().get(1) == Some(&b':')) { read_paths::redact(&first, Some(&cwd)) } else { first };
         let hint = match Self::similar_sibling(ctx, abs).await {
-            Some(similar) => format!(" Did you mean \"{}\"?", fwd(similar.as_path())),
+            Some(similar) => format!(" Did you mean \"{}\"?", named(&fwd(similar.as_path()))),
             None => String::new(),
         };
         let mut siblings: Vec<String> = match abs.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
@@ -579,7 +603,7 @@ impl ReadTool {
             },
             None => Vec::new(),
         };
-        siblings.sort_by_key(|n| n.to_uppercase());
+        siblings.sort_by_key(|n| read_paths::dir_order_key(n));
         siblings.truncate(12);
         format!("Error: ENOENT: no such file or directory, stat '{at}'{hint} Siblings: [{}].", siblings.join(", "))
     }
@@ -659,7 +683,18 @@ enum Survey {
     /// Several files: a batch of them, and whether more matched than the cap.
     Many(Vec<Resolved>, bool),
     /// One file: Node's one-element `path` array is a plain string, so it is read alone.
-    One(Entry),
+    One(BEntry),
+}
+
+/// What a read makes of its request before any file is opened (`executeReadToolBody` after the
+/// batch and survey shapes).
+enum Plan {
+    /// An answer that needs no file.
+    Text(String),
+    /// A glance mode over `path`.
+    Glance { path: String, mode: String, n: Option<JsonValue>, offset: Option<f64> },
+    /// A line window.
+    Window(Entry),
 }
 
 impl ReadTool {
@@ -682,10 +717,89 @@ impl ReadTool {
         }
     }
 
-    /// `readGlobSurvey`: a magic path that names nothing becomes the batch of its newest matches.
+    /// The URL refusal, the window-beats-mode rule, a `path:line` coordinate, and the glance modes.
+    async fn plan(&self, ctx: &ToolContext, be: &BEntry) -> Result<Plan, ToolError> {
+        static URL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        if URL.get_or_init(|| regex::Regex::new(r"(?i)^\s*https?://").expect("a fixed pattern")).is_match(&be.path) {
+            return Ok(Plan::Text("Error: this is a URL; use web_fetch".to_owned()));
+        }
+        let path = normalize_input_path(&be.path);
+        if path.is_empty() {
+            return Ok(Plan::Text("Error: path is required.".to_owned()));
+        }
+        let mut mode = be.mode.as_deref();
+        // A window (or a path:line coordinate) beats a glance mode that would read from a file end.
+        if (be.offset.is_some() || be.limit.is_some() || has_line_coordinate(&path)) && matches!(mode, Some("head" | "tail" | "summary")) {
+            mode = None;
+        }
+        let coordinate = line_coordinate(ctx, &path).await?;
+        let (mut offset, mut limit) = (be.offset, be.limit);
+        if let Some((_, start, end)) = &coordinate
+            && matches!(mode, None | Some("full"))
+            && offset.is_none()
+        {
+            offset = Some((*start as f64 - 1.0).max(0.0));
+            if limit.is_none() {
+                limit = Some((end.unwrap_or(*start) as f64 - *start as f64 + 1.0).max(1.0));
+            }
+        }
+        let path = coordinate.map_or(path, |c| c.0);
+        if let Some(mode @ ("head" | "tail" | "count" | "summary" | "hex")) = mode {
+            return Ok(Plan::Glance { path, mode: mode.to_owned(), n: be.n.clone(), offset });
+        }
+        let full = be.full == Some(true);
+        Ok(Plan::Window(Entry {
+            path,
+            offset: match offset {
+                Some(n) if n.is_finite() && n > 0.0 => n.trunc() as u64,
+                _ => 0,
+            },
+            limit: limit_arg(limit, if full { u64::MAX } else { 2000 }),
+            ranged: offset.is_some() || limit.is_some(),
+            full,
+            base: 0,
+        }))
+    }
+
+    /// One top-level read of `be`, or the survey of a glob that names no real file.
+    async fn run_top(&self, ctx: &ToolContext, be: BEntry, base: u64, pages: Option<&str>) -> ToolOutcome {
+        if has_glob_magic(&be.path) && !exists(ctx, &be.path).await {
+            match self.survey(ctx, &be, base, SURVEY_BUDGET, true).await? {
+                Some(Survey::Many(results, capped)) => {
+                    return Ok(ToolOutput { parts: survey_parts(&results, capped), ..ToolOutput::default() });
+                }
+                Some(Survey::One(one)) => {
+                    let mode = Mode::Single { max_output: SURVEY_BUDGET, raw: false, suppress: false };
+                    return self.run_plan(ctx, &one, base, pages, mode).await;
+                }
+                None => {}
+            }
+        }
+        let mode = Mode::Single { max_output: READ_MAX_OUTPUT_BYTES, raw: false, suppress: false };
+        self.run_plan(ctx, &be, base, pages, mode).await
+    }
+
+    async fn run_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, pages: Option<&str>, mode: Mode) -> ToolOutcome {
+        match self.plan(ctx, be).await? {
+            Plan::Text(text) => text_output(text),
+            Plan::Glance { path, mode, n, offset } => {
+                let mut seen = None;
+                let text = self.glance_text(ctx, &path, &mode, n.as_ref(), offset, &mut seen).await?;
+                self.record(ctx, seen.as_ref());
+                text_output(rows_for_model(&text))
+            }
+            Plan::Window(mut e) => {
+                e.base = base;
+                self.single(ctx, &e, pages, mode).await
+            }
+        }
+    }
+
+    /// `readGlobSurvey`: a magic path that names nothing becomes the batch of its newest matches,
+    /// each read as the call asked (its mode, `n`, `full` and offset; the limit tightened).
     /// `None` when it matches nothing, so the raw pattern gets the single-read answer.
-    async fn survey(&self, ctx: &ToolContext, e: &Entry, cap: usize, record: bool) -> Result<Option<Survey>, ToolError> {
-        let (root, pattern) = split_glob(&e.path);
+    async fn survey(&self, ctx: &ToolContext, be: &BEntry, base: u64, cap: usize, record: bool) -> Result<Option<Survey>, ToolError> {
+        let (root, pattern) = split_glob(&be.path);
         let root = resolve_path(&ctx.cwd, &root)?;
         let (mut files, _) = glob_files(ctx, &root, &[pattern], false).await?;
         if files.is_empty() {
@@ -694,21 +808,33 @@ impl ReadTool {
         files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         let capped = files.len() > GLOB_SURVEY_FILES;
         files.truncate(GLOB_SURVEY_FILES);
-        let mut entries: Vec<Entry> = files
+        let limit = match be.limit {
+            Some(l) if l.is_finite() && l > 0.0 => l.trunc().min(GLOB_SURVEY_LINES as f64),
+            _ => GLOB_SURVEY_LINES as f64,
+        };
+        let mut entries: Vec<BEntry> = files
             .into_iter()
-            .map(|(p, _)| Entry::window(fwd(p.as_path()), e.offset, e.limit.min(GLOB_SURVEY_LINES), e.base))
+            .map(|(p, _)| BEntry {
+                path: fwd(p.as_path()),
+                mode: be.mode.clone(),
+                n: be.n.clone(),
+                offset: be.offset,
+                limit: Some(limit),
+                full: be.full,
+                ..BEntry::default()
+            })
             .collect();
         if entries.len() == 1 {
             return Ok(Some(Survey::One(entries.remove(0))));
         }
-        Ok(Some(Survey::Many(self.pipeline(ctx, entries, false, cap, record).await?, capped)))
+        Ok(Some(Survey::Many(self.pipeline(ctx, entries, false, cap, record, base).await?, capped)))
     }
 
     /// The batch machinery (`executeBatchRead`): shape the entries, split the output budget over
     /// the distinct disk reads, read each, and cut every caller's window back out of its read.
-    /// `object` entries come from the public form and are merged and coalesced; the survey's
-    /// are read as they stand. `record` says whether what the reads saw reaches the session.
-    fn pipeline<'a>(&'a self, ctx: &'a ToolContext, entries: Vec<Entry>, object: bool, cap: usize, record: bool) -> Pipeline<'a> {
+    /// `object` entries (region objects, the public form) are merged and coalesced; a string batch
+    /// is read as it stands. `record` says whether what the reads saw reaches the session.
+    fn pipeline<'a>(&'a self, ctx: &'a ToolContext, entries: Vec<BEntry>, object: bool, cap: usize, record: bool, base: u64) -> Pipeline<'a> {
         Box::pin(async move {
             let key = |p: &str| match resolve_path(&ctx.cwd, p) {
                 Ok(abs) => fwd(abs.as_path()),
@@ -718,60 +844,58 @@ impl ReadTool {
                 Ok(abs) => display_path(abs.as_path(), &ctx.cwd),
                 Err(_) => p.to_owned(),
             };
-            let base = entries.first().map_or(1, |e| e.base);
-            let wentries: Vec<WEntry> = entries.into_iter().map(|e| WEntry { path: e.path, offset: e.offset, limit: e.limit }).collect();
-            let (slots, firsts, map) = if object {
-                let slots = coalesce(merge_overlapping(wentries, &key), &key);
+            let (slots, firsts, map): (Vec<BEntry>, Vec<usize>, Vec<usize>) = if object {
+                let slots = coalesce_object(merge_overlapping(entries, &key), &key);
                 let (firsts, map) = dedupe(&slots);
                 (slots, firsts, map)
             } else {
-                let slots: Vec<Slot> = wentries.into_iter().map(|entry| Slot { entry, union: None, slice: None }).collect();
-                let mut seen: Vec<String> = Vec::new();
-                let (mut firsts, mut map) = (Vec::new(), Vec::new());
-                for (i, s) in slots.iter().enumerate() {
-                    let k = format!("{}|{}|{}", key(&s.entry.path), s.entry.offset, s.entry.limit);
-                    let at = seen.iter().position(|x| *x == k).unwrap_or_else(|| {
-                        seen.push(k);
-                        firsts.push(i);
-                        firsts.len() - 1
-                    });
-                    map.push(at);
-                }
-                (slots, firsts, map)
+                let (firsts, map) = primary_reads(&entries, &key);
+                (entries, firsts, map)
             };
             // The budget is split over all the disk reads first; they then run in path, then
             // window, order.
             let header_paths: Vec<&str> = if object {
-                firsts.iter().map(|i| slots[*i].entry.path.as_str()).collect()
+                firsts.iter().map(|i| slots[*i].path.as_str()).collect()
             } else {
-                slots.iter().map(|s| s.entry.path.as_str()).collect()
+                slots.iter().map(|s| s.path.as_str()).collect()
             };
             let mut needs = Vec::with_capacity(firsts.len());
             for i in &firsts {
                 let slot = &slots[*i];
-                let size = match resolve_path(&ctx.cwd, &slot.entry.path) {
+                if slot.path.is_empty() {
+                    needs.push(0.0);
+                    continue;
+                }
+                let size = match resolve_path(&ctx.cwd, &slot.path) {
                     Ok(abs) => match ctx.files.stat(ctx.io.interactive, abs).await {
                         Ok(st) if matches!(st.kind, EntryKind::File) => Some(st.len),
                         _ => None,
                     },
                     Err(_) => None,
                 };
-                needs.push(estimate_bytes(size, slot.disk().1));
+                let limit = match slot.union {
+                    Some((_, limit)) => limit,
+                    None => slot.limit.filter(|l| l.is_finite() && *l > 0.0).map_or(0, |l| l.trunc() as u64),
+                };
+                needs.push(estimate_bytes(size, limit));
             }
             let allocated = allocate_budgets(&needs, body_budget(&header_paths, cap));
+            let window_offset = |s: &BEntry| if s.is_full_mode() { s.line_window().0 } else { 0 };
             let mut order: Vec<usize> = (0..firsts.len()).collect();
             order.sort_by(|a, b| {
-                let (x, y) = (&slots[firsts[*a]].entry, &slots[firsts[*b]].entry);
-                x.path.cmp(&y.path).then(x.offset.cmp(&y.offset)).then(a.cmp(b))
+                let (x, y) = (&slots[firsts[*a]], &slots[firsts[*b]]);
+                x.path.cmp(&y.path).then(window_offset(x).cmp(&window_offset(y))).then(a.cmp(b))
             });
             let mut bodies: Vec<Option<(CBody, Option<Observed>)>> = vec![None; firsts.len()];
             for at in order {
                 let slot = &slots[firsts[at]];
-                let (offset, limit) = slot.disk();
+                if slot.path.is_empty() {
+                    bodies[at] = Some((CBody::Str("Error: path is required.".to_owned()), None));
+                    continue;
+                }
                 let budget = allocated[at].max(256.0) as usize;
-                let child = Entry::window(slot.entry.path.clone(), offset, limit, base);
                 // An object batch holds what its reads saw until the windows are cut back out.
-                let (body, seen) = self.child(ctx, &child, READ_MAX_OUTPUT_BYTES.min(budget), object, record).await?;
+                let (body, seen) = self.child(ctx, &slot.child(), base, READ_MAX_OUTPUT_BYTES.min(budget), object, record).await?;
                 if !object && record {
                     self.record(ctx, seen.as_ref());
                 }
@@ -783,12 +907,27 @@ impl ReadTool {
                 .map(|(i, slot)| {
                     let producer = map[i];
                     let body = bodies[producer].clone().expect("every read ran").0;
-                    let body = match (&body, slot.slice) {
-                        (CBody::Str(s), Some((offset, limit))) => CBody::Str(slice_read_body(s, offset, limit, base)),
+                    let body = match &body {
+                        CBody::Str(s) if object && slot.is_full_mode() && slot.needs_slice => {
+                            let off = slot.orig_offset.map_or(0, |o| o.max(0.0) as u64);
+                            let lim = match slot.orig_limit {
+                                Some(l) if l == 0.0 => None,
+                                Some(l) => Some(l.max(0.0) as u64),
+                                None => Some(2000),
+                            };
+                            CBody::Str(slice_read_body(s, off, lim, base))
+                        }
                         _ => body,
                     };
-                    let path = if object { shown(&slots[firsts[producer]].entry.path) } else { shown(&slot.entry.path) };
-                    Resolved { path, body, producer }
+                    let source = if object { &slots[firsts[producer]] } else { slot };
+                    let path = if source.path.is_empty() { "(missing-path)".to_owned() } else { shown(&source.path) };
+                    Resolved {
+                        path,
+                        body,
+                        producer,
+                        mode: slot.mode.clone().unwrap_or_else(|| "full".to_owned()),
+                        n: slot.n.as_ref().map(js_str),
+                    }
                 })
                 .collect();
             if object && record {
@@ -804,7 +943,7 @@ impl ReadTool {
         let mut corrections: Vec<(String, Vec<LineRange>)> = Vec::new();
         for r in resolved {
             let CBody::Str(text) = &r.body else { continue };
-            if is_error_text(text) {
+            if r.mode != "full" || is_error_text(text) {
                 continue;
             }
             let Some((_, Some(seen))) = &bodies[r.producer] else { continue };
@@ -850,10 +989,10 @@ impl ReadTool {
 
     /// One batch entry through the child `read`: a failure is pasted into the aggregate as that
     /// entry's text, never aborting the batch. `defer` is an object batch, which records later.
-    async fn child(&self, ctx: &ToolContext, e: &Entry, max_output: usize, defer: bool, record: bool) -> Result<(CBody, Option<Observed>), ToolError> {
-        if has_glob_magic(&e.path) && !exists(ctx, &e.path).await {
+    async fn child(&self, ctx: &ToolContext, be: &BEntry, base: u64, max_output: usize, defer: bool, record: bool) -> Result<(CBody, Option<Observed>), ToolError> {
+        if has_glob_magic(&be.path) && !exists(ctx, &be.path).await {
             // What a nested glob's reads saw is dropped by an object batch, as Node's is.
-            match self.survey(ctx, e, max_output.min(SURVEY_BUDGET), record && !defer).await? {
+            match self.survey(ctx, be, base, max_output.min(SURVEY_BUDGET), record && !defer).await? {
                 Some(Survey::Many(results, capped)) => {
                     if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
                         return Ok((CBody::Rich { parts: survey_parts(&results, capped), failed: false }, None));
@@ -866,7 +1005,7 @@ impl ReadTool {
                 }
                 Some(Survey::One(one)) => {
                     let mode = Mode::Single { max_output: max_output.min(SURVEY_BUDGET), raw: true, suppress: true };
-                    let (body, seen) = self.child_read(ctx, &one, mode).await?;
+                    let (body, seen) = self.child_plan(ctx, &one, base, mode).await?;
                     if record && !defer {
                         self.record(ctx, seen.as_ref());
                     }
@@ -875,7 +1014,35 @@ impl ReadTool {
                 None => {}
             }
         }
-        self.child_read(ctx, e, Mode::Child { max_output }).await
+        self.child_plan(ctx, be, base, Mode::Child { max_output }).await
+    }
+
+    async fn child_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, mode: Mode) -> Result<(CBody, Option<Observed>), ToolError> {
+        let pasted = |err: ToolError| match err.code {
+            ToolErrorCode::Cancelled | ToolErrorCode::DeadlineExceeded { .. } => Err(err),
+            _ => Ok((CBody::Str(err.message_for_model), None)),
+        };
+        let planned = match self.plan(ctx, be).await {
+            Ok(planned) => planned,
+            Err(err) => return pasted(err),
+        };
+        match planned {
+            Plan::Text(text) => Ok((CBody::Str(text), None)),
+            Plan::Glance { path, mode: glance, n, offset } => {
+                // A glance mode records what it showed itself, in a batch as alone.
+                let mut seen = None;
+                let outcome = self.glance_text(ctx, &path, &glance, n.as_ref(), offset, &mut seen).await;
+                self.record(ctx, seen.as_ref());
+                match outcome {
+                    Ok(text) => Ok((CBody::Str(text), None)),
+                    Err(err) => pasted(err),
+                }
+            }
+            Plan::Window(mut e) => {
+                e.base = base;
+                self.child_read(ctx, &e, mode).await
+            }
+        }
     }
 
     async fn child_read(&self, ctx: &ToolContext, e: &Entry, mode: Mode) -> Result<(CBody, Option<Observed>), ToolError> {
@@ -901,6 +1068,10 @@ impl ReadTool {
             return Ok(Body::text(format!("Error: {reason}: {raw}")));
         }
         let abs = resolve_path(&ctx.cwd, raw)?;
+        // The path as resolved against the working directory meets the same refusals.
+        if let Some(reason) = path_string_guard(&fwd(abs.as_path())) {
+            return Ok(Body::text(format!("Error: {reason}: {}", fwd(abs.as_path()))));
+        }
         let shown = display_path(abs.as_path(), &ctx.cwd);
         let stat = match guarded(ctx, "read", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
@@ -951,11 +1122,6 @@ impl ReadTool {
         }
         if stat.len > MAX_FILE_BYTES {
             return self.read_huge(ctx, e, &abs, &shown, &stat, version, mode).await;
-        }
-        // Past the output cap a call with no window is answered by Node's streaming smart elision,
-        // which this tool does not port: it is refused, never answered with another shape.
-        if !e.ranged && !e.full && stat.len >= OUTPUT_MAX_BYTES as u64 {
-            return Err(unsupported_form(format!("a read of {shown} without offset, limit or full (a file of {} bytes)", stat.len)));
         }
         let window_key = |v: u64| if e.ranged { v.to_string() } else { "d".to_owned() };
         let cache_key = version.map(|v| {
@@ -1028,6 +1194,15 @@ impl ReadTool {
             ReadText::Text { text, utf16 } => (text, utf16),
         };
         let (text, utf16) = text;
+        // A call with no window over the output cap is answered by the smart elision of the file's head and tail.
+        if !utf16 && !e.ranged && !e.full && stat.len >= OUTPUT_MAX_BYTES as u64 {
+            if let Some((out, ranges, total)) = smart_stream_summary(&text, stat.len) {
+                let meta = SnapshotMeta { ranges: Some(ranges), file_line_count: Some(total), ..SnapshotMeta::new("read_smart_stream") };
+                cache(&out, &meta);
+                let out = if mode.raw() || matches!(mode, Mode::Child { .. }) { out } else { rows_for_model(&out) };
+                return Ok(Body { observed: observe(meta), ..Body::text(out) });
+            }
+        }
         // A batch child streams its window, as does any file over 128 KiB; a UTF-16 body is always
         // decoded whole and read buffered, with its total in the footer.
         let stream = !utf16 && e.ranged && !e.full && (mode.force_stream() || stat.len > READ_STREAM_RANGE_MIN_BYTES);
@@ -1044,6 +1219,8 @@ impl ReadTool {
             let full_view = e.offset == 0 && e.offset.saturating_add(e.limit) >= facts.line_count && !facts.byte_capped && !facts.elided;
             let ranges = if full_view {
                 vec![LineRange::WHOLE]
+            } else if facts.elided {
+                facts.visible.clone()
             } else if facts.rendered > 0 {
                 vec![LineRange { start: e.offset + 1, end: Some(facts.line_count.min(e.offset + facts.rendered)) }]
             } else {
@@ -1266,8 +1443,23 @@ impl ReadTool {
     /// The `[path absent]` answer: a typed not-found rendered with sibling and
     /// same-name hints computed from directory listings.
     pub(crate) async fn not_found(ctx: &ToolContext, raw: &str, abs: &AbsPath) -> String {
+        let answer = Self::not_found_hint(ctx, abs).await;
+        // A path that looks like several joined ones is not a basename to locate: the array hint wins
+        // (`finalizeReadFamilyEnoentTail`).
+        let trimmed = mixdog_js::js_trim(raw);
+        let joined = trimmed.split(|c: char| c == ',' || mixdog_js::is_js_space(c)).filter(|s| !s.is_empty()).count() >= 2
+            && trimmed.contains(|c: char| c == ',' || mixdog_js::is_js_space(c));
+        if !joined {
+            return answer;
+        }
+        let bare = answer.strip_suffix(&format!(" {FIND_NUDGE}")).unwrap_or(&answer);
+        format!("{bare} To pass several paths, send an array (path[]), not a comma- or space-joined string.")
+    }
+
+    async fn not_found_hint(ctx: &ToolContext, abs: &AbsPath) -> String {
         let cwd_note = format!(" (relative paths resolve from {})", fwd(ctx.cwd.as_path()));
-        let head = format!("[path absent] ENOENT: no such file or directory, stat '{raw}'");
+        let message = format!("ENOENT: no such file or directory, stat '{}'", abs.as_path().to_string_lossy());
+        let head = format!("[path absent] {}", read_paths::normalize_error_message(&message, Some(&fwd(ctx.cwd.as_path()))));
         if let Some(similar) = Self::similar_sibling(ctx, abs).await {
             let shown = display_path(similar.as_path(), &ctx.cwd);
             return format!("{head} Did you mean \"{shown}\"?{cwd_note} {FIND_NUDGE}");
@@ -1304,7 +1496,7 @@ impl ReadTool {
             .filter_map(|e| Some((e.path.as_path().file_name()?.to_string_lossy().into_owned(), e.path)))
             .filter(|(n, _)| *n != base)
             .collect();
-        names.sort_by(|a, b| compare_names(&a.0, &b.0));
+        names.sort_by_key(|(n, _)| read_paths::dir_order_key(n));
         let same_stem = names.iter().find(|(n, _)| {
             Path::new(n).file_stem().map(|s| s.to_string_lossy() == stem).unwrap_or(false)
         });
@@ -1381,14 +1573,7 @@ fn ext_error_text(e: &ExtError) -> String {
 
 /// UNC and raw-device namespaces are refused before any path resolution.
 fn path_string_guard(raw: &str) -> Option<&'static str> {
-    let norm = raw.replace('/', "\\");
-    if norm.starts_with("\\\\.\\") || norm.starts_with("\\\\?\\") {
-        return Some("cannot read Windows device path (reserved name or raw-device namespace)");
-    }
-    if norm.starts_with("\\\\") {
-        return Some("cannot read UNC / SMB path (network credential leak risk)");
-    }
-    None
+    read_paths::string_guard(raw)
 }
 
 /// The image type of a path by its extension (`imageMimeForPath`).
@@ -1489,6 +1674,8 @@ struct WindowFacts {
     byte_capped: bool,
     /// The middle of the file was elided (a call with no window over the smart cap).
     elided: bool,
+    /// The rows an elided window kept, as line ranges.
+    visible: Vec<LineRange>,
     /// First and last line number a streamed window emitted (1-based; 0 when none).
     first_emitted: u64,
     last_emitted: u64,
@@ -1498,7 +1685,7 @@ struct WindowFacts {
 /// cut by bytes (mid-row, as Node cuts) when they pass the output cap.
 fn buffered_window(text: &str, e: &Entry, shown: &str, file_size: u64, max: usize) -> (String, WindowFacts) {
     let (offset, limit, base) = (e.offset, e.limit, e.base);
-    let facts = |line_count, rendered, byte_capped| WindowFacts { line_count, rendered, byte_capped, elided: false, first_emitted: 0, last_emitted: 0 };
+    let facts = |line_count, rendered, byte_capped| WindowFacts { line_count, rendered, byte_capped, elided: false, visible: Vec::new(), first_emitted: 0, last_emitted: 0 };
     if text.is_empty() {
         let reminder = format!(
             "<system-reminder>File exists but has empty contents: {}</system-reminder>",
@@ -1529,9 +1716,9 @@ fn buffered_window(text: &str, e: &Entry, shown: &str, file_size: u64, max: usiz
     if !e.ranged {
         // No footer. Only a call without `full` is elided in the middle; any is cut at the byte cap.
         if !e.full
-            && let Some(elided) = smart_read_truncate(&rendered, total, file_size)
+            && let Some((elided, visible)) = smart_read_truncate(&rendered, total, file_size)
         {
-            return (elided, WindowFacts { elided: true, ..facts(total, 0, false) });
+            return (elided, WindowFacts { elided: true, visible, ..facts(total, 0, false) });
         }
         if rendered.len() > max {
             let slice = byte_prefix(&rendered, max);
@@ -1557,9 +1744,57 @@ fn buffered_window(text: &str, e: &Entry, shown: &str, file_size: u64, max: usiz
     (format!("{out}{}{footer}", if out.is_empty() { "" } else { "\n" }), facts(total, shown_lines, capped))
 }
 
+/// `streamSmartReadSummary` over a text held whole: the first 1200 and last 400 rows around a
+/// marker, shrunk by whole rows (a quarter at a time, the larger side first) until they fit the
+/// output cap. `None` when no row needs eliding. Also the line ranges shown and the line count.
+fn smart_stream_summary(text: &str, file_size: u64) -> Option<(String, Vec<LineRange>, u64)> {
+    const HEAD: usize = 1200;
+    const TAIL: usize = 400;
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if lines.last() == Some(&"") {
+        lines.pop();
+    }
+    let total = lines.len();
+    let head_count = HEAD.min(total);
+    let tail_start = head_count.max(total.saturating_sub(TAIL));
+    if tail_start == head_count {
+        return None;
+    }
+    let raw = |i: usize| {
+        let line = lines[i].strip_suffix('\r').unwrap_or(lines[i]);
+        if i == 0 { line.strip_prefix('\u{feff}').unwrap_or(line) } else { line }
+    };
+    let head_rows: Vec<String> = (0..head_count).map(|i| render_read_line(i as u64 + 1, raw(i))).collect();
+    let tail_rows: Vec<String> = (tail_start..total).map(|i| render_read_line(i as u64 + 1, raw(i))).collect();
+    let kb = ((file_size as f64 / 1024.0).round() as u64).max(1);
+    let limit = if file_size > OUTPUT_MAX_BYTES as u64 { format_cap_size(OUTPUT_MAX_BYTES) } else { "2000 lines".to_owned() };
+    let marker = cap_marker(&limit, &format!("{total} lines / {kb} KB"), None, "read located windows with {file_path, offset, limit}");
+    let (mut head_take, mut tail_take) = (head_rows.len(), tail_rows.len());
+    let out = loop {
+        let out = format!("{}\n{marker}\n{}", head_rows[..head_take].join("\n"), tail_rows[tail_rows.len() - tail_take..].join("\n"));
+        if out.len() <= OUTPUT_MAX_BYTES || (head_take <= 1 && tail_take <= 1) {
+            break out;
+        }
+        if head_take >= tail_take && head_take > 1 {
+            head_take = ((head_take as f64 * 0.75).floor() as usize).max(1);
+        } else if tail_take > 1 {
+            tail_take = ((tail_take as f64 * 0.75).floor() as usize).max(1);
+        } else {
+            break out;
+        }
+    };
+    let mut shown = Vec::new();
+    if head_take > 0 {
+        shown.push(LineRange { start: 1, end: Some(head_take as u64) });
+    }
+    if tail_take > 0 {
+        shown.push(LineRange { start: (total - tail_take) as u64 + 1, end: Some(total as u64) });
+    }
+    Some((out, merge_ranges(&shown), total as u64))
+}
 /// `smartReadTruncate`: a window with no bounds over 2000 lines (or 50 KB) keeps its first 1200
 /// and last 400 rows around a marker naming the omitted ones.
-fn smart_read_truncate(rendered: &str, total_lines: u64, file_bytes: u64) -> Option<String> {
+fn smart_read_truncate(rendered: &str, total_lines: u64, file_bytes: u64) -> Option<(String, Vec<LineRange>)> {
     const MAX_LINES: u64 = 2000;
     const HEAD_LINES: usize = 1200;
     const TAIL_LINES: usize = 400;
@@ -1577,7 +1812,8 @@ fn smart_read_truncate(rendered: &str, total_lines: u64, file_bytes: u64) -> Opt
     let limit = if over_bytes { format_cap_size(OUTPUT_MAX_BYTES) } else { format!("{MAX_LINES} lines") };
     let shown = format!("lines {}-{tail_start} of {total_lines} omitted ({kb} KB file)", head + 1);
     let marker = cap_marker(&limit, &shown, Some(head as u64 + 1), "");
-    Some(format!("{}\n{marker}\n{}", rows[..head].join("\n"), rows[tail_start..].join("\n")))
+    let kept = [LineRange { start: 1, end: Some(head as u64) }, LineRange { start: tail_start as u64 + 1, end: Some(rows.len() as u64) }];
+    Some((format!("{}\n{marker}\n{}", rows[..head].join("\n"), rows[tail_start..].join("\n")), merge_ranges(&kept)))
 }
 
 /// The line collector of a streamed window (`createReadLineCollector`): rows until the limit or
@@ -1677,7 +1913,7 @@ impl Collector {
         } else if out.is_empty() && offset >= self.line_idx {
             out = format!("(no lines in range; file has {} lines)", self.line_idx);
         }
-        (out, WindowFacts { line_count: 0, rendered: 0, byte_capped: false, elided: false, first_emitted: self.first_emitted, last_emitted: self.last_emitted })
+        (out, WindowFacts { line_count: 0, rendered: 0, byte_capped: false, elided: false, visible: Vec::new(), first_emitted: self.first_emitted, last_emitted: self.last_emitted })
     }
 }
 
