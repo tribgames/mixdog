@@ -12,6 +12,7 @@ pub mod manager;
 pub mod activity;
 pub mod housekeeping;
 pub mod reconcile;
+pub mod release;
 pub mod removal;
 pub mod maintenance;
 pub mod measure;

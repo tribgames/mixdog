@@ -188,6 +188,23 @@ pub struct Deps {
     /// Watcher batches are not told, as in Node, where the native search watcher is `canonical`
     /// and turn review capture follows tool boundaries only. `None` tells no one.
     pub turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>>,
+    /// The one "a folder is going away" hook set: `project/delete` runs it, worktree removal runs
+    /// the same set. The language servers register here.
+    pub releases: Arc<crate::release::FolderReleases>,
+}
+
+/// The language servers rooted in a folder that goes away.
+struct LspRelease(Arc<LspManager>);
+
+#[async_trait::async_trait]
+impl crate::release::FolderRelease for LspRelease {
+    fn name(&self) -> &str {
+        "language servers"
+    }
+    async fn release_under(&self, root: &Path) -> Result<(), String> {
+        self.0.dispose_under(root).await;
+        Ok(())
+    }
 }
 
 /// `project/codeGraph` runs the agent tools' `code_graph` tool (one instance, one cache): `args`
@@ -233,6 +250,7 @@ pub struct WorkspaceService {
     /// The desktop host's channel, for the methods only an Electron window can answer.
     host: OnceLock<Arc<dyn HostChannel>>,
     phone_grants: OnceLock<PhoneGrants>,
+    releases: Arc<crate::release::FolderReleases>,
 }
 
 fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
@@ -270,6 +288,8 @@ impl WorkspaceService {
         let search = SearchSessions::new(deps.lanes, deps.feeds.clone(), watcher.clone());
         let _ = router.search.set(Arc::downgrade(&search));
         let lsp_feeds = Arc::new(LspFeeds::new(deps.feeds.clone()));
+        let lsp = LspManager::new(deps.processes.clone(), lsp_feeds.clone(), deps.lanes.maintenance);
+        deps.releases.add(Arc::new(LspRelease(lsp.clone())));
         let service = Arc::new(Self {
             me: OnceLock::new(),
             feeds: deps.feeds.clone(),
@@ -283,7 +303,7 @@ impl WorkspaceService {
             watches: Mutex::default(),
             search,
             search_owner: Mutex::default(),
-            lsp: LspManager::new(deps.processes.clone(), lsp_feeds.clone(), deps.lanes.maintenance),
+            lsp,
             lsp_feeds,
             sources: deps.sources,
             code_graph: deps.code_graph,
@@ -294,6 +314,7 @@ impl WorkspaceService {
             state: deps.state,
             host: OnceLock::new(),
             phone_grants: OnceLock::new(),
+            releases: deps.releases,
         });
         let _ = service.me.set(Arc::downgrade(&service));
         Ok(service)
@@ -506,10 +527,15 @@ impl WorkspaceService {
                 value(json!({ "project": self.catalog.rename(s(params, "path")?, alias, op).await? }))
             }
             "project/delete" => {
-                // The servers rooted in the removed folder go with it (DS §4.1: Node's `lspDisposeUnder`).
+                // What holds the removed folder open is released with it (DS §4.1: Node's
+                // `lspDisposeUnder` / `termDisposeUnder`); a hook that fails is named in the answer.
                 let path = s(params, "path")?;
-                let removed = self.catalog.remove(path, op).await?;
-                self.lsp.dispose_under(std::path::Path::new(path)).await;
+                let mut removed = self.catalog.remove(path, op).await?;
+                let failures = self.releases.release_under(Path::new(path)).await;
+                if !failures.is_empty() {
+                    removed["releaseFailures"] =
+                        failures.iter().map(|f| json!({ "name": f.name, "error": f.error })).collect();
+                }
                 value(removed)
             }
             "project/ensureDirectory" => {

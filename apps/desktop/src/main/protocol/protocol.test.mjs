@@ -74,6 +74,31 @@ const manual = () => {
   };
 };
 
+test('whenSynced settles with the connect handshake: after the app subscription, or with its failure', async () => {
+  const client = fakeClient();
+  let finishSubscribe;
+  client.subscribeApp = () => new Promise((resolve) => (finishSubscribe = resolve));
+  const connection = createProtocolConnection({ open: async () => client });
+  let synced = false;
+  const waiting = connection.whenSynced().then(() => (synced = true));
+  const starting = connection.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(synced, false, 'opened and initialized, but the first snapshot is not folded yet');
+  finishSubscribe();
+  await starting;
+  await waiting;
+  assert.equal(synced, true);
+
+  const failing = createProtocolConnection({
+    open: async () => {
+      throw new Error('initialize refused');
+    },
+  });
+  const failedRead = failing.whenSynced();
+  await assert.rejects(failing.start(), /initialize refused/);
+  await assert.rejects(failedRead, /initialize refused/);
+});
+
 test('a burst of section changes leaves one flush with each pair at its current entry', () => {
   const store = fakeStore();
   const pushes = [];

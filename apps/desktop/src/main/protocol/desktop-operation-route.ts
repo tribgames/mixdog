@@ -6,6 +6,7 @@
 import { normalizeBrowserPermissionPolicy } from '../../shared/browser-permission-policy';
 import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
 import { remoteClientKind } from '../../shared/remote-trust';
+import { readSettingsChange, SETTINGS_CHANGED_EVENT } from '../../shared/settings-changed';
 import { pairedDeviceInfo } from '../notification-center';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import type { ProtocolConnection } from './connection';
@@ -21,6 +22,8 @@ import {
   readMarkdownDefaultView,
   readSettings,
   readZoom,
+  remoteAccessMember,
+  termActivity,
 } from './section-reads';
 
 export interface OperationRoute {
@@ -497,17 +500,20 @@ const SECTION_READS: Readonly<Record<string, SectionRead>> = {
   listConversationNotifications: (snapshot) => listConversationNotifications(snapshot, Date.now()),
   notificationPreferencesState: (snapshot, args, host) => notificationPreferencesState(snapshot, args, host),
   visualizeRemoteViewing: (snapshot, args) => visualizeRemoteViewing(snapshot, args),
+  remoteAccessInfo: (snapshot) => remoteAccessMember(snapshot, 'info'),
+  remoteAccessSettings: (snapshot) => remoteAccessMember(snapshot, 'settings'),
+  remoteAccessListClaims: (snapshot) => remoteAccessMember(snapshot, 'claims'),
+  remoteAccessControllerKeys: (snapshot) => remoteAccessMember(snapshot, 'controllerKeys'),
+  remoteAccessOwedControllerKeys: (snapshot) => remoteAccessMember(snapshot, 'owedKeys'),
+  termActivity: (snapshot) => termActivity(snapshot),
 };
 export const SECTION_READ_DESKTOP_OPERATIONS: readonly string[] = Object.keys(SECTION_READS);
 
-/** Deleted by the spec, with a caller that still runs on a core connection (it shares code with the Node host):
- *  the core publishes these changes itself (config/modelCatalog sections; browser approvals are core state, DS §12.3),
- *  so the call is answered as Node answered it, `undefined`, and sends nothing. */
-export const IGNORED_DESKTOP_OPERATIONS: readonly string[] = [
-  'notifyProviderModelsChanged',
-  'notifySettingsChanged',
-  'publishBrowserApprovalSessions',
-];
+/** Deleted by the spec, with a caller that still runs on a core connection (it shares code with the Node host). The
+ *  pending browser approvals are core state (DS §12.3): the core raises `item/browser/requestApproval` to every client
+ *  that can answer it, phones included, so nothing is announced; answered as Node answered it, `undefined`. (The two
+ *  other deleted announcements, `notifySettingsChanged` and `notifyProviderModelsChanged`, are handled in `invoke`.) */
+export const IGNORED_DESKTOP_OPERATIONS: readonly string[] = ['publishBrowserApprovalSessions'];
 
 /** Deleted or core-internal; no caller exists on a core connection. Calling one is a bug and is refused. */
 export const DELETED_DESKTOP_OPERATIONS: Readonly<Record<string, string>> = {
@@ -545,7 +551,7 @@ export function createOperationLane({
   protocol,
   host = DEFAULT_OPERATION_HOST,
 }: {
-  protocol: Pick<ProtocolConnection, 'call' | 'notify'> & Partial<Pick<ProtocolConnection, 'snapshot'>>;
+  protocol: Pick<ProtocolConnection, 'call' | 'notify'> & Partial<Pick<ProtocolConnection, 'snapshot' | 'whenSynced'>>;
   host?: Partial<OperationHost>;
 }): OperationLane {
   const call = (method: string, params: unknown): Promise<unknown> =>
@@ -559,14 +565,39 @@ export function createOperationLane({
         protocol.notify(notification.method, notification.params);
         return NOTIFICATION_ROUTES[name].result;
       }
-      if (Object.hasOwn(SECTION_READS, name)) {
+      // Node answers these at once and never fails them: a read that comes before the connect handshake has folded the
+      // first snapshot waits for it (the handshake's own failure is the read's failure).
+      const heldSections = async (): Promise<NonNullable<typeof protocol.snapshot>> => {
         if (!protocol.snapshot) throw new Error(`desktop operation ${name} needs the connection's held sections.`);
-        return SECTION_READS[name](protocol.snapshot(), args, host);
+        await protocol.whenSynced?.();
+        return protocol.snapshot;
+      };
+      if (Object.hasOwn(SECTION_READS, name)) {
+        const snapshot = await heldSections();
+        return SECTION_READS[name](snapshot(), args, host);
+      }
+      if (name === 'notifySettingsChanged') {
+        const change = readSettingsChange({ scope: args[0] });
+        if (!change) throw new TypeError('settings scope is invalid.');
+        // The windows of this process re-read as Node's broadcast made them. Paired browsers hold the core's own
+        // sections (`config`, `providerSetup`, ...); the host's theme and language travel as
+        // `hostState.displayPreferences`, which Node's announcement made them re-read.
+        host.emitDesktopEvent?.(SETTINGS_CHANGED_EVENT, change);
+        if (change.scope === 'desktop' && host.readDisplayPreferences) {
+          await call('host/state/set', { key: 'displayPreferences', value: await host.readDisplayPreferences() });
+        }
+        return undefined;
+      }
+      if (name === 'notifyProviderModelsChanged') {
+        // A cache hint between UI peers: the windows drop their provider model lists; the core's providerSetup /
+        // providerAccounts sections already tell every client when the providers themselves change.
+        host.emitDesktopEvent?.('provider-models-changed', { origin: args[0] });
+        return undefined;
       }
       if (IGNORED_DESKTOP_OPERATIONS.includes(name)) return undefined;
       const prepare = Object.hasOwn(PREPARERS, name) ? PREPARERS[name] : undefined;
-      if (prepare && !protocol.snapshot) throw new Error(`desktop operation ${name} needs the connection's held sections.`);
-      const routed = prepare ? await prepare(args, { entries: () => protocol.snapshot!().entries }) : args;
+      const held = prepare ? await heldSections() : null;
+      const routed = prepare ? await prepare(args, { entries: () => held!().entries }) : args;
       const { method, params } = routeDesktopOperation(name, routed);
       return REPLIES[name](await call(method, params), { args, params, call, invoke: lane.invoke });
     },
