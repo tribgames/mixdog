@@ -2058,6 +2058,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     directory
         .set_owner_teardown(Arc::new(mixdog_core_session::session::agent_registry::sessions::AgentOwnerTeardown { sessions: agent_sessions.clone(), board: job_board.clone() }))
         .map_err(|_| ComposeError::AlreadyBound("owner teardown"))?;
+    // Teardown's `closeOwnSession` (`teardown.mjs:258`): the stop closes each loaded session with the stop's reason, which bumps its generation (`lifecycle-barriers.mjs:272`).
+    directory.set_exit_close(session_close.clone()).map_err(|_| ComposeError::AlreadyBound("exit close"))?;
     // `AgentParts.send_world` (flip-agent-send-1, -3): the agent tool's send path over the directory. The runtime facts, the blob sizes (a lane job over the blob store) and
     // the session clock are `flip-agent-send-3`'s three fields; the queue has no `pending` any more. `assemble(AgentParts{..})` (flip-agent-worlds) takes this value.
     let agent_send_world = Arc::new(mixdog_core::run_host::agent_send_world::AgentSendWorld {

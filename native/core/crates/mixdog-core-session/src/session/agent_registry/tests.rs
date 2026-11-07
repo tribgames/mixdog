@@ -410,6 +410,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     let header = handle.cell.header.load_full();
     assert_eq!(header["ownerClosedAt"], json!(NOW));
     assert_eq!(header["detachedReason"], json!("cli-agent-close"));
+    assert!(header["generation"].as_f64().is_some_and(|generation| generation >= 1.0), "the close moves the generation on (`lifecycle-barriers.mjs:272`)");
     assert_ne!(header.get("closed"), Some(&json!(true)), "the session stays open");
     sessions.clear_statusline_route(&id);
     assert_eq!(*statusline.0.lock().unwrap(), [id.clone()]);
@@ -469,6 +470,7 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     );
     let header = handle.cell.header.load_full();
     assert_eq!(header["detachedReason"], json!("agent-task-cancel"));
+    assert!(header["generation"].as_f64().is_some_and(|generation| generation >= 1.0));
     assert!(header.get("ownerClosedAt").is_none(), "not an owner close");
 
     // `abortSessionTurn(id, reason)` for a session no outer turn holds.

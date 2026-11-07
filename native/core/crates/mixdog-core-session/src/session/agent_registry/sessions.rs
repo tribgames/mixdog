@@ -203,7 +203,7 @@ impl Sessions for AgentSessions {
     }
 
     /// `closeSession(id, reason, {tombstone: false, ownerClose})`: the durable stamp first
-    /// (`bumpSessionGenerationAttempt`: `updatedAt`, `detachedReason`, and `ownerClosedAt` on an
+    /// (`bumpSessionGenerationAttempt`: `generation`, `updatedAt`, `detachedReason`, and `ownerClosedAt` on an
     /// owner close), then the running turn is cancelled and the queued input dropped. The
     /// session stays open and resumable. A tombstoning close is not served here.
     async fn close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> bool {
@@ -216,14 +216,7 @@ impl Sessions for AgentSessions {
         covered.push(session_id.to_owned());
         let _cancelling = self.registry.begin_cancellation(&covered);
         let thread = ThreadId::from(session_id);
-        let now = self.clock.now_ms();
-        let mut set = Map::new();
-        set.insert("updatedAt".into(), json!(now));
-        set.insert("detachedReason".into(), Value::String(reason.to_owned()));
-        if options.owner_close {
-            set.insert("ownerClosedAt".into(), json!(now));
-        }
-        if self.threads.patch_header(&thread, set, Vec::new()).await.is_err() {
+        if !matches!(crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await, Ok(true)) {
             return false;
         }
         crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;

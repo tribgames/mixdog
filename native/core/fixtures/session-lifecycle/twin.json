@@ -1,0 +1,420 @@
+{
+  "clock": 1700000000000,
+  "barriers": [
+    {
+      "name": "detach",
+      "steps": [
+        {
+          "op": "detach",
+          "reason": "no live session clients",
+          "before": {
+            "generation": 0,
+            "updatedAt": {
+              "step": 0
+            },
+            "closed": false
+          },
+          "generation": 1,
+          "after": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "detachedReason": "no live session clients",
+            "closed": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "detach-twice",
+      "steps": [
+        {
+          "op": "detach",
+          "reason": "no live session clients",
+          "before": {
+            "generation": 0,
+            "updatedAt": {
+              "step": 0
+            },
+            "closed": false
+          },
+          "generation": 1,
+          "after": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "detachedReason": "no live session clients",
+            "closed": false
+          }
+        },
+        {
+          "op": "detach",
+          "reason": "SIGTERM",
+          "before": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "detachedReason": "no live session clients",
+            "closed": false
+          },
+          "generation": 2,
+          "after": {
+            "generation": 2,
+            "updatedAt": {
+              "step": 2
+            },
+            "detachedReason": "SIGTERM",
+            "closed": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "owner-close",
+      "steps": [
+        {
+          "op": "detach",
+          "reason": "cli-agent-close",
+          "ownerClose": true,
+          "before": {
+            "generation": 0,
+            "updatedAt": {
+              "step": 0
+            },
+            "closed": false
+          },
+          "generation": 1,
+          "after": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "detachedReason": "cli-agent-close",
+            "ownerClosedAt": {
+              "step": 1
+            },
+            "closed": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "close",
+      "steps": [
+        {
+          "op": "close",
+          "reason": "idle-sweep",
+          "before": {
+            "generation": 0,
+            "updatedAt": {
+              "step": 0
+            },
+            "closed": false
+          },
+          "generation": 1,
+          "after": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "closed": true,
+            "closedReason": "idle-sweep",
+            "status": "closed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "detach-then-close",
+      "steps": [
+        {
+          "op": "detach",
+          "reason": "cli-exit",
+          "before": {
+            "generation": 0,
+            "updatedAt": {
+              "step": 0
+            },
+            "closed": false
+          },
+          "generation": 1,
+          "after": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "detachedReason": "cli-exit",
+            "closed": false
+          }
+        },
+        {
+          "op": "close",
+          "reason": "manual",
+          "before": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "detachedReason": "cli-exit",
+            "closed": false
+          },
+          "generation": 2,
+          "after": {
+            "generation": 2,
+            "updatedAt": {
+              "step": 2
+            },
+            "detachedReason": "cli-exit",
+            "closed": true,
+            "closedReason": "manual",
+            "status": "closed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "re-close",
+      "steps": [
+        {
+          "op": "close",
+          "reason": "manual",
+          "before": {
+            "generation": 0,
+            "updatedAt": {
+              "step": 0
+            },
+            "closed": false
+          },
+          "generation": 1,
+          "after": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "closed": true,
+            "closedReason": "manual",
+            "status": "closed"
+          }
+        },
+        {
+          "op": "close",
+          "reason": "desktop-session-delete",
+          "before": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "closed": true,
+            "closedReason": "manual",
+            "status": "closed"
+          },
+          "generation": 1,
+          "after": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "closed": true,
+            "closedReason": "desktop-session-delete",
+            "status": "closed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancel-close",
+      "steps": [
+        {
+          "op": "close",
+          "reason": "agent-task-cancel",
+          "before": {
+            "generation": 0,
+            "updatedAt": {
+              "step": 0
+            },
+            "closed": false
+          },
+          "generation": 1,
+          "after": {
+            "generation": 1,
+            "updatedAt": {
+              "step": 1
+            },
+            "closed": true,
+            "closedReason": "agent-task-cancel",
+            "status": "closed",
+            "cancelStatus": "cancelled",
+            "cancelledAt": {
+              "step": 1
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "fence": [
+    {
+      "state": "open-fresh",
+      "recorded": {
+        "generation": 0,
+        "closed": false
+      },
+      "expected": null,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "open-fresh",
+      "recorded": {
+        "generation": 0,
+        "closed": false
+      },
+      "expected": 0,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "open-fresh",
+      "recorded": {
+        "generation": 0,
+        "closed": false
+      },
+      "expected": 1,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "open-fresh",
+      "recorded": {
+        "generation": 0,
+        "closed": false
+      },
+      "expected": 2,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "open-detached-once",
+      "recorded": {
+        "generation": 1,
+        "closed": false
+      },
+      "expected": null,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "open-detached-once",
+      "recorded": {
+        "generation": 1,
+        "closed": false
+      },
+      "expected": 0,
+      "outcome": "dropped",
+      "dropped": true
+    },
+    {
+      "state": "open-detached-once",
+      "recorded": {
+        "generation": 1,
+        "closed": false
+      },
+      "expected": 1,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "open-detached-once",
+      "recorded": {
+        "generation": 1,
+        "closed": false
+      },
+      "expected": 2,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "open-detached-twice",
+      "recorded": {
+        "generation": 2,
+        "closed": false
+      },
+      "expected": null,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "open-detached-twice",
+      "recorded": {
+        "generation": 2,
+        "closed": false
+      },
+      "expected": 0,
+      "outcome": "dropped",
+      "dropped": true
+    },
+    {
+      "state": "open-detached-twice",
+      "recorded": {
+        "generation": 2,
+        "closed": false
+      },
+      "expected": 1,
+      "outcome": "dropped",
+      "dropped": true
+    },
+    {
+      "state": "open-detached-twice",
+      "recorded": {
+        "generation": 2,
+        "closed": false
+      },
+      "expected": 2,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "closed",
+      "recorded": {
+        "generation": 1,
+        "closed": true
+      },
+      "expected": null,
+      "outcome": "saved",
+      "dropped": false
+    },
+    {
+      "state": "closed",
+      "recorded": {
+        "generation": 1,
+        "closed": true
+      },
+      "expected": 0,
+      "outcome": "dropped",
+      "dropped": true
+    },
+    {
+      "state": "closed",
+      "recorded": {
+        "generation": 1,
+        "closed": true
+      },
+      "expected": 1,
+      "outcome": "dropped",
+      "dropped": true
+    },
+    {
+      "state": "closed",
+      "recorded": {
+        "generation": 1,
+        "closed": true
+      },
+      "expected": 2,
+      "outcome": "saved",
+      "dropped": false
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-lifecycle.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8920,
+      "path": "twin.json",
+      "sha256": "75bb5f63999fe14b3562b9eef114c3ec87e95f5faeb4a96c67b470671b2b3884"
+    }
+  ],
+  "product": {
+    "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
+    "commit": "bf52be20e0049ca8d8d1ae9cc3a40c45ada67a33",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9252,
+    "refComparison": {
+      "closestCommit": "bf52be20e0049ca8d8d1ae9cc3a40c45ada67a33",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-lifecycle.mjs",
+  "set": "session-lifecycle",
+  "totalBytes": 8920
+}
