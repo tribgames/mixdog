@@ -3958,7 +3958,7 @@ impl SessionActor {
             self.acked.header.get("model").and_then(Value::as_str).unwrap_or_default(),
         );
         let workflow = self.acked.header.get("workflow");
-        let agent = ["name", "id"]
+        let route_agent = ["name", "id"]
             .into_iter()
             .find_map(|key| workflow.and_then(|w| w.get(key)).and_then(Value::as_str).filter(|name| !name.is_empty()))
             .map(|name| mixdog_js::js_trim(name).to_owned())
@@ -3969,8 +3969,8 @@ impl SessionActor {
             for (key, value) in route {
                 meta.entry(key).or_insert(value);
             }
-            if !agent.is_empty() {
-                meta.entry("agent").or_insert_with(|| json!(agent));
+            if !route_agent.is_empty() {
+                meta.entry("agent").or_insert_with(|| json!(route_agent));
             }
         }
         let review = super::turn_snapshot::TurnSnapshot::new(self.deps.turn_review.clone(), self.id.as_str(), checkpoint, wake);
