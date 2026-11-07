@@ -796,6 +796,9 @@ impl LeadSurfaceHost {
 impl NewThreadTools for LeadSurfaceHost {
     async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
         let s = &self.sources;
+        // `new-session-config.mjs:39`: a new session reloads the config and ends with `invalidatePreSessionToolSurface()`;
+        // moved before the thread's key is taken, so the new thread is brought to the key it starts on.
+        s.surface_generation.bump();
         let route = s.routes.route(thread);
         let (provider, model) = (clean(route.get("provider")), clean(route.get("model")));
         let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);

@@ -397,17 +397,26 @@ pub fn in_place_reroot_patch(header: &Header, cwd: &str, context: &WorkspaceCont
 pub struct PromptReroot {
     directory: Arc<SessionDirectory>,
     threads: Arc<dyn ThreadState>,
+    surface: mixdog_core_base::surface::SurfaceGeneration,
 }
 
 impl PromptReroot {
     pub fn new(directory: Arc<SessionDirectory>, threads: Arc<dyn ThreadState>) -> Self {
-        Self { directory, threads }
+        Self { directory, threads, surface: mixdog_core_base::surface::SurfaceGeneration::default() }
+    }
+
+    /// The surface generation a workspace transition moves (`invalidateCaches()`: the transition's commit and its
+    /// undo both end in it, `transition-steps.mjs:166,180,215,229`).
+    pub fn with_surface(mut self, surface: mixdog_core_base::surface::SurfaceGeneration) -> Self {
+        self.surface = surface;
+        self
     }
 
     /// Re-roots the prompt of `session_id` at `cwd` with `context`'s slices. Rejects when the
     /// session is not loaded or the save fails (nothing changed then).
     pub async fn reroot(&self, session_id: &str, cwd: &str, context: &WorkspaceContext) -> Result<Undo, ScmFailure> {
         let thread = ThreadId::from(session_id);
+        self.surface.bump();
         let header = self.directory.handle(&thread).map(|handle| handle.cell.header.load_full()).ok_or_else(|| plain("session: the session is not loaded"))?;
         let (change, back) = in_place_reroot_patch(&header, cwd, context);
         if change.set.is_empty() && change.unset.is_empty() {
@@ -416,7 +425,14 @@ impl PromptReroot {
         }
         self.threads.patch_header(&thread, change.set, change.unset).await.map_err(port)?;
         let threads = self.threads.clone();
-        let undo: Undo = Box::new(move || Box::pin(async move { threads.patch_header(&thread, back.set, back.unset).await.map_err(port) }));
+        let surface = self.surface.clone();
+        let undo: Undo = Box::new(move || {
+            Box::pin(async move {
+                let undone = threads.patch_header(&thread, back.set, back.unset).await.map_err(port);
+                surface.bump();
+                undone
+            })
+        });
         Ok(undo)
     }
 }

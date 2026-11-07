@@ -1,0 +1,713 @@
+{
+  "base": {
+    "meta": "# Output Style: Simple\n\nBe brief.",
+    "workflow": "# Active Workflow: Default\n\nWork.",
+    "workflowName": "Default",
+    "orchestration": "",
+    "orchestrationMode": "",
+    "skills": "",
+    "instructionFiles": "",
+    "instructionFilesMode": "all",
+    "coreMemory": "# Core Memory\nName: Sam\nLikes tea.",
+    "language": "",
+    "responseLanguage": null
+  },
+  "moved": {
+    "meta": "# Output Style: Simple\n\nBe brief.",
+    "workflow": "# Active Workflow: Default\n\nWork.",
+    "workflowName": "Default",
+    "orchestration": "",
+    "orchestrationMode": "",
+    "skills": "",
+    "instructionFiles": "",
+    "instructionFilesMode": "all",
+    "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+    "language": "",
+    "responseLanguage": null
+  },
+  "cases": [
+    {
+      "name": "a-text-prompt",
+      "prompt": "Please continue with the plan.",
+      "context": null,
+      "turnPromptSource": null,
+      "startRecord": {
+        "revision": "4e2ef6cd6d77dad1",
+        "hashes": {
+          "meta": "1c827442945176ce",
+          "workflow": "9cd37a078051220d",
+          "orchestration": "e3b0c44298fc1c14",
+          "skills": "e3b0c44298fc1c14",
+          "instructionFiles": "e3b0c44298fc1c14",
+          "coreMemory": "d5e8aeedd587af8a",
+          "language": "e3b0c44298fc1c14"
+        },
+        "texts": {
+          "meta": "# Output Style: Simple\n\nBe brief.",
+          "orchestration": "",
+          "orchestrationMode": "",
+          "instructionFiles": "",
+          "coreMemory": "# Core Memory\nName: Sam\nLikes tea.",
+          "skills": [],
+          "instructionFilesMode": "all"
+        }
+      },
+      "pending": {
+        "revision": 1,
+        "record": {
+          "revision": "1cdefa3f85ce9646",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "5dc8b6c96feb19c6",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+        "emitted": [
+          "coreMemory"
+        ],
+        "partial": {},
+        "fresh": [
+          "coreMemory"
+        ]
+      },
+      "message": {
+        "role": "user",
+        "content": "Please continue with the plan.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+        "meta": {
+          "promptSettingsNoticeRevision": 1,
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+          }
+        }
+      },
+      "carriedRevision": 1,
+      "failed": {
+        "notice": {
+          "revision": 1,
+          "record": {
+            "revision": "1cdefa3f85ce9646",
+            "hashes": {
+              "meta": "1c827442945176ce",
+              "workflow": "9cd37a078051220d",
+              "orchestration": "e3b0c44298fc1c14",
+              "skills": "e3b0c44298fc1c14",
+              "instructionFiles": "e3b0c44298fc1c14",
+              "coreMemory": "5dc8b6c96feb19c6",
+              "language": "e3b0c44298fc1c14"
+            },
+            "texts": {
+              "meta": "# Output Style: Simple\n\nBe brief.",
+              "orchestration": "",
+              "orchestrationMode": "",
+              "instructionFiles": "",
+              "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+              "skills": [],
+              "instructionFilesMode": "all"
+            }
+          },
+          "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+          "emitted": [
+            "coreMemory"
+          ],
+          "partial": {},
+          "fresh": [
+            "coreMemory"
+          ]
+        },
+        "revision": 1
+      },
+      "again": {
+        "message": {
+          "role": "user",
+          "content": "Please continue with the plan.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+          "meta": {
+            "promptSettingsNoticeRevision": 1,
+            "runtimeUserContext": {
+              "prefix": "",
+              "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+            }
+          }
+        },
+        "carriedRevision": 1
+      },
+      "acknowledged": true,
+      "after": {
+        "notice": null,
+        "told": {
+          "revision": "1cdefa3f85ce9646",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "5dc8b6c96feb19c6",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "recheck": null,
+        "revision": 1
+      },
+      "next": {
+        "message": {
+          "role": "user",
+          "content": "Please continue with the plan."
+        },
+        "carriedRevision": null
+      }
+    },
+    {
+      "name": "a-prompt-with-blocks",
+      "prompt": [
+        {
+          "type": "text",
+          "text": "Look at this."
+        },
+        {
+          "type": "image",
+          "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "AAAA"
+          }
+        }
+      ],
+      "context": null,
+      "turnPromptSource": null,
+      "startRecord": {
+        "revision": "4e2ef6cd6d77dad1",
+        "hashes": {
+          "meta": "1c827442945176ce",
+          "workflow": "9cd37a078051220d",
+          "orchestration": "e3b0c44298fc1c14",
+          "skills": "e3b0c44298fc1c14",
+          "instructionFiles": "e3b0c44298fc1c14",
+          "coreMemory": "d5e8aeedd587af8a",
+          "language": "e3b0c44298fc1c14"
+        },
+        "texts": {
+          "meta": "# Output Style: Simple\n\nBe brief.",
+          "orchestration": "",
+          "orchestrationMode": "",
+          "instructionFiles": "",
+          "coreMemory": "# Core Memory\nName: Sam\nLikes tea.",
+          "skills": [],
+          "instructionFilesMode": "all"
+        }
+      },
+      "pending": {
+        "revision": 1,
+        "record": {
+          "revision": "1cdefa3f85ce9646",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "5dc8b6c96feb19c6",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+        "emitted": [
+          "coreMemory"
+        ],
+        "partial": {},
+        "fresh": [
+          "coreMemory"
+        ]
+      },
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Look at this."
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/png",
+              "data": "AAAA"
+            }
+          },
+          {
+            "type": "text",
+            "text": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+          }
+        ],
+        "meta": {
+          "promptSettingsNoticeRevision": 1,
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+          }
+        }
+      },
+      "carriedRevision": 1,
+      "failed": {
+        "notice": {
+          "revision": 1,
+          "record": {
+            "revision": "1cdefa3f85ce9646",
+            "hashes": {
+              "meta": "1c827442945176ce",
+              "workflow": "9cd37a078051220d",
+              "orchestration": "e3b0c44298fc1c14",
+              "skills": "e3b0c44298fc1c14",
+              "instructionFiles": "e3b0c44298fc1c14",
+              "coreMemory": "5dc8b6c96feb19c6",
+              "language": "e3b0c44298fc1c14"
+            },
+            "texts": {
+              "meta": "# Output Style: Simple\n\nBe brief.",
+              "orchestration": "",
+              "orchestrationMode": "",
+              "instructionFiles": "",
+              "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+              "skills": [],
+              "instructionFilesMode": "all"
+            }
+          },
+          "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+          "emitted": [
+            "coreMemory"
+          ],
+          "partial": {},
+          "fresh": [
+            "coreMemory"
+          ]
+        },
+        "revision": 1
+      },
+      "again": {
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Look at this."
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "AAAA"
+              }
+            },
+            {
+              "type": "text",
+              "text": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+            }
+          ],
+          "meta": {
+            "promptSettingsNoticeRevision": 1,
+            "runtimeUserContext": {
+              "prefix": "",
+              "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+            }
+          }
+        },
+        "carriedRevision": 1
+      },
+      "acknowledged": true,
+      "after": {
+        "notice": null,
+        "told": {
+          "revision": "1cdefa3f85ce9646",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "5dc8b6c96feb19c6",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "recheck": null,
+        "revision": 1
+      },
+      "next": {
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Look at this."
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "AAAA"
+              }
+            }
+          ]
+        },
+        "carriedRevision": null
+      }
+    },
+    {
+      "name": "a-prompt-with-extra-context",
+      "prompt": "Fix it.",
+      "context": "The build is red.",
+      "turnPromptSource": null,
+      "startRecord": {
+        "revision": "4e2ef6cd6d77dad1",
+        "hashes": {
+          "meta": "1c827442945176ce",
+          "workflow": "9cd37a078051220d",
+          "orchestration": "e3b0c44298fc1c14",
+          "skills": "e3b0c44298fc1c14",
+          "instructionFiles": "e3b0c44298fc1c14",
+          "coreMemory": "d5e8aeedd587af8a",
+          "language": "e3b0c44298fc1c14"
+        },
+        "texts": {
+          "meta": "# Output Style: Simple\n\nBe brief.",
+          "orchestration": "",
+          "orchestrationMode": "",
+          "instructionFiles": "",
+          "coreMemory": "# Core Memory\nName: Sam\nLikes tea.",
+          "skills": [],
+          "instructionFilesMode": "all"
+        }
+      },
+      "pending": {
+        "revision": 1,
+        "record": {
+          "revision": "1cdefa3f85ce9646",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "5dc8b6c96feb19c6",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+        "emitted": [
+          "coreMemory"
+        ],
+        "partial": {},
+        "fresh": [
+          "coreMemory"
+        ]
+      },
+      "message": {
+        "role": "user",
+        "content": "# Additional context\nThe build is red.\n\n# Task\nFix it.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+        "meta": {
+          "promptSettingsNoticeRevision": 1,
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+          }
+        }
+      },
+      "carriedRevision": 1,
+      "failed": {
+        "notice": {
+          "revision": 1,
+          "record": {
+            "revision": "1cdefa3f85ce9646",
+            "hashes": {
+              "meta": "1c827442945176ce",
+              "workflow": "9cd37a078051220d",
+              "orchestration": "e3b0c44298fc1c14",
+              "skills": "e3b0c44298fc1c14",
+              "instructionFiles": "e3b0c44298fc1c14",
+              "coreMemory": "5dc8b6c96feb19c6",
+              "language": "e3b0c44298fc1c14"
+            },
+            "texts": {
+              "meta": "# Output Style: Simple\n\nBe brief.",
+              "orchestration": "",
+              "orchestrationMode": "",
+              "instructionFiles": "",
+              "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+              "skills": [],
+              "instructionFilesMode": "all"
+            }
+          },
+          "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+          "emitted": [
+            "coreMemory"
+          ],
+          "partial": {},
+          "fresh": [
+            "coreMemory"
+          ]
+        },
+        "revision": 1
+      },
+      "again": {
+        "message": {
+          "role": "user",
+          "content": "# Additional context\nThe build is red.\n\n# Task\nFix it.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+          "meta": {
+            "promptSettingsNoticeRevision": 1,
+            "runtimeUserContext": {
+              "prefix": "",
+              "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+            }
+          }
+        },
+        "carriedRevision": 1
+      },
+      "acknowledged": true,
+      "after": {
+        "notice": null,
+        "told": {
+          "revision": "1cdefa3f85ce9646",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "5dc8b6c96feb19c6",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "recheck": null,
+        "revision": 1
+      },
+      "next": {
+        "message": {
+          "role": "user",
+          "content": "# Additional context\nThe build is red.\n\n# Task\nFix it."
+        },
+        "carriedRevision": null
+      }
+    },
+    {
+      "name": "an-injected-turn",
+      "prompt": "Task finished.",
+      "context": null,
+      "turnPromptSource": {
+        "source": "task-notification"
+      },
+      "startRecord": {
+        "revision": "4e2ef6cd6d77dad1",
+        "hashes": {
+          "meta": "1c827442945176ce",
+          "workflow": "9cd37a078051220d",
+          "orchestration": "e3b0c44298fc1c14",
+          "skills": "e3b0c44298fc1c14",
+          "instructionFiles": "e3b0c44298fc1c14",
+          "coreMemory": "d5e8aeedd587af8a",
+          "language": "e3b0c44298fc1c14"
+        },
+        "texts": {
+          "meta": "# Output Style: Simple\n\nBe brief.",
+          "orchestration": "",
+          "orchestrationMode": "",
+          "instructionFiles": "",
+          "coreMemory": "# Core Memory\nName: Sam\nLikes tea.",
+          "skills": [],
+          "instructionFilesMode": "all"
+        }
+      },
+      "pending": {
+        "revision": 1,
+        "record": {
+          "revision": "1cdefa3f85ce9646",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "5dc8b6c96feb19c6",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+        "emitted": [
+          "coreMemory"
+        ],
+        "partial": {},
+        "fresh": [
+          "coreMemory"
+        ]
+      },
+      "message": {
+        "role": "user",
+        "content": "Task finished.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+        "meta": {
+          "source": "task-notification",
+          "promptSettingsNoticeRevision": 1,
+          "runtimeUserContext": {
+            "prefix": "",
+            "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+          }
+        }
+      },
+      "carriedRevision": 1,
+      "failed": {
+        "notice": {
+          "revision": 1,
+          "record": {
+            "revision": "1cdefa3f85ce9646",
+            "hashes": {
+              "meta": "1c827442945176ce",
+              "workflow": "9cd37a078051220d",
+              "orchestration": "e3b0c44298fc1c14",
+              "skills": "e3b0c44298fc1c14",
+              "instructionFiles": "e3b0c44298fc1c14",
+              "coreMemory": "5dc8b6c96feb19c6",
+              "language": "e3b0c44298fc1c14"
+            },
+            "texts": {
+              "meta": "# Output Style: Simple\n\nBe brief.",
+              "orchestration": "",
+              "orchestrationMode": "",
+              "instructionFiles": "",
+              "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+              "skills": [],
+              "instructionFilesMode": "all"
+            }
+          },
+          "content": "<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+          "emitted": [
+            "coreMemory"
+          ],
+          "partial": {},
+          "fresh": [
+            "coreMemory"
+          ]
+        },
+        "revision": 1
+      },
+      "again": {
+        "message": {
+          "role": "user",
+          "content": "Task finished.\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>",
+          "meta": {
+            "source": "task-notification",
+            "promptSettingsNoticeRevision": 1,
+            "runtimeUserContext": {
+              "prefix": "",
+              "suffix": "\n\n<system-reminder>\nSettings changed during this conversation; each section replaces the matching part of your system prompt.\n\n# Core Memory\nCore memory was updated:\n- Likes tea.\n+ Likes coffee.\n\n</system-reminder>"
+            }
+          }
+        },
+        "carriedRevision": 1
+      },
+      "acknowledged": true,
+      "after": {
+        "notice": null,
+        "told": {
+          "revision": "1cdefa3f85ce9646",
+          "hashes": {
+            "meta": "1c827442945176ce",
+            "workflow": "9cd37a078051220d",
+            "orchestration": "e3b0c44298fc1c14",
+            "skills": "e3b0c44298fc1c14",
+            "instructionFiles": "e3b0c44298fc1c14",
+            "coreMemory": "5dc8b6c96feb19c6",
+            "language": "e3b0c44298fc1c14"
+          },
+          "texts": {
+            "meta": "# Output Style: Simple\n\nBe brief.",
+            "orchestration": "",
+            "orchestrationMode": "",
+            "instructionFiles": "",
+            "coreMemory": "# Core Memory\nName: Sam\nLikes coffee.",
+            "skills": [],
+            "instructionFilesMode": "all"
+          }
+        },
+        "recheck": null,
+        "revision": 1
+      },
+      "next": {
+        "message": {
+          "role": "user",
+          "content": "Task finished.",
+          "meta": {
+            "source": "task-notification"
+          }
+        },
+        "carriedRevision": null
+      }
+    }
+  ]
+}

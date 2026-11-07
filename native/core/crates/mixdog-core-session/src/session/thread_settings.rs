@@ -472,6 +472,8 @@ pub struct ThreadSettingsParts {
     /// The app feed: `thread/archived`, `thread/unarchived`.
     pub app: Arc<SectionFeedState>,
     pub ops: OpScopes,
+    /// The surface generation (`invalidatePreSessionToolSurface`): a tool mode change and a workspace switch move it.
+    pub surface: mixdog_core_base::surface::SurfaceGeneration,
 }
 
 pub struct ThreadSettings {
@@ -717,7 +719,11 @@ impl ThreadSettings {
             }
             _ => None,
         };
-        let cwd = self.parts.workspaces.switch_project(thread.as_str(), &resolved, desktop, cancel).await.map_err(scm_error)?;
+        let switched = self.parts.workspaces.switch_project(thread.as_str(), &resolved, desktop, cancel).await;
+        // `transition-steps.mjs:229`: the switch ends in `invalidateCaches()` (the context cache and the pre-session
+        // tool surface), whether the folder changed or the transition was undone.
+        self.parts.surface.bump();
+        let cwd = switched.map_err(scm_error)?;
         if let Err(error) = self.parts.projects.touch_selected(&cwd).await {
             tracing::warn!("project recency update failed (non-fatal): {error}");
         }
@@ -762,6 +768,9 @@ impl ThreadSettings {
             ((), (!set.is_empty()).then_some((set, Vec::new())))
         })
         .await?;
+        // `session-ops.mjs:117-120`: the mode change ends in `refreshEmptySessionToolPolicy`, which first moves the
+        // pre-session tool surface.
+        self.parts.surface.bump();
         Ok(json!(mode))
     }
 }

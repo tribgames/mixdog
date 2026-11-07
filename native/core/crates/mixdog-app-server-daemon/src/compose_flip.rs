@@ -2292,7 +2292,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         reuses: path.reuses.clone(),
         read_state: read_state.clone(),
         durability: b.tokens.durability_io,
-        prompt_reroot: mixdog_core_session::session::worktree::PromptReroot::new(directory.clone(), threads.clone()),
+        prompt_reroot: mixdog_core_session::session::worktree::PromptReroot::new(directory.clone(), threads.clone()).with_surface(surface_generation.clone()),
         user_cwd: mixdog_core_session::session::UserCwd::new(b.data_dir.clone(), b.tokens.interactive_io),
         board: job_board.clone(),
         stored: mixdog_core_session::session::worktree::worktree_consumers::StoredConsumers::new(stored_sessions.clone()),
@@ -2431,6 +2431,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             retention: archive_retention.clone(), // the SAME Arc as `PurgeOwners.retention` (wp-session-33/-40)
             app: b.sections.clone(),
             ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
+            surface: surface_generation.clone(),
         },
     )))?;
     // `thread/setWorkflow`, `thread/setOrchestrationMode`, `thread/setOutputStyle`, `thread/switchContext` (`compose-seams.md` "wu-thread-settings", landing wu-thread-settings-3; flip-brief A16): the context switch
