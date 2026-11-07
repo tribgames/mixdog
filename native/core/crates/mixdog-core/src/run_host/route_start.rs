@@ -85,7 +85,7 @@ impl LateNewRoute {
 
 #[async_trait]
 impl NewThreadRoute for LateNewRoute {
-    async fn adopt(&self, thread: &ThreadId, draft: Option<&Map<String, Value>>) -> Result<(), String> {
+    async fn adopt(&self, thread: &ThreadId, draft: Option<&Map<String, Value>>) -> Result<Map<String, Value>, String> {
         match self.0.get() {
             Some(route) => route.adopt(thread, draft).await,
             None => Err("the new thread route is not bound yet".to_owned()),

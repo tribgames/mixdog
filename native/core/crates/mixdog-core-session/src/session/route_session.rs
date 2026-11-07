@@ -688,7 +688,7 @@ mod tests {
         let mut created = obj(json!({ "cwd": "/ws" }));
         created.extend(crate::session::new_route::create_keys(&obj(golden["route"].clone())).expect("create keys"));
         directory.create_with_id(thread.clone(), created, json!({})).await.expect("create");
-        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let threads = Arc::new(SessionThreads::new(directory.clone()));
         let adapter = SessionRouteAdapter::new(
             directory.clone(),
             threads.clone(),
@@ -739,7 +739,7 @@ mod tests {
         let thread = ThreadId::from("sess_held");
         let header = obj(json!({ "cwd": "/ws", "provider": "other", "model": "other-model", "pendingRoute": golden["held"].clone() }));
         directory.create_with_id(thread.clone(), header, json!({})).await.expect("create");
-        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let threads = Arc::new(SessionThreads::new(directory.clone()));
         let adapter = SessionRouteAdapter::new(
             directory.clone(),
             threads.clone(),
