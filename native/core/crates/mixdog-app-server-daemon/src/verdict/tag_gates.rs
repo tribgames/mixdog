@@ -719,8 +719,23 @@ fn gate_5_live_1_4_5_heartbeat_is_never_starved_by_booting_cores() {
     let until = Instant::now() + Duration::from_secs(45);
     let mut boots = 0;
     while Instant::now() < until {
+        // A daemon that ended by itself (a fatal error of its own, a fence) leaves nothing to block on: that is
+        // the daemon's end, not a boot clearing past a live owner, and its log says which.
+        if let Some(status) = tag_daemon.try_wait().unwrap() {
+            panic!(
+                "the 1.4.5 owner exited ({status}) before boot {}: {}",
+                boots + 1,
+                daemon_log(&temp)
+            );
+        }
         let GateStep::Blocked(blocked) = gate.step().unwrap() else {
-            panic!("a live 1.4.5 owner must block")
+            panic!(
+                "a boot cleared past a 1.4.5 owner that was running before it (boot {}): R {:?}; B {:?}; {}",
+                boots + 1,
+                temp.file(barrier::RECORD_FILE).map(|b| String::from_utf8_lossy(&b).into_owned()),
+                temp.file(CLAIM_LOCK_FILE).map(|b| String::from_utf8_lossy(&b).into_owned()),
+                daemon_log(&temp)
+            )
         };
         // WaitClaim: the boot found the daemon itself holding B mid-refresh.
         assert!(
@@ -811,6 +826,14 @@ fn daemon_log(temp: &TempData) -> String {
     std::fs::read_to_string(temp.data().join("daemon.log")).unwrap_or_default()
 }
 
+/// The 1.4.5 daemon fenced itself: `fenceDaemon` logs `<reason> — refusing new work and stopping so only one daemon serves`
+/// (`daemon.mjs:726`) for every fence (lease expired, claim superseded). Not `owner lease` alone: a stalled event loop logs
+/// `event loop stalled Nms — owner lease must be re-verified before serving` (`daemon-owner.mjs:371`) and keeps serving, which
+/// a loaded machine makes it do within seconds of its start.
+fn fenced(temp: &TempData) -> bool {
+    daemon_log(temp).contains("refusing new work and stopping so only one daemon serves")
+}
+
 /// A real 1.4.5 daemon started now: `Some(pid)` once it serves (its record
 /// published and its liveness socket owned), `None` once it exited 0.
 fn contender(temp: &TempData) -> (Child, Option<u32>) {
@@ -861,7 +884,7 @@ fn suspended_after_a_claim_in_the_gap(inject: Step, at: Step, residual: bool) {
     let beat = owner_record(&temp, pid).expect("R names the daemon")["heartbeatAt"].clone();
     suspend(core.pid(), true);
     std::thread::sleep(SUSPEND);
-    let fenced = daemon_log(&temp).contains("owner lease");
+    let fenced = fenced(&temp);
     let beat_after = owner_record(&temp, pid).map(|v| v["heartbeatAt"].clone());
     suspend(core.pid(), false);
     core.send("GO");

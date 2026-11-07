@@ -7,6 +7,7 @@ fail-fast = false
 [test-groups]
 migration-crash-matrix = { max-threads = 1 }
 pg-cluster = { max-threads = 1 }
+tag-gates = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = 'package(mixdog-migrate) & (test(=desktop_profile::tests::the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
@@ -29,3 +30,9 @@ test-group = 'pg-cluster'
 [[profile.default.overrides]]
 filter = 'package(mixdog-core-session) & (test(=project::tests::every_recorded_step_equals_nodes_over_real_state) | test(=session::worktree::worktree_service_tests::the_safety_scenarios_leave_the_git_and_disk_state_nodes_left))'
 threads-required = 'num-test-threads'
+
+# The tag gates run real 1.4.5 daemons and cores against the daemon's lease and fence timings (daemon-owner.mjs): a daemon's event loop stalled 1-5 s while 17 of them ran together,
+# and the simultaneous-start gates start twenty processes per rep. One at a time, they do not load each other.
+[[profile.default.overrides]]
+filter = 'package(mixdog-app-server-daemon) & test(/^verdict::tag_gates::/)'
+test-group = 'tag-gates'

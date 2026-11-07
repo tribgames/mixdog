@@ -157,6 +157,39 @@ fn a_panicking_release_step_does_not_stop_the_release() {
     assert!(last_exit(run.root.path()).get("stuckStep").is_none());
 }
 
+/// An async step is supervised on its own thread, and its wait is a timer of the runtime: under
+/// paused time the budget runs out by itself, with nothing slept.
+#[tokio::test(start_paused = true)]
+async fn an_async_step_over_its_budget_is_abandoned_at_the_budget() {
+    let (release, held) = tokio::sync::oneshot::channel::<()>();
+    let started = tokio::time::Instant::now();
+    let end = supervise_async("held", Duration::from_secs(30), async move {
+        let _ = held.await;
+    })
+    .await;
+    assert_eq!(end, StepEnd::OverBudget);
+    assert_eq!(started.elapsed(), Duration::from_secs(30));
+    // The abandoned step ends when its wait does.
+    drop(release);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_async_step_that_ends_inside_its_budget_finished() {
+    let (done, finished) = tokio::sync::oneshot::channel::<()>();
+    let end = supervise_async("quick", AMPLE, async move {
+        let _ = done.send(());
+    })
+    .await;
+    assert_eq!(end, StepEnd::Finished);
+    assert!(finished.await.is_ok(), "the step ran to its end");
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_async_step_that_panics_is_reported_and_the_caller_goes_on() {
+    let end = supervise_async("broken", AMPLE, async { panic!("injected failure in an async step") }).await;
+    assert_eq!(end, StepEnd::Panicked);
+}
+
 #[test]
 fn a_clean_release_names_no_stuck_step() {
     let run = release_with(("none", Fault::Wedge), budgets(""));
