@@ -552,7 +552,7 @@ async fn a_session_working_in_any_way_the_host_counts_is_not_moved() {
                 *lock(&world.rig.compaction.hold) = Some(hold.clone());
                 let running = handle.clone();
                 compacting = Some(tokio::spawn(async move {
-                    running.request(request("thread/compact/start", json!({ "threadId": "sess_working", "opId": "c-1" }), "c-1")).await
+                    running.request(request("thread/compact/start", with_op(json!({ "threadId": "sess_working" }), 2), Some(2))).await
                 }));
                 eventually_on(&[stepped], || handle.cell.compacting.load(Ordering::SeqCst).then_some(())).await;
             }
