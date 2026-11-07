@@ -12,6 +12,7 @@ use super::cache::GraphCache;
 use super::federation::{TrustSnapshot, drop_cwd_anchors, plan_federation, run_federation};
 use super::graph::Graph;
 use super::modes::{self, Ctx};
+use super::output::Warnings;
 use super::roots::{
     FileAnchor, abs_from, find_dir_project_root, resolve_aggregate_anchor_root,
     resolve_directory_root, resolve_file_anchor_root,
@@ -57,6 +58,8 @@ pub(super) struct Answer {
     /// The whole answer is an error body (`classifyResultKind`). A single call's error does not
     /// make it incomplete, but a federated parent counts an erroring section as a failed one.
     pub error: bool,
+    /// The files the graphs behind the answer held unindexed (`options._parseWarnings`).
+    pub warnings: Warnings,
 }
 
 /// What a call knows beyond its arguments: where trusted roots come from, and the session's cwd
@@ -103,7 +106,7 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     }
     if let Some(file) = args.file.as_deref().filter(|_| !has_aggregate) {
         match resolve_file_anchor_root("code_graph", file, &base, explicit)? {
-            FileAnchor::Error(text) => return Ok(Answer { text, dependency_roots: None, complete: true, error: true }),
+            FileAnchor::Error(text) => return Ok(Answer { text, dependency_roots: None, complete: true, error: true, warnings: Warnings::default() }),
             FileAnchor::Root(anchor_root) => {
                 if let Some(anchor_root) = anchor_root {
                     root = anchor_root;
@@ -145,7 +148,11 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
         mode
     };
     let batch_mode = if mode == "search" { "symbol_search" } else { mode };
-    let raw = |a: &Args| Section::whole(answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()));
+    let warnings = std::cell::RefCell::new(Warnings::default());
+    let raw = |a: &Args| {
+        warnings.borrow_mut().collect(mode, a.file.as_deref(), &base, &root, &graph);
+        Section::whole(answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()))
+    };
     // `files` scopes the symbol modes: one entry becomes the anchor, several fan out per file.
     let scope_files = if BATCHABLE.contains(&batch_mode) && args.file.as_deref().is_none_or(|f| f.trim().is_empty()) {
         args.file_list()
@@ -180,9 +187,11 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
         }
         one(&args)
     };
-    let complete = section.complete && !graph.truncated;
+    let warnings = warnings.into_inner();
+    // Node marks the call incomplete once a graph holds an unindexed file (`collectGraphParseWarnings`).
+    let complete = section.complete && !graph.truncated && warnings.is_empty();
     let error = is_error_body(&section.text);
-    Ok(Answer { text: section.text, dependency_roots: Some(dependency_roots), complete, error })
+    Ok(Answer { text: section.text, dependency_roots: Some(dependency_roots), complete, error, warnings })
 }
 
 /// One answer text and whether it is whole: a fanned-out call is whole only when every section is.

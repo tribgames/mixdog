@@ -109,7 +109,7 @@ fn run(provider: &str, id: u64) -> CoreRequest {
     let call = w::ProxyCall::Send { provider: provider.into(), request: Box::new(request_out(&hi())) };
     CoreRequest {
         method: Method(RUN),
-        params: json!({ "runId": "r1", "call": call }),
+        params: json!({ "runId": "r1", "call": call, "allowedProviders": null }),
         op: None,
         ctx: mixdog_core_api::CallContext::connection(ConnectionId(id), Origin::Local, CancellationToken::new()),
     }
@@ -135,6 +135,24 @@ async fn a_failed_run_is_a_result_and_a_run_needs_a_connection() {
     let mut internal = run("mock", 7);
     internal.ctx = mixdog_core_api::CallContext::internal("test");
     assert!(matches!(service.call(internal).await, Err(CoreError::InvalidParams { .. })));
+}
+
+/// The list travels with the run (Node: the host's `isProviderAllowed`); a run that omits it is refused,
+/// never served as "every provider".
+#[tokio::test]
+async fn the_hosts_provider_list_travels_with_the_run_and_cannot_be_omitted() {
+    let (service, _) = service(vec![MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    let mut barred = run("mock", 7);
+    barred.params["allowedProviders"] = json!(["other"]);
+    let Reply::Value(answer) = service.call(barred).await.unwrap() else { panic!("not a value") };
+    assert_eq!((answer["result"]["result"].as_str(), answer["result"]["failure"]["code"].as_str()), (Some("failed"), Some("MODEL_PROXY_PROVIDER_NOT_ALLOWED")));
+    let mut listed = run("mock", 7);
+    listed.params["allowedProviders"] = json!(["mock"]);
+    let Reply::Value(answer) = service.call(listed).await.unwrap() else { panic!("not a value") };
+    assert_eq!(answer["result"]["result"], json!("sent"));
+    let mut omitted = run("mock", 7);
+    omitted.params.as_object_mut().unwrap().shift_remove("allowedProviders");
+    assert!(matches!(service.call(omitted).await, Err(CoreError::InvalidParams { .. })));
 }
 
 #[test]

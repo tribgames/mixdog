@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 182325,
+      "bytes": 230044,
       "path": "golden.json",
-      "sha256": "c7fedc92aba577a28c5f1a2168a74f24bd9e67d4606d34bc99b15d83d4be2b60"
+      "sha256": "96b566fdca764e26ebfca335091dbf526ae791392b33e2bea09d17e9f90f8e68"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-skill-session.mjs",
   "set": "skill-session",
-  "totalBytes": 182325
+  "totalBytes": 230044
 }

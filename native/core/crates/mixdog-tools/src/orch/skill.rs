@@ -25,6 +25,30 @@ use super::util::spec_from_def;
 /// The command name model shells find on their PATH to run a bundled skill script.
 pub const SKILL_LAUNCHER_COMMAND: &str = "mixdog-skill-node";
 
+/// What arming a loaded skill's tool dependencies tells the model after the stub (the text of
+/// Node's `loadSkillToolDependencies`): "Required tools loaded/available/unavailable: …", or, on a
+/// native tool-search provider, the payload that replaces the whole result.
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
+pub struct ArmNotice {
+    /// The lines after the stub, in order.
+    pub lines: Vec<String>,
+    /// `{provider, toolReferences, openaiTools}` of the deferred tools the provider loads natively;
+    /// the result then is `{"nativeToolSearch": {..this, "summary": stub and lines}}`.
+    pub native: Option<serde_json::Value>,
+}
+
+impl ArmNotice {
+    /// The Skill result: `head` (the stub) and the lines, one per line, or the native payload
+    /// carrying that text as its summary.
+    pub fn result(&self, head: &str) -> String {
+        let summary = std::iter::once(head).chain(self.lines.iter().map(String::as_str)).collect::<Vec<_>>().join("\n");
+        let Some(serde_json::Value::Object(native)) = &self.native else { return summary };
+        let mut payload = native.clone();
+        payload.insert("summary".to_owned(), serde_json::Value::String(summary));
+        serde_json::json!({ "nativeToolSearch": payload }).to_string()
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LoadedSkill {
     pub content: String,
@@ -32,6 +56,8 @@ pub struct LoadedSkill {
     pub dir: Option<String>,
     /// `builtin` loads silently; user and plugin skills surface as a card.
     pub source: String,
+    /// What arming the skill's tool dependencies adds to the result.
+    pub notice: ArmNotice,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -44,11 +70,12 @@ pub enum SkillLookup {
 
 /// The skill catalog. `load` also re-arms the skill's deferred tools for the thread (a repeat
 /// load re-arms them as before); `body_present` is true when the live transcript still holds
-/// exactly this body.
+/// exactly this body. A thread or transcript that cannot be read is an error, never "not
+/// present".
 #[async_trait]
 pub trait SkillPort: Send + Sync {
     async fn load(&self, thread: &ThreadId, name: &str, cwd: &AbsPath) -> Result<SkillLookup, PortError>;
-    async fn body_present(&self, thread: &ThreadId, body: &str) -> bool;
+    async fn body_present(&self, thread: &ThreadId, body: &str) -> Result<bool, PortError>;
 }
 
 fn escape_xml(value: &str) -> String {
@@ -102,7 +129,7 @@ impl Tool for SkillTool {
             SkillLookup::Loaded(skill) => skill,
         };
         let body = result_envelope(&name, &skill.content, skill.dir.as_deref());
-        let already = self.skills.body_present(&ctx.thread_id, &body).await;
+        let already = self.skills.body_present(&ctx.thread_id, &body).await?;
         let head = stub(&name, &skill.source);
         let (text, follow_up) = if already {
             (
@@ -112,12 +139,15 @@ impl Tool for SkillTool {
         } else {
             (head, vec![FollowUpMessage { text: body, meta: Some("skill".to_owned()) }])
         };
+        let text = skill.notice.result(&text);
         Ok(ToolOutput { parts: vec![ToolPart::Text(text)], follow_up_messages: follow_up, ..ToolOutput::default() })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use mixdog_core_api::domain::tool::ToolError;
+
     use super::*;
 
     #[test]
@@ -133,5 +163,62 @@ mod tests {
     fn stub_marks_builtin_skills() {
         assert_eq!(stub(" x ", "builtin"), "Loaded built-in skill: x");
         assert_eq!(stub("x", "global"), "Loaded skill: x");
+    }
+
+    struct Port {
+        notice: ArmNotice,
+        loaded: Result<(), PortError>,
+        present: Result<bool, PortError>,
+    }
+
+    #[async_trait]
+    impl SkillPort for Port {
+        async fn load(&self, _: &ThreadId, _: &str, _: &AbsPath) -> Result<SkillLookup, PortError> {
+            self.loaded.clone()?;
+            Ok(SkillLookup::Loaded(LoadedSkill {
+                content: "# Deck guide".to_owned(),
+                dir: Some("/skills/deck-guide".to_owned()),
+                source: "global".to_owned(),
+                notice: self.notice.clone(),
+            }))
+        }
+        async fn body_present(&self, _: &ThreadId, _: &str) -> Result<bool, PortError> {
+            self.present.clone()
+        }
+    }
+
+    fn port(notice: ArmNotice, present: Result<bool, PortError>) -> Arc<Port> {
+        Arc::new(Port { notice, loaded: Ok(()), present })
+    }
+
+    /// The Skill result of every recorded Node load (`fixtures/skill-session/golden.json`): the
+    /// stub, its already-active suffix, the notice lines and the native tool-search payload, byte
+    /// for byte; an unchanged repeat load injects no body.
+    #[tokio::test]
+    async fn the_result_reads_as_node_words_it() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/skill-session/golden.json")).expect("fixture");
+        for case in golden["arm"].as_array().expect("arm cases") {
+            let lines = case["notice"]["lines"].as_array().expect("lines").iter().map(|line| line.as_str().expect("line").to_owned()).collect();
+            let native = Some(case["notice"]["native"].clone()).filter(|native| !native.is_null());
+            let already = case["already"].as_bool().expect("already");
+            let tool = SkillTool::new(port(ArmNotice { lines, native }, Ok(already)));
+            let output = tool.call(&crate::orch::tests::ctx(), serde_json::json!({"name": "deck-guide"})).await.expect("loaded");
+            assert_eq!(output.parts, vec![ToolPart::Text(case["result"].as_str().expect("result").to_owned())], "{}", case["name"]);
+            assert_eq!(output.follow_up_messages.is_empty(), already, "{}", case["name"]);
+        }
+    }
+
+    /// A load or transcript read that failed fails the call with the port error's tool error, the
+    /// one every port failure maps to.
+    #[tokio::test]
+    async fn a_failed_port_fails_the_call() {
+        let failure = PortError::Failed { capability: "session".to_owned(), message: "header unreadable".to_owned() };
+        let expected = ToolError::from(failure.clone());
+        let transcript = SkillTool::new(port(ArmNotice::default(), Err(failure.clone())));
+        let error = transcript.call(&crate::orch::tests::ctx(), serde_json::json!({"name": "deck-guide"})).await.expect_err("fails");
+        assert_eq!(error.message_for_model, expected.message_for_model);
+        let arming = SkillTool::new(Arc::new(Port { notice: ArmNotice::default(), loaded: Err(failure), present: Ok(false) }));
+        let error = arming.call(&crate::orch::tests::ctx(), serde_json::json!({"name": "deck-guide"})).await.expect_err("fails");
+        assert_eq!(error.message_for_model, expected.message_for_model);
     }
 }

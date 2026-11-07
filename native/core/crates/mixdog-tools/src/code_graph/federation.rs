@@ -18,6 +18,7 @@ use rayon::prelude::*;
 
 use super::args::Args;
 use super::dispatch::{Answer, Env, run_scoped};
+use super::output::{Warnings, wrap};
 use super::roots::{
     FEDERATION_CAP, abs_from, child_project_roots, find_dir_project_root, is_filesystem_root, path_key,
 };
@@ -269,7 +270,8 @@ fn run_child(args: &Args, root: &Path, excluded: &[PathBuf], env: &Env<'_>) -> C
         Ok(answer) => Child {
             complete: answer.complete && !answer.error,
             roots: answer.dependency_roots.unwrap_or_default(),
-            text: answer.text,
+            // A section is its own `executeCodeGraphTool` call: its own warning and budget.
+            text: wrap(answer.text, &answer.warnings, args),
         },
         Err(message) => Child { text: format!("Error: {message}"), roots: Vec::new(), complete: false },
     }
@@ -284,7 +286,7 @@ fn merge(sections: Vec<(String, Child)>, base_roots: Vec<PathBuf>) -> Answer {
         roots.extend(child.roots);
         texts.push(format!("{header}{}", child.text));
     }
-    Answer { text: texts.join("\n\n"), dependency_roots: Some(roots), complete, error: false }
+    Answer { text: texts.join("\n\n"), dependency_roots: Some(roots), complete, error: false, warnings: Warnings::default() }
 }
 
 /// The federated answer, or `None` when the plan cannot route the call and the single-project
@@ -300,7 +302,7 @@ pub(super) fn run_federation(plan: &Plan, args: &Args, base: &Path, env: &Env<'_
 }
 
 fn refusal(text: String, base_roots: Vec<PathBuf>) -> Answer {
-    Answer { text, dependency_roots: Some(base_roots), complete: true, error: true }
+    Answer { text, dependency_roots: Some(base_roots), complete: true, error: true, warnings: Warnings::default() }
 }
 
 fn federate_file_anchors(plan: &Plan, args: &Args, base: &Path, env: &Env<'_>, base_roots: Vec<PathBuf>) -> Answer {

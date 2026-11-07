@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-native-tool-search.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 36438,
+      "path": "golden.json",
+      "sha256": "9ec4b93ae782ca278b550a7397e816f1070e5fb8b860917c12894880c3285de1"
+    }
+  ],
+  "product": {
+    "appsSha256": "fafa2dadfb9db84dba5ba512f05574282fe76e530ac5b39b4bb99cc0f396199c",
+    "commit": "d47494aa5fd9662170425a26adc3498a19dd658d",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "d47494aa5fd9662170425a26adc3498a19dd658d",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-native-tool-search.mjs",
+  "set": "native-tool-search",
+  "totalBytes": 36438
+}

@@ -1,0 +1,14 @@
+{
+  "tool": "code_graph",
+  "input": {
+    "mode": "search",
+    "symbols": [
+      "fn1",
+      "fn2",
+      "fn3"
+    ]
+  },
+  "cap": 300,
+  "full": "# symbol_search fn1\n# search keyword=fn1 matches=4 shown=4\nfn1\tsrc/a.mjs:1-3:8\texport function\tfunction fn1(a)\nfn10\tsrc/a.mjs:37-39:8\texport function\tfunction fn10(a)\nfn11\tsrc/a.mjs:41-43:8\texport function\tfunction fn11(a)\nfn12\tsrc/a.mjs:45-47:8\texport function\tfunction fn12(a)\n\n# symbol_search fn2\n# search keyword=fn2 matches=1 shown=1\nfn2\tsrc/a.mjs:5-7:8\texport function\tfunction fn2(a)\n\n# symbol_search fn3\n# search keyword=fn3 matches=1 shown=1\nfn3\tsrc/a.mjs:9-11:8\texport function\tfunction fn3(a)",
+  "capped": "# symbol_search fn1\n# search keyword=fn1 matches=4 shown=4\nfn1\tsrc/a.mjs:1-3:8\texport function\tfunction fn1(a)\nfn10\tsrc/a.mjs:37-39:8\texport function\tfunction fn10(a)\n[output capped at 300 bytes; symbols from index 0 not fully shown; narrow: re-query symbols=[\"fn1\",\"fn2\",\"fn3\"] separately]"
+}

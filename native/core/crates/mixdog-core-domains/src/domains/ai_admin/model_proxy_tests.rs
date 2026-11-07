@@ -182,24 +182,27 @@ impl ProviderLookup for Mock {
 struct Quota;
 #[async_trait]
 impl QuotaProbe for Quota {
-    async fn usable(&self, _: &str, model: &str) -> bool {
-        model == "ok"
+    async fn usable(&self, _: &str, model: &str) -> Result<bool, String> {
+        if model == "broken" {
+            return Err("usage fetch failed".into());
+        }
+        Ok(model == "ok")
     }
 }
 
 struct Wires;
 #[async_trait]
 impl WireRouter for Wires {
-    async fn route(&self, _: &str, _: &str, context: w::ProxyRouteContext) -> Option<w::ProxyWireRoute> {
-        context.agent.then_some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Family, profile_id: "mock:messages".into() })
+    async fn route(&self, _: &dyn p::ProviderAdapter, _: &str, context: w::ProxyRouteContext) -> Result<Option<w::ProxyWireRoute>, p::ProviderError> {
+        Ok(context.agent.then_some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Family, profile_id: "mock:messages".into() }))
     }
 }
 
 struct Config;
 #[async_trait]
 impl ProviderConfigSource for Config {
-    async fn public(&self) -> (Vec<(String, w::ProxyProviderInfo)>, bool) {
-        (Vec::new(), true)
+    async fn public(&self) -> Result<(Vec<(String, w::ProxyProviderInfo)>, bool), String> {
+        Ok((Vec::new(), true))
     }
 }
 
@@ -218,7 +221,7 @@ impl ModelProxyTransport for Loopback {
     async fn execute(&self, call: Value, events: &mut (dyn FnMut(Value) + Send), cancel: &CancellationToken) -> Result<Value, ProxyError> {
         let call: w::ProxyCall = serde_json::from_value(call).expect("a typed call");
         let collected = Mutex::new(Vec::new());
-        let result = self.0.run(call, &Collect(&collected), cancel).await;
+        let result = self.0.run(call, None, &Collect(&collected), cancel).await;
         for event in collected.into_inner().unwrap() {
             events(serde_json::to_value(event).unwrap());
         }
@@ -342,7 +345,7 @@ async fn a_provider_the_pc_lacks_is_refused_by_name() {
 async fn the_other_calls_are_answered_on_the_pc() {
     let pc = loopback([]).await;
     let ask = |call| async {
-        pc.0.run(call, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await
+        pc.0.run(call, None, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await
     };
     let w::ProxyAnswer::Usable { usable } = ask(w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "ok".into() }).await.unwrap() else { panic!() };
     assert!(usable);
@@ -350,9 +353,129 @@ async fn the_other_calls_are_answered_on_the_pc() {
     assert_eq!(route, w::ProxyAnswer::Route { route: Some(w::ProxyWireRoute { wire: w::ProxyWire::Messages, source: w::ProxyRouteSource::Family, profile_id: "mock:messages".into() }) });
     assert!(matches!(ask(w::ProxyCall::ProviderConfig).await.unwrap(), w::ProxyAnswer::ProviderConfig { ready: Some(true), .. }));
     assert!(ask(w::ProxyCall::QuotaUsable { provider: "absent".into(), model: "x".into() }).await.is_err());
+    // A measurement that failed fails the call with its message, as a plain error with no code.
+    let failure = ask(w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "broken".into() }).await.unwrap_err();
+    assert_eq!((failure.message.as_str(), failure.code, failure.kind), ("usage fetch failed", None, w::ProxyErrorKind::Unknown));
+    // A call the server gave up reads nothing of the PC's.
+    let given_up = CancellationToken::new();
+    given_up.cancel();
+    let failure = pc.0.run(w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "ok".into() }, None, &Collect(&Mutex::new(Vec::new())), &given_up).await.unwrap_err();
+    assert_eq!(failure.message, "The remote session cancelled the model call.");
     // A cached listing answers from the PC's catalog.
     let w::ProxyAnswer::Models { models } = ask(w::ProxyCall::ListModels { provider: "mock".into(), refresh: false }).await.unwrap() else { panic!() };
     assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["listed"]);
+}
+
+// -- against Node's recording of a proxied run (record-model-proxy-pc.mjs) -------------------
+
+const PC_TWIN: &str = include_str!("../../../../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
+
+use p::ProviderAdapter as _;
+
+/// A provider whose attempt never ends: only the cancel ends the call.
+struct Hang(MockProvider);
+
+#[async_trait]
+impl p::ProviderAdapter for Hang {
+    fn id(&self) -> &mixdog_protocol::ProviderId {
+        self.0.id()
+    }
+    fn codec(&self) -> &dyn p::WireCodec {
+        self.0.codec()
+    }
+    fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
+        self.0.retry_policy()
+    }
+    fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
+        self.0.keepalive()
+    }
+    async fn attempt(&self, _: Arc<p::ModelRequest>) -> Result<Box<dyn p::ModelStream>, p::ProviderError> {
+        std::future::pending().await
+    }
+}
+
+struct HangLookup(Arc<Hang>);
+
+#[async_trait]
+impl ProviderLookup for HangLookup {
+    async fn adapter(&self, name: &str) -> Option<Arc<dyn p::ProviderAdapter>> {
+        (name == "mock").then(|| self.0.clone() as Arc<dyn p::ProviderAdapter>)
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_run_streams_the_text_node_streamed_and_a_cancel_reads_as_nodes() {
+    let twin: Value = serde_json::from_str(PC_TWIN).unwrap();
+    // The text deltas of the recorded run, in order.
+    let recorded: Vec<String> = twin["runs"]["stream"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["name"] == "onTextDelta")
+        .map(|event| event["args"][0].as_str().unwrap().to_owned())
+        .collect();
+    let pc = loopback([MockAttempt::Body(b"t:Hel\nt:lo\ndone\n".to_vec())]).await;
+    let events = Mutex::new(Vec::new());
+    let call = w::ProxyCall::Send { provider: "mock".into(), request: Box::new(request_out(&hi())) };
+    let answer = pc.0.run(call, None, &Collect(&events), &CancellationToken::new()).await.unwrap();
+    assert!(matches!(answer, w::ProxyAnswer::Sent { attempts: 1 }));
+    let streamed: Vec<String> = events.into_inner().unwrap().into_iter().filter_map(|event| if let w::ProxyEvent::TextDelta { text } = event { Some(text) } else { None }).collect();
+    assert_eq!(streamed, recorded);
+
+    // A cancel while the provider works: the failure carries the message Node's PC aborts with.
+    let catalog = catalog(&[("mock", "listed")]).await;
+    let broker = Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(StandardRetryDecider)));
+    let hang = Arc::new(Hang(MockProvider::new(Vec::<MockAttempt>::new())));
+    let runner = ProxyRunner { providers: Arc::new(HangLookup(hang)), broker, quota: Arc::new(Quota), wire: Arc::new(Wires), config: Arc::new(Config), catalog };
+    let cancel = CancellationToken::new();
+    let call = w::ProxyCall::Send { provider: "mock".into(), request: Box::new(request_out(&hi())) };
+    let events = Mutex::new(Vec::new());
+    let collect = Collect(&events);
+    let run = runner.run(call, None, &collect, &cancel);
+    let stop = async {
+        tokio::task::yield_now().await;
+        cancel.cancel();
+    };
+    let (failed, ()) = futures::future::join(run, stop).await;
+    assert_eq!(failed.unwrap_err().message, twin["runs"]["cancel"]["reasons"][0]["message"].as_str().unwrap());
+
+    // A provider the PC lacks: Node's refusal, code and text.
+    let refusal = &twin["runs"]["refusals"][0];
+    let failure = pc.0.run(w::ProxyCall::QuotaUsable { provider: "anthropic".into(), model: "m".into() }, None, &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.unwrap_err();
+    assert_eq!((failure.code.as_deref(), failure.message.as_str()), (refusal["error"]["code"].as_str(), refusal["error"]["message"].as_str().unwrap()));
+}
+
+/// The host's saved list (Node `allowedProvidersForHost`): a provider outside it is refused by every call before
+/// the PC looks it up, with the text of the recording, and is not named in the config answer.
+#[tokio::test(start_paused = true)]
+async fn a_provider_outside_the_hosts_list_is_refused_and_not_named() {
+    let twin: Value = serde_json::from_str(PC_TWIN).unwrap();
+    let recorded = twin["runs"]["refusals"].as_array().unwrap().iter().find(|r| r["label"] == "not allowed").unwrap();
+    // "openai" in the recording; the same refusal for the provider this test names.
+    let expected = recorded["error"]["message"].as_str().unwrap().replace("openai", "mock");
+    let pc = loopback([MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    let none: &[String] = &[];
+    let other = ["other".to_owned()];
+    let calls = [
+        w::ProxyCall::QuotaUsable { provider: "mock".into(), model: "ok".into() },
+        w::ProxyCall::ResolveWireRoute { provider: "mock".into(), model: "m".into(), context: w::ProxyRouteContext { agent: true, legacy: false } },
+        w::ProxyCall::ListModels { provider: "mock".into(), refresh: false },
+        w::ProxyCall::Send { provider: "mock".into(), request: Box::new(request_out(&hi())) },
+    ];
+    for list in [none, &other[..]] {
+        for call in calls.clone() {
+            let events = Mutex::new(Vec::new());
+            let failure = pc.0.run(call, Some(list), &Collect(&events), &CancellationToken::new()).await.unwrap_err();
+            assert_eq!((failure.code.as_deref(), failure.message.as_str()), (recorded["error"]["code"].as_str(), expected.as_str()));
+            assert!(events.into_inner().unwrap().is_empty(), "nothing ran");
+        }
+    }
+    // An empty list lets nothing be named; the provider that is listed is served.
+    let listed = ["mock".to_owned()];
+    let answer = pc.0.run(calls[0].clone(), Some(&listed), &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.unwrap();
+    assert_eq!(answer, w::ProxyAnswer::Usable { usable: true });
+    let w::ProxyAnswer::ProviderConfig { providers, .. } = pc.0.run(w::ProxyCall::ProviderConfig, Some(none), &Collect(&Mutex::new(Vec::new())), &CancellationToken::new()).await.unwrap() else { panic!() };
+    assert!(providers.is_empty());
 }
 
 #[tokio::test(flavor = "current_thread")]

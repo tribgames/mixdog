@@ -1,0 +1,7 @@
+{
+  "tool": "code_graph",
+  "input": {
+    "mode": "overview"
+  },
+  "text": "[warning] 7 source file(s) could not be indexed; graph results are partial:\nsrc/bad1.mjs: unsupported source encoding; file not indexed\nsrc/bad2.mjs: unsupported source encoding; file not indexed\nsrc/bad3.mjs: unsupported source encoding; file not indexed\nsrc/bad4.mjs: unsupported source encoding; file not indexed\nsrc/bad5.mjs: unsupported source encoding; file not indexed\nfiles\t9\nedges\t1\njavascript\t9"
+}

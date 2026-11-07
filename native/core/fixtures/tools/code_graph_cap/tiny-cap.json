@@ -1,0 +1,10 @@
+{
+  "tool": "code_graph",
+  "input": {
+    "mode": "symbols",
+    "files": "src/a.mjs"
+  },
+  "cap": 40,
+  "full": "export function fn1 (L1-3)  function fn1(a)\nexport function fn2 (L5-7)  function fn2(a)\nexport function fn3 (L9-11)  function fn3(a)\nexport function fn4 (L13-15)  function fn4(a)\nexport function fn5 (L17-19)  function fn5(a)\nexport function fn6 (L21-23)  function fn6(a)\nexport function fn7 (L25-27)  function fn7(a)\nexport function fn8 (L29-31)  function fn8(a)\nexport function fn9 (L33-35)  function fn9(a)\nexport function fn10 (L37-39)  function fn10(a)\nexport function fn11 (L41-43)  function fn11(a)\nexport function fn12 (L45-47)  function fn12(a)",
+  "capped": "[output capped at 40 bytes; remainder fo"
+}

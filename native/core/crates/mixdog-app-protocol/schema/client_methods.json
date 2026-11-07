@@ -7611,6 +7611,13 @@
     "ModelProxyRunParams": {
       "description": "Electron → its local core: execute a proxied call.",
       "properties": {
+        "allowedProviders": {
+          "description": "The providers this server may use through this PC: the host's saved list, `null` for every provider enabled here. Always sent: a message without it is refused, never read as every provider.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "call": {
           "$ref": "#/definitions/ProxyCall"
         },
@@ -7620,6 +7627,7 @@
         }
       },
       "required": [
+        "allowedProviders",
         "call",
         "runId"
       ],

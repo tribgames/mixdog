@@ -735,6 +735,18 @@ pub struct ModelProxyRunParams {
     /// Stream id the local core stamps on `modelProxy/run/event`.
     pub run_id: String,
     pub call: crate::v2::model_proxy::ProxyCall,
+    /// The providers this server may use through this PC: the host's saved list, `null` for every provider enabled here. Always sent: a message without it is refused, never read as every provider.
+    #[serde(deserialize_with = "required_list")]
+    #[schemars(required)]
+    pub allowed_providers: Option<Vec<String>>,
+}
+
+/// A key that must be written, `null` or a list: serde reads a missing `Option` key as `None`, which here would be "every provider".
+fn required_list<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<Vec<String>>::deserialize(deserializer)
 }
 
 /// Local core → Electron: one streamed event of a `modelProxy/run` request.

@@ -1,0 +1,18 @@
+{
+  "tool": "code_graph",
+  "input": {
+    "mode": "find_symbol",
+    "symbols": [
+      "fn1",
+      "fn2",
+      "fn3",
+      "fn4",
+      "fn5",
+      "fn6"
+    ],
+    "limit": 20
+  },
+  "cap": 400,
+  "full": "# find_symbol fn1\n# best declaration candidate\nsrc/a.mjs:1-3:17 (javascript, export function, matches=1)\n1: export function fn1(a) {\n2:   return a + 1;\n3: }\n\n# find_symbol fn2\n# best declaration candidate\nsrc/a.mjs:5-7:17 (javascript, export function, matches=1)\n5: export function fn2(a) {\n6:   return a + 2;\n7: }\n\n# find_symbol fn3\n# best declaration candidate\nsrc/a.mjs:9-11:17 (javascript, export function, matches=1)\n9: export function fn3(a) {\n10:   return a + 3;\n11: }\n\n# find_symbol fn4\n# best declaration candidate\nsrc/a.mjs:13-15:17 (javascript, export function, matches=1)\n13: export function fn4(a) {\n14:   return a + 4;\n15: }\n\n# find_symbol fn5\n# best declaration candidate\nsrc/a.mjs:17-19:17 (javascript, export function, matches=1)\n17: export function fn5(a) {\n18:   return a + 5;\n19: }\n\n# find_symbol fn6\n# best declaration candidate\nsrc/a.mjs:21-23:17 (javascript, export function, matches=1)\n21: export function fn6(a) {\n22:   return a + 6;\n23: }",
+  "capped": "# find_symbol fn1\n# best declaration candidate\nsrc/a.mjs:1-3:17 (javascript, export function, matches=1)\n1: export function fn1(a) {\n2:   return a + 1;\n3: }\n\n# find_symbol fn2\n# best declaration candidate\nsrc/a.mjs:5-7:17 (javascript, export function, matches=1)\n[output capped at 400 bytes; symbols from index 1 not fully shown; narrow: re-query symbols=[\"fn2\",\"fn3\",\"fn4\",\"fn5\",\"fn6\"] separately]"
+}

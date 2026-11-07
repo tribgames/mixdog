@@ -29,6 +29,9 @@ pub(super) struct Node {
     pub lang: &'static str,
     pub scan_lang: Option<ScanLang>,
     pub text: String,
+    /// Why the file is in the graph unindexed (`parseError`): empty for an indexed file. The
+    /// only failure is a source that does not decode (the native build's `decode_source_text`).
+    pub parse_error: String,
     pub symbols: Vec<SymbolInfo>,
     pub raw_imports: Vec<String>,
     /// Rels of the indexed files this file imports, in import order.
@@ -237,6 +240,7 @@ fn parse_node(root: &Path, path: &Path, lang: &'static str) -> Result<Node, Stri
         lang,
         scan_lang,
         text,
+        parse_error,
         symbols: extraction.symbols,
         raw_imports: extraction.imports,
         resolved_imports: Vec::new(),
@@ -255,6 +259,7 @@ impl Node {
             lang,
             scan_lang: scan_lang_for_path(path),
             text: file.text,
+            parse_error: file.parse_error,
             symbols: file.symbols.into_iter().map(super::cache::CachedSymbol::into_symbol).collect(),
             raw_imports: file.raw_imports,
             resolved_imports: Vec::new(),

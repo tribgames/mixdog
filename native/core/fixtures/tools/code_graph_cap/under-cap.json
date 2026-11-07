@@ -1,0 +1,10 @@
+{
+  "tool": "code_graph",
+  "input": {
+    "mode": "symbols",
+    "files": "src/b.mjs"
+  },
+  "cap": 100000,
+  "full": "export function useAll (L1)  function useAll()",
+  "capped": "export function useAll (L1)  function useAll()"
+}

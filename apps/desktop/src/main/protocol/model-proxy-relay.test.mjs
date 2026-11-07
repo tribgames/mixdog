@@ -15,7 +15,7 @@ function link() {
 
 const sentWithoutBeats = (server) => server.sent.filter(([, method]) => method !== 'model/proxy/heartbeat');
 
-function rig() {
+function rig(allowedProviders = () => null) {
   const server = Object.assign(link(), {
     respond(id, answer) {
       this.sent.push(['respond', id, answer]);
@@ -33,7 +33,7 @@ function rig() {
       this.sent.push([method, params]);
     },
   });
-  const stop = relayModelProxy(server, local);
+  const stop = relayModelProxy(server, local, allowedProviders);
   const execute = (id, call = { kind: 'send' }) =>
     server.emit({ type: 'serverRequest', request: { id, method: 'model/proxy/execute', params: { call } } });
   const cancel = (requestId) =>
@@ -62,6 +62,20 @@ test('a cancel of the server relays to the local core for the run that request s
   await settle();
   cancel(7);
   assert.equal(local.sent.length, 2, 'a call that is over has nothing to stop');
+});
+
+test('every run carries the host list as it stands at that call, null for every provider', () => {
+  let list = ['anthropic'];
+  const { calls, execute } = rig(() => list);
+  execute(1);
+  list = [];
+  execute(2);
+  list = null;
+  execute(3);
+  assert.deepEqual(
+    calls.map((call) => call.params.allowedProviders),
+    [['anthropic'], [], null]
+  );
 });
 
 test('a cancel of a request the PC never ran is dropped', () => {

@@ -34,7 +34,7 @@ use sha2::{Digest, Sha256};
 use super::graph::Node;
 use super::roots::path_key;
 
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 /// `CODE_GRAPH_DISK_MAX_ENTRIES`.
 const MAX_ENTRIES: usize = 24;
 const DEFAULT_MAX_MB: f64 = 80.0;
@@ -143,6 +143,8 @@ pub(super) struct CachedFile {
     pub size: u64,
     pub mtime_ns: u64,
     pub text: String,
+    /// Why the file was not indexed (`parseError`); empty when it was.
+    pub(super) parse_error: String,
     pub(super) symbols: Vec<CachedSymbol>,
     pub(super) raw_imports: Vec<String>,
     pub(super) tokens: Vec<String>,
@@ -158,6 +160,7 @@ impl CachedFile {
             size,
             mtime_ns,
             text: node.text.clone(),
+            parse_error: node.parse_error.clone(),
             symbols: node.symbols.iter().map(CachedSymbol::of).collect(),
             raw_imports: node.raw_imports.clone(),
             tokens: node.tokens.clone(),
@@ -451,6 +454,7 @@ mod tests {
             size: text.len() as u64,
             mtime_ns: 5,
             text: text.to_owned(),
+            parse_error: String::new(),
             symbols: Vec::new(),
             raw_imports: vec!["./x".to_owned()],
             tokens: vec!["a".to_owned()],

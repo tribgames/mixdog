@@ -788,6 +788,82 @@ async fn the_header_is_patched_and_read_through_the_ports_seam_only() {
     }
 }
 
+/// `HeaderUpdates`: an update runs on the thread's actor, on the header as it stands, so
+/// concurrent updates and patches neither lose a write nor retry: twenty updates that each add one
+/// to a counter they read leave twenty more, beside a patch made in between.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_header_update_is_computed_where_the_header_has_one_writer() {
+    use crate::session::thread_state::SessionThreads;
+    use mixdog_core_ports::ports::threads::HeaderUpdates;
+    use mixdog_core_ports::ports::threads::ThreadState;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    let threads = Arc::new(SessionThreads::new(directory.clone()));
+    let mut set = serde_json::Map::new();
+    set.insert("skillCount".into(), json!(1));
+    threads.patch_header(&handle.id, set, Vec::new()).await.expect("seed");
+    let mut updates = tokio::task::JoinSet::new();
+    for _ in 0..20 {
+        let (threads, id) = (threads.clone(), handle.id.clone());
+        updates.spawn(async move {
+            threads
+                .update_header(
+                    &id,
+                    Box::new(|header| {
+                        let mut set = serde_json::Map::new();
+                        set.insert("skillCount".into(), json!(header["skillCount"].as_u64().expect("count") + 1));
+                        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+                    }),
+                )
+                .await
+        });
+    }
+    let mut other = serde_json::Map::new();
+    other.insert("title".into(), json!("held"));
+    threads.patch_header(&handle.id, other, Vec::new()).await.expect("patch");
+    while let Some(done) = updates.join_next().await {
+        done.expect("joined").expect("updated");
+    }
+    let header = threads.header(&handle.id).await.expect("read");
+    assert_eq!(header["skillCount"], json!(21));
+    assert_eq!(header["title"], json!("held"));
+    // A change that sets and unsets nothing writes nothing.
+    let records = rig.store.records(&handle.id).len();
+    threads.update_header(&handle.id, Box::new(|_| mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new() })).await.expect("empty");
+    assert_eq!(rig.store.records(&handle.id).len(), records);
+}
+
+/// A panic in a header update fails only its caller (`Failed`), writes nothing and leaves the
+/// actor running: the next update is computed and written, and the thread still answers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_panicking_header_update_fails_only_its_caller() {
+    use crate::session::thread_state::SessionThreads;
+    use mixdog_core_ports::ports::threads::HeaderUpdates;
+    use mixdog_core_ports::ports::threads::ThreadState;
+    use mixdog_tools::orch::util::PortError;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    let threads = SessionThreads::new(directory.clone());
+    let records = rig.store.records(&handle.id).len();
+    let failed = threads.update_header(&handle.id, Box::new(|_| panic!("update gone wrong"))).await;
+    assert!(matches!(failed, Err(PortError::Failed { .. })), "{failed:?}");
+    assert_eq!(rig.store.records(&handle.id).len(), records, "nothing was written");
+    threads
+        .update_header(
+            &handle.id,
+            Box::new(|_| {
+                let mut set = serde_json::Map::new();
+                set.insert("skillCount".into(), json!(1));
+                mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+            }),
+        )
+        .await
+        .expect("the actor serves the next update");
+    assert_eq!(threads.header(&handle.id).await.expect("read")["skillCount"], json!(1));
+}
+
 /// `ask-turn-steering-drain.mjs:48`: while a route saved during the turn is held, the queued
 /// completion is left to the next turn.
 #[tokio::test(start_paused = true)]

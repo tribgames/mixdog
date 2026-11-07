@@ -48,7 +48,7 @@
     "memory/error-bad-op"
   ],
   "extraImpossible": [],
-  "fileCount": 161,
+  "fileCount": 175,
   "files": [
     {
       "bytes": 702,
@@ -169,6 +169,36 @@
       "bytes": 242,
       "path": "code_graph/mode-symbols.json",
       "sha256": "47dadad03eff0728e83ddf149300cb5e88c5ee8ea60225857dff989664b3a513"
+    },
+    {
+      "bytes": 1020,
+      "path": "code_graph_cap/batch-files.json",
+      "sha256": "d8df8c7d781064bd8ae51653357f1486833936700bbe975b80bf8bedb084efd5"
+    },
+    {
+      "bytes": 1655,
+      "path": "code_graph_cap/batch-symbols.json",
+      "sha256": "43886dcbf4174826be45f569a0e3741f0970b5fe2499a2b032b5d849a365fa14"
+    },
+    {
+      "bytes": 1012,
+      "path": "code_graph_cap/search-batch.json",
+      "sha256": "1249f0c03671f12ae31e6e47afe9fe6f2156d197967cd467cb1157f44ccc11b1"
+    },
+    {
+      "bytes": 996,
+      "path": "code_graph_cap/single-file.json",
+      "sha256": "a9b7a8f2ab27d1db3956eb39ca3c2dd2c27078a5b34b8c94bb7bb293e770ae34"
+    },
+    {
+      "bytes": 739,
+      "path": "code_graph_cap/tiny-cap.json",
+      "sha256": "ea0dd7383cd4c3518fffa181b502dc97be96ed4cbb4650edd624ccbf434c607f"
+    },
+    {
+      "bytes": 232,
+      "path": "code_graph_cap/under-cap.json",
+      "sha256": "203734eaf668f0fefb8d68681dafd2e4110a0a040c2eeedff120403b89a55855"
     },
     {
       "bytes": 304,
@@ -349,6 +379,46 @@
       "bytes": 2376,
       "path": "code_graph_routing/workspace.json",
       "sha256": "8b882ec9317d10b7927816bc0d3260af2a7a6edad9d21aa7e46adf4c4082e5a6"
+    },
+    {
+      "bytes": 830,
+      "path": "code_graph_warn/batch-symbols.json",
+      "sha256": "e3057a3e02e3228837cf0ce2420c054179679796024c5b8ff3a07c042d902c58"
+    },
+    {
+      "bytes": 122,
+      "path": "code_graph_warn/exact-outline-bad-file.json",
+      "sha256": "52435581be80843310f4b37f1c3ad98bf597f8f32c971a2092d5e739e7c1f145"
+    },
+    {
+      "bytes": 152,
+      "path": "code_graph_warn/exact-outline-good-file.json",
+      "sha256": "b44b0b4e7fb18b49119021627b0f2609d17d3eedf8056e390d1a7179cb65df64"
+    },
+    {
+      "bytes": 273,
+      "path": "code_graph_warn/find-symbol-good-anchor.json",
+      "sha256": "6b5479172eb589ff595d28105e58df54fae9aa20ee18b9d76605f0587cd20fec"
+    },
+    {
+      "bytes": 519,
+      "path": "code_graph_warn/imports-file.json",
+      "sha256": "87c19714c2ff8565da31fadadcc792fcc331964701531ff6cc5136d0e2e56058"
+    },
+    {
+      "bytes": 497,
+      "path": "code_graph_warn/overview.json",
+      "sha256": "5fbaf46361ebf3698598d570abcd12ee844ad9cf3df9f878ecd44014a66b27f1"
+    },
+    {
+      "bytes": 258,
+      "path": "code_graph_warn/symbols-fanout.json",
+      "sha256": "071e213b6979050b484d2d7fa9fc49dc3395339802b18b36bd99b300e5c621a4"
+    },
+    {
+      "bytes": 646,
+      "path": "code_graph_warn/whole-graph-symbol.json",
+      "sha256": "8d05412257703981e924a00871fe0e4a2188e059bb76ab209ec2cfb9c97d2f0f"
     },
     {
       "bytes": 298,
@@ -857,15 +927,15 @@
     }
   ],
   "product": {
-    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
-    "commit": "dcbdc55a33af5229ea9a8c050220305d64c4cf06",
+    "appsSha256": "f721fa38c14f215aa428608ef2e117fda7b8395e7ffa2a9578e7af6f795ed963",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9248,
+    "files": 9249,
     "refComparison": {
-      "closestCommit": "dcbdc55a33af5229ea9a8c050220305d64c4cf06",
+      "closestCommit": "32a8e9f332f265f7cecc0136dce204f53599df57",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 2
     },
     "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
     "tree": "product tree loaded by the recorder",
@@ -874,5 +944,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs + record-media-text.mjs",
   "set": "tools",
-  "totalBytes": 2365406
+  "totalBytes": 2374357
 }

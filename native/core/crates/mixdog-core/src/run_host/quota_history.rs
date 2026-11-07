@@ -35,7 +35,7 @@ fn reading(sample: Sample) -> QuotaReading {
 #[async_trait]
 impl QuotaHistory for LedgerQuotaHistory {
     async fn record(&self, samples: Vec<Sample>) -> Result<(), String> {
-        let ledger = self.source.get().map_err(|e| e.to_string())?;
+        let ledger = self.source.get().await.map_err(|e| e.to_string())?;
         ledger.writer.record_quota_queued(samples.into_iter().map(reading).collect()).await.map(|_| ()).map_err(|e| e.to_string())
     }
 }
@@ -117,7 +117,7 @@ mod tests {
                     })
                     .collect();
                 history.record(samples.clone()).await.unwrap();
-                let ledger = source.get().unwrap();
+                let ledger = source.get().await.unwrap();
                 ledger.writer.settle_writes().await.unwrap();
                 for sample in &samples {
                     let options: QuotaHistoryOptions = serde_json::from_value(json!({ "provider": sample.provider, "account": sample.account, "window": sample.label })).unwrap();

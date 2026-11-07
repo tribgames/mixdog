@@ -40,7 +40,12 @@ let runCount = 0;
  *  as Node's `dispose` does (model-proxy-host.ts:1110-1114). */
 export function relayModelProxy(
   server: Pick<ProtocolConnection, 'onEvent' | 'respond' | 'notify'>,
-  local: Pick<ProtocolConnection, 'call' | 'notify' | 'onEvent'>
+  local: Pick<ProtocolConnection, 'call' | 'notify' | 'onEvent'>,
+  /** The providers this server may use through this PC, read at every call as Node's host does
+   *  (`isProviderAllowed`, desktop-connection.ts:376 over `allowedProvidersForHost`, ssh-host-store.ts:145): the host's
+   *  saved list, `null` for every provider enabled here (a local core's own connection), `[]` for a server that is not
+   *  saved. Required, so a relay cannot be started without deciding it. */
+  allowedProviders: () => string[] | null
 ): () => void {
   // The run each server request started, and the request each run belongs to.
   const runs = new Map<string, string>();
@@ -106,7 +111,7 @@ export function relayModelProxy(
     // An abandoned run is no longer in `runs`: its answer is not sent.
     const live = (): boolean => runs.get(key) === runId;
     local
-      .call(RUN, { runId, call: params.call } satisfies ModelProxyRunParams)
+      .call(RUN, { runId, call: params.call, allowedProviders: allowedProviders() } satisfies ModelProxyRunParams)
       .then(
         (answer) => {
           if (!live()) return;

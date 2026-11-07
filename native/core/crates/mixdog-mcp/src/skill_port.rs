@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_protocol::ThreadId;
+use mixdog_tools::orch::skill::ArmNotice;
 use mixdog_tools::orch::skill::LoadedSkill;
 use mixdog_tools::orch::skill::SkillLookup;
 use mixdog_tools::orch::skill::SkillPort;
@@ -21,18 +22,20 @@ use crate::skills::SkillSource;
 
 /// Makes a loaded skill's tool dependencies available to the thread (the deferred tools it
 /// names, and the report of those it cannot get). Called on every load, a repeat load
-/// included.
+/// included. It returns what the model is told of them; a thread that cannot be read or
+/// written is an error, never "nothing armed".
 #[async_trait]
 pub trait DeferredToolArm: Send + Sync {
-    async fn arm(&self, thread: &ThreadId, dependencies: &SkillToolDependencies);
+    async fn arm(&self, thread: &ThreadId, dependencies: &SkillToolDependencies) -> Result<ArmNotice, PortError>;
 }
 
 /// The live transcript of a thread.
 #[async_trait]
 pub trait TranscriptTexts: Send + Sync {
     /// The text of each user message the model will see, oldest first (the live turn's
-    /// messages when a turn is running, else the thread's).
-    async fn user_texts(&self, thread: &ThreadId) -> Vec<String>;
+    /// messages when a turn is running, else the thread's). A transcript that cannot be read
+    /// is an error, never "no texts".
+    async fn user_texts(&self, thread: &ThreadId) -> Result<Vec<String>, PortError>;
 }
 
 pub struct CatalogSkillPort {
@@ -72,17 +75,18 @@ impl SkillPort for CatalogSkillPort {
             SkillLoad::Refused(refusal) => SkillLookup::Refused(refusal.to_string()),
             SkillLoad::NotFound => SkillLookup::NotFound,
             SkillLoad::Loaded(resource) => {
-                self.arm.arm(thread, &resource.skill.tool_dependencies).await;
+                let notice = self.arm.arm(thread, &resource.skill.tool_dependencies).await?;
                 SkillLookup::Loaded(LoadedSkill {
                     content: resource.body,
                     dir: Some(resource.dir),
                     source: source_name(resource.skill.source).to_owned(),
+                    notice,
                 })
             }
         })
     }
 
-    async fn body_present(&self, thread: &ThreadId, body: &str) -> bool {
-        body_present(self.transcript.user_texts(thread).await, body)
+    async fn body_present(&self, thread: &ThreadId, body: &str) -> Result<bool, PortError> {
+        Ok(body_present(self.transcript.user_texts(thread).await?, body))
     }
 }

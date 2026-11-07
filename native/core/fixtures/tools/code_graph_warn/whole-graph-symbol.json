@@ -1,0 +1,9 @@
+{
+  "tool": "code_graph",
+  "input": {
+    "mode": "find_symbol",
+    "symbols": "good",
+    "limit": 20
+  },
+  "text": "[warning] 7 source file(s) could not be indexed; graph results are partial:\nsrc/bad1.mjs: unsupported source encoding; file not indexed\nsrc/bad2.mjs: unsupported source encoding; file not indexed\nsrc/bad3.mjs: unsupported source encoding; file not indexed\nsrc/bad4.mjs: unsupported source encoding; file not indexed\nsrc/bad5.mjs: unsupported source encoding; file not indexed\n# best declaration candidate\nsrc/ok.mjs:1-3:17 (javascript, export function, matches=1)\n1: export function good() {\n2:   return 1;\n3: }"
+}

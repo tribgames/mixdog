@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_store::schema::record::Header;
+use mixdog_store::schema::record::HeaderChange;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Map;
 use serde_json::Value;
@@ -36,6 +37,25 @@ pub trait ThreadState: Send + Sync {
         unset: Vec<String>,
     ) -> Result<Option<Map<String, Value>>, PortError>;
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError>;
+}
+
+/// A header change computed from the header as the thread's one writer holds it. It takes only
+/// the header and returns only the change: it is synchronous and pure.
+pub type HeaderUpdate = Box<dyn FnOnce(&Header) -> HeaderChange + Send>;
+
+/// The read-modify-write of a thread's header, done where the header has one writer (the session
+/// actor): `update` runs there, on a copy of the header as it stands, and its change is the next
+/// record, so no other write can land between the read and the write and nothing is retried.
+///
+/// The contract of `update`: it runs on the actor's own path, so it must be pure, in-memory work
+/// over what it captured before the call: no I/O, no locks, no awaits, no blocking, and it must
+/// end. Anything it needs from outside the header is looked up before the call and captured. A
+/// panic in it is contained: the caller gets a `Failed` error, nothing is written and the actor
+/// goes on.
+#[async_trait]
+pub trait HeaderUpdates: Send + Sync {
+    /// Answers once the change is durable; an empty change writes nothing.
+    async fn update_header(&self, thread: &ThreadId, update: HeaderUpdate) -> Result<(), PortError>;
 }
 
 pub fn port_error(error: CoreError) -> PortError {

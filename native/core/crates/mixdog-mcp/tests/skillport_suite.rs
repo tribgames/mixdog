@@ -22,8 +22,10 @@ use mixdog_mcp::skills::SkillRoot;
 use mixdog_mcp::skills::SkillSource;
 use mixdog_mcp::skills_watch::SkillsWatch;
 use mixdog_protocol::ThreadId;
+use mixdog_tools::orch::skill::ArmNotice;
 use mixdog_tools::orch::skill::SkillLookup;
 use mixdog_tools::orch::skill::SkillPort;
+use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
 
 struct Settings(SkillSettings);
@@ -38,15 +40,17 @@ struct NoArm;
 
 #[async_trait]
 impl DeferredToolArm for NoArm {
-    async fn arm(&self, _: &ThreadId, _: &SkillToolDependencies) {}
+    async fn arm(&self, _: &ThreadId, _: &SkillToolDependencies) -> Result<ArmNotice, PortError> {
+        Ok(ArmNotice::default())
+    }
 }
 
 struct NoTranscript;
 
 #[async_trait]
 impl TranscriptTexts for NoTranscript {
-    async fn user_texts(&self, _: &ThreadId) -> Vec<String> {
-        Vec::new()
+    async fn user_texts(&self, _: &ThreadId) -> Result<Vec<String>, PortError> {
+        Ok(Vec::new())
     }
 }
 
