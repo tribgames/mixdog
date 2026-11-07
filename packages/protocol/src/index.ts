@@ -2593,7 +2593,7 @@ export type ProjectFsReadLocalParams = { path: string, };
 /**
  * Params of `projectFs/readText`.
  */
-export type ProjectFsReadTextParams = { root: string, rel: string, };
+export type ProjectFsReadTextParams = { root: string, rel: string, accessToken?: string, };
 
 /**
  * Params of `projectFs/recovery`.
@@ -2623,7 +2623,7 @@ export type ProjectFsStatLocalParams = { paths: Array<string>, };
 /**
  * Params of `projectFs/stat`.
  */
-export type ProjectFsStatParams = { root: string, rel: string, };
+export type ProjectFsStatParams = { root: string, rel: string, accessToken?: string, };
 
 /**
  * Params of `projectFs/trash`.

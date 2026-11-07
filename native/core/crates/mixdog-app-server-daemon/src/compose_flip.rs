@@ -280,6 +280,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // rewritten with only what differs from the defaults (the agent roster as a delta: advisor starts off) and takes the marker.
     let boot_ms = mixdog_core_session::session::Clock::now_ms(&mixdog_core_session::session::SystemClock);
     config.separate_defaults(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
+    // Node's notification store stamps `migratedAt: now` when it first loads with no document; so does the boot (notify owner: `audience.rs`
+    // reads `migrated_at()` and no longer sees 0 for a store nobody wrote).
+    config.stamp_notifications(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
     // Node's `surfaceGeneration`: the extension and feature seams move it, the Lead's surface host checks an empty thread against it.
     let surface_generation = mixdog_core::run_host::surface_host::SurfaceGeneration::default();
 
@@ -2191,11 +2194,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     workspace.spawn_idle_sweeper(); // abandoned uploads go at their idle deadline, as Node's per-upload timer
     // A paired phone's one-file grants (SPEC.md R44, DS 4.7): held per paired credential, and a conversation that left the
     // catalog ends its grants (Node's `sessionRemoved`).
+    let phone_grants = Arc::new(mixdog_workspace::grants::GrantStore::new(
+        Arc::new(mixdog_workspace::transfer::SystemClock),
+        Arc::new(CatalogSessions(Arc::new(catalog_index.clone()))),
+    ));
     workspace.set_phone_grants(
-        Arc::new(mixdog_workspace::grants::GrantStore::new(
-            Arc::new(mixdog_workspace::transfer::SystemClock),
-            Arc::new(CatalogSessions(Arc::new(catalog_index.clone()))),
-        )),
+        phone_grants.clone(),
         {
             let registry = built_remote.registry.clone();
             Arc::new(move |connection: mixdog_core_api::ids::ConnectionId| {
@@ -2291,6 +2295,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let list_overlay = Arc::new(mixdog_core_session::session::thread_list::LiveListOverlay::new(directory.clone(), bot_work)); // wp-session-37: the overlay reads the directory's handles and `bot_work.by_session()`
     let catalog_handle = Arc::new(catalog_index.clone()); // the handle the idle sweep and the heartbeat's catalog read (Node listSessionCatalog)
     let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows));
+    thread_list.observe(phone_grants.clone()); // a session counts as seen when a published catalog lists it (Node's retainSessions)
     let heartbeat = mixdog_core::run_host::heartbeat_parts::production_heartbeat(mixdog_core::run_host::heartbeat_parts::HeartbeatHolds {
         clock: channel_clock.clone(),
         store: heartbeat_store.clone(),

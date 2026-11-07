@@ -58,7 +58,8 @@ pub struct GrantStore {
     catalog: Arc<dyn SessionCatalog>,
     /// Per credential, insertion ordered: the most recently used last.
     devices: Mutex<HashMap<String, Vec<(String, Grant)>>>,
-    /// Conversations a grant was minted for: only these can be "gone" (Node: `seenSessions.has(id) && !catalog.has(id)`).
+    /// Conversations the published catalog has contained: only these can be "gone" (Node: `seenSessions.has(id) && !catalog.has(id)`,
+    /// `seenSessions` filled by `retainCatalog` on each publication, `file-downloads.ts:472`).
     seen: Mutex<HashSet<String>>,
 }
 
@@ -128,9 +129,6 @@ impl GrantStore {
         while grants.len() > MAX_GRANTS {
             grants.remove(0);
         }
-        if !session_id.is_empty() {
-            self.seen.lock().expect("grant sessions").insert(session_id.to_owned());
-        }
         Ok(token)
     }
 
@@ -172,6 +170,13 @@ impl GrantStore {
         let root = granted.parent().map(Path::to_path_buf).unwrap_or_default();
         let name = granted.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
         Ok(Granted { root, rel: name, absolute: granted })
+    }
+}
+
+impl mixdog_core_api::state::CatalogObserver for GrantStore {
+    /// A catalog publication: every session in it is seen from now on.
+    fn published(&self, session_ids: &[&str]) {
+        self.seen.lock().expect("grant sessions").extend(session_ids.iter().map(|id| (*id).to_owned()));
     }
 }
 
@@ -338,6 +343,8 @@ mod tests {
         mint!("a-s1", file("a.txt"), "s1");
         let step = next("redeem the conversation token while its conversation lives");
         check(&step, store.redeem("dev", &tok(&tokens, "a-s1"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        // Node's download service has seen the conversation in a published catalog before it leaves it.
+        mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
         catalog.0.lock().unwrap().insert("s1".to_owned());
         let step = next("redeem the conversation token once the conversation is gone");
         check(&step, store.redeem("dev", &tok(&tokens, "a-s1"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
@@ -369,6 +376,21 @@ mod tests {
         let step = next("and the one just minted is held");
         check(&step, redeem_file(tok(&tokens, "f100"), "f100.txt").await, &base, "f100.txt");
         assert!(steps.next().is_none(), "every recorded step was replayed");
+    }
+
+    /// A conversation no published catalog ever listed is not "gone" however the catalog answers (`seenSessions.has`).
+    #[tokio::test]
+    async fn a_conversation_is_gone_only_once_a_published_catalog_has_listed_it() {
+        let clock = Arc::new(Manual(Instant::now(), AtomicU64::new(0)));
+        let catalog = Arc::new(Catalog::default());
+        catalog.0.lock().unwrap().insert("s1".to_owned());
+        let store = GrantStore::new(clock, catalog);
+        let dir = std::env::temp_dir().join("outside");
+        let token = store.mint("dev", &dir.join("a.txt"), "s1").await.unwrap();
+        assert!(store.redeem("dev", &token, dir.to_str().unwrap(), "a.txt").await.is_ok(), "never listed: not gone");
+        mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
+        let gone = store.redeem("dev", &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
+        assert_eq!(gone.reason.code(), GRANT_UNAVAILABLE_CODE);
     }
 
     #[tokio::test]

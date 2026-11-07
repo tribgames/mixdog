@@ -459,6 +459,19 @@ impl WorkspaceService {
         Ok(keys)
     }
 
+    /// The folder and name an editor call works on. With an `accessToken` (a paired device's one-file grant) `root` and
+    /// `rel` are Node's `projectPath` and `relPath`, redeemed to the granted file (`remoteFileTarget`); without one, a root
+    /// by the connection's origin and `rel`.
+    async fn file_target(&self, req: &CoreRequest, params: &Value) -> WsResult<(PathBuf, String)> {
+        if let Some(token) = params.get("accessToken") {
+            let (grants, credential) = self.phone_grants_for(req)?;
+            let token = token.as_str().ok_or_else(|| WsError::invalid("accessToken is invalid."))?;
+            let granted = grants.redeem(&credential, token, s(params, "root")?, s(params, "rel")?).await?;
+            return Ok((granted.root, granted.rel));
+        }
+        Ok((self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned()))
+    }
+
     fn owner(req: &CoreRequest) -> String {
         match &req.ctx.caller {
             mixdog_core_api::call::Caller::Connection(id) => id.to_string(),
@@ -513,12 +526,12 @@ impl WorkspaceService {
                 value(json!(items))
             }
             "projectFs/readText" => {
-                let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
+                let (root, rel) = self.file_target(req, params).await?;
                 let file = run_fallible(self.lanes.interactive, &cancel, move || fsops::read_text(&root, &rel)).await?;
                 value(json!(file))
             }
             "projectFs/stat" => {
-                let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
+                let (root, rel) = self.file_target(req, params).await?;
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || fsops::stat(&root, &rel)).await?))
             }
             "projectFs/entryPath" => {
