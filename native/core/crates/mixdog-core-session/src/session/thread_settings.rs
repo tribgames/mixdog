@@ -600,9 +600,11 @@ impl ThreadSettings {
             return Ok(());
         }
         // `row.leadWorking || live?.busy || live?.commandBusy`: the thread's own turn in flight
-        // (the list row's `working`), the runtime state's `busy` or a compaction running.
-        let working = self.parts.directory.handle(thread).is_some_and(|handle| handle.cell.run.load().is_some())
-            || self.parts.directory.runtime_facts(thread).is_some_and(|facts| facts.busy || facts.command_busy);
+        // (the list row's `working`), a turn running or starting or a compaction running as the
+        // actor steps, or the runtime state a host published as busy.
+        let working = self.parts.directory.handle(thread).is_some_and(|handle| {
+            handle.cell.run.load().is_some() || handle.cell.ui_busy.load(std::sync::atomic::Ordering::SeqCst) || handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst)
+        }) || self.parts.directory.runtime_facts(thread).is_some_and(|facts| facts.busy || facts.command_busy);
         let worktree = row.pointer("/workspace/worktreeId").and_then(Value::as_str).is_some_and(|id| !id.is_empty());
         if let Some(refusal) = project_move_refusal(working, worktree) {
             return Err(failed(DOMAIN, refusal));

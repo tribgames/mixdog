@@ -91,6 +91,18 @@ async fn a_request_naming_a_thread_goes_to_that_thread_and_others_to_the_directo
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_delete_of_a_thread_that_is_not_there_is_the_directorys_answer() {
+    let rig = Rig::new();
+    rig.core
+        .mock
+        .directory()
+        .set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
+    let client = rig.ready(1, json!({}));
+    client.request(1, "thread/delete", json!({ "threadId": "missing", "opId": "op-1" }));
+    assert_eq!(client.response(1).await["result"], json!({ "via": "directory" }));
+}
+
+#[tokio::test(start_paused = true)]
 async fn mutations_carry_their_op_id_to_the_core() {
     let rig = Rig::new();
     type Seen = Arc<Mutex<Vec<(String, Option<OpId>)>>>;

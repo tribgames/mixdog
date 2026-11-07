@@ -12,6 +12,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::FeedSource;
+use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::MockConnection;
@@ -477,10 +478,10 @@ async fn a_project_move_of_an_unlisted_session_is_refused() {
     assert!(message(&refused).contains("Session is not available."), "{refused:?}");
 }
 
-/// The desktop host's `setSessionProject` as `fixtures/delete-idle/golden.json` recorded it
-/// (`record-delete-idle.mjs`).
+/// The desktop host's `setSessionProject` as `fixtures/project-move/golden.json` recorded it
+/// (`record-project-move.mjs`).
 fn recorded_moves() -> Vec<Value> {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/delete-idle/golden.json")).expect("golden.json");
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/project-move/golden.json")).expect("golden.json");
     golden["moves"].as_array().expect("moves").clone()
 }
 
@@ -510,8 +511,9 @@ fn the_project_move_refusals_replay_the_desktop_host() {
     }
 }
 
-/// What makes a session working to the host: its own turn in flight (the catalog row's
-/// `leadWorking`), the runtime state's `busy`, a compaction running (`commandBusy`).
+/// What makes a session working to the host, each driven for real over the real store's list row:
+/// its own turn in flight (`leadWorking`), a runtime state a host published as busy (`live.busy`),
+/// and a compaction running (`live.commandBusy`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_working_in_any_way_the_host_counts_is_not_moved() {
     use mixdog_app_protocol::v2::thread::ThreadRuntime;
@@ -530,21 +532,38 @@ async fn a_session_working_in_any_way_the_host_counts_is_not_moved() {
                 RunOutcome::Interrupted
             })
         }));
+        let id = ThreadId::from("sess_working");
         world.session("sess_working", json!({})).await;
-        let handle = world.directory.handle(&ThreadId::from("sess_working")).expect("loaded");
+        let handle = world.directory.handle(&id).expect("loaded");
         let stepped = &handle.cell.stepped;
-        if name == "lead-working" {
-            turn(&handle, "work", "op-working").await;
-            eventually_on(&[stepped], || handle.cell.run.load().is_some().then_some(())).await;
-        } else {
-            let runtime = ThreadRuntime { busy: case["live"]["busy"] == true, command_busy: case["live"]["commandBusy"] == true, ..ThreadRuntime::default() };
-            handle.set_section(Section::Runtime(runtime)).await.expect("section");
-            let id = ThreadId::from("sess_working");
-            eventually_on(&[stepped], || world.directory.runtime_facts(&id).filter(|facts| facts.busy || facts.command_busy).map(|_| ())).await;
+        let hold = Arc::new(tokio::sync::Notify::new());
+        let mut compacting = None;
+        match name {
+            "lead-working" => {
+                turn(&handle, "work", "op-working").await;
+                eventually_on(&[stepped], || handle.cell.run.load().is_some().then_some(())).await;
+            }
+            "live-busy" => {
+                let runtime = ThreadRuntime { busy: true, ..ThreadRuntime::default() };
+                handle.set_section(Section::Runtime(runtime)).await.expect("section");
+                eventually_on(&[stepped], || world.directory.runtime_facts(&id).filter(|facts| facts.busy).map(|_| ())).await;
+            }
+            _ => {
+                *lock(&world.rig.compaction.hold) = Some(hold.clone());
+                let running = handle.clone();
+                compacting = Some(tokio::spawn(async move {
+                    running.request(request("thread/compact/start", json!({ "threadId": "sess_working", "opId": "c-1" }), "c-1")).await
+                }));
+                eventually_on(&[stepped], || handle.cell.compacting.load(Ordering::SeqCst).then_some(())).await;
+            }
         }
         let repo = world.workspace.repo.to_string_lossy().into_owned();
         let refused = world.call(METADATA_UPDATE, json!({ "threadId": "sess_working", "projectPath": repo }), 1).await.unwrap_err();
         assert!(message(&refused).contains(case["error"].as_str().expect("error")), "{name}: {refused:?}");
+        if let Some(compacting) = compacting {
+            hold.notify_one();
+            compacting.await.expect("joined").expect("compacted");
+        }
     }
 }
 

@@ -97,6 +97,15 @@
       }
     },
     {
+      "name": "unknown-session",
+      "layer": "runtime",
+      "note": "no session of that id exists: it has no archive mark",
+      "reply": {
+        "deleted": false,
+        "reason": "not-archived"
+      }
+    },
+    {
       "name": "favorite",
       "layer": "runtime",
       "note": "the target is archived and a favorite",
@@ -182,160 +191,6 @@
         "deleted": true
       },
       "gone": true
-    }
-  ],
-  "moves": [
-    {
-      "name": "moves-into-project",
-      "note": "an idle task session moves into a registered Project",
-      "listed": true,
-      "where": "task",
-      "working": false,
-      "live": null,
-      "target": "project",
-      "moved": [
-        {
-          "method": "setCwd",
-          "cwd": "project"
-        }
-      ]
-    },
-    {
-      "name": "moves-to-task",
-      "note": "an idle Project session moves out to the task workspace",
-      "listed": true,
-      "where": "project",
-      "working": false,
-      "live": null,
-      "target": "task",
-      "moved": [
-        {
-          "method": "setCwd",
-          "cwd": "task"
-        }
-      ]
-    },
-    {
-      "name": "already-there",
-      "note": "a session already in that Project stays put",
-      "listed": true,
-      "where": "project",
-      "working": false,
-      "live": null,
-      "target": "project",
-      "moved": []
-    },
-    {
-      "name": "already-task",
-      "note": "a task session asked for \"no Project\" stays put",
-      "listed": true,
-      "where": "task",
-      "working": false,
-      "live": null,
-      "target": "task",
-      "moved": []
-    },
-    {
-      "name": "unlisted",
-      "note": "the catalog does not list the session",
-      "listed": false,
-      "where": "task",
-      "working": false,
-      "live": null,
-      "target": "project",
-      "error": "Session is not available."
-    },
-    {
-      "name": "not-registered",
-      "note": "the target is not a registered Project",
-      "listed": true,
-      "where": "task",
-      "working": false,
-      "live": null,
-      "target": "elsewhere",
-      "error": "Project is not available."
-    },
-    {
-      "name": "lead-working",
-      "note": "the catalog row says the session's own turn is in flight",
-      "listed": true,
-      "where": "task",
-      "working": true,
-      "live": null,
-      "target": "project",
-      "error": "The session is running a turn; wait for it to finish before moving it to another project."
-    },
-    {
-      "name": "live-busy",
-      "note": "the live state is busy",
-      "listed": true,
-      "where": "task",
-      "working": false,
-      "live": {
-        "busy": true
-      },
-      "target": "project",
-      "error": "The session is running a turn; wait for it to finish before moving it to another project."
-    },
-    {
-      "name": "live-command-busy",
-      "note": "a compaction is running",
-      "listed": true,
-      "where": "task",
-      "working": false,
-      "live": {
-        "commandBusy": true
-      },
-      "target": "project",
-      "error": "The session is running a turn; wait for it to finish before moving it to another project."
-    },
-    {
-      "name": "live-idle",
-      "note": "a live state that is neither busy nor running a command",
-      "listed": true,
-      "where": "task",
-      "working": false,
-      "live": {
-        "busy": false,
-        "commandBusy": false
-      },
-      "target": "project",
-      "moved": [
-        {
-          "method": "setCwd",
-          "cwd": "project"
-        }
-      ]
-    },
-    {
-      "name": "worktree",
-      "note": "the session works in a managed worktree",
-      "listed": true,
-      "where": "worktree",
-      "working": false,
-      "live": null,
-      "target": "task",
-      "error": "The session works in a managed worktree; merge or remove the worktree before moving it to another project."
-    },
-    {
-      "name": "busy-before-worktree",
-      "note": "a busy session in a worktree is refused for the turn first",
-      "listed": true,
-      "where": "worktree",
-      "working": true,
-      "live": null,
-      "target": "task",
-      "error": "The session is running a turn; wait for it to finish before moving it to another project."
-    },
-    {
-      "name": "same-project-while-busy",
-      "note": "a busy session already in that Project is not refused",
-      "listed": true,
-      "where": "project",
-      "working": true,
-      "live": null,
-      "target": "project",
-      "moved": []
     }
   ]
 }

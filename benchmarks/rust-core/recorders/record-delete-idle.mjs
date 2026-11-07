@@ -1,16 +1,12 @@
 #!/usr/bin/env node
-// Genuine 1.4.5 behaviour of the desktop's idle-only delete (`deleteSessionIfIdle`) and of its
-// "move to project" refusals, for the session core's `thread/delete{ifIdle}` and
-// `thread/metadata/update{projectPath}`.
-//
-// Idle delete: the real service call (`session-action.mjs` `deleteIdleSession` over the real turn
+// Genuine 1.4.5 behaviour of the desktop's idle-only delete (`deleteSessionIfIdle`), for the session
+// core's `thread/delete{ifIdle}`: the real service call (`session-action.mjs` `deleteIdleSession` over the real turn
 // gate) over the real runtime delete (`session-delete.mjs` `deleteSessionIfIdle` over the real
 // session manager, store, ask lock and sidebar host), each reason driven by the situation that
-// raises it, in Node's own order. Project move: the real `SessionHost` lifecycle
-// `setSessionProject` over rows and live states of the situations that refuse it.
+// raises it, in Node's own order.
 //
-//   node --import <resolver for the tree's TS sources and packages> \
-//        <repo>/benchmarks/rust-core/recorders/record-delete-idle.mjs --tree <tree>
+//   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs \
+//        benchmarks/rust-core/recorders/record-delete-idle.mjs --tree <tree>
 // Output: native/core/fixtures/delete-idle/golden.json
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -221,6 +217,9 @@ for (const archived of [false, true]) {
 await idleCase('not-archived', 'runtime', 'the target is not archived', async (id) => ({
   reply: await service(makeApi())(id),
 }), { archived: false });
+await idleCase('unknown-session', 'runtime', 'no session of that id exists: it has no archive mark', async () => ({
+  reply: await service(makeApi())('sess_never_made'),
+}), { archived: false });
 await idleCase('favorite', 'runtime', 'the target is archived and a favorite', async (id) => {
   sidebar.favorites = { [id]: 1 };
   return { reply: await service(makeApi())(id) };
@@ -291,110 +290,12 @@ await idleCase('deleted', 'runtime', 'archived, not a favorite, idle and unchang
   gone: !existsSync(fileOf(id)),
 }));
 
-// --- the project move -----------------------------------------------------------------------------
-const { SessionHost } = await importFrom(tree, 'apps/desktop/src/main/session-host.ts');
-
-const project = join(root, 'repo');
-const worktree = join(root, 'data', 'worktrees-v1', '0123456789abcdef', 'fix-login');
-const elsewhere = join(root, 'elsewhere');
-for (const dir of [project, worktree, elsewhere]) mkdirSync(dir, { recursive: true });
-const host = await SessionHost.create(
-  { userDataPath: root, resourcesPath: root, appPath: root, packaged: false },
-  {
-    attachSessionClient: async () => ({ list: async () => ({ sessions: [] }), close: async () => {} }),
-    loadProjects: async () => ({
-      listProjects: () => [{ name: 'repo', path: project, addedAt: 1 }],
-      listProjectsStrict: () => [{ name: 'repo', path: project, addedAt: 1 }],
-    }),
-    loadWorktrees: async () => ({ getWorktreeByPath: () => null }),
-    loadSessionStore: async () => ({}),
-    loadStatuslineSegments: async () => ({}),
-    executeCodeGraphTool: async () => ({}),
-  }
-);
-const invoked = [];
-host.transport.invokeSession = async (sessionId, method, args) => {
-  invoked.push([sessionId, method, args]);
-  return { value: args[0], snapshot: null, result: {} };
-};
-host.catalog.publishCatalogs = async () => {};
-const task = join(root, 'workspace', 'unclassified');
-
-// Where a session works, and what a target names, by the names the fixture uses.
-const WHERE = {
-  task: { cwd: elsewhere, projectPath: null },
-  project: { cwd: join(project, 'src'), projectPath: project },
-  worktree: {
-    cwd: worktree,
-    projectPath: project,
-    workspace: { projectPath: project, cwd: worktree, worktreeId: 'fix-login' },
-  },
-};
-const TARGET = { project, task: '', elsewhere };
-const named = (cwd) => (cwd === project ? 'project' : cwd === task ? 'task' : cwd);
-
-const moves = [];
-/** One move: where the session works, the catalog's `leadWorking`, the live snapshot the host
- *  holds, and the target. The outcome is the runtime's `setCwd` it made, or the refusal's text. */
-async function move(name, note, { where, working = false, live = null, target, listed = true }) {
-  const id = `sess_move_${moves.length + 1}`;
-  const row = { id, ...WHERE[where], ...(working ? { working: true, leadWorking: true } : {}) };
-  host.listSessions = async () => (listed ? [row] : []);
-  host.publication.projections.delete(id);
-  if (live) host.publication.projections.set(id, { snapshot: live });
-  const before = invoked.length;
-  let outcome;
-  try {
-    await host.setSessionProject(id, TARGET[target]);
-    outcome = { moved: invoked.slice(before).map(([, method, args]) => ({ method, cwd: named(args[0]) })) };
-  } catch (error) {
-    outcome = { error: error.message };
-  }
-  moves.push({ name, note, listed, where, working, live, target, ...outcome });
-}
-await move('moves-into-project', 'an idle task session moves into a registered Project', { where: 'task', target: 'project' });
-await move('moves-to-task', 'an idle Project session moves out to the task workspace', { where: 'project', target: 'task' });
-await move('already-there', 'a session already in that Project stays put', { where: 'project', target: 'project' });
-await move('already-task', 'a task session asked for "no Project" stays put', { where: 'task', target: 'task' });
-await move('unlisted', 'the catalog does not list the session', { where: 'task', target: 'project', listed: false });
-await move('not-registered', 'the target is not a registered Project', { where: 'task', target: 'elsewhere' });
-await move('lead-working', 'the catalog row says the session\'s own turn is in flight', {
-  where: 'task',
-  working: true,
-  target: 'project',
-});
-await move('live-busy', 'the live state is busy', { where: 'task', live: { busy: true }, target: 'project' });
-await move('live-command-busy', 'a compaction is running', { where: 'task', live: { commandBusy: true }, target: 'project' });
-await move('live-idle', 'a live state that is neither busy nor running a command', {
-  where: 'task',
-  live: { busy: false, commandBusy: false },
-  target: 'project',
-});
-await move('worktree', 'the session works in a managed worktree', { where: 'worktree', target: 'task' });
-await move('busy-before-worktree', 'a busy session in a worktree is refused for the turn first', {
-  where: 'worktree',
-  working: true,
-  target: 'task',
-});
-await move('same-project-while-busy', 'a busy session already in that Project is not refused', {
-  where: 'project',
-  working: true,
-  target: 'project',
-});
-
 // --- write ----------------------------------------------------------------------------------------
 const rel = 'benchmarks/rust-core/recorders/record-delete-idle.mjs';
 const setDir = join(FIXTURES_ROOT, 'delete-idle');
-writeJson(join(setDir, 'golden.json'), {
-  domain: 'delete-idle',
-  recorder: rel,
-  lastUsedAt: LAST_USED,
-  idle: cases,
-  moves,
-});
-const command = `node --import <resolver for the tree's TS sources and packages> <repo>/${rel} --tree <tree>`;
+writeJson(join(setDir, 'golden.json'), { domain: 'delete-idle', recorder: rel, lastUsedAt: LAST_USED, idle: cases });
+const command = `node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs ${rel} --tree <tree>`;
 writeSetManifest(setDir, { set: 'delete-idle', recorder: rel, command });
-console.log(`recorded ${cases.length} idle-delete cases, ${moves.length} project moves`);
+console.log(`recorded ${cases.length} idle-delete cases`);
 releaseHeldSessionWriters();
-await host.dispose().catch(() => {});
 process.exit(0);

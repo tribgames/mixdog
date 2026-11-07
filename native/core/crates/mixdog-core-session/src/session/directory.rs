@@ -585,6 +585,14 @@ impl SessionDirectory {
     ) -> Result<Arc<SessionHandle>, CoreError> {
         self.inner.open(id, ctx).await
     }
+
+    /// `materializeSession` (session-turns.mjs): the thread is opened under daemon ownership for a
+    /// caller that starts work on it (a Goal recovery, a quota resume), as an admitted turn start;
+    /// `threadClosing` while an idle delete holds the thread.
+    pub async fn open_admitted(&self, id: &ThreadId, ctx: &CallContext) -> Result<Arc<SessionHandle>, CoreError> {
+        let _admitted = self.inner.gate().enter(id).ok_or_else(|| CoreError::ThreadClosing { thread_id: id.clone() })?;
+        self.inner.open(id, ctx).await
+    }
 }
 
 /// A detached job's completion reaches its owner thread as a `task-notification` row; a thread
@@ -999,6 +1007,8 @@ impl DirInner {
             closed: Default::default(),
             turn_held: Default::default(),
             turn_pending: Default::default(),
+            ui_busy: Default::default(),
+            compacting: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
