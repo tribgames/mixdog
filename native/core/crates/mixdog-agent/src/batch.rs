@@ -688,13 +688,13 @@ impl Run {
     }}
 
 /// `notifyEarlyResult` (`eager-dispatch/entry.mjs`): what a call that settled before the stop tells the host. The
-/// model-visible text; `error` only when the call threw (`isError: !settled.ok`, the executor''s `Err`), with the
-/// thrown message as `Error: <message>`. A tool that returned an error outcome is not a thrown call.
+/// model-visible text; `error` only when the call threw (`isError: !settled.ok`, the executor's `Err`). A thrown
+/// call's text is its `message_for_model`, which already reads `Error: <message>` (Node's `execute-call.mjs` and
+/// its early notice both write that form), so nothing is prefixed here. A tool that returned an error outcome is not
+/// a thrown call.
 fn early_result(call_id: &str, result: &Executed) -> AgentMessage {
     if result.failed {
-        let mut early = AgentMessage::tool_text(call_id, format!("Error: {}", result.message.text()), ToolKind::Error);
-        early.tool_kind = Some(ToolKind::Error);
-        return early;
+        return AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Error);
     }
     let mut early = AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Normal);
     early.tool_kind = None;
@@ -716,7 +716,7 @@ mod early_tests {
             let thrown = case["isError"] == true;
             let text = case["content"].as_str().unwrap();
             let mut executed = if thrown {
-                Executed::error("c1", text.strip_prefix("Error: ").unwrap().to_owned())
+                Executed::error("c1", text.to_owned())
             } else {
                 Executed::error("c1", String::new())
             };
@@ -728,6 +728,7 @@ mod early_tests {
             assert_eq!(early.text(), text, "{name}");
             assert_eq!(early.tool_kind == Some(ToolKind::Error), thrown, "{name}");
             assert_eq!(early.tool_call_id(), Some("c1"), "{name}");
+            assert!(!early.text().starts_with("Error: Error: "), "{name}: one prefix");
         }
     }
 }
