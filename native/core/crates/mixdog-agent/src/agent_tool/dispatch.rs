@@ -118,6 +118,69 @@ fn requested_route(args: &Value) -> Option<Value> {
     (!route.is_empty()).then_some(Value::Object(route))
 }
 
+/// Cancels the background tasks bound to a session before the session closes.
+fn cancel_session_tasks(tasks: &dyn Tasks, session_id: &str, target: &str, scope: &Scope) {
+    for row in tasks.list(scope) {
+        if row.session_id.as_deref() != Some(session_id) && row.tag.as_deref() != Some(target) {
+            continue;
+        }
+        tasks.cancel(&row.task_id, CLOSE_REASON);
+    }
+}
+
+/// The collaborators of [`close_resolved`].
+#[derive(Clone, Copy)]
+pub struct CloseParts<'a> {
+    pub registry: &'a dyn Registry,
+    pub sessions: &'a dyn Sessions,
+    pub tasks: &'a dyn Tasks,
+}
+
+/// `close` once the target resolved to a session (`close-flow.mjs`): the session, its statusline
+/// route and its tasks go, and unless `keep_row` (a process exit leaves the row for the next
+/// process) its worker rows with them. `agent close all` closes each worker of an owner through
+/// this too.
+pub async fn close_resolved(
+    parts: CloseParts<'_>,
+    session_id: &str,
+    target: &str,
+    scope: &Scope,
+    task_id_out: Option<String>,
+    keep_row: bool,
+) -> Result<ClosedView, String> {
+    let CloseParts { registry, sessions, tasks } = parts;
+    if registry.live_session(session_id).is_some_and(|s| is_lead_pool_agent(&s.agent)) {
+        return Err(format!("agent close: target \"{target}\" is a Lead session"));
+    }
+    let descendants = sessions.descendant_session_ids(session_id);
+    let tag = registry.tag_for_session(session_id);
+    sessions.clear_statusline_route(session_id);
+    cancel_session_tasks(tasks, session_id, target, scope);
+    // Close (and stamp the cancel) before dropping the worker row, so the row never
+    // outlives an unrecorded cancel. Closing a runtime cancels its work; only explicit
+    // session deletion may tombstone the conversation. An owner's close (not a process
+    // exit's) is recorded on the session itself, so a later reuse of its reaped tag never
+    // continues it.
+    let ok = sessions.close_session(session_id, "cli-agent-close", CloseOptions { tombstone: false, owner_close: !keep_row }).await;
+    if let Some(id) = &task_id_out {
+        tasks.cancel(id, CLOSE_REASON);
+    }
+    // Drop the row only once the cancellation is durably recorded: a failed close that
+    // still forgot the row would leave no cancelled state behind.
+    if ok && !keep_row {
+        registry.forget_terminal_session(tag.as_deref(), session_id);
+        for descendant in &descendants {
+            registry.remove_worker_row(descendant);
+        }
+        // The sessions stay open (a send reuses them), so a later scan, even after a
+        // restart, would list them again: remember the owner closed them.
+        let mut released = vec![session_id.to_owned()];
+        released.extend(descendants.iter().cloned());
+        registry.mark_released(&released);
+    }
+    Ok(ClosedView { closed: ok, tag, session_id: Some(session_id.to_owned()), task_id: task_id_out, forgotten: false })
+}
+
 fn is_lead_pool_agent(agent: &str) -> bool {
     clean_str(agent).to_lowercase() == "lead"
 }
@@ -219,12 +282,7 @@ impl AgentRuntime {
     /// closing rejects the in-flight run and the task is reconciled as `failed`, where a
     /// user-initiated close must surface as `cancelled`.
     fn cancel_session_tasks(&self, session_id: &str, target: &str, scope: &Scope) {
-        for row in self.deps.tasks.list(scope) {
-            if row.session_id.as_deref() != Some(session_id) && row.tag.as_deref() != Some(target) {
-                continue;
-            }
-            self.deps.tasks.cancel(&row.task_id, CLOSE_REASON);
-        }
+        cancel_session_tasks(&*self.deps.tasks, session_id, target, scope);
     }
 
     /// `keep_row`: a process exit closes the worker but leaves its row for the next process.
@@ -257,40 +315,7 @@ impl AgentRuntime {
             }
             return Err(format!("agent close: target \"{target}\" not found"));
         };
-        if registry.live_session(&session_id).is_some_and(|s| is_lead_pool_agent(&s.agent)) {
-            return Err(format!("agent close: target \"{target}\" is a Lead session"));
-        }
-        let descendants = self.deps.sessions.descendant_session_ids(&session_id);
-        let tag = registry.tag_for_session(&session_id);
-        self.deps.sessions.clear_statusline_route(&session_id);
-        self.cancel_session_tasks(&session_id, &target, &scope);
-        // Close (and stamp the cancel) before dropping the worker row, so the row never
-        // outlives an unrecorded cancel. Closing a runtime cancels its work; only explicit
-        // session deletion may tombstone the conversation. An owner's close (not a process
-        // exit's) is recorded on the session itself, so a later reuse of its reaped tag never
-        // continues it.
-        let ok = self
-            .deps
-            .sessions
-            .close_session(&session_id, "cli-agent-close", CloseOptions { tombstone: false, owner_close: !keep_row })
-            .await;
-        if let Some(id) = &task_id_out {
-            self.deps.tasks.cancel(id, CLOSE_REASON);
-        }
-        // Drop the row only once the cancellation is durably recorded: a failed close that
-        // still forgot the row would leave no cancelled state behind.
-        if ok && !keep_row {
-            registry.forget_terminal_session(tag.as_deref(), &session_id);
-            for descendant in &descendants {
-                registry.remove_worker_row(descendant);
-            }
-            // The sessions stay open (a send reuses them), so a later scan, even after a
-            // restart, would list them again: remember the owner closed them.
-            let mut released = vec![session_id.clone()];
-            released.extend(descendants.iter().cloned());
-            registry.mark_released(&released);
-        }
-        Ok(ClosedView { closed: ok, tag, session_id: Some(session_id), task_id: task_id_out, forgotten: false })
+        close_resolved(CloseParts { registry: &*self.deps.registry, sessions: &*self.deps.sessions, tasks: &*self.deps.tasks }, &session_id, &target, &scope, task_id_out, keep_row).await
     }
 
     async fn cleanup(&self, args: &Value, scope: &Scope) -> Result<AgentReply, String> {

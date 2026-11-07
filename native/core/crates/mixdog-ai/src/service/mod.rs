@@ -21,4 +21,5 @@ pub mod usage_muse_code;
 pub mod usage_normalize;
 pub mod usage_opencode_go;
 pub mod usage_ports;
+pub mod web_search_models;
 pub mod web_search;

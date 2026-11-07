@@ -1844,34 +1844,13 @@ async fn a_queued_turn_starts_after_the_settlement_returns() {
     eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
 }
 
-/// Each run fails on exhausted provider quota; its failed turn end carries the quota stop.
+/// Each run fails on exhausted provider quota with the reset the provider named, as the run host
+/// reports it; the session shows the failed turn end and the quota settlement reads it.
 fn quota_failure() -> Script {
     Arc::new(|run| {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            let end = json!({
-                "type": "turnEnd", "id": format!("end-{}", run.turn), "status": "failed", "elapsedMs": 5,
-                "quota": { "provider": "anthropic", "model": "m", "resetAt": 5000 },
-                "meta": { "turnId": run.turn, "ext": { "attemptId": run.turn } },
-            });
-            run.port
-                .commit_item(ItemCommit {
-                    iid: ItemId::from(format!("end-{}", run.turn)),
-                    role: Some("assistant".into()),
-                    model: false,
-                    visible: true,
-                    body: json!({ "shownItem": end }),
-                    prompt: None,
-                })
-                .await
-                .expect("commit");
-            let provider = mixdog_protocol::ProviderErrorDetail {
-                provider: "anthropic".into(),
-                status: Some(429),
-                kind: "quota_exhausted".into(),
-                delivery: None,
-            };
-            RunOutcome::Failed(mixdog_protocol::TurnError { message: "quota".into(), data: json!({}), provider_error: Some(provider) })
+            RunOutcome::Failed(super::testing::quota_error(5000))
         })
     })
 }

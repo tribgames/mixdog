@@ -13,6 +13,7 @@ pub mod route_actions;
 pub mod route_service;
 pub mod route_set_service;
 pub mod thread_route_service;
+pub mod web_search_models;
 
 #[cfg(test)]
 mod account_actions_tests;

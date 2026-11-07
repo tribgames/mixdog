@@ -19,14 +19,9 @@
 //! providers keep the order the PC sent them.
 
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::PoisonError;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::FutureExt;
-use futures::future::BoxFuture;
-use futures::future::Shared;
 use mixdog_app_protocol::v2::host::ModelProxyResult;
 use mixdog_app_protocol::v2::model_proxy::ProxyAnswer;
 use mixdog_app_protocol::v2::model_proxy::ProxyCall;
@@ -37,7 +32,6 @@ use mixdog_core_api::HostError;
 use mixdog_core_api::CoreError;
 use mixdog_core_domains::domains::ai_account::ProxyProviders;
 use mixdog_core_domains::domains::ai_account::failure::Failure;
-use mixdog_rt::TaskClass;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -48,6 +42,7 @@ use mixdog_core_api::host::NO_CLAIMANT;
 use super::quota_channel::EXECUTE;
 use super::quota_channel::failure_message;
 use super::quota_channel::message_of;
+use super::single_flight::{Core, SingleFlight};
 
 const CACHE_TTL_MS: i64 = 15_000;
 const WAIT: Duration = Duration::from_millis(1_000);
@@ -63,35 +58,9 @@ struct Cached {
     value: Providers,
 }
 
-struct Flight {
-    id: u64,
-    generation: u64,
-    task: Shared<BoxFuture<'static, Outcome>>,
-}
-
-/// Node's `promise.then(clear, clear)`: whatever ends a read, even a panic or a cancelled task, empties
-/// the slot that still holds it. `fetch` clears the same slot on its own paths (under the lock it
-/// publishes with), so this one only acts when `fetch` did not get that far.
-struct ClearSlot {
-    inner: Arc<Inner>,
-    id: u64,
-}
-
-impl Drop for ClearSlot {
-    fn drop(&mut self) {
-        let mut state = self.inner.state();
-        if state.flight.as_ref().is_some_and(|flight| flight.id == self.id) {
-            state.flight = None;
-        }
-    }
-}
-
-#[derive(Default)]
-struct State {
-    cache: Option<Cached>,
-    flight: Option<Flight>,
-    issued: u64,
-}
+/// The cache and the read in flight (Node `_providerConfigCache`, `_providerConfigInFlight`); the flight's
+/// key is the client generation it started under.
+type Reads = SingleFlight<Option<Cached>, u64, Outcome>;
 
 /// Why one ask did not give an answer.
 enum Ask {
@@ -107,7 +76,7 @@ struct Inner {
     /// The client generation: an answer learned under one is not served to the next.
     epoch: Arc<dyn ClientEpoch>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
-    state: Mutex<State>,
+    reads: Reads,
 }
 
 pub struct HostProxyProviders {
@@ -116,7 +85,7 @@ pub struct HostProxyProviders {
 
 impl HostProxyProviders {
     pub fn new(host: Arc<dyn HostChannel>, epoch: Arc<dyn ClientEpoch>, now: Arc<dyn Fn() -> i64 + Send + Sync>) -> Self {
-        Self { inner: Arc::new(Inner { host, epoch, now, state: Mutex::new(State::default()) }) }
+        Self { inner: Arc::new(Inner { host, epoch, now, reads: Reads::default() }) }
     }
 }
 
@@ -125,8 +94,8 @@ impl Inner {
         *self.epoch.client_epoch().borrow()
     }
 
-    fn state(&self) -> std::sync::MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    fn state(&self) -> std::sync::MutexGuard<'_, Core<Option<Cached>, u64, Outcome>> {
+        self.reads.lock()
     }
 
     /// One `providerConfig` question: the providers (as the PC projected them) and whether its
@@ -181,16 +150,15 @@ impl Inner {
             tokio::time::sleep(delay).await;
             delay = (delay * 2).min(RETRY_MAX);
         };
-        let mut state = self.state();
         // An older read may finish after a forced one: only the newest read, under the generation it started in, publishes.
+        // The slot itself is emptied by the flight's guard when this task ends, however it ends.
         if let Ok(Some(value)) = &outcome
             && self.generation() == generation
-            && state.flight.as_ref().is_some_and(|flight| flight.id == id)
         {
-            state.cache = Some(Cached { at: (self.now)(), generation, value: value.clone() });
-        }
-        if state.flight.as_ref().is_some_and(|flight| flight.id == id) {
-            state.flight = None;
+            let mut core = self.state();
+            if core.holds(id) {
+                core.state = Some(Cached { at: (self.now)(), generation, value: value.clone() });
+            }
         }
         outcome
     }
@@ -203,34 +171,29 @@ impl ProxyProviders for HostProxyProviders {
         // The cache check, the join of the read in flight and the start of a new one happen under one
         // lock, so concurrent callers share one fetch; the guard ends with this block, before any await.
         let task = {
-            let mut state = self.inner.state();
+            let core = self.inner.state();
             let joined = if force {
                 None
             } else {
-                if let Some(cached) = state.cache.as_ref().filter(|c| c.generation == generation && (self.inner.now)() - c.at < CACHE_TTL_MS) {
+                if let Some(cached) = core.state.as_ref().filter(|c| c.generation == generation && (self.inner.now)() - c.at < CACHE_TTL_MS) {
                     return Ok(Some(cached.value.clone()));
                 }
-                state.flight.as_ref().filter(|f| f.generation == generation).map(|flight| flight.task.clone())
+                core.joinable().filter(|(started, _)| **started == generation).map(|(_, task)| task)
             };
             match joined {
                 Some(task) => task,
+                // Node's promise runs on its own: the read finishes, publishes and clears its slot
+                // whether or not a caller is still waiting (see `single_flight`). The task owns the
+                // read; the stored future only awaits its result, so the state never holds the `Inner`.
                 None => {
-                    state.issued += 1;
-                    let id = state.issued;
-                    // Node's promise runs on its own: the read finishes, publishes and clears its slot
-                    // whether or not a caller is still waiting. The task owns the read; the stored future
-                    // only awaits its result, so the state never holds the `Inner` it lives in.
                     let inner = Arc::clone(&self.inner);
-                    let read = mixdog_rt::spawn("model-proxy-provider-config", TaskClass::Work, async move {
-                        // Built on the task's first poll, so it never runs under this lock.
-                        let _clear = ClearSlot { inner: inner.clone(), id };
-                        inner.fetch(id, generation).await
-                    });
-                    // A task that panicked or was cancelled (runtime shutdown) rejects its callers, as Node's
-                    // promise rejects; its slot is already cleared by the guard.
-                    let task = async move { read.await.unwrap_or_else(|error| Err(Failure::error(error.to_string()))) }.boxed().shared();
-                    state.flight = Some(Flight { id, generation, task: task.clone() });
-                    task
+                    self.inner.reads.start(
+                        "model-proxy-provider-config",
+                        core,
+                        generation,
+                        move |id| inner.fetch(id, generation),
+                        |message| Err(Failure::error(message)),
+                    )
                 }
             }
         };
@@ -241,6 +204,7 @@ impl ProxyProviders for HostProxyProviders {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::sync::Mutex;
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicI64;
     use std::sync::atomic::Ordering;
@@ -475,8 +439,19 @@ mod tests {
         let failure = providers.providers(false).await.unwrap_err();
         assert!(failure.message().contains("panicked"), "{}", failure.message());
         let state = providers.inner.state();
-        assert!(state.flight.is_none(), "the slot is empty, so the next call reads again");
-        assert!(state.cache.is_none(), "nothing was published");
+        assert!(state.is_idle(), "the slot is empty, so the next call reads again");
+        assert!(state.state.is_none(), "nothing was published");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_read_reaches_both_waiters_and_the_next_call_reads_again() {
+        mixdog_rt::testing::tokens();
+        let providers = HostProxyProviders::new(Arc::new(PanickingPc), Epoch::new(), Arc::new(|| 1_000_000));
+        let (first, second) = futures::join!(providers.providers(false), providers.providers(false));
+        let (first, second) = (first.unwrap_err(), second.unwrap_err());
+        assert!(first.message().contains("panicked"), "{}", first.message());
+        assert_eq!(first.message(), second.message(), "the second call joined the first one's read");
+        assert!(providers.inner.state().is_idle(), "the failure is not retained in the slot");
     }
 
     #[tokio::test(start_paused = true)]
@@ -492,7 +467,7 @@ mod tests {
         let mut caller = Box::pin(providers.providers(false));
         assert!(futures::poll!(caller.as_mut()).is_pending());
         pc.started.notified().await;
-        let joined = providers.inner.state().flight.as_ref().expect("the read is in flight").task.clone();
+        let joined = providers.inner.state().joinable().expect("the read is in flight").1;
         drop(caller);
         pc.gate.notify_one();
         // Nobody polls the read now but its own task: it still reaches the PC's answer.
@@ -501,8 +476,8 @@ mod tests {
         assert_eq!(without_traits(outcome.unwrap().unwrap()).keys().collect::<Vec<_>>(), ["openai"]);
         {
             let state = providers.inner.state();
-            assert!(state.flight.is_none(), "the finished read cleared its slot");
-            assert!(state.cache.is_some(), "the finished read published its answer");
+            assert!(state.is_idle(), "the finished read cleared its slot");
+            assert!(state.state.is_some(), "the finished read published its answer");
         }
         let cached = providers.providers(false).await.unwrap().unwrap();
         assert_eq!(cached.keys().collect::<Vec<_>>(), ["openai"]);

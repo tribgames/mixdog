@@ -173,6 +173,7 @@ impl SseTransport {
             Some(auth) => auth.token().await?,
             None => None,
         };
+        let mut sent = attempted.clone();
         let mut response = STARTUP
             .bound_head(get(attempted.clone()).send())
             .await
@@ -181,10 +182,11 @@ impl SseTransport {
         if let Some(auth) = &auth
             && crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref())
         {
-            auth.renew(attempted, crate::transport::challenge_of(&response))
+            auth.renew(attempted.clone(), crate::transport::challenge_of(&response))
                 .await?;
+            let fresh = auth.token().await?;
             response = STARTUP
-                .bound_head(get(auth.token().await?).send())
+                .bound_head(get(fresh.clone()).send())
                 .await
                 .map_err(expired)?
                 .map_err(request_error)?;
@@ -192,13 +194,18 @@ impl SseTransport {
                 response.status().as_u16(),
                 crate::transport::challenge_of(&response).as_deref(),
             ) {
+                auth.refused_after_renewal(attempted.as_deref());
                 return Err(TransportError::AuthRequired);
             }
+            sent = fresh;
         }
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(TransportError::Http { status: status.as_u16(), body: body.chars().take(ERROR_BODY_CHARS).collect() });
+        }
+        if let Some(auth) = &auth {
+            auth.answered(sent.as_deref());
         }
         let (incoming, rx) = mpsc::unbounded_channel();
         let (endpoint_tx, endpoint_rx) = oneshot::channel();
@@ -269,18 +276,25 @@ impl SseTransport {
             Some(auth) => auth.token().await?,
             None => None,
         };
+        let mut sent = attempted.clone();
         let mut response = post(attempted.clone()).send().await.map_err(request_error)?;
         if let Some(auth) = &self.auth
             && crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref())
         {
-            auth.renew(attempted, crate::transport::challenge_of(&response)).await?;
-            response = post(auth.token().await?).send().await.map_err(request_error)?;
+            auth.renew(attempted.clone(), crate::transport::challenge_of(&response)).await?;
+            let fresh = auth.token().await?;
+            response = post(fresh.clone()).send().await.map_err(request_error)?;
             if crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref()) {
+                auth.refused_after_renewal(attempted.as_deref());
                 return Err(TransportError::AuthRequired);
             }
+            sent = fresh;
         }
         let status = response.status();
         if status.is_success() {
+            if let Some(auth) = &self.auth {
+                auth.answered(sent.as_deref());
+            }
             return Ok(());
         }
         let body = response.text().await.unwrap_or_default();

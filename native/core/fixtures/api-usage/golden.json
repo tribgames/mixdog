@@ -14,9 +14,21 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "is_available": true,
+            "balance_infos": [
+              {
+                "currency": "CNY",
+                "total_balance": "9"
+              },
+              {
+                "currency": "usd",
+                "total_balance": "12.34567"
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -83,9 +95,16 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "USD",
+                "total_balance": "0"
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -152,9 +171,16 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "CNY",
+                "total_balance": "9"
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -195,9 +221,16 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "USD",
+                "total_balance": "5"
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -283,9 +316,13 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://api.deepseek.com/user/balance",
+          "status": 401,
+          "body": {
+            "error": {
+              "message": "Authentication Fails"
+            }
+          }
         }
       ],
       "ops": [
@@ -334,9 +371,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://api.deepseek.com/user/balance",
+          "status": 500,
+          "body": {
+            "error": "boom"
+          }
         }
       ],
       "ops": [
@@ -380,9 +419,8 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://api.deepseek.com/user/balance",
+          "fail": true
         }
       ],
       "ops": [
@@ -426,9 +464,9 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://api.deepseek.com/user/balance",
+          "status": 404,
+          "text": ""
         }
       ],
       "ops": [
@@ -477,9 +515,16 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "USD",
+                "total_balance": "1"
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -614,14 +659,28 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "USD",
+                "total_balance": "1"
+              }
+            ]
+          }
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "USD",
+                "total_balance": "2"
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -737,9 +796,16 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "USD",
+                "total_balance": "1"
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -843,9 +909,16 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "USD",
+                "total_balance": "3"
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -953,13 +1026,20 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.deepseek.com/user/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance_infos": [
+              {
+                "currency": "USD",
+                "total_balance": "1"
+              }
+            ]
+          }
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.deepseek.com/user/balance",
+          "status": 503,
           "body": {}
         }
       ],
@@ -1069,9 +1149,27 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 12.5,
+            "total_used": 7.5,
+            "total_granted": 20,
+            "grants": {
+              "data": [
+                {
+                  "expires_at": 1900000000
+                },
+                {
+                  "expires_at": 1950000000000
+                },
+                {
+                  "expires_at": 0
+                },
+                {}
+              ]
+            }
+          }
         }
       ],
       "ops": [
@@ -1146,9 +1244,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "available": "3"
+          }
         }
       ],
       "ops": [
@@ -1213,9 +1313,20 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "totalAvailable": 1,
+            "totalUsed": 2,
+            "totalGranted": 3,
+            "grants": {
+              "data": [
+                {
+                  "expiresAt": 1900000000
+                }
+              ]
+            }
+          }
         }
       ],
       "ops": [
@@ -1291,14 +1402,16 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 401,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -1380,9 +1493,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 4
+          }
         }
       ],
       "ops": [
@@ -1448,24 +1563,28 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 403,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 403,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/subscription",
           "status": 200,
-          "body": {}
+          "body": {
+            "hard_limit_usd": 100
+          }
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/usage?start_date=2026-12-15&end_date=2027-01-15",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_usage": 2550
+          }
         }
       ],
       "ops": [
@@ -1577,18 +1696,21 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 403,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/subscription",
           "status": 200,
-          "body": {}
+          "body": {
+            "system_hard_limit_usd": "50",
+            "soft_limit_usd": 10
+          }
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/usage?start_date=2026-12-15&end_date=2027-01-15",
+          "status": 500,
           "body": {}
         }
       ],
@@ -1682,19 +1804,21 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 403,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/subscription",
+          "status": 500,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/usage?start_date=2026-12-15&end_date=2027-01-15",
           "status": 200,
-          "body": {}
+          "body": {
+            "totalUsage": 100
+          }
         }
       ],
       "ops": [
@@ -1787,14 +1911,41 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 404,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
           "status": 200,
-          "body": {}
+          "body": {
+            "data": [
+              {
+                "results": [
+                  {
+                    "amount": {
+                      "value": 1.25
+                    }
+                  },
+                  {
+                    "amount": {
+                      "usd": 2
+                    }
+                  },
+                  {
+                    "amount": 3
+                  },
+                  {
+                    "amount": "x"
+                  }
+                ]
+              },
+              {
+                "results": []
+              },
+              {}
+            ]
+          }
         }
       ],
       "ops": [
@@ -1872,19 +2023,43 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 404,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
           "status": 200,
-          "body": {}
+          "body": {
+            "data": [
+              {
+                "results": [
+                  {}
+                ]
+              }
+            ]
+          }
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/v1/organization/usage/completions?start_time=1797321600&bucket_width=1d&limit=31",
           "status": 200,
-          "body": {}
+          "body": {
+            "data": [
+              {
+                "results": [
+                  {
+                    "input_tokens": 10,
+                    "output_tokens": "5",
+                    "input_cached_tokens": 2,
+                    "num_model_requests": 3
+                  },
+                  {
+                    "input_tokens": 1
+                  }
+                ]
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -1983,19 +2158,21 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 404,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+          "status": 403,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/v1/organization/usage/completions?start_time=1797321600&bucket_width=1d&limit=31",
           "status": 200,
-          "body": {}
+          "body": {
+            "data": []
+          }
         }
       ],
       "ops": [
@@ -2094,17 +2271,17 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 404,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+          "status": 401,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/v1/organization/usage/completions?start_time=1797321600&bucket_width=1d&limit=31",
           "status": 200,
           "body": {}
         }
@@ -2177,14 +2354,18 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 404,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+          "status": 500,
+          "body": {
+            "error": {
+              "message": "down"
+            }
+          }
         }
       ],
       "ops": [
@@ -2243,19 +2424,24 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 404,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/v1/organization/costs?start_time=1797321600&limit=31",
+          "status": 404,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://api.openai.com/v1/organization/usage/completions?start_time=1797321600&bucket_width=1d&limit=31",
+          "status": 401,
+          "body": {
+            "error": {
+              "message": "bad key",
+              "type": "x"
+            }
+          }
         }
       ],
       "ops": [
@@ -2394,9 +2580,33 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
           "status": 200,
-          "body": {}
+          "body": {
+            "data": [
+              {
+                "results": [
+                  {
+                    "amount": "1250",
+                    "currency": "USD"
+                  },
+                  {
+                    "amount": 500
+                  },
+                  {
+                    "amount": 99,
+                    "currency": "EUR"
+                  },
+                  {
+                    "amount": null
+                  }
+                ]
+              },
+              {
+                "results": []
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -2463,9 +2673,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
           "status": 200,
-          "body": {}
+          "body": {
+            "data": []
+          }
         }
       ],
       "ops": [
@@ -2532,7 +2744,7 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
           "status": 200,
           "body": {}
         }
@@ -2601,14 +2813,28 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
+          "body": {
+            "error": {
+              "message": "bearer no"
+            }
+          }
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
           "status": 200,
-          "body": {}
+          "body": {
+            "data": [
+              {
+                "results": [
+                  {
+                    "amount": 100
+                  }
+                ]
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -2695,23 +2921,29 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
+          "body": {
+            "error": {
+              "message": "first"
+            }
+          }
+        },
+        {
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 403,
+          "body": {
+            "message": "second"
+          }
+        },
+        {
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 404,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
-        },
-        {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
-        },
-        {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
           "body": {}
         }
       ],
@@ -2839,24 +3071,34 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
           "status": 200,
-          "body": {}
+          "body": {
+            "data": [
+              {
+                "results": [
+                  {
+                    "amount": 1
+                  }
+                ]
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -2980,8 +3222,8 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 500,
           "body": {}
         }
       ],
@@ -3030,9 +3272,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?key=g%20key%2F1",
           "status": 200,
-          "body": {}
+          "body": {
+            "models": []
+          }
         }
       ],
       "ops": [
@@ -3091,9 +3335,14 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?key=gk",
+          "status": 400,
+          "body": {
+            "error": {
+              "code": 400,
+              "message": "API key not valid."
+            }
+          }
         }
       ],
       "ops": [
@@ -3207,9 +3456,14 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?key=gk",
+          "status": 500,
+          "body": {
+            "error": {
+              "code": 500,
+              "status": "INTERNAL"
+            }
+          }
         }
       ],
       "ops": [
@@ -3288,9 +3542,13 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://management-api.x.ai/v1/billing/teams/team%2F1/prepaid/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "total": {
+              "val": "$1,234.50"
+            }
+          }
         }
       ],
       "ops": [
@@ -3332,9 +3590,13 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "availableCredits": {
+              "cents": 12345
+            }
+          }
         }
       ],
       "ops": [
@@ -3400,9 +3662,13 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance": {
+              "usd": "  7.5 "
+            }
+          }
         }
       ],
       "ops": [
@@ -3468,9 +3734,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
           "status": 200,
-          "body": {}
+          "body": {
+            "total": "many"
+          }
         }
       ],
       "ops": [
@@ -3512,9 +3780,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
+          "status": 403,
+          "body": {
+            "error": "no access"
+          }
         }
       ],
       "ops": [
@@ -3564,8 +3834,8 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://management-api.x.ai/v1/billing/teams/t/prepaid/balance",
+          "status": 502,
           "body": {}
         }
       ],
@@ -3610,9 +3880,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.x.ai/v1/usage",
           "status": 200,
-          "body": {}
+          "body": {
+            "credit_balance": 3.25
+          }
         }
       ],
       "ops": [
@@ -3677,14 +3949,16 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.x.ai/v1/usage",
+          "status": 404,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.x.ai/v1/rate_limits",
           "status": 200,
-          "body": {}
+          "body": {
+            "credits": "2"
+          }
         }
       ],
       "ops": [
@@ -3764,9 +4038,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.x.ai/v1/usage",
           "status": 200,
-          "body": {}
+          "body": {
+            "requests": 3
+          }
         }
       ],
       "ops": [
@@ -3829,13 +4105,17 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
-          "body": {}
+          "url": "https://api.x.ai/v1/usage",
+          "status": 429,
+          "body": {
+            "error": {
+              "message": "slow down"
+            }
+          }
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.x.ai/v1/rate_limits",
+          "status": 500,
           "body": {}
         }
       ],
@@ -3956,9 +4236,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.x.ai/v1/usage",
           "status": 200,
-          "body": {}
+          "body": {
+            "balance": 1
+          }
         }
       ],
       "ops": [
@@ -4125,9 +4407,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.x.ai/v1/usage",
           "status": 200,
-          "body": {}
+          "body": {
+            "credit_balance": 1
+          }
         }
       ],
       "ops": [
@@ -4195,9 +4479,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.x.ai/v1/usage",
           "status": 200,
-          "body": {}
+          "body": {
+            "credit_balance": 1
+          }
         }
       ],
       "ops": [
@@ -4264,9 +4550,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.x.ai/v1/usage",
           "status": 200,
-          "body": {}
+          "body": {
+            "credit_balance": 1
+          }
         }
       ],
       "ops": [
@@ -4332,9 +4620,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.x.ai/v1/usage",
           "status": 200,
-          "body": {}
+          "body": {
+            "credit_balance": 1
+          }
         }
       ],
       "ops": [
@@ -4456,9 +4746,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -4525,9 +4817,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -4626,9 +4920,19 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
           "status": 200,
-          "body": {}
+          "body": {
+            "data": [
+              {
+                "results": [
+                  {
+                    "amount": 100
+                  }
+                ]
+              }
+            ]
+          }
         }
       ],
       "ops": [
@@ -4696,13 +5000,13 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-12-15T08%3A00%3A00.000Z&bucket_width=1d&limit=31",
+          "status": 401,
           "body": {}
         },
         {
@@ -4870,9 +5174,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -4940,9 +5246,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -5009,9 +5317,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -5077,9 +5387,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -5146,9 +5458,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -5216,9 +5530,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -5284,9 +5600,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -5353,9 +5671,11 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_available": 1
+          }
         }
       ],
       "ops": [
@@ -5420,19 +5740,23 @@
       "seed": null,
       "replies": [
         {
-          "url": "\u0000consumed",
-          "status": 200,
+          "url": "https://api.openai.com/dashboard/billing/credit_grants",
+          "status": 403,
           "body": {}
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/subscription",
           "status": 200,
-          "body": {}
+          "body": {
+            "hard_limit_usd": 100
+          }
         },
         {
-          "url": "\u0000consumed",
+          "url": "https://api.openai.com/dashboard/billing/usage?start_date=2026-12-15&end_date=2027-01-15",
           "status": 200,
-          "body": {}
+          "body": {
+            "total_usage": 250
+          }
         }
       ],
       "ops": [

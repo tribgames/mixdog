@@ -48,7 +48,8 @@ fn stub(doc: &Value) -> Arc<dyn Tool> {
         trigger: doc.get("trigger").and_then(Value::as_str).map(str::to_owned),
         public: doc.get("public") != Some(&Value::Bool(false)),
         aliases: Vec::new(),
-        description: doc["description"].as_str().unwrap_or_default().into(),
+        // The golden pool was recorded on a Claude route, so its shell text already names `edit`; the registered tool carries the template `edit/apply_patch` (builtin-tools.mjs:45) that the surface rewrites per model (`edit-tool-dialect.mjs`).
+        description: doc["description"].as_str().unwrap_or_default().replace("`>`→edit; git→git", "`>`→edit/apply_patch; git→git"),
         input_schema: doc["inputSchema"].clone(),
         annotations: ToolAnnotations {
             title: doc.pointer("/annotations/title").and_then(Value::as_str).map(str::to_owned),
@@ -539,13 +540,14 @@ async fn an_empty_thread_with_a_prompt_identity_takes_a_new_prompt_and_the_workf
     assert_eq!(after["workflow"]["id"], "default");
     assert_eq!(after["orchestrationMode"], "balanced");
     assert!(after.get("workflowOverlay").is_none());
-    let requests = rig.prompts.0.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].denied, ["shell"]);
-    assert_eq!(requests[0].provider, "anthropic");
-    assert_eq!(requests[0].target.contact_catalog_context, "# Bots\n\n- Mimi (lead)", "the contact catalog of the workflow reaches the prompt");
-    assert!(!requests[0].has_git_tool || doc_names(after.get("tools")).contains(&"git".to_owned()) || doc_names(after.get("deferredToolCatalog")).contains(&"git".to_owned()));
-    drop(requests);
+    {
+        let requests = rig.prompts.0.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].denied, ["shell"]);
+        assert_eq!(requests[0].provider, "anthropic");
+        assert_eq!(requests[0].target.contact_catalog_context, "# Bots\n\n- Mimi (lead)", "the contact catalog of the workflow reaches the prompt");
+        assert!(!requests[0].has_git_tool || doc_names(after.get("tools")).contains(&"git".to_owned()) || doc_names(after.get("deferredToolCatalog")).contains(&"git".to_owned()));
+    }
     // The next reconcile finds nothing to change.
     rig.host.reconcile_empty(&ThreadId::from("t1")).await.expect("again");
     assert_eq!(rig.threads.patches.lock().unwrap().len(), 1);
@@ -606,7 +608,9 @@ async fn the_first_turn_of_an_empty_thread_rebuilds_it_and_other_threads_are_lef
     let later = with(Some(&identity));
     let kept = TurnSettings::reconcile(&later.host, &thread, true).await.expect("later turn");
     assert!(later.prompts.0.lock().unwrap().is_empty(), "a conversation keeps its prefix");
-    assert!(kept.get("promptSettings").is_none() && kept.get("disallowedTools").is_none());
+    // Untouched: the thread's own header has no prompt settings, and its denials are still the ones it began with (`stale_header` writes `[]`, as `thread/start` does), not the rebuilt `["shell"]`.
+    assert!(kept.get("promptSettings").is_none());
+    assert_eq!(kept["disallowedTools"], json!([]));
 
     let legacy = with(None);
     TurnSettings::reconcile(&legacy.host, &thread, false).await.expect("no identity");
@@ -674,7 +678,9 @@ async fn the_reconcile_follows_node() {
     for case in g["cases"].as_array().expect("cases") {
         let label = case["name"].as_str().expect("name");
         let mut header = case["before"].as_object().expect("before").clone();
-        let blocks = SystemBlocks::from_node_messages(case["beforeMessages"].as_array().expect("messages")).expect("a system prefix");
+        // The recorded conversation cases end in user rows; the blocks are the leading system messages (the rig adds the conversation itself).
+        let prefix: Vec<Value> = case["beforeMessages"].as_array().expect("messages").iter().take_while(|m| m["role"] == "system").cloned().collect();
+        let blocks = SystemBlocks::from_node_messages(&prefix).expect("a system prefix");
         blocks.write(&mut header);
         let conversation = label.contains("conversation");
         let rig = reconcile_rig(&pool, &g, case, header, conversation);

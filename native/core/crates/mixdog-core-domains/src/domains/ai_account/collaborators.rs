@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::login::LoginFlow;
+use mixdog_core_api::ids::ThreadId;
 use serde_json::Value;
 
 use super::failure::Failure;
@@ -58,7 +59,9 @@ pub trait CustomProviders: Send + Sync {
 /// `collectWebSearchProviderModels({ force })` (`provider-models/web-search-catalog.mjs`).
 #[async_trait]
 pub trait WebSearchModels: Send + Sync {
-    async fn list(&self, force: bool) -> Result<Value, Failure>;
+    /// `thread` is the conversation whose runtime asks (Node's `rt`): the Main route the rows follow and the
+    /// adopted cache are that thread's. `None`: a request that names none, answered as a fresh runtime would.
+    async fn list(&self, thread: Option<&ThreadId>, force: bool) -> Result<Value, Failure>;
 }
 
 /// `cachedProviderSetup` (`provider-auth/setup.mjs` over `providerSetup`, `provider-admin.mjs`).

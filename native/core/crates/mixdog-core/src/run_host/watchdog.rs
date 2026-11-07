@@ -83,8 +83,7 @@ mod tests {
     /// `last` ms after `T0`, at `now` ms after it (`benchmarks/rust-core/recorders/
     /// record-agent-watchdog.mjs`). The recorded policy is the one `POLICY` carries.
     fn node_verdict(last: i64, awaiting_user: bool, now: i64) -> Option<String> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-watchdog/golden.json");
-        let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/agent-watchdog/golden.json")).unwrap();
         let found = golden["evaluations"].as_array().unwrap().iter().find(|case| {
             case["snapshot"]["lastProgressAt"].as_i64() == Some(T0 + last)
                 && case["snapshot"]["awaitingUser"].as_bool().unwrap_or(false) == awaiting_user

@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-turn-failure.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 15588,
+      "path": "golden.json",
+      "sha256": "cefb28781448cf0ec9f0c089e60ed99b58979e4726391af3daaf9d66a29c785a"
+    }
+  ],
+  "product": {
+    "appsSha256": "c8f72abc147389b830ed4f991290d1744b94a29892bafea6efe9d942f16b22a9",
+    "commit": "51e73b49662e7a94e914055313eeaa80e2af942c",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "51e73b49662e7a94e914055313eeaa80e2af942c",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-turn-failure.mjs",
+  "set": "turn-failure",
+  "totalBytes": 15588
+}

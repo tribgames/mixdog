@@ -10,6 +10,7 @@
 //! first, but an internal role is never a bot (agent creation refuses a name that collides with
 //! `listHiddenAgentNames`), so the store answers "no bot" and the config decides.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -25,6 +26,7 @@ use serde_json::{Map, Value};
 
 use super::agent_dispatch::{DispatchWorld, HostWorld};
 use super::run_seams::EnvReader;
+use super::single_flight::{Join, SingleFlight};
 
 /// `String(value ?? '').trim()`.
 fn clean(value: Option<&Value>) -> String {
@@ -152,20 +154,110 @@ impl DispatchWorld for AgentWorld {
     }
 }
 
+/// Why a preparation failed: the registry's own message, or its task ending abnormally (a panic, or
+/// the runtime shutting down), which rejects every waiter as Node's promise would.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+enum PrepareFailure {
+    #[error("{0}")]
+    Init(String),
+    #[error("{0}")]
+    Task(String),
+}
+
+type Outcome = Result<(), PrepareFailure>;
+
+/// What a dispatch does about the preparation.
+enum Step {
+    /// The registry already holds this signature.
+    Ready,
+    /// This call started the work.
+    Started(Join<Outcome>),
+    /// Another call's work is in flight.
+    Joined(Join<Outcome>),
+}
+
+/// Node's `preparedProviderSignature` (the single-flight's state: the `providers` section the
+/// registry was last initialised with) and `providerPreparePromise` (its flight), `boot-loaders.mjs:80-109`.
+#[derive(Default)]
+struct Preparation(SingleFlight<Option<String>, (), Outcome>);
+
+impl Preparation {
+    /// `boot-loaders.mjs:87-103`. `work` is built only when this call starts the preparation.
+    fn step<W: Future<Output = Result<(), String>> + Send + 'static>(&self, signature: String, work: impl FnOnce() -> W) -> Step {
+        let core = self.0.lock();
+        if core.state.as_deref() == Some(signature.as_str()) {
+            return Step::Ready;
+        }
+        if let Some((_, join)) = core.joinable() {
+            return Step::Joined(join);
+        }
+        let flights = self.0.clone();
+        Step::Started(self.0.start(
+            "agent-provider-preparation",
+            core,
+            (),
+            // The future is built here, outside the spawned task, so the task owns only a `Send + 'static`
+            // future (`work` itself may borrow the caller).
+            move |_| {
+                let work = work();
+                async move {
+                    let outcome = work.await.map_err(PrepareFailure::Init);
+                    if outcome.is_ok() {
+                        flights.lock().state = Some(signature);
+                    }
+                    outcome
+                }
+            },
+            |message| Err(PrepareFailure::Task(message)),
+        ))
+    }
+
+    fn is_prepared(&self, signature: &str) -> bool {
+        self.0.lock().state.as_deref() == Some(signature)
+    }
+
+    /// `prepareAgentProviders` after the keychain prewarm. `load` reads the `providers` section now
+    /// (its signature and the value `work` initialises the registry with).
+    async fn prepare<P, W: Future<Output = Result<(), String>> + Send + 'static>(
+        &self,
+        mut assert_open: impl FnMut() -> Result<(), String>,
+        mut load: impl FnMut() -> (String, P),
+        work: impl Fn(P) -> W,
+    ) -> Result<(), String> {
+        loop {
+            assert_open()?;
+            let (signature, payload) = load();
+            let (flight, joined) = match self.step(signature.clone(), || work(payload)) {
+                Step::Ready => return Ok(()),
+                Step::Started(flight) => (flight, false),
+                Step::Joined(flight) => (flight, true),
+            };
+            flight.await.map_err(|failure| failure.to_string())?;
+            if !joined {
+                return Ok(());
+            }
+            assert_open()?;
+            // The finished work answers a joiner whose own snapshot it recorded; only another one
+            // starts over, reading the config again (`boot-loaders.mjs:88-93`).
+            if self.is_prepared(&signature) {
+                return Ok(());
+            }
+        }
+    }
+}
+
 /// [`HostWorld`] of the inline host: open until [`AgentHost::close`], and the providers the agents
 /// reach are registered once per distinct `providers` section (`prepareAgentProviders`).
 pub struct AgentHost {
     config: Config,
     registry: Arc<ProviderRegistry>,
-    closed: AtomicBool,
-    /// The `providers` section the registry was last initialised with; held across the
-    /// initialisation, so concurrent dispatches share one preparation.
-    prepared: tokio::sync::Mutex<Option<String>>,
+    closed: Arc<AtomicBool>,
+    prepared: Preparation,
 }
 
 impl AgentHost {
     pub fn new(config: Config, registry: Arc<ProviderRegistry>) -> Self {
-        Self { config, registry, closed: AtomicBool::new(false), prepared: tokio::sync::Mutex::new(None) }
+        Self { config, registry, closed: Arc::new(AtomicBool::new(false)), prepared: Preparation::default() }
     }
 
     /// The host is closing: every later dispatch is refused.
@@ -185,19 +277,24 @@ impl HostWorld for AgentHost {
     }
 
     async fn prepare_providers(&self, cancel: &Cancel) -> Result<(), String> {
-        self.assert_open(Some(cancel))?;
-        let providers = self.providers();
-        let signature = Value::Object(providers.clone()).to_string();
-        let mut prepared = self.prepared.lock().await;
-        self.assert_open(Some(cancel))?;
-        if prepared.as_deref() == Some(signature.as_str()) {
-            return Ok(());
-        }
-        // The preparation is shared work: only the host closing retires it, not one waiter's cancel.
-        self.assert_open(None)?;
-        self.registry.init_providers(&providers).await.map_err(|error| error.message)?;
-        *prepared = Some(signature);
-        Ok(())
+        self.prepared
+            .prepare(
+                || self.assert_open(Some(cancel)),
+                || {
+                    let providers = self.providers();
+                    (Value::Object(providers.clone()).to_string(), providers)
+                },
+                |providers| {
+                    let (closed, registry) = (self.closed.clone(), self.registry.clone());
+                    // Only the host closing retires the shared work, not one waiter's cancel
+                    // (`boot-loaders.mjs:95-99`).
+                    async move {
+                        open_check(closed.load(Ordering::SeqCst), None)?;
+                        registry.init_providers(&providers).await.map_err(|error| error.message)
+                    }
+                },
+            )
+            .await
     }
 }
 
@@ -269,5 +366,73 @@ mod tests {
         cancel.abort("stop now");
         assert_eq!(open_check(true, Some(&cancel)), Err("stop now".to_owned()));
         assert_eq!(open_check(false, Some(&cancel)), Err("stop now".to_owned()));
+    }
+
+    /// A preparation held until the test lets it go.
+    struct Gated {
+        gate: tokio::sync::Notify,
+        runs: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Gated {
+        fn new() -> Arc<Self> {
+            Arc::new(Self { gate: tokio::sync::Notify::new(), runs: std::sync::atomic::AtomicUsize::new(0) })
+        }
+
+        async fn work(self: Arc<Self>) -> Result<(), String> {
+            self.runs.fetch_add(1, Ordering::SeqCst);
+            self.gate.notified().await;
+            Ok(())
+        }
+    }
+
+    fn open() -> Result<(), String> {
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_joined_waiter_is_answered_by_the_signature_it_asked_for_not_the_configs_new_one() {
+        mixdog_rt::testing::tokens();
+        let work = Gated::new();
+        let preparation = Preparation::default();
+        let config = std::cell::Cell::new("a");
+        let mut starter = Box::pin(preparation.prepare(open, || ("a".to_owned(), ()), |()| work.clone().work()));
+        assert!(futures::poll!(starter.as_mut()).is_pending());
+        let mut joiner = Box::pin(preparation.prepare(open, || (config.get().to_owned(), ()), |()| work.clone().work()));
+        assert!(futures::poll!(joiner.as_mut()).is_pending());
+        // The config changes while the joiner waits; the work it joined records "a".
+        config.set("b");
+        work.gate.notify_one();
+        assert_eq!(starter.await, Ok(()));
+        assert_eq!(joiner.await, Ok(()), "the joiner asked for \"a\", which the finished work recorded");
+        assert_eq!(work.runs.load(Ordering::SeqCst), 1, "nothing started \"b\"");
+        assert!(preparation.is_prepared("a") && !preparation.is_prepared("b"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_joiner_whose_snapshot_was_not_recorded_starts_over_on_the_new_config() {
+        mixdog_rt::testing::tokens();
+        let work = Gated::new();
+        let preparation = Preparation::default();
+        let mut starter = Box::pin(preparation.prepare(open, || ("a".to_owned(), ()), |()| work.clone().work()));
+        assert!(futures::poll!(starter.as_mut()).is_pending());
+        let snapshots = std::cell::Cell::new(0);
+        let mut joiner = Box::pin(preparation.prepare(
+            open,
+            || {
+                snapshots.set(snapshots.get() + 1);
+                (if snapshots.get() == 1 { "b" } else { "c" }.to_owned(), ())
+            },
+            |()| work.clone().work(),
+        ));
+        assert!(futures::poll!(joiner.as_mut()).is_pending());
+        work.gate.notify_one();
+        assert_eq!(starter.await, Ok(()));
+        // "a" was recorded, not the joiner's "b": it reads the config again and starts that work.
+        assert!(futures::poll!(joiner.as_mut()).is_pending());
+        work.gate.notify_one();
+        assert_eq!(joiner.await, Ok(()));
+        assert_eq!(work.runs.load(Ordering::SeqCst), 2);
+        assert!(preparation.is_prepared("c"));
     }
 }

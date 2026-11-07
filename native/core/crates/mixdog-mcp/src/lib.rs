@@ -53,6 +53,7 @@ pub mod skills_watch;
 pub mod sse;
 pub mod stdio;
 pub mod tools;
+pub mod sign_in_notice;
 pub mod transport;
 pub mod ws;
 

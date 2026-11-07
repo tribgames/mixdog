@@ -13,6 +13,7 @@ use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
 use mixdog_ledger::quota::QuotaHistoryOptions;
 use serde_json::Value;
@@ -162,7 +163,8 @@ impl AccountService {
             "account/listWebSearchModels" => {
                 let o = options_of(params);
                 let force = o.get("force") == Some(&Value::Bool(true)) || o.get("refresh") == Some(&Value::Bool(true));
-                self.web_search.list(force).await.map_err(into)?
+                let thread = Some(str_param(params, "threadId")).filter(|id| !id.is_empty()).map(ThreadId::from);
+                self.web_search.list(thread.as_ref(), force).await.map_err(into)?
             }
             "account/getQuotaHistory" => self.get_quota_history(options_of(params)).await?,
             "account/authenticateProvider" => {

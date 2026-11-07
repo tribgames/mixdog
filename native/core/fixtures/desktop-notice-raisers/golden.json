@@ -1,0 +1,341 @@
+{
+  "displayNames": [
+    {
+      "id": "anthropic-oauth",
+      "name": "Anthropic OAuth"
+    },
+    {
+      "id": "ANTHROPIC-OAUTH",
+      "name": "Anthropic OAuth"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI API"
+    },
+    {
+      "id": "gemini-api",
+      "name": "Gemini API"
+    },
+    {
+      "id": "mixdog-local",
+      "name": "Local Provider"
+    },
+    {
+      "id": "default",
+      "name": "Default"
+    },
+    {
+      "id": "my-custom-gateway",
+      "name": "my-custom-gateway"
+    },
+    {
+      "id": "",
+      "name": "Provider"
+    },
+    {
+      "id": null,
+      "name": "Provider"
+    }
+  ],
+  "providerSteps": [
+    {
+      "provider": "anthropic-oauth",
+      "failure": "401 auth",
+      "threw": null,
+      "delivered": [
+        {
+          "key": "provider-sign-in:anthropic-oauth",
+          "code": "provider-sign-in-expired",
+          "params": {
+            "name": "Anthropic OAuth"
+          }
+        }
+      ],
+      "raised": [
+        "provider-sign-in:anthropic-oauth"
+      ]
+    },
+    {
+      "provider": "anthropic-oauth",
+      "failure": "403 permission",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "anthropic-oauth",
+      "failure": "429 rate limit",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "anthropic-oauth",
+      "failure": "500 transient",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "anthropic-oauth",
+      "failure": "plain",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "my-custom-gateway",
+      "failure": "401 auth",
+      "threw": null,
+      "delivered": [
+        {
+          "key": "provider-sign-in:my-custom-gateway",
+          "code": "provider-sign-in-expired",
+          "params": {
+            "name": "my-custom-gateway"
+          }
+        }
+      ],
+      "raised": [
+        "provider-sign-in:my-custom-gateway"
+      ]
+    },
+    {
+      "provider": "my-custom-gateway",
+      "failure": "403 permission",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "my-custom-gateway",
+      "failure": "429 rate limit",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "my-custom-gateway",
+      "failure": "500 transient",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "my-custom-gateway",
+      "failure": "plain",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "",
+      "failure": "401 auth",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "",
+      "failure": "403 permission",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "",
+      "failure": "429 rate limit",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "",
+      "failure": "500 transient",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    },
+    {
+      "provider": "",
+      "failure": "plain",
+      "threw": null,
+      "delivered": [],
+      "raised": []
+    }
+  ],
+  "connectorSteps": [
+    {
+      "name": "stored token, 200",
+      "stored": true,
+      "statuses": [
+        200
+      ],
+      "login": "none",
+      "delivered": [],
+      "raised": [],
+      "outcome": "ok"
+    },
+    {
+      "name": "stored token, 200 clears a raised notice",
+      "stored": true,
+      "statuses": [
+        200
+      ],
+      "login": "none",
+      "preRaised": true,
+      "delivered": [],
+      "raised": [],
+      "outcome": "ok"
+    },
+    {
+      "name": "no token, 200 clears nothing",
+      "stored": false,
+      "statuses": [
+        200
+      ],
+      "login": "none",
+      "preRaised": true,
+      "delivered": [],
+      "raised": [
+        "connector-sign-in:acme"
+      ],
+      "outcome": "ok"
+    },
+    {
+      "name": "stored token refused, login needs the user",
+      "stored": true,
+      "statuses": [
+        401
+      ],
+      "login": "reauth",
+      "delivered": [
+        {
+          "key": "connector-sign-in:acme",
+          "code": "connector-sign-in-expired",
+          "params": {
+            "name": "acme"
+          }
+        }
+      ],
+      "raised": [
+        "connector-sign-in:acme"
+      ],
+      "outcome": "reauthenticationRequired"
+    },
+    {
+      "name": "no token, login needs the user",
+      "stored": false,
+      "statuses": [
+        401
+      ],
+      "login": "reauth",
+      "delivered": [],
+      "raised": [],
+      "outcome": "reauthenticationRequired"
+    },
+    {
+      "name": "stored token refused, renewed, retry 200",
+      "stored": true,
+      "statuses": [
+        401,
+        200
+      ],
+      "login": "ok",
+      "preRaised": true,
+      "delivered": [],
+      "raised": [],
+      "outcome": "ok"
+    },
+    {
+      "name": "stored token refused, renewed, retry refused again",
+      "stored": true,
+      "statuses": [
+        401,
+        401
+      ],
+      "login": "ok",
+      "delivered": [
+        {
+          "key": "connector-sign-in:acme",
+          "code": "connector-sign-in-expired",
+          "params": {
+            "name": "acme"
+          }
+        }
+      ],
+      "raised": [
+        "connector-sign-in:acme"
+      ],
+      "outcome": "reauthenticationRequired"
+    },
+    {
+      "name": "no token, login ok, retry refused",
+      "stored": false,
+      "statuses": [
+        401,
+        401
+      ],
+      "login": "ok",
+      "delivered": [],
+      "raised": [],
+      "outcome": "reauthenticationRequired"
+    },
+    {
+      "name": "no token, login ok, retry 200",
+      "stored": false,
+      "statuses": [
+        401,
+        200
+      ],
+      "login": "ok",
+      "preRaised": true,
+      "delivered": [],
+      "raised": [],
+      "outcome": "ok"
+    },
+    {
+      "name": "stored token, 500 is no sign-in event",
+      "stored": true,
+      "statuses": [
+        500
+      ],
+      "login": "none",
+      "preRaised": true,
+      "delivered": [],
+      "raised": [
+        "connector-sign-in:acme"
+      ],
+      "outcome": "ok"
+    }
+  ],
+  "saveSteps": [
+    {
+      "step": "first failure",
+      "delivered": [
+        {
+          "key": "conversation-save",
+          "code": "conversation-save-failed",
+          "params": {}
+        }
+      ],
+      "raised": [
+        "conversation-save"
+      ]
+    },
+    {
+      "step": "second session",
+      "delivered": [],
+      "raised": [
+        "conversation-save"
+      ]
+    },
+    {
+      "step": "no id",
+      "delivered": [],
+      "raised": [
+        "conversation-save"
+      ]
+    }
+  ]
+}

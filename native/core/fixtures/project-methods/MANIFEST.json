@@ -5,21 +5,21 @@
     {
       "bytes": 74420,
       "path": "golden.json",
-      "sha256": "fef345a1cb6b1fc83cd889a11ad909941f0952f487d6ea6253370a3d84084655"
+      "sha256": "36ccd678661daa77b3c6d1a32ddd99a354bbf282d06eaddaeb420145160ba4f6"
     }
   ],
   "product": {
-    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
-    "commit": null,
+    "appsSha256": "1facc8bfdb98c5a49136a8474c0f9bd6b10874f9a9f8f8147afe15e60f7d0fcd",
+    "commit": "51e73b49662e7a94e914055313eeaa80e2af942c",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 43481,
+    "files": 9248,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 1,
-      "exact": false,
-      "filesDifferingFromCommit": 34407
+      "closestCommit": "51e73b49662e7a94e914055313eeaa80e2af942c",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
-    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"

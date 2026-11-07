@@ -56,6 +56,11 @@ pub trait Authorizer: Send + Sync {
     /// token. `challenge` is the response's `WWW-Authenticate` value. `Ok(())` means a new token
     /// may be fetched with [`token`](Self::token); `AuthRequired` means the user must sign in again.
     async fn renew(&self, rejected: Option<String>, challenge: Option<String>) -> Result<(), TransportError>;
+    /// A request sent with sent (the token it carried, none when it carried none) was answered by a
+    /// success.
+    fn answered(&self, _sent: Option<&str>) {}
+    /// The token ttempted was refused, renewed, and the renewed one was refused too.
+    fn refused_after_renewal(&self, _attempted: Option<&str>) {}
 }
 
 /// Whether a response refuses the request's credentials: a 401, or a 403 that asks for more

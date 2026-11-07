@@ -34,7 +34,9 @@ pub mod status_rows;
 #[cfg(test)]
 mod tests;
 
+pub use self::sessions::AgentOwnerTeardown;
 pub use self::sessions::AgentSessions;
+pub use self::sessions::CloseAllReport;
 pub use self::sessions::AgentStatusline;
 pub use self::flow::AgentTaskStarts;
 pub use self::flow::RuntimeRelease;

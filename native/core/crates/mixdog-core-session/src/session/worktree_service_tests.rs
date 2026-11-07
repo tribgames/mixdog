@@ -366,77 +366,92 @@ async fn undo_and_reapply_refuse_and_leave_the_files_as_nodes_did() {
     }
 }
 
-#[tokio::test]
-async fn the_safety_scenarios_leave_the_git_and_disk_state_nodes_left() {
+/// The scenarios share nothing (each has its own repository, data dir and service) and spend their
+/// time waiting on git processes (about 1,500 of them, ~100 s one after the other for ~11 s of
+/// processor), so each runs on a thread of its own with a runtime of its own.
+#[test]
+fn the_safety_scenarios_leave_the_git_and_disk_state_nodes_left() {
     let golden = golden();
-    for scenario in golden["scenarios"].as_array().unwrap() {
-        let name = scenario["name"].as_str().unwrap();
-        let tid = scenario["threadId"].as_str().unwrap();
-        let rig = rig();
-        let dir = tempfile::tempdir().unwrap();
-        let review: Arc<dyn TurnReviewApi> = Arc::new(test_review(dir.path()));
-        let svc = service(&rig, review, scopes(dir.path(), "thread").await);
-        let mut roots: Vec<(String, &str)> = Vec::new();
-        for form in root_forms(&rig.repo) {
-            roots.push((form, "<repo>"));
+    std::thread::scope(|scope| {
+        for scenario in golden["scenarios"].as_array().unwrap() {
+            scope.spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("a runtime for the scenario")
+                    .block_on(safety_scenario(scenario));
+            });
         }
-        for form in root_forms(&rig.data) {
-            roots.push((form, "<data>"));
-        }
-        for form in root_forms(rig.repo.parent().unwrap()) {
-            roots.push((form, "<base>"));
-        }
-        let mut worktree: Option<std::path::PathBuf> = None;
-        let mut next_op = 0u64;
-        for (at, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
-            let action = &step["action"];
-            let mut result: Option<Value> = None;
-            let in_dir = |worktree: &Option<std::path::PathBuf>| match action["in"].as_str() {
-                Some("repo") => rig.repo.clone(),
-                _ => worktree.clone().expect("a worktree"),
-            };
-            match action["do"].as_str().unwrap() {
-                "call" => {
-                    let method = action["method"].as_str().unwrap();
-                    let input = &action["input"];
-                    let params = if input.is_null() { json!({ "threadId": tid }) } else { json!({ "threadId": tid, "input": input }) };
-                    let req = match method {
-                        "getBranchMenu" => request("thread/getBranchMenu", params, None),
-                        "getSessionWorktreeWork" => request("thread/getSessionWorktreeWork", params, None),
-                        "requestWorktree" | "selectBranch" | "mergeWorkspace" => {
-                            next_op += 1;
-                            let wire = match method {
-                                "requestWorktree" => "thread/requestWorktree",
-                                "selectBranch" => "thread/selectBranch",
-                                _ => "thread/mergeWorkspace",
-                            };
-                            request(wire, with_op(params, next_op), Some(next_op))
-                        }
-                        other => panic!("unplanned method {other}"),
-                    };
-                    let raw = outcome(svc.call(req).await);
-                    if let Some(cwd) = raw["ok"]["workspace"]["cwd"].as_str() {
-                        let cwd = std::path::PathBuf::from(cwd);
-                        if cwd.canonicalize().ok() != rig.repo.canonicalize().ok() && worktree.as_ref() != Some(&cwd) {
-                            roots.insert(0, (cwd.to_string_lossy().replace('\\', "/"), "<worktree>"));
-                            worktree = Some(cwd);
-                        }
+    });
+}
+
+async fn safety_scenario(scenario: &Value) {
+    let name = scenario["name"].as_str().unwrap();
+    let tid = scenario["threadId"].as_str().unwrap();
+    let rig = rig();
+    let dir = tempfile::tempdir().unwrap();
+    let review: Arc<dyn TurnReviewApi> = Arc::new(test_review(dir.path()));
+    let svc = service(&rig, review, scopes(dir.path(), "thread").await);
+    let mut roots: Vec<(String, &str)> = Vec::new();
+    for form in root_forms(&rig.repo) {
+        roots.push((form, "<repo>"));
+    }
+    for form in root_forms(&rig.data) {
+        roots.push((form, "<data>"));
+    }
+    for form in root_forms(rig.repo.parent().unwrap()) {
+        roots.push((form, "<base>"));
+    }
+    let mut worktree: Option<std::path::PathBuf> = None;
+    let mut next_op = 0u64;
+    for (at, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
+        let action = &step["action"];
+        let mut result: Option<Value> = None;
+        let in_dir = |worktree: &Option<std::path::PathBuf>| match action["in"].as_str() {
+            Some("repo") => rig.repo.clone(),
+            _ => worktree.clone().expect("a worktree"),
+        };
+        match action["do"].as_str().unwrap() {
+            "call" => {
+                let method = action["method"].as_str().unwrap();
+                let input = &action["input"];
+                let params = if input.is_null() { json!({ "threadId": tid }) } else { json!({ "threadId": tid, "input": input }) };
+                let req = match method {
+                    "getBranchMenu" => request("thread/getBranchMenu", params, None),
+                    "getSessionWorktreeWork" => request("thread/getSessionWorktreeWork", params, None),
+                    "requestWorktree" | "selectBranch" | "mergeWorkspace" => {
+                        next_op += 1;
+                        let wire = match method {
+                            "requestWorktree" => "thread/requestWorktree",
+                            "selectBranch" => "thread/selectBranch",
+                            _ => "thread/mergeWorkspace",
+                        };
+                        request(wire, with_op(params, next_op), Some(next_op))
                     }
-                    let mut got = raw;
-                    mask(&mut got, &roots);
-                    result = Some(got);
+                    other => panic!("unplanned method {other}"),
+                };
+                let raw = outcome(svc.call(req).await);
+                if let Some(cwd) = raw["ok"]["workspace"]["cwd"].as_str() {
+                    let cwd = std::path::PathBuf::from(cwd);
+                    if cwd.canonicalize().ok() != rig.repo.canonicalize().ok() && worktree.as_ref() != Some(&cwd) {
+                        roots.insert(0, (cwd.to_string_lossy().replace('\\', "/"), "<worktree>"));
+                        worktree = Some(cwd);
+                    }
                 }
-                "git" => {
-                    let args: Vec<&str> = action["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
-                    git(&in_dir(&worktree), &args);
-                }
-                _ => apply_file_action(&in_dir(&worktree), action),
+                let mut got = raw;
+                mask(&mut got, &roots);
+                result = Some(got);
             }
-            let state = json!({ "repo": checkout_state(Some(&rig.repo)), "worktree": checkout_state(worktree.as_deref()) });
-            if let Some(want) = step.get("result") {
-                assert_eq!(result.as_ref(), Some(want), "{name} #{at} {action}");
+            "git" => {
+                let args: Vec<&str> = action["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
+                git(&in_dir(&worktree), &args);
             }
-            assert_eq!(state, step["state"], "{name} #{at} {action}");
+            _ => apply_file_action(&in_dir(&worktree), action),
         }
+        let state = json!({ "repo": checkout_state(Some(&rig.repo)), "worktree": checkout_state(worktree.as_deref()) });
+        if let Some(want) = step.get("result") {
+            assert_eq!(result.as_ref(), Some(want), "{name} #{at} {action}");
+        }
+        assert_eq!(state, step["state"], "{name} #{at} {action}");
     }
 }

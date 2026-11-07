@@ -65,6 +65,78 @@ impl DesktopNotices {
     }
 }
 
+/// `PROVIDER_DISPLAY_NAMES` (`runtime/shared/provider-display-name.mjs`).
+const PROVIDER_DISPLAY_NAMES: [(&str, &str); 23] = [
+    ("openai-oauth", "OpenAI OAuth"),
+    ("anthropic-oauth", "Anthropic OAuth"),
+    ("grok-oauth", "Grok OAuth"),
+    ("muse-code-oauth", "Muse Code"),
+    ("command-code-oauth", "Command Code"),
+    ("mimo-oauth", "MiMo"),
+    ("cursor-oauth", "Cursor OAuth"),
+    ("devin-oauth", "Devin"),
+    ("antigravity-oauth", "Antigravity OAuth"),
+    ("openai", "OpenAI API"),
+    ("openai-api", "OpenAI API"),
+    ("anthropic", "Anthropic API"),
+    ("anthropic-api", "Anthropic API"),
+    ("gemini", "Gemini API"),
+    ("gemini-api", "Gemini API"),
+    ("xai", "xAI API"),
+    ("xai-api", "xAI API"),
+    ("deepseek", "DeepSeek API"),
+    ("deepseek-api", "DeepSeek API"),
+    ("opencode-go-oauth", "OpenCode Go OAuth"),
+    ("openrouter", "OpenRouter"),
+    ("mixdog-local", "Local Provider"),
+    ("default", "Default"),
+];
+
+/// `providerDisplayName(provider)`: an unknown id displays as itself, none as `Provider`.
+pub fn provider_display_name(provider: &str) -> String {
+    let lower = provider.to_lowercase();
+    match PROVIDER_DISPLAY_NAMES.iter().find(|(id, _)| *id == lower) {
+        Some((_, name)) => (*name).to_owned(),
+        None if provider.is_empty() => "Provider".to_owned(),
+        None => provider.to_owned(),
+    }
+}
+
+impl DesktopNotices {
+    /// A turn on `provider` failed (`failTurn`, turn.mjs:561-567): the provider refused the sign-in
+    /// (`kind` is `auth`), so the desktop says so once per provider until a turn on it succeeds.
+    pub fn turn_failed(&self, provider: &str, kind: Option<&str>) {
+        if !provider.is_empty() && kind == Some("auth") {
+            self.raise(&format!("provider-sign-in:{provider}"), "provider-sign-in-expired", &[("name", &provider_display_name(provider))]);
+        }
+    }
+
+    /// A turn on `provider` finished normally (`completeTurn`, turn.mjs:537).
+    pub fn turn_completed(&self, provider: &str) {
+        if !provider.is_empty() {
+            self.clear(&format!("provider-sign-in:{provider}"));
+        }
+    }
+
+    /// `signInExpired(serverName)` (oauth-request.mjs:7-9).
+    pub fn connector_sign_in_expired(&self, server: &str) {
+        if !server.is_empty() {
+            self.raise(&format!("connector-sign-in:{server}"), "connector-sign-in-expired", &[("name", server)]);
+        }
+    }
+
+    /// `clearDesktopNotice(signInNoticeKey(serverName))` (oauth-request.mjs:102, :137).
+    pub fn connector_sign_in_restored(&self, server: &str) {
+        if !server.is_empty() {
+            self.clear(&format!("connector-sign-in:{server}"));
+        }
+    }
+
+    /// `_recordSaveFailure`'s notice (live-state.mjs:101): told once per run, whichever session.
+    pub fn conversation_save_failed(&self) {
+        self.raise("conversation-save", "conversation-save-failed", &[]);
+    }
+}
 #[cfg(test)]
 mod tests {
     use mixdog_core_api::mock::MockStatePublisher;
@@ -160,5 +232,61 @@ mod tests {
             }
             assert_eq!(Value::Array(sets(&publisher, seen)), step["delivered"], "{step}");
         }
+    }
+    fn raisers() -> Value {
+        serde_json::from_str(include_str!("../../../../fixtures/desktop-notice-raisers/golden.json")).expect("fixture")
+    }
+
+    #[test]
+    fn provider_names_are_nodes() {
+        for row in raisers()["displayNames"].as_array().expect("names") {
+            assert_eq!(json!(provider_display_name(row["id"].as_str().unwrap_or_default())), row["name"], "{row}");
+        }
+    }
+
+    /// `failTurn` of the real turn module: a turn's auth failure raises the provider's notice named
+    /// by its display name; no other failure kind, and no provider, raises one.
+    #[test]
+    fn a_failed_turn_raises_the_sign_in_notice_only_for_auth_as_node_does() {
+        for step in raisers()["providerSteps"].as_array().expect("steps") {
+            assert!(step["threw"].is_null() || step["threw"] == "", "{step}");
+            let kind = match step["failure"].as_str().expect("failure") {
+                "401 auth" => Some("auth"),
+                "403 permission" => Some("permission"),
+                "429 rate limit" => Some("rate_limited"),
+                "500 transient" => Some("transient"),
+                _ => None,
+            };
+            let publisher = Arc::new(MockStatePublisher::default());
+            DesktopNotices::new(publisher.clone()).turn_failed(step["provider"].as_str().expect("provider"), kind);
+            assert_eq!(Value::Array(sets(&publisher, 0)), step["delivered"], "{step}");
+        }
+    }
+
+    /// `_recordSaveFailure`: raised at the first failure, whichever session, never again.
+    #[test]
+    fn a_failed_save_is_told_once_per_run() {
+        let publisher = Arc::new(MockStatePublisher::default());
+        let notices = DesktopNotices::new(publisher.clone());
+        for step in raisers()["saveSteps"].as_array().expect("steps") {
+            let seen = publisher.published().len();
+            if step["step"] != "no id" {
+                notices.conversation_save_failed();
+            }
+            assert_eq!(Value::Array(sets(&publisher, seen)), step["delivered"], "{step}");
+        }
+    }
+
+    /// A normal turn end withdraws the provider's notice; the next auth failure shows it again.
+    #[test]
+    fn a_completed_turn_clears_the_provider_notice() {
+        let publisher = Arc::new(MockStatePublisher::default());
+        let notices = DesktopNotices::new(publisher.clone());
+        notices.turn_failed("anthropic-oauth", Some("auth"));
+        notices.turn_failed("anthropic-oauth", Some("auth"));
+        assert_eq!(sets(&publisher, 0).len(), 1);
+        notices.turn_completed("anthropic-oauth");
+        notices.turn_failed("anthropic-oauth", Some("auth"));
+        assert_eq!(sets(&publisher, 0).len(), 2);
     }
 }

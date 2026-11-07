@@ -566,10 +566,6 @@ impl Transcript for TextTranscript {
         let Slot::Inline(body) = &record.body else {
             return Vec::new();
         };
-        // A `{shownItem}` body shows that item as it is.
-        if let Some(item) = body.get("shownItem") {
-            return vec![Shown::Item(serde_json::from_value(item.clone()).expect("a thread item"))];
-        }
         if let Some(call) = body["toolCallId"].as_str() {
             return vec![Shown::Update(ThreadItem::ToolCall {
                 id: format!("call:{call}").as_str().into(),
@@ -680,6 +676,7 @@ impl RunFactory for ScriptRuns {
 pub struct RecFeed {
     inner: MockFeed,
     pub frames: Mutex<Vec<(u64, Value)>>,
+    published: Arc<tokio::sync::Notify>,
 }
 
 impl FeedSource for RecFeed {
@@ -707,7 +704,9 @@ impl Feed for RecFeed {
                 .iter()
                 .map(|f| (f.seq, serde_json::from_slice(&f.bytes).expect("frames are JSON"))),
         );
-        self.inner.publish(frames, view)
+        let published = self.inner.publish(frames, view);
+        self.published.notify_waiters();
+        published
     }
 }
 
@@ -746,6 +745,9 @@ impl super::worktree::TurnAdmission for TestAdmission {
 #[derive(Default)]
 pub struct RecFeeds {
     pub feeds: Mutex<HashMap<FeedId, Vec<Arc<RecFeed>>>>,
+    /// Wakes whenever any feed took frames: the signal a test waits on instead of polling the clock
+    /// (`tests::eventually_on`).
+    pub published: Arc<tokio::sync::Notify>,
 }
 
 impl RecFeeds {
@@ -773,6 +775,7 @@ impl FeedFactory for RecFeeds {
         let feed = Arc::new(RecFeed {
             inner: MockFeed::new(id.clone(), epoch, view, MockLimits::default()),
             frames: Mutex::new(Vec::new()),
+            published: self.published.clone(),
         });
         lock(&self.feeds).entry(id).or_default().push(feed.clone());
         feed
@@ -941,6 +944,8 @@ pub struct Rig {
     pub deletes: Arc<Deletes>,
     /// The snapshot releases, stops and the dispose, in order.
     pub snapshots: Arc<TestSnapshots>,
+    /// The notice events, in order.
+    pub notices: Arc<TestNotices>,
     /// The real Goal runtime over the temp data dir.
     pub goals: mixdog_core_goal::goal::GoalRuntime,
     /// The session's todo list, and the background work it waits on, as a Goal continuation
@@ -1210,6 +1215,24 @@ impl super::turn_snapshots::TurnSnapshots for TestSnapshots {
     }
 }
 
+/// The notice events, in order: `completed:<provider>`, `failed:<provider>:<kind>`, `save-failed`.
+#[derive(Default)]
+pub struct TestNotices(pub Mutex<Vec<String>>);
+
+impl super::notices::SessionNotices for TestNotices {
+    fn turn_completed(&self, provider: &str) {
+        lock(&self.0).push(format!("completed:{provider}"));
+    }
+
+    fn turn_failed(&self, provider: &str, kind: Option<&str>) {
+        lock(&self.0).push(format!("failed:{provider}:{}", kind.unwrap_or("-")));
+    }
+
+    fn save_failed(&self) {
+        lock(&self.0).push("save-failed".to_owned());
+    }
+}
+
 impl Rig {
     pub fn new() -> Self {
         let store = Arc::new(MemStore::default());
@@ -1266,6 +1289,7 @@ impl Rig {
             sensitive: Arc::default(),
             deletes: Arc::default(),
             snapshots: Arc::default(),
+            notices: Arc::default(),
         }
     }
 
@@ -1312,6 +1336,7 @@ impl Rig {
             turn_starts: self.turn_starts.clone(),
             runtime_hooks: Arc::new(super::runtime_hooks::NoRuntimeHooks),
             snapshots: self.snapshots.clone(),
+            notices: self.notices.clone(),
             turn_review: Arc::new(mixdog_core_review::turn_review::testing::test_review(&self._data.path().join("turn-review"))),
             route_change: self.route_change.clone(),
             deletion: self.deletes.clone(),
@@ -1339,4 +1364,19 @@ impl Rig {
             warm: self.warms.clone(),
         }
     }
+}
+
+/// A run's failure on exhausted provider quota with the reset the provider named (epoch milliseconds), built as the run host
+/// builds a provider's refusal (`provider_turn_error`).
+pub fn quota_error(reset_at: u64) -> mixdog_protocol::TurnError {
+    use mixdog_core_api::domain::provider::DeliveryState;
+    use mixdog_core_api::domain::provider::ErrorKind;
+    use mixdog_core_api::domain::provider::ProviderError;
+
+    let mut error = ProviderError::new(ErrorKind::QuotaExhausted, DeliveryState::Accepted);
+    error.status = Some(429);
+    error.code = Some("usage_limit_reached".into());
+    error.message = "Usage limit reached".into();
+    error.reset_at = Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(reset_at));
+    super::failure_record::provider_turn_error(&error, "anthropic-oauth", Value::Null)
 }

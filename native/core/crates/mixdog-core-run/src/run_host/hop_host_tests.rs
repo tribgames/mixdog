@@ -430,10 +430,12 @@ async fn the_whole_hop_makes_the_calls_and_ends_as_node_does() {
         let deps = HopDeps {
             registry,
             catalog: catalog().await,
-            // The live provider config the hop is given: the registry's provider is in it. `initProviders` refuses a config
-            // none of whose entries is registered once no OAuth instance is preserved (the rebuild-era guard), so an empty
-            // config would not model a registry that holds other providers.
-            config: Arc::new(|| ensure_provider_enabled(&Obj::new(), "xai")),
+            // The live config document the hop is given: its `providers` hold the registry's provider. `initProviders` refuses a providers map none of whose entries is registered once no OAuth instance is preserved (the rebuild-era guard), so a config without it would not model a registry that holds other providers.
+            config: Arc::new(|| {
+                let mut config = Obj::new();
+                config.insert("providers".into(), Value::Object(ensure_provider_enabled(&Obj::new(), "xai")));
+                config
+            }),
             bots: Arc::new(NoBots),
             errors: Arc::new(|_| "Provider is rate-limited.".to_owned()),
             wiring: Arc::new(NoWiring),

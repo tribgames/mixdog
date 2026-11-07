@@ -96,7 +96,7 @@ impl HydrationFacts for RowFacts<'_> {
 impl ModelListService {
     /// The catalog before the first read: a snapshot nothing was listed into (the compiled-in
     /// generation) is listed now, as Node's first full read loads every provider.
-    async fn ready(&self, force: bool, provider: Option<&str>) {
+    pub async fn ready(&self, force: bool, provider: Option<&str>) {
         if force {
             // `forceRefresh && provider` (`catalog-load.mjs` `prepare`): only the providers the
             // name matches are asked again.
@@ -121,10 +121,26 @@ impl ModelListService {
     pub async fn rows_for(&self, force: bool, quick: bool, provider: Option<&str>) -> Vec<Value> {
         self.ready(force, provider).await;
         let snapshot = self.catalog.snapshot();
-        let config = self.config.agent();
-        let developer = config.get("developer").cloned().unwrap_or(Value::Null);
-        let client_mode = model_proxy_client_mode(&|name| std::env::var(name).ok());
-        // The catalog flattened into deduplicated cache rows; a hidden custom model leaves the picker.
+        let mut rows = self.from_cache_rows(&snapshot, &self.cache_rows(&snapshot));
+        if snapshot.partial() {
+            let missing: Vec<String> = snapshot.missing().iter().map(|id| id.as_str().to_owned()).collect();
+            let retry_at = snapshot.retry_at().map_or(f64::NAN, |at| at as f64);
+            return with_catalog_state(rows, Some((&missing, retry_at)));
+        }
+        // A quick answer from the loaded catalog already is the full catalog; saying so lets a
+        // caller skip the full read it would otherwise follow up with.
+        if quick && !force && snapshot.complete() {
+            for row in &mut rows {
+                if let Some(row) = row.as_object_mut() {
+                    row.insert("catalogComplete".into(), Value::Bool(true));
+                }
+            }
+        }
+        rows
+    }
+
+    /// The catalog flattened into deduplicated cache rows; a hidden custom model leaves the picker.
+    pub fn cache_rows(&self, snapshot: &CatalogSnapshot) -> Vec<Value> {
         let mut seen = HashSet::new();
         let mut rows = Vec::new();
         for (provider, records) in &snapshot.models {
@@ -143,27 +159,21 @@ impl ModelListService {
                 rows.push(Value::Object(row));
             }
         }
-        let facts = RowFacts { catalog: &self.catalog, snapshot: &snapshot, unsupported: &self.unsupported, config: &config };
+        rows
+    }
+
+    /// `providerModelsFromCacheRows`: availability applied at read time, then hydrated and sorted.
+    pub fn from_cache_rows(&self, snapshot: &CatalogSnapshot, rows: &[Value]) -> Vec<Value> {
+        let config = self.config.agent();
+        let developer = config.get("developer").cloned().unwrap_or(Value::Null);
+        let client_mode = model_proxy_client_mode(&|name| std::env::var(name).ok());
+        let facts = RowFacts { catalog: &self.catalog, snapshot, unsupported: &self.unsupported, config: &config };
         let mut rows: Vec<Value> = rows
             .iter()
             .filter(|row| provider_available(row.get("provider").and_then(Value::as_str).unwrap_or_default(), client_mode, &developer))
             .map(|row| hydrate_provider_model_row(&config, row, &facts))
             .collect();
         sort_provider_models(&mut rows, &(self.primary_provider)());
-        if snapshot.partial() {
-            let missing: Vec<String> = snapshot.missing().iter().map(|id| id.as_str().to_owned()).collect();
-            let retry_at = snapshot.retry_at().map_or(f64::NAN, |at| at as f64);
-            return with_catalog_state(rows, Some((&missing, retry_at)));
-        }
-        // A quick answer from the loaded catalog already is the full catalog; saying so lets a
-        // caller skip the full read it would otherwise follow up with.
-        if quick && !force && snapshot.complete() {
-            for row in &mut rows {
-                if let Some(row) = row.as_object_mut() {
-                    row.insert("catalogComplete".into(), Value::Bool(true));
-                }
-            }
-        }
         rows
     }
 }

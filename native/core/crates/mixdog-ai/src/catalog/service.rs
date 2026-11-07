@@ -158,6 +158,18 @@ impl CatalogService {
         }
     }
 
+    /// `providerCachedModelsSync(provider)` (`provider-catalog-cache.mjs:86`): the provider's
+    /// live-roster rows, each id once, from the resident roster snapshot.
+    pub fn cached_models(&self, provider: &str) -> Vec<serde_json::Value> {
+        self.rosters.load().cached_models(provider)
+    }
+
+    /// `getModelsDevProviderModelsSync(provider)` (`model-catalog.mjs:438`): the resident
+    /// models.dev rows of one provider; `None` while the catalog is cold.
+    pub fn models_dev_models(&self, provider: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
+        self.listing.models_dev_models(provider)
+    }
+
     pub fn snapshot(&self) -> Arc<CatalogSnapshot> {
         self.catalog.snapshot()
     }

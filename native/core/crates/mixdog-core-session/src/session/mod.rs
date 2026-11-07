@@ -89,7 +89,8 @@ pub mod pending_read;
 pub mod runtime_facts;
 #[cfg(test)]
 mod channel_notification_tests;
-mod failure_record;
+pub mod failure_record;
+mod live_end;
 pub mod turn_warm;
 #[cfg(test)]
 mod pending_read_tests;
@@ -112,6 +113,7 @@ pub mod run;
 pub mod delegated_host;
 pub mod handoff_questions;
 pub mod runtime_hooks;
+pub mod notices;
 mod seams;
 mod state;
 mod store;
@@ -264,6 +266,8 @@ pub struct SessionDeps {
     pub runtime_hooks: Arc<dyn runtime_hooks::RuntimeHooks>,
     /// The read-only snapshots a settled turn made are removed (`turn_snapshots.rs`).
     pub snapshots: Arc<dyn turn_snapshots::TurnSnapshots>,
+    /// The desktop notices a turn's end and a failed save raise (`notices.rs`).
+    pub notices: Arc<dyn notices::SessionNotices>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
     pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
     /// The saved requests and the fork behind `thread/askSide` and `thread/cancelSide`.

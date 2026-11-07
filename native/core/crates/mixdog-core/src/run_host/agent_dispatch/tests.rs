@@ -280,7 +280,7 @@ fn node_events(events: &Value) -> Vec<Value> {
         .map(|event| match event[0].as_str().unwrap() {
             "admission.acquire" => {
                 let mut detail = event[2].as_object().unwrap().clone();
-                detail.remove("signal");
+                detail.shift_remove("signal");
                 json!(["admission.acquire", event[1], detail])
             }
             "ask" => json!(["ask", { "prompt": event[1]["prompt"], "cwd": event[1]["cwd"], "liveProjection": event[1]["liveProjection"] }]),

@@ -382,6 +382,9 @@ pub(crate) enum Init {
 
 struct RunSlot {
     turn: TurnId,
+    /// The provider of the route the turn started with (`routeMeta.provider`): a route change
+    /// during the turn does not move the notices its end raises.
+    provider: String,
     /// The pending Goal reminder's revision the turn carries.
     goal_reminder: Option<u64>,
     /// The id of the run's input row.
@@ -405,6 +408,19 @@ struct RunSlot {
     /// failure record that no end item states is built from.
     started_at: i64,
     transcript: Value,
+    /// What the turn's stream and cards counted, for the live end of a failure.
+    live: super::live_end::LiveCounts,
+}
+
+/// What a failed turn's close reads of its run ([`SessionActor::close_failed`]).
+struct FailedClose<'a> {
+    error: &'a TurnError,
+    /// The turn's last model row, which the completion is recorded on.
+    last: Option<&'a ItemRecord>,
+    started_at: i64,
+    /// The input row's `meta.transcript` (`transcriptMeta`).
+    transcript: &'a Value,
+    live: &'a mut super::live_end::LiveCounts,
 }
 
 pub(crate) struct ActorChannels {
@@ -920,6 +936,19 @@ impl SessionActor {
         notes: Vec<Note>,
         effects: Vec<Effect>,
     ) {
+        self.accept_record_entry(record, class, display, notes, effects);
+    }
+
+    /// [`Self::accept_record`], answering the outbox entry the record took, for a view that stands on it
+    /// ([`Self::accept_view_after`]).
+    fn accept_record_entry(
+        &mut self,
+        record: Record,
+        class: Class,
+        display: Display,
+        notes: Vec<Note>,
+        effects: Vec<Effect>,
+    ) -> u64 {
         let record = Arc::new(record);
         let shown = !matches!(display, Display::Suppressed);
         let change = Change::Record {
@@ -931,12 +960,27 @@ impl SessionActor {
             .outbox
             .push(Some((record.clone(), class)), change, notes, effects);
         self.submit_encode(entry, record, shown);
+        entry
     }
 
     /// A view-only change, released in order with the records around it.
     fn accept_view(&mut self, change: Change, notes: Vec<Note>) {
+        self.accept_view_with(change, notes, Vec::new());
+    }
+
+    /// [`Self::accept_view`], with `effects` that run when the change is released.
+    fn accept_view_with(&mut self, change: Change, notes: Vec<Note>, effects: Vec<Effect>) {
+        self.accept_view_after(None, change, notes, effects);
+    }
+
+    /// [`Self::accept_view_with`] for a view that stands on the record `needs` accepted before it: it is released
+    /// after that record and dropped, failed, with it when the record cannot be encoded.
+    fn accept_view_after(&mut self, needs: Option<u64>, change: Change, notes: Vec<Note>, effects: Vec<Effect>) {
         self.projected.apply(&change, None);
-        self.outbox.push(None, change, notes, Vec::new());
+        match needs {
+            Some(needs) => self.outbox.push_after(needs, change, notes, effects),
+            None => self.outbox.push(None, change, notes, effects),
+        };
     }
 
     /// `shown`: whether the record's items show live (a suppressed row shows none).
@@ -1004,6 +1048,9 @@ impl SessionActor {
                     Err(error) => {
                         if let Some(entry) = self.outbox.remove(id) {
                             self.fail_entry(entry, &error);
+                        }
+                        for dependent in self.outbox.remove_needing(id) {
+                            self.fail_entry(dependent, &error);
                         }
                         self.rebuild_projected();
                     }
@@ -1624,6 +1671,11 @@ impl SessionActor {
                     .resolved(&aid.request_id(), resolved_frame(&self.id, aid, &resolution));
             }
             Effect::RecomputePrompts { publish } => self.recompute_prompts(publish),
+            // The failed end is in the acked window, where the settlement reads it; the Goal settles after.
+            Effect::TurnClosed { turn, settle } => {
+                self.begin_quota_settlement(&turn);
+                self.settle_goal(settle);
+            }
         }
     }
 
@@ -1655,6 +1707,12 @@ impl SessionActor {
                 }
                 Effect::Resolved(aid, _) => self.book.unresolve(aid),
                 Effect::RecomputePrompts { .. } => {}
+                // The failed turn's completion could not be recorded, so its end was not shown and its quota stops
+                // unsettled: the Goal still settles, and the failure is reported, not skipped.
+                Effect::TurnClosed { turn, settle } => {
+                    tracing::error!("the failed turn {} was not recorded, so its end is not shown and its quota is not settled: {error:?}", turn.as_str());
+                    self.settle_goal(settle);
+                }
             }
         }
     }
@@ -1763,6 +1821,7 @@ impl SessionActor {
                 if generation != self.generation {
                     return;
                 }
+                self.deps.notices.save_failed();
                 let error = match error {
                     super::seams::BarrierError::Failed { io_kind } => CoreError::BarrierFailed {
                         scope: "thread".into(),
@@ -1917,7 +1976,7 @@ impl SessionActor {
     }
 
     fn run_ended(&mut self, turn: TurnId, outcome: RunOutcome) {
-        let Some(slot) = self.run.take_if(|run| run.turn == turn) else {
+        let Some(mut slot) = self.run.take_if(|run| run.turn == turn) else {
             return;
         };
         self.cell.publish_run(None);
@@ -1930,6 +1989,14 @@ impl SessionActor {
         // `settleTurn`'s `releaseWorkspace()`: every settled turn, whatever its outcome, starts
         // the removal of the snapshots it made, without waiting for it.
         self.deps.snapshots.turn_settled(&self.id);
+        {
+            let provider = slot.provider.as_str();
+            match &outcome {
+                RunOutcome::Completed(_) => self.deps.notices.turn_completed(provider),
+                RunOutcome::Failed(error) => self.deps.notices.turn_failed(provider, error.provider_error.as_ref().map(|detail| detail.kind.as_str())),
+                RunOutcome::Interrupted => {}
+            }
+        }
         // `onTurnSettled`: the run host's final result as it is, for a finished turn only.
         let settled = TurnOutcome {
             turn_id: turn.as_str().to_owned(),
@@ -1966,17 +2033,16 @@ impl SessionActor {
             RunOutcome::Interrupted => ("cancelled", None),
             RunOutcome::Failed(error) => ("failed", Some(error)),
         };
-        if error.is_some() {
-            if let (Some(error), Some(last)) = (error, &slot.last_model) {
-                self.attach_failed_completion(&turn, last, error, slot.started_at, &slot.transcript);
-            }
-            self.begin_quota_settlement(&turn);
-        }
-        let detail = super::goal_lane::settle_detail(status, error, slot.automatic, slot.tool_calls);
-        let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+        let settle = super::goal_lane::settle_detail(status, error, slot.automatic, slot.tool_calls);
         // The next turn waits for the settlement, as Node's queue drains after `runTurn` returns.
         self.settling = true;
-        self.goal_call(Box::pin(async move { JobDone::GoalSettled(goals.turn_settled(&thread, detail).await.ok()) }));
+        match error {
+            Some(error) => {
+                let failed = FailedClose { error, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &slot.transcript, live: &mut slot.live };
+                self.close_failed(&turn, failed, settle);
+            }
+            None => self.settle_goal(settle),
+        }
         // `acknowledgePendingGoalReminder`: only an accepted turn clears the marker it carried.
         if let (RunOutcome::Completed(_), Some(revision)) = (&outcome, slot.goal_reminder)
             && let Some(change) = super::goal_reminder::acknowledge(&self.projected.header, revision, self.deps.clock.now_ms())
@@ -2050,32 +2116,18 @@ impl SessionActor {
         }
     }
 
-    /// `attachFailedTurnCompletion(session.messages, failedTurnCompletion(..))` (`ask-turn-failure.mjs:176-177`,
-    /// `ask-turn-settle.mjs:85-96`): a failed turn's end is recorded on the last message of the
-    /// conversation, its tool result, last reply or the prompt itself, as `meta.transcript.completion`
-    /// (an amend of that row's body), so a retry finds the failed turn's identity and provenance
-    /// (`failedTurnMessage`, `cache-warm.mjs:508-527`). Not for a system message.
-    fn attach_failed_completion(&mut self, turn: &TurnId, last: &ItemRecord, error: &TurnError, started_at: i64, transcript: &Value) {
-        let Slot::Inline(body) = &last.body else { return };
+    /// `attachFailedTurnCompletion(session.messages, completion)` (`ask-turn-failure.mjs:176-177`,
+    /// `ask-turn-settle.mjs:85-96`): a failed turn's end is recorded on the last message of the conversation, its
+    /// tool result, last reply or the prompt itself, as `meta.transcript.completion` (an amend of that row's body), so
+    /// a retry finds the failed turn's identity and provenance (`failedTurnMessage`, `cache-warm.mjs:508-527`).
+    /// Not for a system message. The outbox entry of the amend, for what must stand on it being durable.
+    fn amend_last_with(&mut self, last: &ItemRecord, completion: Value) -> Option<u64> {
+        let Slot::Inline(body) = &last.body else { return None };
         if body.get("role").and_then(Value::as_str) == Some("system") {
-            return;
+            return None;
         }
-        // The turn's own failed end item when the run showed one, else the record built from the failure
-        // itself, whatever the error (`failedTurnCompletion`).
-        let completion = self.failed_completion(turn).unwrap_or_else(|| {
-            let route = |key: &str| self.projected.header.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-            let (provider, model) = (route("provider"), route("model"));
-            let facts = super::failure_record::Facts {
-                raw: transcript,
-                started_at,
-                now: self.deps.clock.now_ms(),
-                attempt_id: new_id(),
-                route: super::failure_record::Route { provider: &provider, model: &model },
-            };
-            super::failure_record::failed_completion(error, &facts)
-        });
         let mut next = body.clone();
-        let Some(message) = next.as_object_mut() else { return };
+        let message = next.as_object_mut()?;
         let meta = message.entry("meta").or_insert_with(|| json!({}));
         if !meta.is_object() {
             *meta = json!({});
@@ -2086,58 +2138,54 @@ impl SessionActor {
         }
         transcript.as_object_mut().expect("transcript is an object").insert("completion".into(), completion);
         let record = Record::Amend(AmendRecord { iid: last.iid.clone(), op: None, refs: last.refs.clone(), body: Slot::Inline(next) });
-        self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+        Some(self.accept_record_entry(record, Class::Normal, Display::None, Vec::new(), Vec::new()))
     }
 
-    /// `failedTurnCompletion` (`ask-turn-failure.mjs:26-45`) of the turn's failed end item, which carries
-    /// the same record (status, attempt, start, verb, elapsed, checkpoint, route, detail, error kind,
-    /// quota; `turnFailureRecord`, `turn-failure.mjs:15-49`) in the key order Node writes it.
-    fn failed_completion(&self, turn: &TurnId) -> Option<Value> {
-        let end = self.acked.window.iter().rev().find_map(|row| match row.item.as_ref() {
-            ThreadItem::TurnEnd { meta, .. } if meta.turn_id.as_ref() == Some(turn) => Some(row.item.clone()),
-            _ => None,
-        })?;
-        let ThreadItem::TurnEnd { status, elapsed_ms, verb, checkpoint_id, detail, error_details, error_kind, quota, meta, .. } = end.as_ref() else {
-            return None;
+    /// A failed turn's close (`failTurn`, `publishTurnClose`, `settleTurn`): the completion is recorded on the last
+    /// message (`attachFailedTurnCompletion`, `ask-turn-settle.mjs:84`), the turn's end is shown live, built from
+    /// what the run showed (`turnDoneItem`, `turn.mjs:573`), then `beginQuotaSettlement` reads that end, then the
+    /// Goal settles (`turn.mjs:644-688`). The end stands on the amend: both settlements run when the end is released,
+    /// which is after the amend is durable, and if the amend cannot be recorded the end goes with it (see
+    /// [`Self::fail_entry`]). A failure record that cannot be built (a typed `MalformedFacts`) shows
+    /// no end and settles no quota; the Goal still settles.
+    fn close_failed(&mut self, turn: &TurnId, failed: FailedClose<'_>, settle: Value) {
+        let now = self.deps.clock.now_ms();
+        failed.live.close(now);
+        // `session.provider || raw.provider`, `session.model || raw.modelId` (`failedTurnCompletion`).
+        let header = |key: &str| self.projected.header.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        let raw = |key: &str| failed.transcript.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        let provider = header("provider").or_else(|| raw("provider")).unwrap_or_default();
+        let model = header("model").or_else(|| raw("modelId")).unwrap_or_default();
+        let facts = super::failure_record::Facts {
+            raw: failed.transcript,
+            started_at: failed.started_at,
+            now,
+            attempt_id: new_id(),
+            route: super::failure_record::Route { provider: &provider, model: &model },
         };
-        if *status != mixdog_protocol::TurnEndStatus::Failed {
-            return None;
-        }
-        let mut done = serde_json::Map::new();
-        done.insert("status".into(), json!("failed"));
-        let attempt = meta.ext.get("attemptId").and_then(Value::as_str).map_or_else(new_id, str::to_owned);
-        done.insert("attemptId".into(), json!(attempt));
-        if let Some(at) = meta.at {
-            done.insert("at".into(), json!(at));
-        }
-        done.insert("verb".into(), json!(verb.as_deref().filter(|v| !v.is_empty()).unwrap_or("Thought")));
-        done.insert("elapsedMs".into(), json!(elapsed_ms));
-        for (key, value) in [
-            ("checkpointId", checkpoint_id),
-            ("modelId", &meta.model_id),
-            ("model", &meta.model),
-            ("provider", &meta.provider),
-            ("agent", &meta.agent),
-            ("detail", detail),
-            ("errorDetails", error_details),
-        ] {
-            if let Some(value) = value.as_ref().filter(|v| !v.is_empty()) {
-                done.insert(key.into(), json!(value));
+        let record = match super::failure_record::failure_record(failed.error, &facts.route) {
+            Ok(record) => record,
+            Err(malformed) => {
+                tracing::error!("the failed turn {} shows no end and settles no quota: {malformed}", turn.as_str());
+                return self.settle_goal(settle);
             }
-        }
-        if let Some(kind) = error_kind {
-            done.insert("errorKind".into(), json!(kind));
-        }
-        if let Some(quota) = quota {
-            done.insert("quota".into(), json!(quota));
-        }
-        Some(Value::Object(done))
+        };
+        let row = super::live_end::live_end_row(failed.live, &facts, &record, &new_id());
+        let end = super::transcript::live_end(row, turn.as_str());
+        let amend = failed.last.and_then(|last| self.amend_last_with(last, super::failure_record::failed_completion(&record, &facts)));
+        self.show_live_then(turn.clone(), end, None, amend, vec![Effect::TurnClosed { turn: turn.clone(), settle }]);
+    }
+    /// `onGoalTurnSettled` (`turnOutcome`): the Goal runtime closes the turn's clock segment and reads its
+    /// outcome; the next queued entry waits for the answer.
+    fn settle_goal(&mut self, settle: Value) {
+        let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+        self.goal_call(Box::pin(async move { JobDone::GoalSettled(goals.turn_settled(&thread, settle).await.ok()) }));
     }
 
     /// `beginQuotaSettlement` at the close of a turn that failed on quota (`turn.failed &&
-    /// turn.quota`: its failed turn end, the latest, carries the quota stop): the settlement
-    /// window opens, and with a known reset and the setting on the resume is queued, or the
-    /// session hears that nothing can be resumed.
+    /// turn.quota`: its failed turn end, the latest, carries the quota stop), run when that end is
+    /// released (`Effect::TurnClosed`): the settlement window opens, and with a known reset and the
+    /// setting on the resume is queued, or the session hears that nothing can be resumed.
     fn begin_quota_settlement(&mut self, turn: &TurnId) {
         let ours = self.acked.window.iter().rev().find_map(|row| match row.item.as_ref() {
             ThreadItem::TurnEnd { status, quota, meta, .. } => {
@@ -2411,6 +2459,10 @@ impl SessionActor {
                 }
                 if matches!(item, ThreadItem::ToolCall { .. }) {
                     self.visible_progress();
+                    let now = self.deps.clock.now_ms();
+                    if let Some(run) = self.run.as_mut() {
+                        run.live.tool_card(now);
+                    }
                 }
                 let note = Note::new(
                     "item/started",
@@ -2425,6 +2477,14 @@ impl SessionActor {
             ProducerMsg::Delta { item, text, method, params } => {
                 // Text or reasoning: visible output (`isVisibleStreamProgress`).
                 self.visible_progress();
+                let now = self.deps.clock.now_ms();
+                if let Some(run) = self.run.as_mut() {
+                    match method {
+                        "item/agentMessage/delta" => run.live.text(&text, now),
+                        "item/reasoning/textDelta" => run.live.reasoning(&text, now),
+                        _ => {}
+                    }
+                }
                 let note = Note { method, params };
                 self.accept_view(Change::Delta { item, text }, vec![note]);
             }
@@ -2726,6 +2786,9 @@ impl SessionActor {
             }
             RunShown::Reasoning(item) => self.show_live(turn, item, None),
             RunShown::Usage(report) => {
+                if let Some(run) = self.run.as_mut() {
+                    run.live.usage(report.usage.output_tokens);
+                }
                 let usage = super::live_rows::usage_delta(self.id.as_str(), &report, self.deps.clock.now_ms());
                 let note = Note::new(
                     "thread/tokenUsage/updated",
@@ -2747,8 +2810,14 @@ impl SessionActor {
 
     /// A live-only row of the run, before the row `before` when it is in view, else last.
     fn show_live(&mut self, turn: TurnId, item: ThreadItem, before: Option<mixdog_core_api::ids::ItemId>) {
+        self.show_live_then(turn, item, before, None, Vec::new());
+    }
+
+    /// [`Self::show_live`], with `effects` that run when the row is released (shown to the feed, and in
+    /// the acked state). `needs`: the record the row stands on ([`Self::accept_view_after`]).
+    fn show_live_then(&mut self, turn: TurnId, item: ThreadItem, before: Option<mixdog_core_api::ids::ItemId>, needs: Option<u64>, effects: Vec<Effect>) {
         let note = Note::new("item/completed", &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn, item: item.clone() });
-        self.accept_view(Change::Shown { item, before }, vec![note]);
+        self.accept_view_after(needs, Change::Shown { item, before }, vec![note], effects);
     }
 
     /// The live display of a user row: the row of a completion the listener showed is durable
@@ -3874,6 +3943,7 @@ impl SessionActor {
         let unattended = (agent.is_some() && !caller_watchdog) || super::goal_lane::automatic(&input_body);
         self.run = Some(RunSlot {
             turn: turn.clone(),
+            provider: self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
             input_item: input_iid.clone(),
             automatic: super::goal_lane::automatic(&input_body),
             tool_calls: 0,
@@ -3886,6 +3956,7 @@ impl SessionActor {
             last_model,
             started_at: self.deps.clock.now_ms(),
             transcript: input_body.pointer("/meta/transcript").cloned().unwrap_or(Value::Null),
+            live: Default::default(),
         });
         // `onGoalTurnStarted`: the turn takes the Goal's open clock segment.
         let (goals, thread) = (self.deps.goals.clone(), self.id.clone());

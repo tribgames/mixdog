@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -533,19 +534,56 @@ fn a_recovered_turn_restores_its_context_reading() {
 /// it, then a resume, ends in the tree an uninterrupted run leaves (journal excluded).
 #[test]
 fn every_crash_point_resumes_to_the_same_tree() {
-    let base = std::env::temp_dir().join(format!("mig-same-{}", std::process::id()));
+    // One uninterrupted run names every fault point, in the order a run meets them.
+    let base = crash_base(0);
+    let _ = std::fs::remove_dir_all(&base);
+    let roots = fixture(&base);
+    let met = Arc::new(Mutex::new(Vec::<String>::new()));
+    let record = met.clone();
+    let recorder: FaultHook = Arc::new(move |p| {
+        record.lock().unwrap().push(p.to_string());
+        Ok(())
+    });
+    migrator(&roots, Some(recorder)).run().unwrap();
+    std::fs::remove_dir_all(&base).unwrap();
+    let points = met.lock().unwrap().clone();
+    assert!(points.len() > 40, "{} fault points", points.len());
+    // The connector transition is cut between each of its file publications.
+    let connector = format!("publish:{}:", crate::connectors::ITEM);
+    let publications = points.iter().filter(|p| p.starts_with(&connector)).count();
+    assert!(publications >= 5, "{publications} connector publication points");
+
+    std::thread::scope(|scope| {
+        for worker in 0..CRASH_WORKERS {
+            let points = &points;
+            scope.spawn(move || resume_after_each_crash(points, worker));
+        }
+    });
+}
+
+/// Data dirs the fault points are split over. A crash and its resume share nothing with another
+/// point's, and a run is bound by its journal and publication syncs, not by the processor, so
+/// the points of different dirs overlap their waits.
+const CRASH_WORKERS: usize = 8;
+
+fn crash_base(worker: usize) -> PathBuf {
+    std::env::temp_dir().join(format!("mig-same-{}-{worker}", std::process::id()))
+}
+
+/// Kills the migration at `points[worker]`, `points[worker + CRASH_WORKERS]`, ... in a dir of its
+/// own, resumes it and compares the tree with that dir's uninterrupted run (the manifest names
+/// the dir's roots, so the tree differs from dir to dir).
+fn resume_after_each_crash(points: &[String], worker: usize) {
+    let base = crash_base(worker);
     let _ = std::fs::remove_dir_all(&base);
     let roots = fixture(&base);
     migrator(&roots, None).run().unwrap();
     let want = tree_digest(&roots);
     std::fs::remove_dir_all(&base).unwrap();
-    let mut seen = 0;
-    let mut points = Vec::new();
-    loop {
+    for (stop_at, expected) in points.iter().enumerate().skip(worker).step_by(CRASH_WORKERS) {
         let roots = fixture(&base);
         let calls = Arc::new(AtomicUsize::new(0));
         let hook_calls = calls.clone();
-        let stop_at = seen;
         let result = migrator(
             &roots,
             Some(Arc::new(move |p: &str| {
@@ -558,25 +596,15 @@ fn every_crash_point_resumes_to_the_same_tree() {
         .run();
         let point = match result {
             Err(Blocked::Interrupted { point }) => point,
-            Ok(_) => {
-                std::fs::remove_dir_all(&base).unwrap();
-                break;
-            }
-            Err(e) => panic!("{e}"),
+            other => panic!("the run was not interrupted at point {stop_at} ({expected}): {other:?}"),
         };
+        assert_eq!(&point, expected, "point {stop_at}");
         migrator(&roots, None).run().unwrap_or_else(|e| panic!("resume after {point}: {e}"));
         let got = tree_digest(&roots);
         let diff: Vec<_> = want.keys().chain(got.keys()).filter(|k| want.get(*k) != got.get(*k)).collect();
         assert!(diff.is_empty(), "after a crash at {point}: {diff:?}");
         std::fs::remove_dir_all(&base).unwrap();
-        points.push(point);
-        seen += 1;
     }
-    assert!(seen > 40, "{seen} fault points");
-    // The connector transition is cut between each of its file publications.
-    let connector = format!("publish:{}:", crate::connectors::ITEM);
-    let publications = points.iter().filter(|p| p.starts_with(&connector)).count();
-    assert!(publications >= 5, "{publications} connector publication points");
 }
 
 #[test]

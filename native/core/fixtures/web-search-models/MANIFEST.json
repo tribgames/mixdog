@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-web-search-models.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 160825,
+      "path": "golden.json",
+      "sha256": "5ef02fe6a88e925c5b0fd6b912594f5cd7b51c9fc8e4700f769ab9407dd772ae"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "83eae3043f797a63846b74fe51a1ea1a692c0acc",
+      "commitFilesMissingFromTree": 2,
+      "exact": false,
+      "filesDifferingFromCommit": 43481
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-web-search-models.mjs",
+  "set": "web-search-models",
+  "totalBytes": 160825
+}

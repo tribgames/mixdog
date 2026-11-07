@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-skill-session.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 182325,
+      "path": "golden.json",
+      "sha256": "c7fedc92aba577a28c5f1a2168a74f24bd9e67d4606d34bc99b15d83d4be2b60"
+    }
+  ],
+  "product": {
+    "appsSha256": "fafa2dadfb9db84dba5ba512f05574282fe76e530ac5b39b4bb99cc0f396199c",
+    "commit": "d47494aa5fd9662170425a26adc3498a19dd658d",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "d47494aa5fd9662170425a26adc3498a19dd658d",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-skill-session.mjs",
+  "set": "skill-session",
+  "totalBytes": 182325
+}
