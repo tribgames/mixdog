@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core::run_host::code_graph_prewarm::PrewarmWorld;
+use mixdog_core_session::session::prewarm_signals::CodeGraphPrewarmSignals;
 use mixdog_core::run_host::compose_parts::LateDirectory;
 use mixdog_services::task_reports::runtime_state::RuntimeLiveness;
 use mixdog_tools::code_graph::CodeGraphTool;
@@ -29,6 +30,38 @@ pub struct DaemonPrewarmWorld {
     /// `rt.currentCwd`: the startup folder until a session moves it (`set_runtime_cwd`, flip-ce-5).
     pub cwd: Arc<Mutex<String>>,
     pub env: EnvReader,
+}
+
+/// `timer-arm.mjs` `busyReason()`: `getActiveTurnCount() > 0` -> `turn-active`; `getSessionCreatePromise()` -> `session-create`.
+/// The one probe every background warm-up asks (the code-graph prewarm and the catalog warm-up).
+pub fn busy_reason(liveness: &RuntimeLiveness, directory: &LateDirectory) -> Option<&'static str> {
+    if !liveness.in_flight_session_activity().working.is_empty() {
+        return Some("turn-active");
+    }
+    let directory = directory.directory().expect("session directory bound (compose::verify_bound)");
+    directory.creating().then_some("session-create")
+}
+
+/// `SessionDeps.code_graph_prewarm`: a session's busy-state change (`rt.wakeDeferredWarmups`) reaches both background
+/// warm-ups, the code-graph prewarm and the catalog warm-up; the rest of the signals are the prewarm's alone.
+pub struct WarmupSignals {
+    pub prewarm: mixdog_core::run_host::code_graph_prewarm::SessionPrewarm,
+    pub catalog: Arc<crate::catalog::CatalogWarmup>,
+}
+
+impl CodeGraphPrewarmSignals for WarmupSignals {
+    fn schedule(&self, delay: Option<Duration>, reason: &'static str) {
+        self.prewarm.schedule(delay, reason);
+    }
+
+    fn wake(&self) {
+        self.prewarm.wake();
+        self.catalog.wake();
+    }
+
+    fn lazy(&self) -> bool {
+        self.prewarm.lazy()
+    }
 }
 
 impl DaemonPrewarmWorld {
@@ -62,11 +95,7 @@ impl PrewarmWorld for DaemonPrewarmWorld {
 
     /// `getActiveTurnCount() > 0` -> `turn-active`; `getSessionCreatePromise()` -> `session-create`.
     fn busy(&self) -> Option<&'static str> {
-        if !self.liveness.in_flight_session_activity().working.is_empty() {
-            return Some("turn-active");
-        }
-        let directory = self.directory.directory().expect("session directory bound (compose::verify_bound)");
-        directory.creating().then_some("session-create")
+        busy_reason(&self.liveness, &self.directory)
     }
 
     fn current_cwd(&self) -> String {

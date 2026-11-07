@@ -80,3 +80,25 @@ pub fn seed_default_model(data: &Path) {
 pub async fn exclusive() -> tokio::sync::MutexGuard<'static, ()> {
     ONE_AT_A_TIME.lock().await
 }
+
+/// The catalog's HTTP port in every real-core test: a client that cannot connect, so the boot warm-up (200 ms after
+/// the composition starts) never reaches a network.
+pub fn offline_http() -> std::sync::Arc<dyn mixdog_ai::transport::http::HttpSend> {
+    std::sync::Arc::new(OfflineHttp)
+}
+
+struct OfflineHttp;
+
+#[async_trait::async_trait]
+impl mixdog_ai::transport::http::HttpSend for OfflineHttp {
+    async fn send(
+        &self,
+        _: mixdog_core_api::domain::provider::WireRequest,
+        _: mixdog_ai::transport::Exchange,
+    ) -> Result<mixdog_ai::transport::http::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+        Err(mixdog_core_api::domain::provider::ProviderError::new(
+            mixdog_core_api::domain::provider::ErrorKind::Transient,
+            mixdog_core_api::domain::provider::DeliveryState::NotSent,
+        ))
+    }
+}

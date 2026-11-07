@@ -31,6 +31,19 @@ pub fn roster_files(provider: &str) -> &'static [&'static str] {
     }
 }
 
+/// `rosterProviders()`: the providers whose roster files differ, in the registry's order (`anthropic` shares
+/// `anthropic-oauth`'s file and is not listed again).
+pub const ROSTER_PROVIDERS: [&str; 9] = [
+    "openai-oauth",
+    "anthropic-oauth",
+    "gemini",
+    "grok-oauth",
+    "muse-code-oauth",
+    "mimo-oauth",
+    "antigravity-oauth",
+    "command-code-oauth",
+    "opencode-go-oauth",
+];
 /// The two windows a route's context share is sized against.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
