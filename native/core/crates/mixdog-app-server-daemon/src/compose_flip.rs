@@ -418,10 +418,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The providers of the loaded config (`loadConfig().providers`): the runtime's own provider config that
     // `ensure_providers_ready(None)` initializes, and the view the dashboards and the model lists read.
     let effective = Arc::new(mixdog_ai::registry::effective::EffectiveProviders::new(default_builder.clone(), media_keys.clone(), process.env.clone()));
-    let loaded_providers = effective.load(&config.loaded_agent().await.map_err(|error| ComposeError::Providers(error.to_string()))?, true).await.map_err(ComposeError::Providers)?;
+    // `getConfig()` of the runtime: the loaded config, which the Main route resolves over and the sync task rebuilds.
+    let loaded_config = Arc::new(mixdog_core_domains::domains::ai_admin::provider_sync::LoadedConfig::new(
+        mixdog_core_domains::domains::ai_admin::provider_sync::load_config(&config, &effective).await.map_err(ComposeError::Providers)?,
+    ));
+    let loaded_providers = loaded_config.get().get("providers").and_then(serde_json::Value::as_object).cloned().unwrap_or_default();
     readiness.set_providers(loaded_providers.clone());
     // The runtime's own provider config follows the loaded config.
-    let _provider_sync = mixdog_core_domains::domains::ai_admin::provider_sync::spawn_provider_sync(config.clone(), effective.clone(), readiness.clone(), b.cancel.child_token());
+    let _provider_sync = mixdog_core_domains::domains::ai_admin::provider_sync::spawn_provider_sync(config.clone(), effective.clone(), readiness.clone(), loaded_config.clone(), b.cancel.child_token());
 
     // The stores the warm gate, the resume timer, the media layer and the provider admin share (built here, ahead of step 5: the warmer\n    // needs the gate, and the gate needs the registry above).
     // The one `quota-resume.json` store: the setup tool's switch (`DomainSeams.quota_resume`, wp-config-setup-1), the goal
@@ -584,7 +588,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // wp-ai-admin-19/-22: the Main route of thread-less reads (`MainRoute`: the live config route at every call), the model list both `model/list` and the web-search rows call, and the
     // web-search route (`webSearchRouteOrDefault` over the stored config route). `cells` is the route cell of every conversation (the one `routes`).
     let unsupported = process.unsupported.clone(); // the SAME Arc<UnsupportedEfforts> as the route wirer and the effort judge
-    let main_route = Arc::new(mixdog_core::run_host::main_route::MainRoute::new(config.clone(), { let facts = facts.clone(); Arc::new(move |provider: &str, config: &serde_json::Map<String, serde_json::Value>| mixdog_core_domains::domains::ai_admin::chain::RouteFacts::is_known(&*facts, provider, config)) }));
+    let main_route = Arc::new(mixdog_core::run_host::main_route::MainRoute::new(loaded_config.clone(), { let facts = facts.clone(); Arc::new(move |provider: &str, config: &serde_json::Map<String, serde_json::Value>| mixdog_core_domains::domains::ai_admin::chain::RouteFacts::is_known(&*facts, provider, config)) }));
     let model_list = Arc::new(mixdog_core_domains::domains::ai_admin::model_list::ModelListService {
         catalog: b.catalog.clone(),
         config: config.clone(),

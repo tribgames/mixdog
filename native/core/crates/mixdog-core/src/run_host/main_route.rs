@@ -8,27 +8,30 @@
 //! these reads follow the live config. Visible effect: the order of the model list (the Lead
 //! provider's models first) and the web-search "Default" row follow a Lead route changed since the
 //! control session was made.
+//!
+//! The config it resolves over is the loaded one (`getConfig()` is `loadConfig()`: the canonical agent
+//! section with the providers of the loaded config and the effective presets), not the stored section.
 
 use std::sync::Arc;
 
 use mixdog_ai::service::admin_route::{Obj, resolve_route};
-use mixdog_core_config::config::Config;
+use mixdog_core_domains::domains::ai_admin::provider_sync::LoadedConfig;
 use serde_json::Value;
 
 pub struct MainRoute {
-    config: Config,
+    loaded: Arc<LoadedConfig>,
     is_known: Arc<dyn Fn(&str, &Obj) -> bool + Send + Sync>,
 }
 
 impl MainRoute {
     /// `is_known` is the catalog's `is_known(provider, config)` (`CatalogFacts`), as the route cell passes it.
-    pub fn new(config: Config, is_known: Arc<dyn Fn(&str, &Obj) -> bool + Send + Sync>) -> Self {
-        Self { config, is_known }
+    pub fn new(loaded: Arc<LoadedConfig>, is_known: Arc<dyn Fn(&str, &Obj) -> bool + Send + Sync>) -> Self {
+        Self { loaded, is_known }
     }
 
     /// The route as an object (`{}` when the config resolves none, as the route cell seeds an empty one).
     pub fn route(&self) -> Obj {
-        resolve_route(&self.config.agent(), &Obj::new(), &*self.is_known).unwrap_or_default()
+        resolve_route(&self.loaded.get(), &Obj::new(), &*self.is_known).unwrap_or_default()
     }
 
     /// `route().provider`: the provider whose models the list shows first.
@@ -39,57 +42,36 @@ impl MainRoute {
 
 #[cfg(test)]
 mod tests {
-    use mixdog_core_api::mock::MockStatePublisher;
-    use mixdog_core_config::config::ConfigLanes;
     use serde_json::json;
 
     use super::*;
 
-    // Test files go through the durability lane and `mixdog_statefile`, as the tree's other tests do.
-    fn on_lane<R: Send + 'static>(job: impl FnOnce(&mixdog_rt::InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> R {
-        use futures::FutureExt as _;
-        use mixdog_rt::LaneToken as _;
-        tokio::task::unconstrained(mixdog_rt::testing::tokens().durability_io.submit(&mixdog_rt::CancellationToken::new(), job).unwrap())
-            .now_or_never()
-            .expect("the test backend runs the job inline")
-            .unwrap()
-    }
-
-    fn write_file(path: &std::path::Path, body: &[u8]) {
-        let (path, body) = (path.to_owned(), body.to_vec());
-        on_lane(move |lane| mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default())).unwrap();
-    }
-
-    /// The Lead route is the preset `default` names (`resolveRoute(config, {})`): changing `default`
-    /// through the config's own write path between two calls moves the answer of the second one.
-    #[tokio::test]
-    async fn the_route_follows_the_config_between_calls() {
-        let dir = tempfile::tempdir().unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let path = dir.path().join("mixdog-config.json");
-        let agent = json!({
-            "default": "first",
+    fn loaded(default: &str) -> Obj {
+        json!({
+            "default": default,
             "presets": [
                 { "id": "first", "name": "First", "provider": "openai-oauth", "model": "gpt-first" },
                 { "id": "second", "name": "Second", "provider": "anthropic-oauth", "model": "claude-second" },
             ],
-        });
-        write_file(&path, &serde_json::to_vec(&json!({ "agent": agent })).unwrap());
-        let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        let main = MainRoute::new(config.clone(), Arc::new(|_, _| true));
+        })
+        .as_object()
+        .cloned()
+        .unwrap()
+    }
+
+    /// The Lead route is the preset `default` names (`resolveRoute(config, {})`) in the loaded config the
+    /// route reads at each call: a rebuilt loaded config moves the answer of the next one. (That a config
+    /// write rebuilds it is `provider_sync`'s test.)
+    #[test]
+    fn the_route_follows_the_loaded_config_between_calls() {
+        let holder = Arc::new(LoadedConfig::new(loaded("first")));
+        let main = MainRoute::new(holder.clone(), Arc::new(|_, _| true));
 
         let before = main.route();
         assert_eq!((before["provider"].as_str(), before["model"].as_str()), (Some("openai-oauth"), Some("gpt-first")));
         assert_eq!(main.provider(), "openai-oauth");
 
-        config
-            .update_agent(|doc| {
-                doc.insert("default".into(), json!("second"));
-                Ok(())
-            })
-            .await
-            .unwrap();
+        holder.replace(loaded("second"));
 
         let after = main.route();
         assert_eq!((after["provider"].as_str(), after["model"].as_str()), (Some("anthropic-oauth"), Some("claude-second")));

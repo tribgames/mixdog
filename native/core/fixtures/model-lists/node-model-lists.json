@@ -1,5 +1,146 @@
 {
   "baseURL": "__BASE_URL__",
+  "seeds": {
+    "modelsDev": {
+      "anthropic": {
+        "id": "anthropic",
+        "name": "Anthropic",
+        "env": [
+          "ANTHROPIC_API_KEY"
+        ],
+        "models": {
+          "claude-sonnet-4-6": {
+            "id": "claude-sonnet-4-6",
+            "name": "Claude Sonnet 4.6",
+            "family": "claude-sonnet",
+            "reasoning": true,
+            "tool_call": true,
+            "attachment": true,
+            "temperature": true,
+            "release_date": "2025-08-01",
+            "knowledge": "2025-03",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 3,
+              "output": 15,
+              "cache_read": 0.3,
+              "cache_write": 3.75
+            }
+          },
+          "claude-haiku-4-5-20251001": {
+            "id": "claude-haiku-4-5-20251001",
+            "name": "Claude Haiku 4.5",
+            "family": "claude-haiku",
+            "reasoning": true,
+            "tool_call": true,
+            "attachment": true,
+            "temperature": true,
+            "release_date": "2025-10-01",
+            "knowledge": "2025-03",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "limit": {
+              "context": 200000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 1,
+              "output": 5,
+              "cache_read": 0.1,
+              "cache_write": 1.25
+            }
+          },
+          "claude-opus-4-8": {
+            "id": "claude-opus-4-8",
+            "name": "Claude Opus 4.8",
+            "family": "claude-opus",
+            "reasoning": true,
+            "tool_call": true,
+            "attachment": true,
+            "temperature": true,
+            "release_date": "2026-02-01",
+            "knowledge": "2025-03",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "limit": {
+              "context": 500000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 15,
+              "output": 75,
+              "cache_read": 1.5,
+              "cache_write": 18.75
+            }
+          }
+        }
+      }
+    },
+    "litellm": {
+      "claude-sonnet-4-6": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 1000000,
+        "max_output_tokens": 64000,
+        "input_cost_per_token": 0.000003,
+        "output_cost_per_token": 0.000015,
+        "supports_vision": true,
+        "supports_function_calling": true,
+        "supports_prompt_caching": true,
+        "supports_reasoning": true
+      },
+      "claude-haiku-4-5-20251001": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 200000,
+        "max_output_tokens": 64000,
+        "input_cost_per_token": 0.000001,
+        "output_cost_per_token": 0.000005,
+        "supports_vision": true,
+        "supports_function_calling": true,
+        "supports_prompt_caching": true,
+        "supports_reasoning": true
+      },
+      "claude-opus-4-8": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 500000,
+        "max_output_tokens": 64000,
+        "input_cost_per_token": 0.000015,
+        "output_cost_per_token": 0.000075,
+        "supports_vision": true,
+        "supports_function_calling": true,
+        "supports_prompt_caching": true,
+        "supports_reasoning": true
+      }
+    }
+  },
   "scenarios": [
     {
       "name": "custom-manual",
@@ -10,7 +151,7 @@
             "schemaVersion": 2,
             "name": "Alpha",
             "protocol": "openai-chat",
-            "baseURL": "__BASE_URL__",
+            "baseURL": "__BASE_URL__/v1",
             "auth": "none",
             "enabled": true,
             "modelOverrides": {
@@ -73,6 +214,7 @@
           }
         }
       },
+      "stub": {},
       "calls": [
         {
           "action": "listProviderModels",
@@ -303,10 +445,10 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
+              "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
@@ -340,10 +482,10 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
+              "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
@@ -377,11 +519,11 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
-              "supportsReasoning": false,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
               "serviceTiers": [],
@@ -586,6 +728,7 @@
     {
       "name": "defaults",
       "agent": {},
+      "stub": {},
       "calls": [
         {
           "action": "listProviderModels",
@@ -609,10 +752,10 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
+              "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
@@ -646,10 +789,10 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
+              "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
@@ -683,11 +826,11 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
-              "supportsReasoning": false,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
               "serviceTiers": [],
@@ -761,6 +904,7 @@
           }
         }
       },
+      "stub": {},
       "calls": [
         {
           "action": "listProviderModels",
@@ -784,10 +928,10 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
+              "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
@@ -821,11 +965,11 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
-              "supportsReasoning": false,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
               "serviceTiers": [],
@@ -858,11 +1002,11 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
-              "supportsReasoning": false,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
               "serviceTiers": [],
@@ -911,7 +1055,7 @@
             "schemaVersion": 2,
             "name": "Beta",
             "protocol": "openai-chat",
-            "baseURL": "__BASE_URL__",
+            "baseURL": "__BASE_URL__/v1",
             "auth": "none",
             "enabled": true,
             "discovery": {
@@ -939,6 +1083,7 @@
           }
         ]
       },
+      "stub": {},
       "calls": [
         {
           "action": "listProviderModels",
@@ -962,10 +1107,10 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
+              "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
@@ -999,10 +1144,10 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
+              "supportsPromptCaching": true,
               "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
@@ -1036,11 +1181,11 @@
               "tier": null,
               "latest": false,
               "description": "",
-              "supportsVision": false,
-              "supportsFunctionCalling": false,
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
               "supportsWebSearch": true,
-              "supportsPromptCaching": false,
-              "supportsReasoning": false,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
               "reasoningOptions": [],
               "reasoningContentField": null,
               "serviceTiers": [],
@@ -1155,6 +1300,1063 @@
                 "replay": false
               },
               "providerName": "Beta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "listWebSearchModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": []
+        }
+      ]
+    },
+    {
+      "name": "anthropic-search",
+      "agent": {
+        "providers": {
+          "anthropic": {
+            "baseURL": "__BASE_URL__/a"
+          }
+        }
+      },
+      "env": {
+        "ANTHROPIC_API_KEY": "fixture-key-not-a-credential"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "data": [
+            {
+              "id": "claude-sonnet-4-6",
+              "type": "model",
+              "display_name": "Claude Sonnet 4.6",
+              "created_at": "2025-08-01T00:00:00Z"
+            },
+            {
+              "id": "claude-haiku-4-5-20251001",
+              "type": "model",
+              "display_name": "Claude Haiku 4.5",
+              "created_at": "2025-10-01T00:00:00Z"
+            }
+          ],
+          "has_more": false
+        }
+      },
+      "calls": [
+        {
+          "action": "listProviderModels",
+          "args": [
+            {
+              "quick": true
+            }
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "claude-opus-4-8",
+              "provider": "anthropic-oauth",
+              "display": "claude-opus-4-8",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": null,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": true,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "claude-sonnet-4-6",
+              "provider": "anthropic-oauth",
+              "display": "claude-sonnet-4-6",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": null,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "claude-haiku-4-5-20251001",
+              "provider": "anthropic-oauth",
+              "display": "claude-haiku-4-5-20251001",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": null,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "claude-sonnet-4-6",
+              "provider": "anthropic",
+              "display": "Claude Sonnet 4.6",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 500000,
+              "maxContextWindow": 1000000,
+              "outputTokens": 128000,
+              "family": "sonnet",
+              "tier": "version",
+              "latest": false,
+              "description": "",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [
+                {
+                  "type": "effort",
+                  "values": [
+                    "low",
+                    "medium",
+                    "high",
+                    "max"
+                  ]
+                },
+                {
+                  "type": "budget_tokens",
+                  "min": 1024
+                }
+              ],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "effortOptions": [
+                {
+                  "value": "low",
+                  "label": "Low",
+                  "description": ""
+                },
+                {
+                  "value": "medium",
+                  "label": "Medium",
+                  "description": ""
+                },
+                {
+                  "value": "high",
+                  "label": "High",
+                  "description": ""
+                },
+                {
+                  "value": "max",
+                  "label": "Max",
+                  "description": ""
+                }
+              ],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "listWebSearchModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "claude-haiku-5-5",
+              "provider": "anthropic",
+              "display": "Claude Haiku 5.5",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 500000,
+              "maxContextWindow": 1000000,
+              "outputTokens": 128000,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [
+                {
+                  "type": "toggle"
+                },
+                {
+                  "type": "effort",
+                  "values": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              ],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "effortOptions": [
+                {
+                  "value": "low",
+                  "label": "Low",
+                  "description": ""
+                },
+                {
+                  "value": "medium",
+                  "label": "Medium",
+                  "description": ""
+                },
+                {
+                  "value": "high",
+                  "label": "High",
+                  "description": ""
+                },
+                {
+                  "value": "xhigh",
+                  "label": "Extra High",
+                  "description": ""
+                },
+                {
+                  "value": "max",
+                  "label": "Max",
+                  "description": ""
+                }
+              ],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "claude-opus-5-5",
+              "provider": "anthropic",
+              "display": "Claude Opus 5.5",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 500000,
+              "maxContextWindow": 1000000,
+              "outputTokens": 128000,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [
+                {
+                  "type": "effort",
+                  "values": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              ],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": true,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "effortOptions": [
+                {
+                  "value": "low",
+                  "label": "Low",
+                  "description": ""
+                },
+                {
+                  "value": "medium",
+                  "label": "Medium",
+                  "description": ""
+                },
+                {
+                  "value": "high",
+                  "label": "High",
+                  "description": ""
+                },
+                {
+                  "value": "xhigh",
+                  "label": "Extra High",
+                  "description": ""
+                },
+                {
+                  "value": "max",
+                  "label": "Max",
+                  "description": ""
+                }
+              ],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "claude-sonnet-5-5",
+              "provider": "anthropic",
+              "display": "Claude Sonnet 5.5",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 500000,
+              "maxContextWindow": 1000000,
+              "outputTokens": 128000,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [
+                {
+                  "type": "effort",
+                  "values": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              ],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "effortOptions": [
+                {
+                  "value": "low",
+                  "label": "Low",
+                  "description": ""
+                },
+                {
+                  "value": "medium",
+                  "label": "Medium",
+                  "description": ""
+                },
+                {
+                  "value": "high",
+                  "label": "High",
+                  "description": ""
+                },
+                {
+                  "value": "xhigh",
+                  "label": "Extra High",
+                  "description": ""
+                },
+                {
+                  "value": "max",
+                  "label": "Max",
+                  "description": ""
+                }
+              ],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "claude-fable-5-1",
+              "provider": "anthropic",
+              "display": "Claude Fable 5.1",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 500000,
+              "maxContextWindow": 1000000,
+              "outputTokens": 128000,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [
+                {
+                  "type": "effort",
+                  "values": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              ],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "effortOptions": [
+                {
+                  "value": "low",
+                  "label": "Low",
+                  "description": ""
+                },
+                {
+                  "value": "medium",
+                  "label": "Medium",
+                  "description": ""
+                },
+                {
+                  "value": "high",
+                  "label": "High",
+                  "description": ""
+                },
+                {
+                  "value": "xhigh",
+                  "label": "Extra High",
+                  "description": ""
+                },
+                {
+                  "value": "max",
+                  "label": "Max",
+                  "description": ""
+                }
+              ],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "claude-opus-5",
+              "provider": "anthropic",
+              "display": "Claude Opus 5",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 500000,
+              "maxContextWindow": 1000000,
+              "outputTokens": 128000,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [
+                {
+                  "type": "effort",
+                  "values": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              ],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": true,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "effortOptions": [
+                {
+                  "value": "low",
+                  "label": "Low",
+                  "description": ""
+                },
+                {
+                  "value": "medium",
+                  "label": "Medium",
+                  "description": ""
+                },
+                {
+                  "value": "high",
+                  "label": "High",
+                  "description": ""
+                },
+                {
+                  "value": "xhigh",
+                  "label": "Extra High",
+                  "description": ""
+                },
+                {
+                  "value": "max",
+                  "label": "Max",
+                  "description": ""
+                }
+              ],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "custom-discovery",
+      "agent": {
+        "providers": {
+          "custom-dddd": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Delta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/c/v1",
+            "auth": "none",
+            "enabled": true,
+            "modelOverrides": {
+              "disc-b": {
+                "hidden": true
+              },
+              "m1": {
+                "manual": true,
+                "name": "Manual One"
+              }
+            }
+          }
+        },
+        "presets": [
+          {
+            "id": "d1",
+            "name": "D1",
+            "provider": "custom-dddd",
+            "model": "disc-a"
+          }
+        ],
+        "default": "d1"
+      },
+      "stub": {
+        "/c/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "disc-a",
+              "object": "model",
+              "owned_by": "fixture"
+            },
+            {
+              "id": "disc-b",
+              "object": "model",
+              "owned_by": "fixture"
+            },
+            {
+              "id": "disc-c",
+              "object": "model",
+              "owned_by": "fixture",
+              "context_length": 131072
+            }
+          ]
+        }
+      },
+      "calls": [
+        {
+          "action": "listProviderModels",
+          "args": [
+            {
+              "quick": true
+            }
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-a",
+              "provider": "custom-dddd",
+              "display": "disc-a",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": null,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "name": "disc-a",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": null,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "claude-opus-4-8",
+              "provider": "anthropic-oauth",
+              "display": "claude-opus-4-8",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": null,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": true,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "claude-sonnet-4-6",
+              "provider": "anthropic-oauth",
+              "display": "claude-sonnet-4-6",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": null,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "claude-haiku-4-5-20251001",
+              "provider": "anthropic-oauth",
+              "display": "claude-haiku-4-5-20251001",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": null,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": "chat",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-a",
+              "provider": "custom-dddd",
+              "display": "disc-a",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-a",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "disc-c",
+              "provider": "custom-dddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
               "effortOptions": [],
               "fastPreferred": false,
               "autoEffortCapable": false,

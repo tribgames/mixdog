@@ -1,0 +1,141 @@
+{
+  "modelsDev": {
+    "anthropic": {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "env": [
+        "ANTHROPIC_API_KEY"
+      ],
+      "models": {
+        "claude-sonnet-4-6": {
+          "id": "claude-sonnet-4-6",
+          "name": "Claude Sonnet 4.6",
+          "family": "claude-sonnet",
+          "reasoning": true,
+          "tool_call": true,
+          "attachment": true,
+          "temperature": true,
+          "release_date": "2025-08-01",
+          "knowledge": "2025-03",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 64000
+          },
+          "cost": {
+            "input": 3,
+            "output": 15,
+            "cache_read": 0.3,
+            "cache_write": 3.75
+          }
+        },
+        "claude-haiku-4-5-20251001": {
+          "id": "claude-haiku-4-5-20251001",
+          "name": "Claude Haiku 4.5",
+          "family": "claude-haiku",
+          "reasoning": true,
+          "tool_call": true,
+          "attachment": true,
+          "temperature": true,
+          "release_date": "2025-10-01",
+          "knowledge": "2025-03",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "cost": {
+            "input": 1,
+            "output": 5,
+            "cache_read": 0.1,
+            "cache_write": 1.25
+          }
+        },
+        "claude-opus-4-8": {
+          "id": "claude-opus-4-8",
+          "name": "Claude Opus 4.8",
+          "family": "claude-opus",
+          "reasoning": true,
+          "tool_call": true,
+          "attachment": true,
+          "temperature": true,
+          "release_date": "2026-02-01",
+          "knowledge": "2025-03",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 500000,
+            "output": 64000
+          },
+          "cost": {
+            "input": 15,
+            "output": 75,
+            "cache_read": 1.5,
+            "cache_write": 18.75
+          }
+        }
+      }
+    }
+  },
+  "litellm": {
+    "claude-sonnet-4-6": {
+      "litellm_provider": "anthropic",
+      "mode": "chat",
+      "max_input_tokens": 1000000,
+      "max_output_tokens": 64000,
+      "input_cost_per_token": 0.000003,
+      "output_cost_per_token": 0.000015,
+      "supports_vision": true,
+      "supports_function_calling": true,
+      "supports_prompt_caching": true,
+      "supports_reasoning": true
+    },
+    "claude-haiku-4-5-20251001": {
+      "litellm_provider": "anthropic",
+      "mode": "chat",
+      "max_input_tokens": 200000,
+      "max_output_tokens": 64000,
+      "input_cost_per_token": 0.000001,
+      "output_cost_per_token": 0.000005,
+      "supports_vision": true,
+      "supports_function_calling": true,
+      "supports_prompt_caching": true,
+      "supports_reasoning": true
+    },
+    "claude-opus-4-8": {
+      "litellm_provider": "anthropic",
+      "mode": "chat",
+      "max_input_tokens": 500000,
+      "max_output_tokens": 64000,
+      "input_cost_per_token": 0.000015,
+      "output_cost_per_token": 0.000075,
+      "supports_vision": true,
+      "supports_function_calling": true,
+      "supports_prompt_caching": true,
+      "supports_reasoning": true
+    }
+  }
+}
