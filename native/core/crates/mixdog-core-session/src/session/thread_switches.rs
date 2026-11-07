@@ -18,7 +18,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::admin_route::truthy;
 use mixdog_core_api::ThreadHandle as _;
 use mixdog_core_api::call::CallContext;
@@ -33,7 +32,6 @@ use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_run::run_host::route_chain::resolve_session_mode;
 use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::record::Header;
-use mixdog_tools::fs::ReadState;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Map;
 use serde_json::Value;
@@ -41,10 +39,8 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use super::close::SessionClose;
-use super::close::stop_session_work;
 use super::route_session::ContextStatusCache;
 use super::route_session::has_user_conversation;
-use super::shell_jobs::OwnedShells;
 use super::thread_settings::has_conversation_messages;
 use super::thread_state::SessionThreads;
 
@@ -1014,26 +1010,17 @@ pub struct SessionContextSwitch {
     directory: Arc<SessionDirectory>,
     threads: SessionThreads,
     close: Arc<SessionClose>,
-    providers: Arc<ProviderRegistry>,
-    shells: Arc<dyn OwnedShells>,
-    read_state: Arc<ReadState>,
     target: Arc<dyn ContextTarget>,
 }
 
 impl SessionContextSwitch {
-    pub fn new(
-        directory: Arc<SessionDirectory>,
-        close: Arc<SessionClose>,
-        providers: Arc<ProviderRegistry>,
-        shells: Arc<dyn OwnedShells>,
-        read_state: Arc<ReadState>,
-        target: Arc<dyn ContextTarget>,
-    ) -> Self {
-        Self { threads: SessionThreads::new(directory.clone()), directory, close, providers, shells, read_state, target }
+    pub fn new(directory: Arc<SessionDirectory>, close: Arc<SessionClose>, target: Arc<dyn ContextTarget>) -> Self {
+        Self { threads: SessionThreads::new(directory.clone()), directory, close, target }
     }
 
     /// Leaving the open conversation: a scratch one is tombstoned (nothing worth resuming), any
-    /// other stays resumable; its memory is ingested without waiting; its work is released.
+    /// other stays resumable but is detached, which moves its generation on (`closeSurfaceSession(session, reason,
+    /// { tombstone: isScratchSession(session) })`); its memory is ingested without waiting; its work is released.
     async fn leave(&self, thread: &ThreadId) -> Result<(), String> {
         let committed = match ThreadMessages::messages(&self.threads, thread).await {
             Ok(messages) => messages,
@@ -1046,9 +1033,8 @@ impl SessionContextSwitch {
             if !self.close.close(thread.as_str(), CONTEXT_SWITCH_REASON).await {
                 return Err(format!("session close failed (reason={CONTEXT_SWITCH_REASON}); the current session is kept"));
             }
-        } else {
-            stop_session_work(&self.directory, &*self.shells, &self.read_state, thread, CONTEXT_SWITCH_REASON, "context-switch").await;
-            self.providers.release_session(thread.as_str());
+        } else if !self.close.detach(thread.as_str(), CONTEXT_SWITCH_REASON, false).await {
+            return Err(format!("session close failed (reason={CONTEXT_SWITCH_REASON}); the current session is kept"));
         }
         let context = self.directory.model_context(thread);
         let memory = self.directory.deps().memory.clone();

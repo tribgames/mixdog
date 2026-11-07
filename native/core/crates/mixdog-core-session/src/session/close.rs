@@ -340,11 +340,28 @@ impl SessionClose {
     }
 }
 
-/// Teardown's `closeOwnSession` (`teardown/session-close.mjs:42-60`): the session is closed with the stop's
-/// reason, tombstoned while it is an empty scratch session and detached otherwise.
+/// An agent worker's session (`owner: "agent"`, the lead check of `pool-list`: `owner !== 'agent'`). A runtime's own
+/// session is never one: the workers are closed by the runtime's `agentTool.closeAll` (`teardown.mjs:231`), which
+/// detaches each of them and which `OwnerTeardown` already ran.
+fn is_worker(header: &Map<String, Value>) -> bool {
+    header.get("owner").map(mixdog_js::value_to_string).is_some_and(|owner| mixdog_js::js_trim(&owner).eq_ignore_ascii_case("agent"))
+}
+
+/// Teardown's `closeOwnSession` (`teardown/session-close.mjs:42-60`): the session a runtime holds is closed with the
+/// stop's reason, tombstoned while it is an empty scratch session and detached otherwise. A worker session is not
+/// the runtime's own: the agents' close already detached it, and it gets no second bump.
 #[async_trait::async_trait]
 impl super::directory::ExitClose for SessionClose {
     async fn close_on_exit(&self, thread: &ThreadId, reason: &str) {
+        match self.threads.header(thread).await {
+            Ok(header) if is_worker(&header) => return,
+            Ok(_) => {}
+            Err(PortError::NotFound { .. }) => return,
+            Err(error) => {
+                tracing::warn!("[session-close] {thread}: its header could not be read at exit: {error:?}");
+                return;
+            }
+        }
         let committed = match mixdog_core_ports::ports::memory_source::ThreadMessages::messages(&self.threads, thread).await {
             Ok(messages) => messages,
             Err(PortError::NotFound { .. }) => return,

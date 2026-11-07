@@ -446,7 +446,7 @@ fn context_switch(world: &World) -> (SessionContextSwitch, Arc<Target>) {
     let shells: Arc<dyn crate::session::shell_jobs::OwnedShells> = Arc::new(NoShells);
     let close = Arc::new(crate::session::close::SessionClose::new(world.directory.clone(), providers.clone(), shells.clone(), read_state.clone()));
     let target = Arc::new(Target::default());
-    (SessionContextSwitch::new(world.directory.clone(), close, providers, shells, read_state, target.clone()), target)
+    (SessionContextSwitch::new(world.directory.clone(), close, target.clone()), target)
 }
 
 /// Node's calls of `switchContext` that the daemon does not make, because they retarget the
@@ -525,6 +525,8 @@ async fn the_session_left_is_closed_as_node_closes_it() {
     switch.switch_context("sess_used", None, Some(json!({ "id": "d1" })), false).await.expect("switched");
     let kept = world.stored("sess_used").await;
     assert!(kept.get("closed").is_none(), "a conversation stays resumable: {kept:?}");
+    assert_eq!(kept.get("detachedReason"), Some(&json!(CONTEXT_SWITCH_REASON)), "but it is detached, as Node's closeSession(.., { tombstone: false }) does: {kept:?}");
+    assert!(kept.get("generation").and_then(Value::as_f64).is_some_and(|generation| generation >= 1.0), "which moves its generation on: {kept:?}");
     eventually(|| handle.cell.run.load().is_none().then_some(())).await;
     eventually(|| lock(&world.rig.closes.seen).iter().any(|(id, _)| id.as_str() == "sess_used").then_some(())).await;
     assert_eq!(
@@ -533,4 +535,47 @@ async fn the_session_left_is_closed_as_node_closes_it() {
         "the outgoing thread gets the kept calls in Node's order, without the dropped ones"
     );
     let _: Map<String, Value> = kept;
+}
+
+/// Teardown closes each runtime's own session and no worker's (`closeOwnSession`, `teardown.mjs:258`): the conversation
+/// is detached (its generation moves on, `detachedReason` is the stop's), a worker session keeps what the agents' close
+/// left, and a worker not detached before is not detached by the exit.
+#[tokio::test(start_paused = true)]
+async fn the_exit_closes_the_runtimes_own_session_and_no_worker() {
+    let world = world().await;
+    let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoProviders)));
+    let close = Arc::new(crate::session::close::SessionClose::new(
+        world.directory.clone(),
+        providers,
+        Arc::new(NoShells),
+        Arc::new(mixdog_tools::fs::ReadState::new(None)),
+    ));
+    world.directory.set_exit_close(close.clone()).map_err(|_| "bound").expect("bound once");
+
+    world.rig.set_script(answer_then_wait());
+    let mut worker_header = world.scenario_header("idle-workflow-round-trip");
+    worker_header.insert("owner".into(), json!("agent"));
+    let mut handles = Vec::new();
+    for (id, header) in [("sess_lead", world.scenario_header("idle-workflow-round-trip")), ("sess_worker", worker_header.clone()), ("sess_detached", worker_header)] {
+        let handle = world.session(id, header).await;
+        turn(&handle, "hi", "op-1").await;
+        eventually(|| (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from(id)).len() > 4).then_some(())).await;
+        handles.push(handle);
+    }
+    // The agents' close ran first and detached this worker.
+    assert!(close.detach("sess_detached", "cli-agent-close", true).await);
+    let before = world.stored("sess_detached").await;
+    let generation = |header: &Header| header.get("generation").and_then(Value::as_f64).unwrap_or(0.0);
+
+    world.directory.shutdown_for("no live session clients").await;
+
+    let lead = world.stored("sess_lead").await;
+    assert_eq!(lead.get("detachedReason"), Some(&json!("no live session clients")), "{lead:?}");
+    assert_eq!(generation(&lead), 1.0, "the runtime's own session is detached once: {lead:?}");
+    assert!(lead.get("closed").is_none(), "and stays resumable: {lead:?}");
+    let worker = world.stored("sess_worker").await;
+    assert_eq!((generation(&worker), worker.get("detachedReason")), (0.0, None), "a worker the agents' close did not detach is not detached by the exit: {worker:?}");
+    let detached = world.stored("sess_detached").await;
+    assert_eq!(generation(&detached), generation(&before), "a detached worker gets no second bump: {detached:?}");
+    assert_eq!(detached.get("detachedReason"), Some(&json!("cli-agent-close")));
 }
