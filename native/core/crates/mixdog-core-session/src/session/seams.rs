@@ -535,6 +535,11 @@ pub trait NewThreadRoute: Send + Sync + 'static {
     /// not created.
     async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String>;
 
+    /// [`adopt`](Self::adopt) for the desktop's control session, which is created before any model is chosen
+    /// (`ensureControlSession`; only a turn needs a model, `resolveMissingRouteModelForFirstTurn`): the live route is
+    /// readied when it has a model and answered as it is when it has none.
+    async fn adopt_control(&self, thread: &ThreadId) -> Result<serde_json::Map<String, Value>, String>;
+
     /// The created, still empty `thread` takes its live route onto its header.
     async fn seat(&self, thread: &ThreadId) -> Result<(), String>;
 }

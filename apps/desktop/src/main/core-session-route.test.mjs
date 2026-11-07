@@ -138,3 +138,23 @@ test('deleteSession is thread/delete, and a session the core does not have is a 
   });
   await assert.rejects(busy.client.deleteSession(SESSION), { message: 'rpc' });
 });
+
+test('continue, schedule and cancel on a session the core does not have raise what Node raised', async () => {
+  const refusing = (reason) =>
+    createCapabilityLane({
+      protocol: {
+        snapshot: () => ({ status: 'ready', entries: [] }),
+        noteUserInput() {},
+        onEvent: () => () => undefined,
+        call: async () => {
+          throw Object.assign(new Error('rpc'), { detail: { kind: 'rpc', data: { reason } } });
+        },
+      },
+    });
+  const missing = refusing('threadNotFound');
+  for (const capability of ['continueSessionInModel', 'scheduleQuotaResume', 'cancelQuotaResume']) {
+    await assert.rejects(missing.invoke(capability, [SESSION, {}], SESSION), { message: 'session is not the active session' });
+  }
+  // Any other refusal keeps its own text.
+  await assert.rejects(refusing('overloaded').invoke('scheduleQuotaResume', [SESSION], SESSION), { message: 'rpc' });
+});
