@@ -11,18 +11,19 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_core_api::domain::tool::Tool;
+use mixdog_core_api::domain::approval::ActionKind;
+use mixdog_core_api::domain::tool::{Freeform, Tool, ToolContext, ToolOutcome, ToolSpec};
 use mixdog_js::{js_trim, JsRegex};
 use mixdog_mcp::scopes::{ExtensionScopes, ScopeKind};
 use mixdog_mcp::McpHub;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::policy::surface::{AGENT_DENIED_TOOLS, READONLY_FS_TOOL_NAMES};
 use mixdog_tools::policy::SessionSurface;
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 
 use super::assemble::SessionTools;
 use super::agent_variants::{check_pool, VariantError};
-use super::tool_surface::{filter_model_edit_tool_names, ROUTE_TOOL_ORDER};
+use super::tool_surface::{bind_edit_dialect, filter_model_edit_tool_names, ROUTE_TOOL_ORDER};
 
 type Tools = Vec<Arc<dyn Tool>>;
 
@@ -104,6 +105,23 @@ pub fn internal_tools(pool: &[Arc<dyn Tool>]) -> Tools {
     pool.iter().filter(|t| t.spec().public && !is_builtin(name(t)) && ![TODO, "call_tool"].contains(&name(t))).cloned().collect()
 }
 
+/// A resolved tool as the session holds it. An internal tool went through `_getMcpTools`' projection to
+/// `{ name, description, inputSchema, annotations }`, which carries neither its `title` nor its
+/// `trigger`: the deferred manifest lists its description. The built-ins, the connected servers' tools
+/// and the step list keep their whole definition.
+pub fn session_doc(pool: &[Arc<dyn Tool>], tool: &Arc<dyn Tool>) -> Value {
+    let doc = tool.spec().definition();
+    if !internal_tools(pool).iter().any(|internal| name(internal) == name(tool)) {
+        return doc;
+    }
+    let mut projected = Map::new();
+    projected.insert("name".to_owned(), doc["name"].clone());
+    projected.insert("description".to_owned(), Value::String(doc.get("description").and_then(Value::as_str).unwrap_or_default().to_owned()));
+    projected.insert("inputSchema".to_owned(), doc.get("inputSchema").filter(|schema| !schema.is_null()).cloned().unwrap_or_else(|| json!({ "type": "object", "properties": {} })));
+    projected.insert("annotations".to_owned(), doc.get("annotations").cloned().unwrap_or_else(|| json!({})));
+    Value::Object(projected)
+}
+
 /// The tools a session's spec resolves to, in the order they are sent. `mcp` are the connected
 /// servers' tools.
 pub fn resolve(pool: &[Arc<dyn Tool>], mcp: Tools, request: &Resolve<'_>) -> Tools {
@@ -163,6 +181,50 @@ fn finalize(mut tools: Tools, request: &Resolve<'_>) -> Tools {
         tools = ordered(tools);
     }
     tools
+}
+
+/// An executable tool whose definitions (the Lead's and a delegated agent's) name the one edit dialect
+/// the session's model can call (`bindEditDialectDescription`): `filterModelEditTools` rewrites the
+/// token of a static description in the session's tool list, and the model is sent the definitions of
+/// the executable set.
+struct EditDialect {
+    spec: ToolSpec,
+    agent: Option<ToolSpec>,
+    inner: Arc<dyn Tool>,
+}
+
+#[async_trait]
+impl Tool for EditDialect {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    fn agent_spec(&self) -> Option<&ToolSpec> {
+        self.agent.as_ref()
+    }
+
+    fn freeform(&self) -> Option<&Freeform> {
+        self.inner.freeform()
+    }
+
+    fn outbound_kind(&self, args: &Value) -> Option<ActionKind> {
+        self.inner.outbound_kind(args)
+    }
+
+    async fn call(&self, ctx: &ToolContext, args: Value) -> ToolOutcome {
+        self.inner.call(ctx, args).await
+    }
+}
+
+/// `tool` as `model`'s session holds it: itself, or its dialect-bound twin when a definition of it has the token.
+fn bound_to_model(tool: Arc<dyn Tool>, model: &str) -> Arc<dyn Tool> {
+    let rewrite = |spec: &ToolSpec| bind_edit_dialect(&spec.description, model).map(|description| ToolSpec { description, ..spec.clone() });
+    let spec = rewrite(tool.spec());
+    let agent = tool.agent_spec().and_then(rewrite);
+    if spec.is_none() && agent.is_none() {
+        return tool;
+    }
+    Arc::new(EditDialect { spec: spec.unwrap_or_else(|| tool.spec().clone()), agent: agent.or_else(|| tool.agent_spec().cloned()), inner: tool })
 }
 
 /// The connected MCP servers' tools a session at `cwd` may see (`getMcpTools` and
@@ -242,6 +304,7 @@ impl SessionToolBuilder {
             .iter()
             .filter(|active| !surface.route_excluded.iter().any(|(excluded, _)| excluded == *active))
             .filter_map(|active| resolved.iter().chain(&bridge).find(|t| name(t) == active).cloned())
+            .map(|tool| bound_to_model(tool, model))
             .collect();
         let builtins = tools.iter().map(|t| name(t)).filter(|n| is_builtin(n)).map(str::to_owned).collect();
         // A `public: false` tool is in no list a model is sent, but a call the runtime rewrites onto it
@@ -454,5 +517,28 @@ mod tests {
         pool[at] = Arc::new(Stub(spec_of("task")));
         let error = SessionToolBuilder::new(pool, Arc::new(Fixed(mcp)), Arc::new(Listed(false))).err().expect("refused");
         assert_eq!(error, VariantError { tool: "task" });
+    }
+
+    /// An internal tool is held as `_getMcpTools` projects it (no `title`, no `trigger`), so the deferred
+    /// manifest lists its description; a built-in keeps its whole definition.
+    #[test]
+    fn an_internal_tool_loses_its_trigger_and_a_builtin_keeps_it() {
+        let with_trigger = |name: &str| -> Arc<dyn Tool> {
+            let annotations = ToolAnnotations { read_only_hint: Some(true), ..ToolAnnotations::default() };
+            Arc::new(Stub(ToolSpec { title: Some("T".into()), trigger: Some("when".into()), description: "what".into(), annotations, ..spec_of(name) }))
+        };
+        let pool = vec![with_trigger("read"), with_trigger("session")];
+        assert_eq!(session_doc(&pool, &pool[1]), json!({ "name": "session", "description": "what", "inputSchema": {}, "annotations": { "readOnlyHint": true } }));
+        assert_eq!(session_doc(&pool, &pool[0]), pool[0].spec().definition());
+    }
+
+    /// The model is sent a static description with the one edit dialect it can call (`bindEditDialectDescription`).
+    #[test]
+    fn a_description_names_the_edit_dialect_the_model_can_call() {
+        let shell: Arc<dyn Tool> = Arc::new(Stub(ToolSpec { description: "writes with edit/apply_patch".into(), ..spec_of("shell") }));
+        assert_eq!(bound_to_model(shell.clone(), "claude-opus-4-6").spec().description, "writes with edit");
+        assert_eq!(bound_to_model(shell, "gpt-5").spec().description, "writes with apply_patch");
+        let read = stub("read");
+        assert!(Arc::ptr_eq(&bound_to_model(read.clone(), "gpt-5"), &read), "a description without the token is left as it is");
     }
 }

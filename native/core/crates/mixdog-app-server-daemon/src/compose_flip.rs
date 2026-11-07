@@ -276,6 +276,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     )
     .await
     .map_err(|e| ComposeError::Config(format!("{e:?}")))?;
+    // Node's boot runs `ensureDefaultsSeparated` before any session reads the config: a file from before the separation holds the agent
+    // roster as a full list, and the sessions below read it as the delta against the defaults (advisor starts off).
+    mixdog_core_config::config::agent_routes::separate_agent_roster(&config).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
 
     // ---- 2. policy, hub, hook bus; the late views and the one secret input ---------------------
     let PolicyParts { policy, connectors, grants, connector_policy } = build_policy(&b.tokens, &b.data_dir);
@@ -1599,6 +1602,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             messages: Arc::new(mixdog_core::run_host::compose_parts::LateThreads(late.clone())),
             live: Arc::new(mixdog_core::run_host::agent_inputs::LateLiveSessions(late.clone())),
             workflow: run_workflow_surface.clone(),
+            config_revision: Arc::new({ let config = config.clone(); move || config.revision() }),
         })
         .map_err(ComposeError::SurfaceVariant)?, // fallible: a `git`/`task` tool without the Lead text is refused (`VariantError`)
     );

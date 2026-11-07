@@ -102,6 +102,62 @@ async fn a_damaged_bot_file_reads_from_its_last_good_copy() {
     assert_eq!(routes.own_route("ada").await.unwrap(), route("b"));
 }
 
+async fn routes_of(dir: &tempfile::TempDir, root: Value) -> AgentRoutes {
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let path = dir.path().join("mixdog-config.json");
+    std::fs::write(&path, serde_json::to_vec(&root).unwrap()).unwrap();
+    let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    AgentRoutes::new(config, dir.path())
+}
+
+fn ids(value: &Value) -> Vec<&str> {
+    value.as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect()
+}
+
+/// A file from before the defaults separation is read at boot as `ensureDefaultsSeparated` reads it: the
+/// stored full list against the roster shipped back then, so `advisor` and `explore` (default-off since)
+/// start off and every other agent keeps the choice the file made (here: on).
+#[tokio::test]
+async fn the_boot_separates_the_roster_of_an_older_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let routes = routes_of(&dir, json!({ "agent": { "providers": { "p": { "enabled": true } } } })).await;
+    assert!(!routes.is_disabled("advisor"), "before the separation the file's list is the whole roster");
+    separate_agent_roster(&routes.config).await.unwrap();
+    let agent = routes.config.agent();
+    assert_eq!(ids(&agent["enabledAgents"]), ["front-worker", "heavy-worker", "maintainer", "reviewer", "security", "worker", "writer"]);
+    assert!(agent.get("disabledAgents").is_none());
+    assert_eq!(routes.config.full().get("defaultsVersion"), Some(&json!(2)));
+    assert!(routes.is_disabled("Advisor") && routes.is_disabled("explore"));
+    assert!(!routes.is_disabled("worker") && !routes.is_disabled("custom"));
+    // A file at the current version is left as it is, and so is an empty one.
+    let before = routes.config.full();
+    separate_agent_roster(&routes.config).await.unwrap();
+    assert_eq!(routes.config.full(), before);
+    let empty = tempfile::tempdir().unwrap();
+    let unwritten = routes_of(&empty, json!({})).await;
+    separate_agent_roster(&unwritten.config).await.unwrap();
+    assert!(unwritten.config.full().is_empty());
+}
+
+/// A separated file stores the roster as the user's delta against the defaults: `disabledAgents` lists what
+/// the user turned off beyond them, `enabledAgents` the default-off agents they turned on.
+#[tokio::test]
+async fn a_separated_file_holds_the_roster_as_a_delta() {
+    let dir = tempfile::tempdir().unwrap();
+    let routes = routes_of(&dir, json!({ "defaultsVersion": 2, "agent": { "enabledAgents": ["worker"], "disabledAgents": ["custom"] } })).await;
+    assert!(!routes.is_disabled("worker") && routes.is_disabled("reviewer") && routes.is_disabled("custom") && !routes.is_disabled("other"));
+    routes.set_disabled("custom", false).await.unwrap();
+    routes.set_disabled("reviewer", false).await.unwrap();
+    let agent = routes.config.agent();
+    assert_eq!(ids(&agent["enabledAgents"]), ["reviewer", "worker"]);
+    assert!(agent.get("disabledAgents").is_none());
+    routes.set_disabled("worker", true).await.unwrap();
+    routes.set_disabled("reviewer", true).await.unwrap();
+    let agent = routes.config.agent();
+    assert!(agent.get("enabledAgents").is_none() && agent.get("disabledAgents").is_none(), "the defaults alone are stored as nothing");
+}
+
 #[test]
 fn ids_normalise_like_node() {
     assert_eq!(agent_id_key("  Front_Worker x "), "front-worker-x");

@@ -66,6 +66,7 @@ use super::deferred_manifest::apply_initial_manifest;
 use super::prompt_rebuild::PromptRebuild;
 use super::prompt_rebuild::RebuildRequest;
 use super::prompt_session::SessionPrompt;
+use super::prompt_session::refresh_environment;
 use super::tool_availability::Moved;
 use super::tool_availability::stage_connector_availability;
 use super::turn_settings::TurnSettings;
@@ -83,12 +84,14 @@ use super::session_tools::SkillsListed;
 use super::session_tools::internal_tools;
 use super::session_tools::resolve;
 use super::session_tools::route_rank;
+use super::session_tools::session_doc;
 use super::tool_pool::model_surface::SurfaceInputs;
 use super::tool_pool::model_surface::model_standalone_tools;
 use super::tool_pool::model_surface::workflow_allows_agents;
 use super::tool_surface::ApplyOptions;
 use super::tool_surface::ToolSurface;
 use super::tool_surface::clean;
+use super::tool_surface::truthy;
 use super::tool_surface::filter_disallowed_tools;
 use super::tool_surface::tool_name;
 use super::tool_surface::SurfaceHost as ToolSurfaceHost;
@@ -184,6 +187,17 @@ pub struct SurfaceSources {
     pub messages: Arc<dyn ThreadMessages>,
     pub live: Arc<dyn LiveSessions>,
     pub workflow: Arc<dyn WorkflowSurface>,
+    /// How many documents the config has installed so far (`Config::revision`): Node's `availabilityKey`
+    /// counts the config objects, replaced on every adopt and every reload.
+    pub config_revision: Arc<dyn Fn() -> u64 + Send + Sync>,
+}
+
+/// What an empty thread's surface was last brought to (`appliedKeys` of `tool-policy-refresh.mjs`): the
+/// gates it was built from and the revision of the prompt settings it presents.
+#[derive(Clone, PartialEq, Eq)]
+struct Applied {
+    gates: String,
+    settings: String,
 }
 
 /// The production [`SurfaceHost`].
@@ -192,6 +206,9 @@ pub struct LeadSurfaceHost {
     sources: SurfaceSources,
     /// The agent definition of the pool's `git` and `task` (`Tool::agent_spec`), for agent-owned threads.
     agent_defs: HashMap<String, Value>,
+    /// Thread id to the key its surface was last brought to. In this process only, as Node's is: a thread
+    /// first seen here (resumed) is checked once.
+    applied: std::sync::Mutex<HashMap<String, Applied>>,
 }
 
 /// `deferredSurfaceModeForLead`.
@@ -249,7 +266,29 @@ impl LeadSurfaceHost {
     pub fn new(sources: SurfaceSources) -> Result<Self, VariantError> {
         check_pool(&sources.pool)?;
         let agent_defs = agent_definitions(&sources.pool);
-        Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs })
+        Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs, applied: std::sync::Mutex::default() })
+    }
+
+    /// `availabilityKey()` less the skill and plugin generation: the config installed, and the gate list.
+    fn gates(&self, feature_denied: &[String]) -> String {
+        format!("{}|{}", (self.sources.config_revision)(), feature_denied.join(","))
+    }
+
+    /// `appliedKeys.get(session)`.
+    fn applied_to(&self, thread: &ThreadId) -> Option<Applied> {
+        self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(thread.as_str()).cloned()
+    }
+
+    /// `appliedKeys.set(session, key)`.
+    fn note_applied(&self, thread: &ThreadId, key: Applied) {
+        self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.as_str().to_owned(), key);
+    }
+
+    /// `note_applied` of the key a reconcile brought the surface to, if it brought it to one.
+    fn note_applied_key(&self, thread: &ThreadId, key: Option<Applied>) {
+        if let Some(key) = key {
+            self.note_applied(thread, key);
+        }
     }
 
     /// `buildPreSessionSurface()`: the surface a Lead with no session would start with.
@@ -275,7 +314,7 @@ impl LeadSurfaceHost {
             denied.extend(s.agent_tools.iter().map(|name| (*name).to_owned()));
         }
         denied.push(REACTION_TOOL_NAME.to_owned());
-        let docs: Vec<Value> = resolved.iter().map(tool_doc).collect();
+        let docs: Vec<Value> = resolved.iter().map(|tool| session_doc(&s.pool, tool)).collect();
         let standalone = internal_tools(&s.pool);
         let extra: Vec<Value> = model_standalone_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect();
         let mut surface = json!({
@@ -293,14 +332,17 @@ impl LeadSurfaceHost {
     /// its tool surface under the gates as they stand (`applyToolDenials`) and, when it has a
     /// prompt identity, its prompt composed again (`stagePolicy`). A delegated worker takes the
     /// same path with its owner's finalization: the Lead-only control tools leave its list,
-    /// which is put in route order, and only a hidden agent honors a schema allowlist.
-    async fn empty_surface_change(&self, thread: &ThreadId, header: &Header) -> Result<HeaderChange, String> {
+    /// which is put in route order, and only a hidden agent honors a schema allowlist. A surface already
+    /// brought to the gates and the prompt settings as they stand is left as it is, but for the connectors
+    /// (`appliedKeys`); the key a rebuilt surface is brought to comes back with its change.
+    async fn empty_surface_change(&self, thread: &ThreadId, header: &Header) -> Result<(HeaderChange, Option<Applied>), String> {
         let s = &self.sources;
         let mut session = Value::Object(header.clone());
         // `stageConnectorAvailability` first, on the session as it was (Node's order in `reconcileSession`).
         if let Some(map) = session.as_object_mut() {
             stage_connector_availability(map, thread, s.connectors.as_ref(), s.clock.now_ms());
         }
+        let connectors_only = header_diff(header, session.as_object().expect("session object"));
         let owner_is_agent = is_agent_owner(&session);
         let identity = header.get("promptIdentity").filter(|identity| identity.is_object());
         let agent = identity.and_then(|identity| identity.get("agent")).and_then(Value::as_str).filter(|agent| !agent.is_empty());
@@ -348,13 +390,20 @@ impl LeadSurfaceHost {
             session["messages"] = Value::Array(composed.blocks.node_messages());
             prompt = Some(composed);
         }
+        // `reconcileSession`: a surface already brought to these gates and these prompt settings stays.
+        let gates = self.gates(&s.feature_denied.denied().await?);
+        let settings = prompt.as_ref().and_then(|composed| composed.prompt_settings.get("revision")).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let key = Applied { gates, settings };
+        if self.applied_to(thread).as_ref() == Some(&key) && !truthy(header.get("promptSettingsRecheck")) {
+            return Ok((connectors_only, None));
+        }
         let options = ApplyOptions { provider: Some(provider), model: None, disallowed: Vec::new() };
         surface.apply(&mut session, deferred_mode(thread_mode(header)), &standalone, &options);
         if let Some(composed) = prompt {
             // `applyInitialDeferredToolManifestToBp2(session, pool, { rebuild: true })`.
             let pool = surface.pool_tool_names(&session);
             apply_initial_manifest(&mut session, &pool, true, s.clock.as_ref());
-            land_prompt(&mut session, composed)?;
+            land_prompt(&mut session, composed, &model)?;
         }
         let map = session.as_object_mut().expect("session object");
         map.shift_remove("messages");
@@ -362,7 +411,7 @@ impl LeadSurfaceHost {
         let feature_denied = s.feature_denied.denied().await?;
         let candidates = if missing_definitions(map, &feature_denied).is_empty() { Vec::new() } else { self.definition_candidates(thread, header).await? };
         stage_tool_availability(map, &feature_denied, &candidates, s.clock.now_ms());
-        Ok(header_diff(header, map))
+        Ok((header_diff(header, map), Some(key)))
     }
 
     /// `toolDefinitionsFor(names)`: the definitions the thread's kind may hold, built-ins included,
@@ -401,14 +450,16 @@ impl LeadSurfaceHost {
         let s = &self.sources;
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
-            let change = self.empty_surface_change(thread, &header).await.map_err(|message| failed("tools", message))?;
+            let (change, applied) = self.empty_surface_change(thread, &header).await.map_err(|message| failed("tools", message))?;
             if change.set.is_empty() && change.unset.is_empty() {
+                self.note_applied_key(thread, applied);
                 return Ok(());
             }
             let expect: Map<String, Value> =
                 change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
             // A header that moved meanwhile is read and decided again.
             if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
+                self.note_applied_key(thread, applied);
                 return Ok(());
             }
         }
@@ -534,7 +585,7 @@ impl NewThreadTools for LeadSurfaceHost {
         }
         let mut session = Value::Object(header.clone());
         session["id"] = json!(thread.as_str());
-        session["tools"] = Value::Array(resolved.iter().map(tool_doc).collect());
+        session["tools"] = Value::Array(resolved.iter().map(|tool| session_doc(&s.pool, tool)).collect());
         session["disallowedTools"] = json!(denied);
         session["workflow"] = workflow_meta(&target.summary);
         session["orchestrationMode"] = json!(target.orchestration_mode);
@@ -571,9 +622,12 @@ impl NewThreadTools for LeadSurfaceHost {
         session["messages"] = Value::Array(composed.blocks.node_messages());
         // `deferredSurfaceModeForLead(mode)` of the mode the spec was made from.
         let mode = if header.get("toolSpec") == Some(&tool_spec_for_mode("readonly")) { "readonly" } else { "lead" };
-        let options = ApplyOptions { provider: Some(provider), model: Some(model), disallowed: Vec::new() };
+        let options = ApplyOptions { provider: Some(provider), model: Some(model.clone()), disallowed: Vec::new() };
         ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() }.apply(&mut session, mode, &extra, &options);
-        land_prompt(&mut session, composed)?;
+        // `noteToolAvailability`: built from the settings as they stand, its first turn need not rebuild it.
+        let settings = composed.prompt_settings.get("revision").and_then(Value::as_str).unwrap_or_default().to_owned();
+        self.note_applied(thread, Applied { gates: self.gates(&feature_denied), settings });
+        land_prompt(&mut session, composed, &model)?;
         let mut seeded = session.as_object().cloned().ok_or_else(|| "the seeded session is not an object".to_owned())?;
         seeded.shift_remove("messages");
         // `buildSessionRecord`'s remaining fields, and the stamps of the profile and bot roster the prompt was composed from.
@@ -594,11 +648,25 @@ fn roster_revision(target: &WorkflowTarget) -> String {
 }
 
 /// The session's system messages after the deferred surface's manifest step, back into the
-/// header's blocks, written with the rest of the prompt's fields.
-fn land_prompt(session: &mut Value, mut composed: SessionPrompt) -> Result<(), String> {
+/// header's blocks, written with the rest of the prompt's fields; then
+/// `refreshSessionBp3Environment(session, session.cwd)`, which `createSession` and the empty-session
+/// rebuild end with: the `env` block becomes the `# Session` block (the folder and the model) followed
+/// by the environment tail. `model` is the route's: a created thread's header names it only once its
+/// route is seated.
+fn land_prompt(session: &mut Value, mut composed: SessionPrompt, model: &str) -> Result<(), String> {
     let messages = session.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
     composed.blocks = SystemBlocks::from_node_messages(&messages).map_err(|error| format!("{error:?}"))?;
-    composed.write(session.as_object_mut().ok_or_else(|| "the session is not an object".to_owned())?);
+    let header = session.as_object_mut().ok_or_else(|| "the session is not an object".to_owned())?;
+    composed.write(header);
+    let mut routed = header.clone();
+    routed.insert("model".to_owned(), json!(model));
+    let patch = refresh_environment(&routed, &SystemBlocks::from_header(&routed));
+    for key in &patch.change.unset {
+        header.shift_remove(key);
+    }
+    for (key, value) in patch.change.set {
+        header.insert(key, value);
+    }
     Ok(())
 }
 #[cfg(test)]

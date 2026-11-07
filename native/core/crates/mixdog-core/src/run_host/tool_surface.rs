@@ -312,18 +312,24 @@ pub fn filter_model_edit_tool_names(names: &[String], model: &str) -> Vec<String
     names.iter().filter(|n| keeps_edit_tool(n, selected)).cloned().collect()
 }
 
+/// `bindEditDialectDescription`: a static description names both edit dialects with one token; the
+/// session reads the one dialect its model can call. `None` for a description without the token.
+pub fn bind_edit_dialect(description: &str, model: &str) -> Option<String> {
+    const TOKEN: &str = "edit/apply_patch";
+    description.contains(TOKEN).then(|| description.replace(TOKEN, model_edit_tool_name(model)))
+}
+
 /// `filterModelEditTools`: every non-edit tool and only the edit dialect the model can call, the
 /// dialect token in static descriptions rewritten to it.
 pub fn filter_model_edit_tools(tools: &[Value], model: &str) -> Vec<Value> {
-    const TOKEN: &str = "edit/apply_patch";
     let selected = model_edit_tool_name(model);
     tools
         .iter()
         .filter(|t| keeps_edit_tool(&t.get("name").map_or_else(String::new, lower), selected))
-        .map(|tool| match tool.get("description").and_then(Value::as_str).filter(|d| d.contains(TOKEN)) {
+        .map(|tool| match tool.get("description").and_then(Value::as_str).and_then(|description| bind_edit_dialect(description, model)) {
             Some(description) => {
                 let mut next = tool.clone();
-                next["description"] = Value::String(description.replace(TOKEN, selected));
+                next["description"] = Value::String(description);
                 next
             }
             None => tool.clone(),

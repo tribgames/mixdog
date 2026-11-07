@@ -361,6 +361,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
         messages: Arc::new(Messages(messages)),
         live: Arc::new(Live(running)),
         workflow: Arc::new(Workflow { denied, standalone, summary, orchestration }),
+        config_revision: Arc::new(|| 0),
     })?;
     Ok(Rig { host, threads, prompts, connectors })
 }
@@ -424,6 +425,10 @@ async fn a_new_thread_starts_with_the_tools_node_gives_it() {
         assert_eq!(names(&seeded["deferredDiscoveredTools"]), names(&expect["discovered"]), "{label}: discovered");
         assert_eq!(surface_of_header("full".into(), &seeded).listed, names(&expect["listed"]), "{label}: listed");
         assert_eq!(seeded["cwd"], "/work");
+        // `createSession` ends with `refreshSessionBp3Environment`: the `# Session` block (folder, model) leads the environment tail.
+        let env = SystemBlocks::from_header(&seeded).env.expect("env block");
+        assert!(env.starts_with("# Session\nCwd: /work\nModel: ") && env.ends_with("\n\n---\n\ntail"), "{label}: env {env:?}");
+        assert_eq!(seeded["sessionStartMetaInjected"], true, "{label}: session block injected");
         // The session system is composed once, at creation, by the rebuild every reconcile uses.
         let requests = rig.prompts.0.lock().unwrap();
         assert_eq!(requests.len(), 1, "{label}: one composition");
@@ -445,6 +450,27 @@ async fn a_new_thread_starts_with_the_tools_node_gives_it() {
         assert_eq!(seeded["lastUsedAt"], 1_700_000_000_000_i64);
         assert_eq!((seeded["generation"].clone(), seeded["closed"].clone()), (json!(0), json!(false)));
     }
+}
+
+/// A thread just created is built from the settings as they stand (`noteToolAvailability`): its first
+/// turn composes the prompt to read its settings and finds nothing to rebuild.
+#[tokio::test]
+async fn a_just_created_thread_is_not_rebuilt_at_its_first_turn() {
+    let g = golden();
+    let case = &g["cases"][0];
+    let mode = case["mode"].as_str().expect("mode");
+    let rig = rig(&g, Setup { route: case["route"].clone(), ..setup(mode) });
+    let thread = ThreadId::from("t1");
+    let mut header = Header::new();
+    header.insert("toolSpec".into(), tool_spec_for_mode(mode));
+    header.insert("cwd".into(), json!("/work"));
+    let seeded = rig.host.seed(&thread, &header).await.expect("seed");
+    assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|".to_owned(), settings: "r1".to_owned() }));
+    *rig.threads.header.lock().unwrap() = seeded;
+    rig.host.reconcile_empty(&thread).await.expect("first turn");
+    assert_eq!(rig.prompts.0.lock().unwrap().len(), 2, "composed at creation and read again at the turn");
+    // The connectors' baseline is the one thing a first turn records.
+    assert!(rig.threads.patches.lock().unwrap().iter().all(|(set, unset)| unset.is_empty() && set.keys().all(|key| key == "agentConnectorTools")));
 }
 
 /// `leadRosterRevision` over the slices Node's recorder gave it (`create_goldens/lead.json`).
