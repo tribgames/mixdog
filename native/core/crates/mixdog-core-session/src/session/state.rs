@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use mixdog_app_protocol::v2::thread::ThreadRoute;
 use mixdog_app_protocol::v2::thread::ThreadRuntime;
 use mixdog_app_protocol::v2::thread::ThreadState;
 use mixdog_app_protocol::v2::thread::StorageState;
@@ -427,6 +428,22 @@ impl SessionState {
     /// The `ThreadState` the view and snapshots show.
     pub fn thread_state(&self, storage: StorageState) -> ThreadState {
         let mut state = self.sections.clone();
+        // Sections no producer has published yet hold the engine's initial values (`initial-state.mjs`,
+        // `baseRouteState`): the session's route, an idle composer, no agents, no approval result.
+        let header_text = |key: &str| self.header.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        state.route.get_or_insert_with(|| ThreadRoute {
+            session_provider: header_text("provider"),
+            session_model: header_text("model"),
+            fast: Some(false),
+            fast_capable: Some(false),
+            auto_effort: Some(true),
+            model_parameters: Some(Default::default()),
+            ..Default::default()
+        });
+        state.runtime.get_or_insert_with(Default::default);
+        state.context.get_or_insert_with(Default::default);
+        state.agents.get_or_insert_with(Default::default);
+        state.approvals.get_or_insert_with(Default::default);
         state.queued = Some(self.queued_rows());
         state.prompt_history_list = Some(self.prompt_history.clone());
         if storage != StorageState::Ok {
