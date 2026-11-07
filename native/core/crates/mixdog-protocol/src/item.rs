@@ -433,6 +433,10 @@ pub struct ToolRun {
     pub completed_count: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregate: Option<ToolAggregate>,
+    /// Built by a live turn's tool cards (`turn-tool-cards.mjs`): the row reads as that turn's card, an `__aggregate__`
+    /// even for one call, not as the card a restore rebuilds (`mergeRestoredToolItems` merges only two or more).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
 }
 
 /// How a compaction ended (the `status` of its divider row).

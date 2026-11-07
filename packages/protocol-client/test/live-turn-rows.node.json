@@ -1,0 +1,218 @@
+[
+  {
+    "agent": "Default",
+    "at": "<ts>",
+    "id": "<id:1>",
+    "kind": "user",
+    "messageId": "<id:2>",
+    "model": "harness-model",
+    "modelId": "harness-model",
+    "provider": "custom-harness",
+    "text": "Change \"real-turn\" to \"edited\" in hello.txt. HARNESS-TURN-1"
+  },
+  {
+    "agent": "Default",
+    "at": "<ts>",
+    "attemptId": "<id:3>",
+    "completionVerb": "Mapped",
+    "id": "<id:4>",
+    "kind": "assistant",
+    "messageId": "<id:5>",
+    "model": "harness-model",
+    "modelId": "harness-model",
+    "provider": "custom-harness",
+    "streaming": false,
+    "text": "I will read the file first."
+  },
+  {
+    "aggregate": true,
+    "args": {
+      "categoryOrder": [
+        "Read|Reading|Read|file|files"
+      ]
+    },
+    "callErrorCount": 0,
+    "categories": {
+      "Read|Reading|Read|file|files": {
+        "active": "Reading",
+        "category": "Read",
+        "count": 1,
+        "done": "Read",
+        "effect": false,
+        "key": "Read|Reading|Read|file|files",
+        "noun": "file",
+        "pluralNoun": "files"
+      }
+    },
+    "completedAt": "<ts>",
+    "completedCount": 1,
+    "count": 1,
+    "deferredDisplayReady": true,
+    "doneCategories": {
+      "Read|Reading|Read|file|files": {
+        "active": "Reading",
+        "category": "Read",
+        "count": 1,
+        "done": "Read",
+        "effect": false,
+        "key": "Read|Reading|Read|file|files",
+        "noun": "file",
+        "pluralNoun": "files"
+      }
+    },
+    "errorCount": 0,
+    "exitErrorCount": 0,
+    "expanded": false,
+    "headerFinalized": true,
+    "id": "<id:6>",
+    "isError": false,
+    "kind": "tool",
+    "name": "__aggregate__",
+    "rawResult": "1. read\n[lines 1-1]\nhello from the real-turn harness\n[lines 1-1 of 1]",
+    "result": "3 lines",
+    "startedAt": "<ts>",
+    "text": "3 lines",
+    "toolMembers": [
+      {
+        "args": {
+          "file_path": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-edit\\ws\\hello.txt"
+        },
+        "callErrorCount": 0,
+        "completedAt": "<ts>",
+        "completedCount": 1,
+        "count": 1,
+        "errorCount": 0,
+        "exitErrorCount": 0,
+        "headerFinalized": true,
+        "id": "call_harness_read",
+        "isError": false,
+        "kind": "tool",
+        "name": "read",
+        "rawResult": "[lines 1-1]\nhello from the real-turn harness\n[lines 1-1 of 1]",
+        "result": "[lines 1-1]\nhello from the real-turn harness\n[lines 1-1 of 1]",
+        "startedAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "agent": "Default",
+    "at": "<ts>",
+    "attemptId": "<id:3>",
+    "completionVerb": "Mapped",
+    "id": "<id:7>",
+    "kind": "assistant",
+    "messageId": "<id:8>",
+    "model": "harness-model",
+    "modelId": "harness-model",
+    "provider": "custom-harness",
+    "streaming": false,
+    "text": "Now the edit."
+  },
+  {
+    "aggregate": true,
+    "args": {
+      "categoryOrder": [
+        "Patch|Editing|Edited|file|files"
+      ]
+    },
+    "callErrorCount": 0,
+    "categories": {
+      "Patch|Editing|Edited|file|files": {
+        "active": "Editing",
+        "category": "Patch",
+        "count": 1,
+        "done": "Edited",
+        "effect": false,
+        "key": "Patch|Editing|Edited|file|files",
+        "noun": "file",
+        "pluralNoun": "files"
+      }
+    },
+    "completedAt": "<ts>",
+    "completedCount": 1,
+    "count": 1,
+    "deferredDisplayReady": true,
+    "doneCategories": {
+      "Patch|Editing|Edited|file|files": {
+        "active": "Editing",
+        "category": "Patch",
+        "count": 1,
+        "done": "Edited",
+        "effect": false,
+        "key": "Patch|Editing|Edited|file|files",
+        "noun": "file",
+        "pluralNoun": "files"
+      }
+    },
+    "errorCount": 0,
+    "exitErrorCount": 0,
+    "expanded": false,
+    "headerFinalized": true,
+    "id": "<id:9>",
+    "isError": false,
+    "kind": "tool",
+    "name": "__aggregate__",
+    "rawResult": "1. edit\nUpdated hello.txt (1 replacement)",
+    "result": "",
+    "startedAt": "<ts>",
+    "text": "",
+    "toolMembers": [
+      {
+        "args": {
+          "file_path": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-edit\\ws\\hello.txt",
+          "new_string": "edited",
+          "old_string": "real-turn"
+        },
+        "callErrorCount": 0,
+        "completedAt": "<ts>",
+        "completedCount": 1,
+        "count": 1,
+        "errorCount": 0,
+        "exitErrorCount": 0,
+        "headerFinalized": true,
+        "id": "call_harness_edit",
+        "isError": false,
+        "kind": "tool",
+        "name": "edit",
+        "rawResult": "Updated hello.txt (1 replacement)",
+        "result": "Updated hello.txt (1 replacement)",
+        "startedAt": "<ts>",
+        "uiDiff": "diff --git a/hello.txt b/hello.txt\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1,1 +1,1 @@\n-hello from the real-turn harness\n+hello from the edited harness\n"
+      }
+    ],
+    "uiDiff": "diff --git a/hello.txt b/hello.txt\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1,1 +1,1 @@\n-hello from the real-turn harness\n+hello from the edited harness\n"
+  },
+  {
+    "agent": "Default",
+    "at": "<ts>",
+    "attemptId": "<id:3>",
+    "completionVerb": "Mapped",
+    "id": "<id:10>",
+    "kind": "assistant",
+    "messageId": "<id:11>",
+    "model": "harness-model",
+    "modelId": "harness-model",
+    "provider": "custom-harness",
+    "streaming": false,
+    "text": "I changed hello.txt."
+  },
+  {
+    "agent": "Default",
+    "at": "<ts>",
+    "attemptId": "<id:3>",
+    "checkpointId": "<id:1>",
+    "completionVerb": "Mapped",
+    "elapsedMs": "<ts>",
+    "finalAssistantId": "<id:10>",
+    "id": "<id:12>",
+    "kind": "turndone",
+    "model": "harness-model",
+    "modelId": "harness-model",
+    "outputTokens": 72,
+    "provider": "custom-harness",
+    "status": "done",
+    "thinkingElapsedMs": "<ts>",
+    "toolCount": 2,
+    "verb": "Mapped"
+  }
+]

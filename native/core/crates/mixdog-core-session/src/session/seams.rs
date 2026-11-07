@@ -415,6 +415,7 @@ pub fn merge_update(existing: &ThreadItem, update: &ThreadItem) -> ThreadItem {
             overlay(&mut run.count, &new_run.count);
             overlay(&mut run.completed_count, &new_run.completed_count);
             overlay(&mut run.aggregate, &new_run.aggregate);
+            overlay(&mut run.live, &new_run.live);
             ThreadItem::ToolCall {
                 id: id.clone(),
                 name: name.clone(),

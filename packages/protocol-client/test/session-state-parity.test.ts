@@ -170,8 +170,27 @@ test('fold parity: recorded session-state frames reproduce DesktopSessionState f
 
     const got = sessionStateOf(client, 'lead') as O;
     // Fields the engine starts with (initial-state.mjs) that a recorded snapshot omits while they hold their initial value.
-    const expected: O = { streamingTail: null, toolApproval: null, toolApprovalsWaiting: 0, promptHistoryList: [], ...d };
+    const expected: O = {
+      streamingTail: null,
+      streamingPartial: null,
+      toolApproval: null,
+      toolApprovalsWaiting: 0,
+      promptHistoryList: [],
+      // The transcript window and the TUI counters the core does not page or spill (the fold's idle values, initial-state.mjs).
+      transcriptViewItems: null,
+      transcriptViewRevision: 0,
+      transcriptHistoryBefore: false,
+      transcriptHistoryAfter: false,
+      transcriptArchive: null,
+      transcriptSpilled: { epoch: 0, rows: 0 },
+      lastTurn: null,
+      themeEpoch: 0,
+      ...d,
+    };
     delete expected.remoteSessionId;
+    // `structureRevision` counts the fold's own row changes; a recorded frame states none.
+    assert.equal(Number.isInteger(got.structureRevision), true, `step ${frame.step}: structureRevision`);
+    delete got.structureRevision;
     assert.deepEqual(got, expected, `step ${frame.step}`);
     for (const f of FIELDS) assert.deepEqual(got[f], expected[f], `${frame.step}: ${f}`);
     prev = d;

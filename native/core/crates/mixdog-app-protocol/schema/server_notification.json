@@ -2756,13 +2756,14 @@
     "ThreadAgents": {
       "properties": {
         "agentJobs": {
-          "default": [],
-          "items": true,
+          "default": []
+          "items": true
           "type": "array"
         },
+        "agentScope": true,
         "agentWorkers": {
-          "default": [],
-          "items": true,
+          "default": []
+          "items": true
           "type": "array"
         }
       },
@@ -2793,6 +2794,13 @@
     "ThreadContext": {
       "properties": {
         "autoCompactTokenLimit": {
+          "format": "int64"
+          "type": [
+            "integer"
+            "null"
+          ]
+        },
+        "compactBoundaryTokens": {
           "format": "int64",
           "type": [
             "integer",
@@ -2800,34 +2808,48 @@
           ]
         },
         "contextDefaultPercent": {
-          "format": "double",
+          "format": "double"
           "type": [
-            "number",
+            "number"
             "null"
           ]
         },
         "contextPercent": {
-          "format": "double",
+          "format": "double"
           "type": [
-            "number",
+            "number"
             "null"
           ]
         },
         "contextTokens": {
-          "format": "int64",
+          "format": "int64"
           "type": [
-            "integer",
+            "integer"
             "null"
           ]
         },
         "contextWindow": {
+          "format": "int64"
+          "type": [
+            "integer"
+            "null"
+          ]
+        },
+        "displayContextWindow": {
+          "format": "int64"
+          "type": [
+            "integer"
+            "null"
+          ]
+        },
+        "effectiveContextWindowPercent": {
           "format": "int64",
           "type": [
             "integer",
             "null"
           ]
         },
-        "displayContextWindow": {
+        "rawContextWindow": {
           "format": "int64",
           "type": [
             "integer",
@@ -3464,113 +3486,135 @@
     },
     "ThreadRoute": {
       "properties": {
+        "autoClear": true,
         "autoEffort": {
           "type": [
-            "boolean",
+            "boolean"
+            "null"
+          ]
+        },
+        "cwd": {
+          "type": [
+            "string",
             "null"
           ]
         },
         "effort": {
           "type": [
-            "string",
+            "string"
             "null"
           ]
         },
         "effortOptions": {
-          "items": true,
+          "items": true
           "type": [
-            "array",
+            "array"
             "null"
           ]
         },
         "fast": {
           "type": [
-            "boolean",
+            "boolean"
             "null"
           ]
         },
         "fastCapable": {
           "type": [
-            "boolean",
+            "boolean"
             "null"
           ]
         },
         "model": {
           "type": [
-            "string",
+            "string"
             "null"
           ]
         },
         "modelParameters": {
           "additionalProperties": {
             "type": "string"
-          },
+          }
           "type": [
-            "object",
+            "object"
             "null"
           ]
         },
         "provider": {
           "type": [
-            "string",
+            "string"
             "null"
           ]
         },
         "selectedContextWindow": {
-          "format": "int64",
+          "format": "int64"
           "type": [
-            "integer",
+            "integer"
+            "null"
+          ]
+        },
+        "sessionForkedFrom": {
+          "type": [
+            "string",
             "null"
           ]
         },
         "sessionModel": {
           "type": [
-            "string",
+            "string"
             "null"
           ]
         },
         "sessionProvider": {
           "type": [
-            "string",
+            "string"
             "null"
           ]
         },
+        "systemShell": true,
         "turnEffort": {
           "type": [
-            "string",
+            "string"
             "null"
           ]
-        }
+        },
+        "webSearchRoute": true
       },
       "type": "object"
     },
     "ThreadRuntime": {
       "properties": {
+        "activeToolSummary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "activeTools": true,
         "busy": {
-          "default": false,
+          "default": false
           "type": "boolean"
         },
         "clientHostPid": {
-          "format": "uint32",
-          "minimum": 0.0,
+          "format": "uint32"
+          "minimum": 0.0
           "type": [
-            "integer",
+            "integer"
             "null"
           ]
         },
         "commandBusy": {
-          "default": false,
+          "default": false
           "type": "boolean"
         },
         "commandStatus": true,
         "progressHint": true,
+        "setupChanged": true,
         "spinner": true,
         "storage": {
           "anyOf": [
             {
               "$ref": "#/definitions/StorageState"
-            },
+            }
             {
               "type": "null"
             }
@@ -3578,15 +3622,21 @@
         },
         "thinking": true,
         "toasts": {
-          "default": [],
-          "items": true,
+          "default": []
+          "items": true
           "type": "array"
         },
-        "waitingOnProviderSince": {
-          "description": "Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.",
-          "format": "int64",
+        "toolMode": {
           "type": [
-            "integer",
+            "string",
+            "null"
+          ]
+        },
+        "waitingOnProviderSince": {
+          "description": "Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms."
+          "format": "int64"
+          "type": [
+            "integer"
             "null"
           ]
         }
@@ -4729,6 +4779,13 @@
           ]
         },
         "isError": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "live": {
+          "description": "Built by a live turn's tool cards (`turn-tool-cards.mjs`): the row reads as that turn's card, an `__aggregate__` even for one call, not as the card a restore rebuilds (`mergeRestoredToolItems` merges only two or more).",
           "type": [
             "boolean",
             "null"

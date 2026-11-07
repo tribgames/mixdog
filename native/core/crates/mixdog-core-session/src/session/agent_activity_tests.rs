@@ -30,7 +30,7 @@ fn published(rig: &Rig, thread: &ThreadId) -> Vec<Value> {
 }
 
 fn agents(tag: &str) -> ThreadAgents {
-    ThreadAgents { agent_workers: Vec::new(), agent_jobs: vec![json!({ "task_id": "task-1", "tag": tag, "status": "running" })] }
+    ThreadAgents { agent_workers: Vec::new(), agent_jobs: vec![json!({ "task_id": "task-1", "tag": tag, "status": "running" })], ..Default::default() }
 }
 
 fn set_status(rig: &Rig, status: ThreadAgents) {

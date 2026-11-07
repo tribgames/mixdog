@@ -31,6 +31,8 @@ export interface SessionFold {
   /** Fields owned by section notifications and `thread/snapshot.state`; an absent field is absent here. */
   readonly fields: Readonly<Obj>;
   readonly live: Live | null;
+  /** How many times the rows changed structure (`structureRevision`: an item entered, was replaced, or the log was cut back). */
+  readonly structureRevision: number;
 }
 
 // ───────────────────────────── sections ─────────────────────────────
@@ -40,13 +42,13 @@ export interface SessionFold {
 type SectionDef = { readonly stateKey: string; readonly fields: readonly string[] } | { readonly stateKey: string; readonly field: string };
 
 const SECTIONS: Readonly<Record<string, SectionDef>> = {
-  'thread/runtime/updated': { stateKey: 'runtime', fields: ['busy', 'commandBusy', 'thinking', 'spinner', 'commandStatus', 'progressHint', 'activeTools', 'clientHostPid', 'toasts'] },
+  'thread/runtime/updated': { stateKey: 'runtime', fields: ['busy', 'commandBusy', 'thinking', 'spinner', 'commandStatus', 'progressHint', 'activeTools', 'clientHostPid', 'toasts', 'activeToolSummary', 'toolMode', 'setupChanged'] },
   'thread/route/updated': {
     stateKey: 'route',
-    fields: ['sessionProvider', 'sessionModel', 'fast', 'fastCapable', 'autoEffort', 'modelParameters', 'selectedContextWindow', 'effort', 'provider', 'model', 'turnEffort', 'effortOptions'],
+    fields: ['sessionProvider', 'sessionModel', 'fast', 'fastCapable', 'autoEffort', 'modelParameters', 'selectedContextWindow', 'effort', 'provider', 'model', 'turnEffort', 'effortOptions', 'cwd', 'sessionForkedFrom', 'systemShell', 'webSearchRoute', 'autoClear'],
   },
-  'thread/context/updated': { stateKey: 'context', fields: ['contextPercent', 'contextTokens', 'contextDefaultPercent', 'contextWindow', 'displayContextWindow', 'autoCompactTokenLimit', 'stats'] },
-  'thread/agents/updated': { stateKey: 'agents', fields: ['agentWorkers', 'agentJobs'] },
+  'thread/context/updated': { stateKey: 'context', fields: ['contextPercent', 'contextTokens', 'contextDefaultPercent', 'contextWindow', 'displayContextWindow', 'autoCompactTokenLimit', 'stats', 'rawContextWindow', 'effectiveContextWindowPercent', 'compactBoundaryTokens'] },
+  'thread/agents/updated': { stateKey: 'agents', fields: ['agentWorkers', 'agentJobs', 'agentScope'] },
   'thread/workflow/updated': {
     stateKey: 'workflow',
     fields: ['workflow', 'orchestrationMode', 'pendingWorkflowSwitch', 'pendingOrchestrationModeSwitch'],
@@ -155,7 +157,7 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
   }
   transcriptCache.set(items, yield* mergeToolRowsSteps(items));
-  return { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null };
+  return { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: 0 };
 }
 
 export const sessionReducer: ThreadReducer<SessionFold> = {
@@ -194,7 +196,7 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
           return withLive(s, { id: String(item.id), identity: { ...identity, kind: 'assistant', streaming: true }, text: typeof text === 'string' ? text : '' });
         }
         const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
-        return { ...s, items: upsert(s.items, row), live };
+        return { ...s, items: upsert(s.items, row), live, structureRevision: s.structureRevision + 1 };
       }
       case 'item/agentMessage/delta': {
         const id = String(p.itemId);
@@ -208,7 +210,7 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         // `hasOlder` is the transcript's flag after the reset; an absent flag reads false, as in a snapshot.
         const flagged = withField(s, 'transcriptHasOlder', p.hasOlder === true ? true : undefined);
         if (from !== undefined && at < 0) return withLive(flagged, null);
-        return { ...flagged, items: s.items.slice(0, at + 1), live: null };
+        return { ...flagged, items: s.items.slice(0, at + 1), live: null, structureRevision: s.structureRevision + 1 };
       }
       default:
         return s;
@@ -254,7 +256,29 @@ export const approvalSurface = surfaceOf;
  *    (tool-approval.mjs `presentNextToolApproval`) whether or not a `toolApprovalResult` is shown.
  */
 export function desktopSessionState(fold: SessionFold, requests: readonly ServerRequest[], hostShellJobs?: Json): DesktopSessionState {
-  const out: Obj = { ...fold.fields, sessionId: fold.sessionId, items: transcriptOf(fold.items), streamingTail: null, promptHistoryList: [], ...fold.fields, toolApproval: null, toolApprovalsWaiting: 0 };
+  // The transcript window is the TUI store's (`createInitialSessionState`): the core keeps the whole log (no spill, no paged view, no
+  // archive range: decisions.md, the `transcriptArchive` row), so these hold the store's idle values; `lastTurn` is only ever cleared and
+  // `themeEpoch` is the TUI process's theme counter.
+  const out: Obj = {
+    ...fold.fields,
+    sessionId: fold.sessionId,
+    items: transcriptOf(fold.items),
+    structureRevision: fold.structureRevision,
+    streamingTail: null,
+    streamingPartial: null,
+    promptHistoryList: [],
+    transcriptViewItems: null,
+    transcriptViewRevision: 0,
+    transcriptHistoryBefore: false,
+    transcriptHistoryAfter: false,
+    transcriptArchive: null,
+    transcriptSpilled: { epoch: 0, rows: 0 },
+    lastTurn: null,
+    themeEpoch: 0,
+    ...fold.fields,
+    toolApproval: null,
+    toolApprovalsWaiting: 0,
+  };
   if (hostShellJobs !== undefined) out.hostShellJobs = hostShellJobs;
   if (fold.live) Object.assign(out, liveFields(fold.live));
   const pending = requests

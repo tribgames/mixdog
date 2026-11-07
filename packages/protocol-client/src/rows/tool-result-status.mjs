@@ -7,6 +7,7 @@ import { isReadOnlyNavigationMiss } from './result-classification.mjs';
 import { STEP, formatAggregateDetailSteps, runSync, toolLoadingTargets } from './tool-surface.mjs';
 import { normalizeToolName } from './tool-primitives.mjs';
 import { gitResultError, gitResultExitCode } from './tool-card-model/git-result.mjs';
+import { stripShellExitHeader, toolErrorDisplay } from './tool-result-text.mjs';
 
 // Detect a shell command that RAN but exited non-zero (a process exit code)
 // as opposed to a real tool-call failure (`[shell-tool-failed]`) or a
@@ -281,4 +282,15 @@ export function* aggregateResultPatchSteps(aggregate, allCalls, completedCount) 
     count: allCalls.length,
     toolMembers: yield* aggregateToolMembersSteps(allCalls),
   };
+}
+
+// restore/tool-result-status.mjs: a result's outcome and the text a card shows for it (a failure's presented error, a command's body
+// without its exit header).
+export function toolResultDisplay(message, rawText, toolName) {
+  const outcome = toolCallOutcome({ ...message, toolName }, rawText);
+  const isError = outcome.isCallError;
+  let text = rawText;
+  if (isError) text = toolErrorDisplay(rawText, toolName || 'tool');
+  else if (outcome.exitCode != null) text = stripShellExitHeader(rawText);
+  return { ...outcome, isError, text };
 }

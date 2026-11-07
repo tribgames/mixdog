@@ -383,6 +383,14 @@ impl ManualCompaction for HostManualCompaction {
         self.parts.config.synced_compaction(header, install)
     }
 
+    fn route_config(&self, header: &Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
+        self.parts.config.route_config(header)
+    }
+
+    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
+        self.parts.config.settings_changes()
+    }
+
     async fn prepare_books(&self, thread: &ThreadId, provider: &str, messages: &[AgentMessage]) {
         let meters = self.parts.world.lowering(thread, provider);
         meters.0.prepare(messages).await;

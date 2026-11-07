@@ -230,6 +230,7 @@ fn tool_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         count: take_int(&mut row, "count").and_then(|n| u32::try_from(n).ok()),
         completed_count,
         aggregate: None,
+        live: None,
     };
     row.shift_remove("expanded");
     let mut meta = meta_of(&mut row, ctx);

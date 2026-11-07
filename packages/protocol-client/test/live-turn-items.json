@@ -1,0 +1,274 @@
+[
+ {
+  "method": "item/completed",
+  "params": {
+   "item": {
+    "type": "userMessage",
+    "id": "01a1b6ad-9ed6-74fa-af6a-65a4bf271b4b",
+    "content": [
+     {
+      "type": "text",
+      "text": "Change \"real-turn\" to \"edited\" in hello.txt. HARNESS-TURN-1"
+     }
+    ],
+    "displayText": "Change \"real-turn\" to \"edited\" in hello.txt. HARNESS-TURN-1",
+    "countsForPromptHistory": true,
+    "meta": {
+     "turnId": "01a1b6ad-9ed6-74fa-af6a-65a3a27614fb",
+     "at": 1794066194137,
+     "model": "harness-model",
+     "modelId": "harness-model",
+     "provider": "custom-harness",
+     "agent": "Default",
+     "messageId": "msg_bb21d0228494498ab7773bcf87971010"
+    }
+   }
+  }
+ },
+ {
+  "method": "item/started",
+  "params": {
+   "item": {
+    "type": "agentMessage",
+    "id": "itm_c9cd0d37d53c49ea866590b2786d6e27",
+    "text": "",
+    "meta": {}
+   }
+  }
+ },
+ {
+  "method": "item/completed",
+  "params": {
+   "item": {
+    "type": "agentMessage",
+    "id": "itm_c9cd0d37d53c49ea866590b2786d6e27",
+    "text": "I will read the file first.",
+    "meta": {
+     "turnId": "01a1b6ad-9ed6-74fa-af6a-65a3a27614fb",
+     "at": 1794066196060,
+     "model": "harness-model",
+     "modelId": "harness-model",
+     "provider": "custom-harness",
+     "agent": "Default",
+     "messageId": "msg_1d347ed6ab284d05bc8f976767bda243",
+     "ext": {
+      "attemptId": "01a1b6ad-9ed9-735d-815b-cec816e0de96",
+      "completionVerb": "Mapped",
+      "streaming": false
+     }
+    }
+   }
+  }
+ },
+ {
+  "method": "item/completed",
+  "params": {
+   "item": {
+    "type": "toolCall",
+    "id": "itm_c9cd0d37d53c49ea866590b2786d6e28",
+    "name": "read",
+    "input": {
+     "file_path": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-edit\\ws\\hello.txt"
+    },
+    "run": {
+     "callId": "call_harness_read",
+     "startedAt": 1794066196060,
+     "completedAt": 1794066196060,
+     "count": 1,
+     "completedCount": 1,
+     "live": true
+    },
+    "meta": {
+     "turnId": "01a1b6ad-9ed6-74fa-af6a-65a3a27614fb",
+     "at": 1794066196060,
+     "status": "completed"
+    }
+   }
+  }
+ },
+ {
+  "method": "item/completed",
+  "params": {
+   "item": {
+    "type": "toolCall",
+    "id": "itm_c9cd0d37d53c49ea866590b2786d6e28",
+    "name": "read",
+    "input": {
+     "file_path": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-edit\\ws\\hello.txt"
+    },
+    "output": "[lines 1-1]\nhello from the real-turn harness\n[lines 1-1 of 1]",
+    "run": {
+     "callId": "call_harness_read",
+     "result": "[lines 1-1]\nhello from the real-turn harness\n[lines 1-1 of 1]",
+     "startedAt": 1794066196060,
+     "completedAt": 1794066196060,
+     "count": 1,
+     "completedCount": 1,
+     "live": true
+    },
+    "meta": {
+     "turnId": "01a1b6ad-9ed6-74fa-af6a-65a3a27614fb",
+     "at": 1794066196060,
+     "status": "completed"
+    }
+   }
+  }
+ },
+ {
+  "method": "item/started",
+  "params": {
+   "item": {
+    "type": "agentMessage",
+    "id": "itm_2e0b1106fa67447495cb04146d6684d0",
+    "text": "",
+    "meta": {}
+   }
+  }
+ },
+ {
+  "method": "item/completed",
+  "params": {
+   "item": {
+    "type": "agentMessage",
+    "id": "itm_2e0b1106fa67447495cb04146d6684d0",
+    "text": "Now the edit.",
+    "meta": {
+     "turnId": "01a1b6ad-9ed6-74fa-af6a-65a3a27614fb",
+     "at": 1794066196136,
+     "model": "harness-model",
+     "modelId": "harness-model",
+     "provider": "custom-harness",
+     "agent": "Default",
+     "messageId": "msg_e0d9edd80a5e48b590256f48f0c8256f",
+     "ext": {
+      "attemptId": "01a1b6ad-9ed9-735d-815b-cec816e0de96",
+      "completionVerb": "Mapped",
+      "streaming": false
+     }
+    }
+   }
+  }
+ },
+ {
+  "method": "item/completed",
+  "params": {
+   "item": {
+    "type": "toolCall",
+    "id": "itm_2e0b1106fa67447495cb04146d6684d1",
+    "name": "edit",
+    "input": {
+     "file_path": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-edit\\ws\\hello.txt",
+     "old_string": "real-turn",
+     "new_string": "edited"
+    },
+    "run": {
+     "callId": "call_harness_edit",
+     "startedAt": 1794066196136,
+     "completedAt": 1794066196136,
+     "count": 1,
+     "completedCount": 1,
+     "live": true
+    },
+    "meta": {
+     "turnId": "01a1b6ad-9ed6-74fa-af6a-65a3a27614fb",
+     "at": 1794066196136,
+     "status": "completed"
+    }
+   }
+  }
+ },
+ {
+  "method": "item/completed",
+  "params": {
+   "item": {
+    "type": "toolCall",
+    "id": "itm_2e0b1106fa67447495cb04146d6684d1",
+    "name": "edit",
+    "input": {
+     "file_path": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-edit\\ws\\hello.txt",
+     "old_string": "real-turn",
+     "new_string": "edited"
+    },
+    "output": "Updated hello.txt (1 replacement)",
+    "run": {
+     "callId": "call_harness_edit",
+     "result": "Updated hello.txt (1 replacement)",
+     "startedAt": 1794066196136,
+     "completedAt": 1794066196136,
+     "count": 1,
+     "completedCount": 1,
+     "live": true
+    },
+    "meta": {
+     "turnId": "01a1b6ad-9ed6-74fa-af6a-65a3a27614fb",
+     "at": 1794066196136,
+     "status": "completed"
+    }
+   }
+  }
+ },
+ {
+  "method": "item/started",
+  "params": {
+   "item": {
+    "type": "agentMessage",
+    "id": "itm_e9ee5bd4ac6748f4a4b0a94450f68efe",
+    "text": "",
+    "meta": {}
+   }
+  }
+ },
+ {
+  "method": "item/completed",
+  "params": {
+   "item": {
+    "type": "agentMessage",
+    "id": "itm_e9ee5bd4ac6748f4a4b0a94450f68efe",
+    "text": "I changed hello.txt.",
+    "meta": {
+     "turnId": "01a1b6ad-9ed6-74fa-af6a-65a3a27614fb",
+     "at": 1794066196261,
+     "model": "harness-model",
+     "modelId": "harness-model",
+     "provider": "custom-harness",
+     "agent": "Default",
+     "messageId": "msg_dcb98678c07745aa8b13b99ea83406e5",
+     "ext": {
+      "attemptId": "01a1b6ad-9ed9-735d-815b-cec816e0de96",
+      "completionVerb": "Mapped",
+      "streaming": false
+     }
+    }
+   }
+  }
+ },
+ {
+  "method": "item/completed",
+  "params": {
+   "item": {
+    "type": "turnEnd",
+    "id": "01a1b6ad-a90c-7558-95b8-ca28d162db68",
+    "status": "done",
+    "elapsedMs": 2611,
+    "verb": "Mapped",
+    "checkpointId": "01a1b6ad-9ed6-74fa-af6a-65a4bf271b4b",
+    "finalAssistantId": "itm_e9ee5bd4ac6748f4a4b0a94450f68efe",
+    "meta": {
+     "turnId": "01a1b6ad-9ed6-74fa-af6a-65a3a27614fb",
+     "at": 1794066196748,
+     "model": "harness-model",
+     "modelId": "harness-model",
+     "provider": "custom-harness",
+     "agent": "Default",
+     "ext": {
+      "outputTokens": 72,
+      "thinkingElapsedMs": 0,
+      "toolCount": 2,
+      "attemptId": "01a1b6ad-9ed9-735d-815b-cec816e0de96",
+      "completionVerb": "Mapped"
+     }
+    }
+   }
+  }
+ }
+]

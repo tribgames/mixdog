@@ -76,6 +76,11 @@ pub enum Section {
     Runtime(ThreadRuntime),
     /// The `toasts` of the runtime section alone: the whole queue as it stands. The session publishes it (a toast is pushed and expires there); the rest of the section stays as it was.
     Toasts(Vec<Value>),
+    /// `activeToolSummary` and `activeTools` of the runtime section alone (active-tool-summary.mjs): the running Shell, Web Research and
+    /// Agent calls as the `count:startedAt` summary and the per-tool counts; `None` when none run. The rest of the section stays as it was.
+    ActiveTools(Option<(String, Value)>),
+    /// `setupChanged` of the runtime section alone (notification-router.mjs): the last settings change this runtime announced, `{ action, seq, at }`.
+    SetupChanged(Value),
     /// `progressHint` of the runtime section alone (`None` removes it): the rest of the section stays as it was. Producers of a hint (the running tool, the voice install) publish this, never a whole `Runtime`.
     ProgressHint(Option<Value>),
     Route(ThreadRoute),
