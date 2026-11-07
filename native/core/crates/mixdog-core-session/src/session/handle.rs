@@ -158,6 +158,14 @@ impl SessionHandle {
         })
     }
 
+    /// The session's cwd was applied (`applyResolvedCwd`), the same folder again or a new one
+    /// (`changed`): the actor schedules the code-graph warm.
+    pub fn cwd_applied(&self, changed: bool) -> Result<(), CoreError> {
+        self.cell.ctl_tx.try_send(Ctl::CwdApplied { changed }).map_err(|_| CoreError::QueueFull {
+            queue: "control".into(),
+        })
+    }
+
     /// Puts the request in the actor's inbox; the receiver answers once the actor has.
     async fn enqueue(&self, req: CoreRequest) -> Result<oneshot::Receiver<Result<Reply, CoreError>>, CoreError> {
         let (tx, rx) = oneshot::channel();

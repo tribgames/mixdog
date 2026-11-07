@@ -913,6 +913,8 @@ pub struct Rig {
     pub work: Arc<TestWork>,
     /// The agent status every session reads after a job of it changed.
     pub agents: Arc<TestAgents>,
+    /// The code-graph prewarm calls the actors made, in order.
+    pub code_graph: Arc<TestCodeGraphPrewarm>,
     /// The agent-status signals the actors emitted, in order.
     pub signals: Arc<TestSignals>,
     /// The side-question store `thread/askSide` reads.
@@ -992,6 +994,27 @@ impl super::agent_activity::AgentSignals for TestSignals {
     }
     fn session_record(&self, session: &str) {
         lock(&self.0).push(format!("record:{session}"));
+    }
+}
+
+/// The code-graph prewarm calls, in order: `wake`, `schedule:<reason>:<delay ms|default>`;
+/// `lazy` answers `lazy()`.
+#[derive(Default)]
+pub struct TestCodeGraphPrewarm {
+    pub calls: Mutex<Vec<String>>,
+    pub lazy: AtomicBool,
+}
+
+impl super::prewarm_signals::CodeGraphPrewarmSignals for TestCodeGraphPrewarm {
+    fn schedule(&self, delay: Option<std::time::Duration>, reason: &'static str) {
+        let delay = delay.map_or_else(|| "default".to_owned(), |d| d.as_millis().to_string());
+        lock(&self.calls).push(format!("schedule:{reason}:{delay}"));
+    }
+    fn wake(&self) {
+        lock(&self.calls).push("wake".to_owned());
+    }
+    fn lazy(&self) -> bool {
+        self.lazy.load(Ordering::SeqCst)
     }
 }
 
@@ -1154,6 +1177,7 @@ impl Rig {
             todos: Arc::default(),
             work: Arc::default(),
             agents: Arc::default(),
+            code_graph: Arc::default(),
             signals: Arc::default(),
             side: Arc::default(),
             inherit: Arc::default(),
@@ -1228,6 +1252,7 @@ impl Rig {
             todos: self.todos.clone(),
             work: self.work.clone(),
             agent_status: self.agents.clone(),
+            code_graph_prewarm: self.code_graph.clone(),
             agent_signals: self.signals.clone(),
             side: self.side.clone(),
             inherit: self.inherit.clone(),
