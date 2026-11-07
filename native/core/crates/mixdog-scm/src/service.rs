@@ -86,6 +86,8 @@ pub trait ThreadWorktrees: Send + Sync {
     async fn cwd(&self, thread: &ThreadId) -> Result<Option<String>, CoreError>;
 }
 
+/** Untracked rows a review lists (`git-history.ts` `REVIEW_UNTRACKED_LIMIT`); the rest are only counted. */
+const REVIEW_UNTRACKED_LIMIT: usize = 256;
 const GATE_OFF: &str = "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.";
 
 struct GitWatch {
@@ -475,19 +477,30 @@ impl ScmService {
             // locale's collation; the summary's own order is by bytes.
             let mut rows: Vec<Value> = out["files"].as_array().cloned().unwrap_or_default();
             rows.sort_by(|a, b| mixdog_js::locale_compare(a["path"].as_str().unwrap_or_default(), b["path"].as_str().unwrap_or_default()));
-            // The review diffs trees, so an untracked file is an added one there; Node's rows say which are untracked (its status scan's
-            // `?` records, `--untracked-files=all`).
-            let options = crate::git::RunOptions::read();
-            let others = self
+            // The review diffs trees, so an untracked file is an added one there. Node reads the untracked files from its status scan
+            // (`reviewStatus`: the same command, the `?` records in git's order, bytes of the path): it lists the first
+            // `REVIEW_UNTRACKED_LIMIT` of them as rows (`untracked: true`) and only counts the rest in `untrackedOmitted`. Tracked rows
+            // are never capped.
+            let options = crate::git::RunOptions { max_output: Some(crate::git::STATUS_MAX_BYTES), ..crate::git::RunOptions::read() };
+            let scan = self
                 .scm
                 .git
-                .text(cancel, &root, &["--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z"], &options)
+                .text(
+                    cancel,
+                    &root,
+                    &["--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--no-ahead-behind", "--untracked-files=all", "--no-renames"],
+                    &options,
+                )
                 .await?;
-            let untracked: std::collections::HashSet<&str> = others.split('\0').filter(|path| !path.is_empty()).collect();
+            let listed: Vec<&str> = scan.split('\0').filter_map(|record| record.strip_prefix("? ")).collect();
+            let all: std::collections::HashSet<&str> = listed.iter().copied().collect();
+            let kept: std::collections::HashSet<&str> = listed.iter().take(REVIEW_UNTRACKED_LIMIT).copied().collect();
+            rows.retain(|row| row["path"].as_str().is_none_or(|path| !all.contains(path) || kept.contains(path)));
             for row in &mut rows {
-                let listed = row["path"].as_str().is_some_and(|path| untracked.contains(path));
-                row["untracked"] = json!(listed);
+                let untracked = row["path"].as_str().is_some_and(|path| kept.contains(path));
+                row["untracked"] = json!(untracked);
             }
+            let omitted = listed.len().saturating_sub(REVIEW_UNTRACKED_LIMIT);
             let paths: Vec<String> = rows.iter().filter_map(|row| row["path"].as_str().map(str::to_owned)).collect();
             let stat_root = root.clone();
             let revisions = crate::repo::on_lane(self.scm.lane, cancel, move || {
@@ -498,7 +511,7 @@ impl ScmService {
                 row["revision"] = json!(revision);
             }
             out["files"] = Value::Array(rows);
-            out["untrackedOmitted"] = json!(summary.omitted);
+            out["untrackedOmitted"] = json!(omitted);
             // Node's `gitReview` answers `{repository, root, base, files, untrackedOmitted}` (`git-history.ts` `GitReviewResult`): no `key`
             // (the cache key `known` is asked against) and no `totals`, which are the thread review's.
             if let Some(fields) = out.as_object_mut() {
