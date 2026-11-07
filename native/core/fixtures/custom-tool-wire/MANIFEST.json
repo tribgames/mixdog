@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-custom-tool-wire.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 15092,
+      "path": "golden.json",
+      "sha256": "3b2277b9406ad1b29e729603de47af047b151ee4267a681990583ca7a5f43163"
+    }
+  ],
+  "product": {
+    "appsSha256": "c8f72abc147389b830ed4f991290d1744b94a29892bafea6efe9d942f16b22a9",
+    "commit": "5855228e785617de6b01b0c8ca2f69b02d4ea90f",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "5855228e785617de6b01b0c8ca2f69b02d4ea90f",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-custom-tool-wire.mjs",
+  "set": "custom-tool-wire",
+  "totalBytes": 15092
+}

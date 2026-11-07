@@ -1,0 +1,1080 @@
+{
+  "domain": "proxy-provider-config",
+  "recorder": "benchmarks/rust-core/recorders/record-proxy-provider-config.mjs",
+  "waitMs": 1000,
+  "scenarios": [
+    {
+      "name": "a loaded PC answers",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 1
+    },
+    {
+      "name": "a loaded PC with nothing enabled is authoritative",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": false
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 1
+    },
+    {
+      "name": "an unready PC is asked again until it is ready",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": false
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 2,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 2
+    },
+    {
+      "name": "a PC that never becomes ready is unavailable after the budget",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": false
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": false
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": false
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": false
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": false
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": false
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": false
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": false
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 3,
+          "error": {
+            "message": "model proxy unavailable: the desktop client has not loaded its model providers yet",
+            "code": "MODEL_PROXY_UNAVAILABLE"
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 3
+    },
+    {
+      "name": "an older PC without ready counts when it names an enabled provider",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 1
+    },
+    {
+      "name": "an older PC without ready and nothing enabled is not ready",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            }
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            }
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            }
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            }
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            }
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            }
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            }
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            }
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 3,
+          "error": {
+            "message": "model proxy unavailable: the desktop client has not loaded its model providers yet",
+            "code": "MODEL_PROXY_UNAVAILABLE"
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 3
+    },
+    {
+      "name": "the PC fails the call",
+      "connected": true,
+      "replies": [
+        {
+          "ok": false,
+          "error": {
+            "name": "Error",
+            "message": "PC broke",
+            "props": {}
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "error": {
+            "message": "PC broke",
+            "code": null
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 1
+    },
+    {
+      "name": "no client is connected",
+      "connected": false,
+      "replies": [],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 0,
+          "error": {
+            "message": "model proxy unavailable: no desktop client is connected to run model calls",
+            "code": "MODEL_PROXY_UNAVAILABLE"
+          }
+        }
+      ],
+      "asked": [],
+      "asks": 0
+    },
+    {
+      "name": "a second call inside 15 s is served from the cache",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            },
+            "ready": true
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {},
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        },
+        {
+          "force": false,
+          "advance": 14999,
+          "asks": 0,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 1
+    },
+    {
+      "name": "a call after 15 s asks again",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            },
+            "ready": true
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        },
+        {
+          "force": false,
+          "advance": 15000,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": false
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 2
+    },
+    {
+      "name": "force asks again inside the cache window",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            },
+            "ready": true
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        },
+        {
+          "force": true,
+          "advance": 1,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": false
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 2
+    },
+    {
+      "name": "a reconnect is a new generation: the cache is not served",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            },
+            "ready": true
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        },
+        {
+          "force": false,
+          "advance": 1,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": false
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 2
+    },
+    {
+      "name": "a failed ask leaves no cache",
+      "connected": true,
+      "replies": [
+        {
+          "ok": false,
+          "error": {
+            "name": "Error",
+            "message": "PC broke",
+            "props": {}
+          }
+        },
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "error": {
+            "message": "PC broke",
+            "code": null
+          }
+        },
+        {
+          "force": false,
+          "advance": 1,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 2
+    },
+    {
+      "name": "a client that connects inside the budget is waited for",
+      "connected": false,
+      "connectAfter": 300,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "value": {
+            "openai": {
+              "enabled": true,
+              "type": "api-key",
+              "authState": "present"
+            },
+            "anthropic": {
+              "enabled": false,
+              "authState": "absent"
+            },
+            "custom-a": {
+              "enabled": true,
+              "type": "custom",
+              "name": "Mine",
+              "hiddenModels": [
+                "m1"
+              ]
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 1
+    },
+    {
+      "name": "a client that connects after the budget is too late",
+      "connected": false,
+      "connectAfter": 1500,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "openai": {
+                "enabled": true,
+                "type": "api-key",
+                "authState": "present"
+              },
+              "anthropic": {
+                "enabled": false,
+                "authState": "absent"
+              },
+              "custom-a": {
+                "enabled": true,
+                "type": "custom",
+                "name": "Mine",
+                "hiddenModels": [
+                  "m1"
+                ]
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 0,
+          "error": {
+            "message": "model proxy unavailable: no desktop client is connected to run model calls",
+            "code": "MODEL_PROXY_UNAVAILABLE"
+          }
+        }
+      ],
+      "asked": [],
+      "asks": 0
+    },
+    {
+      "name": "provider order is the PC order",
+      "connected": true,
+      "replies": [
+        {
+          "ok": true,
+          "value": {
+            "providers": {
+              "zeta": {
+                "enabled": true
+              },
+              "custom-b": {
+                "enabled": true,
+                "type": "custom"
+              },
+              "alpha": {
+                "enabled": true
+              }
+            },
+            "ready": true
+          }
+        }
+      ],
+      "calls": [
+        {
+          "force": false,
+          "advance": 0,
+          "asks": 1,
+          "value": {
+            "zeta": {
+              "enabled": true
+            },
+            "custom-b": {
+              "enabled": true,
+              "type": "custom"
+            },
+            "alpha": {
+              "enabled": true
+            }
+          }
+        }
+      ],
+      "asked": [
+        {
+          "provider": "",
+          "method": "providerConfig",
+          "model": null
+        }
+      ],
+      "asks": 1
+    }
+  ]
+}

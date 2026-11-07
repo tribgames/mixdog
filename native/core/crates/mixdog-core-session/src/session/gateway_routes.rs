@@ -362,7 +362,7 @@ mod tests {
     }
 
     fn text(path: &Path) -> Option<String> {
-        std::fs::read_to_string(path).ok()
+        crate::session::fixture_fs::read_to_string(path).ok()
     }
 
     /// Node's `writeStatuslineRoute` into its real route store: the file and its `.bak` after each
@@ -377,7 +377,7 @@ mod tests {
             let (data, clock, routes) = rig();
             let store = data.path().join(STORE_FILE);
             if let Some(initial) = case["initial"].as_str() {
-                std::fs::write(&store, initial).unwrap();
+                crate::session::fixture_fs::write(&store, initial);
             }
             for step in case["steps"].as_array().unwrap() {
                 let calls = step["calls"].as_array().unwrap();
@@ -413,7 +413,7 @@ mod tests {
         clock.store(1_800_000_000_000, Ordering::SeqCst);
         let route: Map<String, Value> = serde_json::from_value(json!({ "provider": "openai", "model": "gpt-5" })).unwrap();
         routes.write_route("", &route, None).await;
-        assert!(!data.path().join(STORE_FILE).exists());
+        assert!(!crate::session::fixture_fs::exists(data.path().join(STORE_FILE)).unwrap());
         routes.write_route("sess_abcdef01", &route, None).await;
         let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
         let key = format!("sess_abcdef01#{}", std::process::id());

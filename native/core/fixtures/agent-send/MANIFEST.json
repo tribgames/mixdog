@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-agent-send.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 704,
+      "path": "golden.json",
+      "sha256": "7bbe694bdd95048873365b929271fa0172aae70869df870b561e42379fd3798f"
+    }
+  ],
+  "product": {
+    "appsSha256": "fafa2dadfb9db84dba5ba512f05574282fe76e530ac5b39b4bb99cc0f396199c",
+    "commit": "642b397e5d8d2e25ad197956f6b5ca11cc28ed72",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "642b397e5d8d2e25ad197956f6b5ca11cc28ed72",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-send.mjs",
+  "set": "agent-send",
+  "totalBytes": 704
+}

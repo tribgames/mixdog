@@ -821,6 +821,38 @@ impl super::NewThreadTools for KeepHeader {
     }
 }
 
+/// The rooms whose members' handed-off questions moved, and the member approvals resolved
+/// (`room:approval`), in order.
+#[derive(Default)]
+pub struct TestRoomMembers {
+    pub moved: Mutex<Vec<String>>,
+    pub resolved: Mutex<Vec<String>>,
+}
+
+impl super::RoomMemberEvents for TestRoomMembers {
+    fn questions_moved(&self, room_id: &str) {
+        lock(&self.moved).push(room_id.to_owned());
+    }
+    fn approval_resolved(&self, room_id: &str, approval_id: &str) {
+        lock(&self.resolved).push(format!("{room_id}:{approval_id}"));
+    }
+}
+
+/// The resumed-thread tool refreshes the rig was asked for, and the change it answers each with.
+#[derive(Default)]
+pub struct TestResumedTools {
+    pub asked: Mutex<Vec<String>>,
+    pub change: Mutex<Option<mixdog_store::schema::record::HeaderChange>>,
+}
+
+#[async_trait::async_trait]
+impl super::ResumedTools for TestResumedTools {
+    async fn refreshed(&self, thread: &ThreadId, _: &Header) -> Option<mixdog_store::schema::record::HeaderChange> {
+        lock(&self.asked).push(thread.as_str().to_owned());
+        lock(&self.change).clone()
+    }
+}
+
 impl ToolSurfaceSource for HeaderSurfaces {
     fn surface(&self, _thread: &ThreadId, header: &Header) -> SessionSurface {
         SessionSurface {
@@ -900,6 +932,8 @@ pub struct Rig {
     pub admissions: Arc<TestAdmission>,
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
     pub prewarms: Arc<Prewarms>,
+    /// The warmer's turn notes: each turn's `cacheWarmTurnKind` input, and how many ended.
+    pub warms: Arc<RecWarmth>,
     pub ingests: Arc<Ingests>,
     pub closes: Arc<Closes>,
     pub sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
@@ -917,6 +951,10 @@ pub struct Rig {
     pub agents: Arc<TestAgents>,
     /// The code-graph prewarm calls the actors made, in order.
     pub code_graph: Arc<TestCodeGraphPrewarm>,
+    /// The resumed-thread tool refreshes (`SessionDeps.resumed_tools`).
+    pub resumed: Arc<TestResumedTools>,
+    /// `SessionDeps.room_members`.
+    pub room_members: Arc<TestRoomMembers>,
     /// The agent-status signals the actors emitted, in order.
     pub signals: Arc<TestSignals>,
     /// The side-question store `thread/askSide` reads.
@@ -935,8 +973,9 @@ pub struct Rig {
 /// environment reset a clear writes.
 pub struct ResetRouteChange;
 
+#[async_trait::async_trait]
 impl super::route_session::RouteChange for ResetRouteChange {
-    fn route_change(&self, _: &Header, _: &mixdog_core_ports::ports::route::Route, _: &mixdog_core_ports::ports::route::Route, _: bool) -> mixdog_store::schema::record::HeaderChange {
+    async fn route_change(&self, _: &Header, _: &mixdog_core_ports::ports::route::Route, _: &mixdog_core_ports::ports::route::Route, _: bool) -> mixdog_store::schema::record::HeaderChange {
         mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new() }
     }
 
@@ -1121,6 +1160,28 @@ impl super::TurnIngest for Ingests {
     }
 }
 
+/// Each turn the warmer was told of.
+#[derive(Default)]
+pub struct RecWarmth {
+    pub begun: Mutex<Vec<(ThreadId, Value, Option<Value>)>>,
+    pub ended: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+struct Ended(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for Ended {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl super::turn_warm::TurnWarmth for RecWarmth {
+    fn begin(&self, thread: &ThreadId, input: &Value, messages: Option<&Value>) -> Box<dyn Send> {
+        lock(&self.begun).push((thread.clone(), input.clone(), messages.cloned()));
+        Box::new(Ended(self.ended.clone()))
+    }
+}
+
 /// The threads the effort judge was prewarmed for, in order.
 #[derive(Default)]
 pub struct Prewarms(pub Mutex<Vec<ThreadId>>);
@@ -1180,6 +1241,8 @@ impl Rig {
             work: Arc::default(),
             agents: Arc::default(),
             code_graph: Arc::default(),
+            resumed: Arc::default(),
+            room_members: Arc::default(),
             signals: Arc::default(),
             side: Arc::default(),
             inherit: Arc::default(),
@@ -1197,6 +1260,7 @@ impl Rig {
             admissions: Arc::default(),
             wakes: mixdog_tools::exec::WakeHub::new(),
             prewarms: Arc::default(),
+            warms: Arc::default(),
             ingests: Arc::default(),
             closes: Arc::default(),
             sensitive: Arc::default(),
@@ -1229,6 +1293,8 @@ impl Rig {
             runs: self.runs.clone(),
             surfaces: Arc::new(HeaderSurfaces),
             new_tools: Arc::new(KeepHeader),
+            resumed_tools: self.resumed.clone(),
+            room_members: self.room_members.clone(),
             wakes: self.wakes.clone(),
             effort: self.prewarms.clone(),
             search: self.ingests.clone(),
@@ -1270,6 +1336,7 @@ impl Rig {
                 durability: tokens.durability_io,
             },
             limits: SessionLimits::default(),
+            warm: self.warms.clone(),
         }
     }
 }

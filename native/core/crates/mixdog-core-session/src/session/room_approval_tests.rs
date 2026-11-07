@@ -60,8 +60,8 @@ fn rust_request(case: &Value, thread: &str) -> Option<ApprovalRequest> {
         }
         (Some(name), Some("approval" | "outbound")) => {
             let mut payload = input.clone();
-            payload.remove("sessionId");
-            payload.remove("toolCallId");
+            payload.shift_remove("sessionId");
+            payload.shift_remove("toolCallId");
             (ApprovalKind::Tool, name.to_owned(), Value::Object(payload), None)
         }
         _ => return None,

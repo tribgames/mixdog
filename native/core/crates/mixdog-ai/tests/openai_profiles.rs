@@ -207,7 +207,7 @@ fn xai_server_history() -> Vec<Message> {
 }
 
 fn def(name: &str, description: &str, schema: Value) -> ToolDefinition {
-    ToolDefinition { name: name.into(), description: description.into(), input_schema: schema, defer_loading: false }
+    ToolDefinition { name: name.into(), description: description.into(), input_schema: schema, defer_loading: false, freeform: None }
 }
 
 fn session_tools() -> Vec<ToolDefinition> {

@@ -16,7 +16,6 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::wrong_method;
-use mixdog_ledger::ledger::UsageLedger;
 use mixdog_ledger::stats::session_usage_snapshot;
 use serde_json::Map;
 use serde_json::Value;
@@ -24,6 +23,7 @@ use sha2::Digest;
 use sha2::Sha256;
 
 use super::DOMAIN;
+use super::LedgerAccess;
 use crate::domains::ai_account::failure::ledger_failure;
 
 const METHOD: &str = "thread/getSessionUsage";
@@ -52,12 +52,12 @@ pub fn other_session_ids(options: Option<&Value>, session_id: &str) -> Vec<Strin
 }
 
 pub struct SessionUsageService {
-    ledger: UsageLedger,
+    ledger: Arc<dyn LedgerAccess>,
     accounts: AccountStore,
 }
 
 impl SessionUsageService {
-    pub fn new(ledger: UsageLedger, accounts: AccountStore) -> Arc<Self> {
+    pub fn new(ledger: Arc<dyn LedgerAccess>, accounts: AccountStore) -> Arc<Self> {
         Arc::new(Self { ledger, accounts })
     }
 
@@ -82,7 +82,8 @@ impl SessionUsageService {
     }
 
     async fn totals(&self, ids: Vec<String>, owners: Vec<String>) -> Result<Value, CoreError> {
-        let bucket = self.ledger.session_usage(ids, owners).await.map_err(|e| ledger_failure(e, DOMAIN))?;
+        let ledger = self.ledger.ledger().map_err(|e| ledger_failure(e, DOMAIN))?;
+        let bucket = ledger.session_usage(ids, owners).await.map_err(|e| ledger_failure(e, DOMAIN))?;
         Ok(session_usage_snapshot(&bucket))
     }
 

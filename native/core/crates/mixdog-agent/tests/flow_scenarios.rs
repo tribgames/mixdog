@@ -25,6 +25,7 @@ use mixdog_agent::agent_tool::flow::worker_turns::TurnOwner;
 use mixdog_agent::agent_tool::flow::world::Created;
 use mixdog_agent::agent_tool::flow::world::Delegation;
 use mixdog_agent::agent_tool::flow::world::SendWorld;
+use mixdog_agent::agent_tool::flow::world::SpawnAdmission;
 use mixdog_agent::agent_tool::flow::world::SpawnContext;
 use mixdog_agent::agent_tool::flow::world::SpawnWorld;
 use mixdog_agent::agent_tool::host::*;
@@ -412,6 +413,17 @@ struct SpawnHost {
     host: Value,
 }
 
+impl SpawnAdmission for SpawnHost {
+    fn workspace_cwd_lock(&self, owners: &[String]) -> Option<String> {
+        // The lock is held by one session: it pins a worker only when that session is an owner asked.
+        let holder = s(&self.scenario, "lockOwner");
+        owners.iter().any(|o| *o == holder).then(|| self.scenario["lock"].as_str().map(str::to_owned)).flatten()
+    }
+    fn enter_worker_spawn(&self, _: &[String]) -> Result<Box<dyn Send>, String> {
+        Ok(Box::new(()))
+    }
+}
+
 #[async_trait]
 impl SpawnWorld for SpawnHost {
     async fn load_config(&self) -> Result<Obj, String> {
@@ -420,17 +432,17 @@ impl SpawnWorld for SpawnHost {
     fn loaded_config(&self) -> Option<Obj> {
         Some(self.shared.config.clone())
     }
-    fn route_candidates(&self, _: &Obj, _: &str) -> Vec<Value> {
-        self.host["agent"]["candidates"].as_array().cloned().unwrap_or_default()
+    async fn route_candidates(&self, _: &Obj, _: &str) -> Result<Vec<Value>, String> {
+        Ok(self.host["agent"]["candidates"].as_array().cloned().unwrap_or_default())
     }
-    fn agent_defined(&self, _: &str) -> bool {
-        self.host["agent"]["defined"] == true
+    async fn agent_defined(&self, _: &str) -> Result<bool, String> {
+        Ok(self.host["agent"]["defined"] == true)
     }
     fn agent_disabled(&self, _: &Obj, _: &str) -> bool {
         self.host["agent"]["disabled"] == true
     }
-    fn agent_kind(&self, _: &str) -> Option<String> {
-        self.host["agent"]["kind"].as_str().map(str::to_owned)
+    async fn agent_kind(&self, _: &str) -> Result<Option<String>, String> {
+        Ok(self.host["agent"]["kind"].as_str().map(str::to_owned))
     }
     fn is_contact_agent(&self, _: &str, _: Option<&str>) -> bool {
         self.host["agent"]["contact"] == true
@@ -441,16 +453,8 @@ impl SpawnWorld for SpawnHost {
             acting: s(&self.host["delegation"], "acting"),
         }
     }
-    fn agent_permission(&self, _: &str) -> Option<Value> {
-        Some(self.host["agent"]["permission"].clone()).filter(|p| !p.is_null())
-    }
-    fn workspace_cwd_lock(&self, owners: &[String]) -> Option<String> {
-        // The lock is held by one session: it pins a worker only when that session is an owner asked.
-        let holder = s(&self.scenario, "lockOwner");
-        owners.iter().any(|o| *o == holder).then(|| self.scenario["lock"].as_str().map(str::to_owned)).flatten()
-    }
-    fn enter_worker_spawn(&self, _: &[String]) -> Box<dyn Send> {
-        Box::new(())
+    async fn agent_permission(&self, _: &str) -> Result<Option<Value>, String> {
+        Ok(Some(self.host["agent"]["permission"].clone()).filter(|p| !p.is_null()))
     }
     fn next_tag(&self, _: &str, _: &SpawnContext) -> String {
         s(&self.scenario, "nextTag")
@@ -535,8 +539,8 @@ impl SendWorld for SendHost {
     async fn load_config(&self) -> Result<Option<Obj>, String> {
         Ok(Some(self.shared.config.clone()))
     }
-    fn route_candidates(&self, config: &Obj, agent: &str) -> Vec<Value> {
-        config.get("agents").and_then(|a| a.get(agent)).cloned().into_iter().collect()
+    async fn route_candidates(&self, config: &Obj, agent: &str) -> Result<Vec<Value>, String> {
+        Ok(config.get("agents").and_then(|a| a.get(agent)).cloned().into_iter().collect())
     }
     fn can_set_route(&self) -> bool {
         self.scenario["surface"] == "canonical"
@@ -555,9 +559,9 @@ impl SendWorld for SendHost {
     fn hold_session_route(&self, id: &str, route: Option<&Value>) {
         log(&self.shared.log, json!(["holdSessionRoute", id, route]));
     }
-    async fn enqueue_turn(&self, _: &Value, prompt: &str, attachments: &[Value], context: Option<&Value>) -> Option<Value> {
+    async fn enqueue_turn(&self, _: &Value, prompt: &str, attachments: &[Value], context: Option<&Value>) -> Result<Option<Value>, String> {
         log(&self.shared.log, json!(["enqueueTurn", handoff_content(prompt, attachments), context]));
-        Some(self.scenario["enqueueReturns"].clone()).filter(|v| !v.is_null())
+        Ok(Some(self.scenario["enqueueReturns"].clone()).filter(|v| !v.is_null()))
     }
     fn enqueue_pending(&self, id: &str, prompt: &str, attachments: &[Value]) -> Option<u64> {
         if self.scenario["noPending"] == true {
@@ -566,8 +570,9 @@ impl SendWorld for SendHost {
         log(&self.shared.log, json!(["enqueuePending", id, handoff_content(prompt, attachments)]));
         self.scenario["pendingDepth"].as_u64()
     }
-    fn rebind_delegation(&self, id: &str, caller: Option<&str>) {
+    async fn rebind_delegation(&self, id: &str, caller: Option<&str>) -> Result<(), String> {
         log(&self.shared.log, json!(["rebindDelegation", id, caller]));
+        Ok(())
     }
 }
 
@@ -646,6 +651,7 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         })
     };
     let registry: Arc<dyn Registry> = Arc::new(Reg(shared.clone()));
+    let spawn_host = Arc::new(SpawnHost { shared: shared.clone(), scenario: scenario.clone(), host: host.cloned().unwrap_or(Value::Null) });
     // The same assembly the compose root calls.
     let assembled = assemble(AgentParts {
         board: board.clone(),
@@ -662,7 +668,8 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         starts: Arc::new(NoStarts),
         workers: Arc::new(NoWorkers),
         status_changed: status,
-        spawn_world: Arc::new(SpawnHost { shared: shared.clone(), scenario: scenario.clone(), host: host.cloned().unwrap_or(Value::Null) }),
+        spawn_world: spawn_host.clone(),
+        spawn_admission: spawn_host,
         send_world: Arc::new(SendHost { shared: shared.clone(), scenario: scenario.clone() }),
         terminal_trace: Arc::new(NoTrace),
         env: Arc::new(Env),
@@ -822,7 +829,8 @@ async fn a_spawn_equals_nodes() {
             &context,
             &context,
             SpawnOptions { respawned: scenario["respawned"] == true },
-        );
+        )
+        .await;
         let (start_error, id, pending) = match &started {
             Ok(job) => {
                 let task = rig.shared.board.get(job.task_id(), &Scope::default()).unwrap();
@@ -885,7 +893,7 @@ async fn a_send_equals_nodes() {
                     route: None,
                 };
                 let notify = if scenario["noCaller"] == true { SpawnContext::default() } else { context.clone() };
-                SendFlowImpl::adopt_caller(&rig.send, &prepared, &notify);
+                SendFlowImpl::adopt_caller(&rig.send, &prepared, &notify).await.expect("adopt");
                 json!({ "adopted": true })
             }
             _ => {
@@ -959,7 +967,7 @@ async fn racing_requests_end_as_nodes_do() {
         for (index, op) in ops.iter().enumerate() {
             match s(op, "op").as_str() {
                 "start" => {
-                    let job = rig.spawn.start_deferred_spawn_job(&op["args"], "/work", &context, &context, SpawnOptions { respawned: false }).unwrap();
+                    let job = rig.spawn.start_deferred_spawn_job(&op["args"], "/work", &context, &context, SpawnOptions { respawned: false }).await.unwrap();
                     jobs.push((s(op, "as"), job.task_id().to_owned()));
                 }
                 "dispatch" => {

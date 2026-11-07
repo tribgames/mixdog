@@ -22,7 +22,7 @@ use super::flow::seams::{Admission, OwnerNotify, SubagentEvents, TaskStarts, Tur
 use super::flow::spawn::{SpawnFlowDeps, SpawnFlowImpl};
 use super::flow::turn::TurnRunner;
 use super::flow::worker_turns::TurnOwner;
-use super::flow::world::{SendWorld, SpawnWorld};
+use super::flow::world::{SendWorld, SpawnAdmission, SpawnWorld};
 use super::host::{CallerScopes, Environment, Registry, Sessions, TerminalTrace};
 use super::model_select::ModelCatalog;
 use super::views::{JobViews, Workers};
@@ -53,6 +53,8 @@ pub struct AgentParts {
     /// Called whenever a job's or worker's status changes.
     pub status_changed: Arc<dyn Fn() + Send + Sync>,
     pub spawn_world: Arc<dyn SpawnWorld>,
+    /// The Lead workspace gate (`SessionWorkspaces`).
+    pub spawn_admission: Arc<dyn SpawnAdmission>,
     pub send_world: Arc<dyn SendWorld>,
     pub terminal_trace: Arc<dyn TerminalTrace>,
     pub env: Arc<dyn Environment>,
@@ -97,6 +99,7 @@ pub fn assemble(parts: AgentParts) -> Assembled {
         workers,
         status_changed,
         spawn_world,
+        spawn_admission,
         send_world,
         terminal_trace,
         env,
@@ -112,6 +115,7 @@ pub fn assemble(parts: AgentParts) -> Assembled {
     let views = Arc::new(JobViews::new(board.clone(), registry.clone(), workers, clock.clone()));
     let spawn = Arc::new(SpawnFlowImpl::new(SpawnFlowDeps {
         world: spawn_world,
+        admission: spawn_admission,
         registry: registry.clone(),
         sessions: sessions.clone(),
         env: env.clone(),

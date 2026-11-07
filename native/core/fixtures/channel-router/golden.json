@@ -1,0 +1,375 @@
+{
+  "frozenNow": 1700000000000,
+  "strip": [
+    {
+      "input": "plain text",
+      "output": "plain text"
+    },
+    {
+      "input": "",
+      "output": ""
+    },
+    {
+      "input": " ",
+      "output": " "
+    },
+    {
+      "input": "⚠ Tool-loop(3 calls)\nrest",
+      "output": "rest"
+    },
+    {
+      "input": "a\n⚠ Repeated-input(x)\nb",
+      "output": "a\nb"
+    },
+    {
+      "input": "⚠ Iteration(9) no newline",
+      "output": ""
+    },
+    {
+      "input": "⚠ Tool-loop soft-warn\nline\nmore\n\nafter",
+      "output": "after"
+    },
+    {
+      "input": "⚠ Tool-loop soft-warn at end",
+      "output": ""
+    },
+    {
+      "input": "⚠ 0-match family-switch advisory\nx\n\ny",
+      "output": "y"
+    },
+    {
+      "input": "⚠ 0-match ESCALATED\nz",
+      "output": ""
+    },
+    {
+      "input": "⚠ Edit-miss(1)\nkept?",
+      "output": "kept?"
+    },
+    {
+      "input": "⚠ Same-file multi-chunk(2)\nq",
+      "output": "q"
+    },
+    {
+      "input": "⚠ Same-file   multi-chunk(2)\nq",
+      "output": "q"
+    },
+    {
+      "input": "⚠Tool-loop(1)\nnel",
+      "output": "⚠Tool-loop(1)\nnel"
+    },
+    {
+      "input": "⚠﻿Tool-loop(1)\nbom",
+      "output": "bom"
+    },
+    {
+      "input": "⚠ Unknown(1)\nstays",
+      "output": "⚠ Unknown(1)\nstays"
+    },
+    {
+      "input": "before ⚠ Mixed-tool(2) mid\nafter",
+      "output": "before after"
+    },
+    {
+      "input": "⚠ Bash file-lookup(1)\n⚠ Bash file-lookup(2)\nend",
+      "output": "end"
+    },
+    {
+      "input": "⚠ Tool-loop soft-warn\n \t \nafter blank",
+      "output": "after blank"
+    }
+  ],
+  "inject": [
+    {
+      "content": " ",
+      "options": {
+        "type": "webhook",
+        "instruction": "PR opened"
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [
+        {
+          "sessionId": "sess_lead",
+          "prompt": "PR opened",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": []
+    },
+    {
+      "content": " ",
+      "options": {
+        "type": "webhook",
+        "instruction": "  padded\n"
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [
+        {
+          "sessionId": "sess_lead",
+          "prompt": "padded",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": []
+    },
+    {
+      "content": " ",
+      "options": {
+        "type": "webhook",
+        "instruction": "   "
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [],
+      "logs": []
+    },
+    {
+      "content": " ",
+      "options": {
+        "type": "webhook",
+        "instruction": "⚠ Tool-loop(3)\nkept in instruction"
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [
+        {
+          "sessionId": "sess_lead",
+          "prompt": "⚠ Tool-loop(3)\nkept in instruction",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": []
+    },
+    {
+      "content": " ",
+      "options": {
+        "type": "webhook",
+        "instruction": "ci"
+      },
+      "lead": null,
+      "service": "ok",
+      "submits": [],
+      "logs": [
+        "channel session delivery unavailable session=none"
+      ]
+    },
+    {
+      "content": " ",
+      "options": {
+        "type": "webhook",
+        "instruction": "ci"
+      },
+      "lead": "sess_lead",
+      "service": "none",
+      "submits": [],
+      "logs": [
+        "channel session delivery unavailable session=sess_lead"
+      ]
+    },
+    {
+      "content": " ",
+      "options": {
+        "type": "webhook",
+        "instruction": "ci"
+      },
+      "lead": "sess_lead",
+      "service": "throws",
+      "submits": [
+        {
+          "sessionId": "sess_lead",
+          "prompt": "ci",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": [
+        "channel session delivery failed session=sess_lead: boom"
+      ]
+    },
+    {
+      "content": " ",
+      "options": {
+        "type": "webhook",
+        "instruction": "ci"
+      },
+      "lead": "  sess_pad  ",
+      "service": "ok",
+      "submits": [
+        {
+          "sessionId": "sess_pad",
+          "prompt": "ci",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": []
+    },
+    {
+      "content": "plain body",
+      "options": null,
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [
+        {
+          "sessionId": "sess_lead",
+          "prompt": "plain body",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": []
+    },
+    {
+      "content": "  body\n",
+      "options": {
+        "type": "webhook"
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [
+        {
+          "sessionId": "sess_lead",
+          "prompt": "body",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": []
+    },
+    {
+      "content": "⚠ Tool-loop(3)\nkept body",
+      "options": {
+        "type": "x"
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [
+        {
+          "sessionId": "sess_lead",
+          "prompt": "kept body",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": []
+    },
+    {
+      "content": "⚠ Tool-loop(3)\n",
+      "options": {
+        "type": "x"
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [],
+      "logs": []
+    },
+    {
+      "content": "hello",
+      "options": {
+        "instruction": "wins over content"
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [
+        {
+          "sessionId": "sess_lead",
+          "prompt": "wins over content",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": []
+    },
+    {
+      "content": "hello",
+      "options": {
+        "instruction": "silent",
+        "silent_to_agent": true
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [],
+      "logs": []
+    },
+    {
+      "content": "hello",
+      "options": {
+        "silent_to_agent": false
+      },
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [
+        {
+          "sessionId": "sess_lead",
+          "prompt": "hello",
+          "options": {
+            "source": "channel",
+            "mode": "task-notification",
+            "origin": "channel"
+          }
+        }
+      ],
+      "logs": []
+    },
+    {
+      "content": "",
+      "options": {},
+      "lead": "sess_lead",
+      "service": "ok",
+      "submits": [],
+      "logs": []
+    }
+  ],
+  "queue": {
+    "session": "sess_c",
+    "returned": 1,
+    "entries": [
+      {
+        "content": "PR opened",
+        "text": "PR opened",
+        "mode": "task-notification",
+        "origin": "channel",
+        "id": "030303030303030303030303",
+        "enqueuedAt": 1700000000000
+      },
+      {
+        "id": "030303030303030303030303",
+        "message": "PR opened",
+        "mode": "task-notification",
+        "origin": "channel",
+        "enqueuedAt": 1700000000000
+      }
+    ]
+  }
+}

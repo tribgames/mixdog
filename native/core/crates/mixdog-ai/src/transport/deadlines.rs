@@ -56,6 +56,11 @@ pub const DEVIN_STREAM: Exchange = Exchange::new(Liveness::stream(secs(600)), Re
 /// Cursor run over HTTP/2 (`cursor-wire-transport.mjs`): no redirect handling in Node.
 pub const CURSOR_RUN: Exchange = Exchange::new(Liveness::stream(secs(600)), Redirect::Manual);
 
+/// The OpenCode Console requests (device code and token, refresh, `/api/user`, `/api/orgs`, config):
+/// `opencode-go-oauth-tokens.mjs:39` `REQUEST_TIMEOUT_MS` 20_000 on `AbortSignal.timeout` (`:188`), and
+/// `redirect: 'error'` (`consoleRequest`).
+pub const OPENCODE_CONSOLE: Exchange = Exchange::new(Liveness::unary(secs(20)), Redirect::Error);
+
 /// Grok model list: `grok-oauth.mjs:509` 10_000 and `:512` `redirect: 'error'`.
 pub const GROK_LISTING: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Error);
 
@@ -85,3 +90,7 @@ pub const VERTEX_METADATA: Exchange = Exchange::new(
 /// lock at most `anthropic-oauth-credentials.mjs:470` 120_000 and then calls the token
 /// endpoint for at most `:79` 30_000.
 pub const REFRESH_FLIGHT: Liveness = Liveness::unary(secs(150));
+
+/// The Cursor dashboard unary calls (`GetCurrentPeriodUsage`, `GetPlanInfo`): `callCursorUnary`'s default
+/// `timeoutMs` 5_000 (`cursor-wire-transport.mjs:265`); the raw HTTP/2 request handles no redirect.
+pub const CURSOR_USAGE: Exchange = Exchange::new(Liveness::unary(secs(5)), Redirect::Manual);

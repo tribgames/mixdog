@@ -15,7 +15,6 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_ledger::quota::QuotaHistoryOptions;
-use mixdog_ledger::reader::UsageReader;
 use serde_json::Value;
 use serde_json::json;
 
@@ -27,6 +26,7 @@ use super::dashboards::Dashboards;
 use super::failure::Failure;
 use super::failure::ledger_failure;
 use super::flows::OAuthFlows;
+use super::usage::LedgerAccess;
 use super::usage::dashboard::UsageSources;
 use super::usage::now_ms;
 use mixdog_core_base::support::OpScopes;
@@ -38,7 +38,7 @@ const DOMAIN: &str = "account";
 pub struct AccountService {
     admin: Arc<ProviderAdmin>,
     flows: OAuthFlows,
-    reader: Arc<UsageReader>,
+    ledger: Arc<dyn LedgerAccess>,
     custom: Arc<dyn CustomProviders>,
     web_search: Arc<dyn WebSearchModels>,
     setup: Arc<dyn ProviderSetup>,
@@ -63,7 +63,7 @@ impl AccountService {
     pub fn new(
         admin: Arc<ProviderAdmin>,
         flows: OAuthFlows,
-        reader: Arc<UsageReader>,
+        ledger: Arc<dyn LedgerAccess>,
         custom: Arc<dyn CustomProviders>,
         web_search: Arc<dyn WebSearchModels>,
         setup: Arc<dyn ProviderSetup>,
@@ -71,7 +71,7 @@ impl AccountService {
         sources: Arc<dyn UsageSources>,
         ops: OpScopes,
     ) -> Arc<Self> {
-        Arc::new(Self { admin, flows, reader, custom, web_search, setup, dashboards, sources, ops })
+        Arc::new(Self { admin, flows, ledger, custom, web_search, setup, dashboards, sources, ops })
     }
 
     /// `getQuotaHistory`: the ledger's history, labelled with each account's place in its pool.
@@ -89,11 +89,8 @@ impl AccountService {
                 }
             }
         }
-        let history = self
-            .reader
-            .quota_history(options, in_use, now_ms())
-            .await
-            .map_err(|e| ledger_failure(e, DOMAIN))?;
+        let ledger = self.ledger.ledger().map_err(|e| ledger_failure(e, DOMAIN))?;
+        let history = ledger.get_quota_history(options, in_use, now_ms()).await.map_err(|e| ledger_failure(e, DOMAIN))?;
         Ok(self.label_quota_history(history).await)
     }
 

@@ -29,6 +29,7 @@ use super::result::WorkerResult;
 use super::turn::TurnPlan;
 use super::turn::TurnRunner;
 use super::world::Created;
+use super::world::SpawnAdmission;
 use super::world::SpawnContext;
 use super::world::SpawnWorld;
 use crate::agent_tool::board::JobBoard;
@@ -109,6 +110,7 @@ pub fn assert_bot_chain_target(target: &str, chain: &[String], this: &str, prefi
 
 pub struct SpawnFlowImpl {
     world: Arc<dyn SpawnWorld>,
+    admission: Arc<dyn SpawnAdmission>,
     registry: Arc<dyn Registry>,
     sessions: Arc<dyn Sessions>,
     env: Arc<dyn Environment>,
@@ -124,6 +126,7 @@ pub struct SpawnFlowImpl {
 
 pub struct SpawnFlowDeps {
     pub world: Arc<dyn SpawnWorld>,
+    pub admission: Arc<dyn SpawnAdmission>,
     pub registry: Arc<dyn Registry>,
     pub sessions: Arc<dyn Sessions>,
     pub env: Arc<dyn Environment>,
@@ -141,6 +144,7 @@ impl SpawnFlowImpl {
     pub fn new(deps: SpawnFlowDeps) -> Self {
         Self {
             world: deps.world,
+            admission: deps.admission,
             registry: deps.registry,
             sessions: deps.sessions,
             env: deps.env,
@@ -165,7 +169,7 @@ impl SpawnFlowImpl {
         }
         // A deleted or unknown agent fails here: it would otherwise still spawn as a role-less
         // generic agent by its remembered name.
-        if !world.agent_defined(&agent) {
+        if !world.agent_defined(&agent).await? {
             return Err(format!("agent spawn: unknown agent \"{agent}\""));
         }
         // Switched off in settings: the role is dropped from the Lead prompt, so a spawn can only
@@ -174,14 +178,14 @@ impl SpawnFlowImpl {
             return Err(format!("agent spawn: agent \"{agent}\" is turned off"));
         }
         // A contact agent never goes to one already in the delegation chain, itself included.
-        let kind = world.agent_kind(&agent);
+        let kind = world.agent_kind(&agent).await?;
         if world.is_contact_agent(&agent, kind.as_deref()) {
             let delegation = world.delegation(&context.caller_id());
             assert_bot_chain_target(&agent, &delegation.chain, &delegation.acting, "agent spawn")?;
         }
-        let agent_perm = world.agent_permission(&agent);
-        let SpawnPreset { preset_name, preset } =
-            resolve_agent_spawn_preset(&config, args, &world.route_candidates(&config, &agent))?;
+        let agent_perm = world.agent_permission(&agent).await?;
+        let candidates = world.route_candidates(&config, &agent).await?;
+        let SpawnPreset { preset_name, preset } = resolve_agent_spawn_preset(&config, args, &candidates)?;
         let explicit = clean(args.get("tag"));
         let tag = if explicit.is_empty() { world.next_tag(&agent, context) } else { explicit };
         // Any resolved same-tag binding in this terminal (live or lingering trace) blocks a
@@ -194,7 +198,7 @@ impl SpawnFlowImpl {
         // Workers share their Lead's execution root. While the Lead runs in its worktree that
         // root is locked: neither `args.cwd` nor an inherited cwd can send a worker elsewhere.
         let owners = [context.owner_id(), context.caller_id()];
-        let locked = world.workspace_cwd_lock(&owners).filter(|l| !l.is_empty());
+        let locked = self.admission.workspace_cwd_lock(&owners).filter(|l| !l.is_empty());
         let current = self.env.current_dir();
         let base_source = locked.clone().or_else(|| caller_cwd.filter(|c| !c.is_empty()).map(str::to_owned)).or_else(|| Some(self.default_cwd.clone()).filter(|d| !d.is_empty())).unwrap_or_else(|| current.clone());
         let base_cwd = resolve_path(&current, &base_source);
@@ -283,7 +287,7 @@ impl SpawnFlowImpl {
         self.registry.refresh_tags_from_sessions(false, &context.scope()).await;
         // Shared admission with Lead workspace transitions: no spawn is prepared while the
         // Lead's workspace changes, no transition starts mid-spawn.
-        let _leave = self.world.enter_worker_spawn(&[context.owner_id(), context.caller_id()]);
+        let _leave = self.admission.enter_worker_spawn(&[context.owner_id(), context.caller_id()])?;
         let plan = self.resolve_spawn_plan(args, caller_cwd, context).await?;
         let spec = self.spawn_session_spec(&plan, args, context);
         let Created { session, effective_cwd } = self.create_spawned_session(&plan, &spec).await?;
@@ -347,7 +351,7 @@ impl SpawnFlowImpl {
     }
 
     /// `startDeferredSpawnJob`: the job whose work is the whole spawn.
-    pub fn start_deferred_spawn_job(
+    pub async fn start_deferred_spawn_job(
         self: &Arc<Self>,
         args: &Value,
         caller_cwd: &str,
@@ -355,11 +359,9 @@ impl SpawnFlowImpl {
         notify: &SpawnContext,
         options: SpawnOptions,
     ) -> Result<Arc<JobHandle>, String> {
-        let resolved = {
-            let missing = |key: &str| clean(args.get(key)).is_empty();
-            // Best effort: the pending card shows the model even when the caller named none.
-            (missing("model") || missing("provider")).then(|| self.pending_preset(args)).flatten()
-        };
+        let missing = |key: &str| clean(args.get(key)).is_empty();
+        // Best effort: the pending card shows the model even when the caller named none.
+        let resolved = if missing("model") || missing("provider") { self.pending_preset(args).await } else { None };
         let meta = pending_spawn_meta(args, resolved.as_ref(), options.respawned);
         let start = StartContext {
             caller_session_id: Some(notify.caller_id()).filter(|c| !c.is_empty()),
@@ -417,7 +419,7 @@ impl SpawnFlowImpl {
         }
         let mut spawn_args = args.clone();
         spawn_args["type"] = Value::String("spawn".into());
-        let job = self.start_deferred_spawn_job(&spawn_args, caller_cwd, context, context, SpawnOptions::default())?;
+        let job = self.start_deferred_spawn_job(&spawn_args, caller_cwd, context, context, SpawnOptions::default()).await?;
         let task = job.task_id().to_owned();
         let row = tokio::select! {
             row = self.board.wait_terminal(&task) => row,
@@ -450,10 +452,11 @@ impl SpawnFlowImpl {
     }
 
     /// The preset a pending card shows; an error shows nothing.
-    fn pending_preset(&self, args: &Value) -> Option<Value> {
+    async fn pending_preset(&self, args: &Value) -> Option<Value> {
         let config = self.world.loaded_config()?;
         let agent = normalize_agent_name(&clean(args.get("agent")));
-        resolve_agent_spawn_preset(&config, args, &self.world.route_candidates(&config, &agent)).ok().map(|s| s.preset)
+        let candidates = self.world.route_candidates(&config, &agent).await.ok()?;
+        resolve_agent_spawn_preset(&config, args, &candidates).ok().map(|s| s.preset)
     }
 }
 
@@ -481,7 +484,7 @@ fn meta_json(meta: &JobMeta) -> Vec<(String, Value)> {
 #[async_trait]
 impl SpawnFlow for Arc<SpawnFlowImpl> {
     async fn start_deferred_spawn_job(&self, args: &Value, caller_cwd: &str, caller: &Caller, notify: &Caller, options: SpawnOptions) -> Result<Job, String> {
-        let job = SpawnFlowImpl::start_deferred_spawn_job(self, args, caller_cwd, &caller.into(), &notify.into(), options)?;
+        let job = SpawnFlowImpl::start_deferred_spawn_job(self, args, caller_cwd, &caller.into(), &notify.into(), options).await?;
         let card = self.views.card(job.task_id(), &Scope::default(), false).await;
         card.ok_or_else(|| "agent job did not start".to_owned())
     }

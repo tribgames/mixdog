@@ -282,7 +282,7 @@ fn failed_turn_message<'a>(messages: Option<&'a Value>, input: &Value) -> Option
 
 /// `failedTurnProvenance(messages, input)`: the `{ source, origin }` of the failed turn a retry
 /// input reruns; `None` when it cannot be resolved.
-fn failed_turn_provenance(messages: Option<&Value>, input: &Value) -> Option<(Option<Value>, Option<Value>)> {
+pub fn failed_turn_provenance(messages: Option<&Value>, input: &Value) -> Option<(Option<Value>, Option<Value>)> {
     if input.get("retryFailedTurn") != Some(&Value::Bool(true)) && !truthy(input.get("retryTurnId")) {
         return None;
     }

@@ -26,7 +26,7 @@ use crate::oauth::loopback;
 use crate::oauth::loopback::Handled;
 use crate::oauth::loopback::Request;
 use crate::oauth::loopback::Response;
-use crate::oauth::http::scrub;
+use crate::oauth::scrub::scrubbed_excerpt;
 use crate::oauth::start_session;
 use crate::accounts::AccountStore;
 use crate::oauth::CredentialFile;
@@ -135,7 +135,7 @@ async fn whoami(http: &Http, api_key: &str) -> Result<(String, String), LoginFai
         return Err(failed("invalid_grant", "API key rejected (401): sign in again"));
     }
     let doc = reply.json().filter(|_| reply.ok()).ok_or_else(|| {
-        failed("whoami", format!("whoami {}: {}", reply.status, scrub(mixdog_js::js_trim(&reply.text()), &[api_key], 300)))
+        failed("whoami", format!("whoami {}: {}", reply.status, scrubbed_excerpt(&reply.text(), &[api_key], 300)))
     })?;
     let user = doc.get("user");
     let text = |field: &str| user.and_then(|u| u.get(field)).and_then(JsonValue::as_str).map_or("", str::trim).to_owned();

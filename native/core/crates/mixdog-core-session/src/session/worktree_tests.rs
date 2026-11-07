@@ -491,8 +491,9 @@ impl mixdog_core_api::domain::process::ProcessManager for DirtiesBeforeRestore {
 }
 
 /// A worktree made with the project's changes carried, whose claim then fails (the lease directory is a
-/// file): returns what the undo left. `dirty`: the project folder changes before the restore.
-async fn claim_fails_after_a_carry(dirty: bool) -> (Result<(), ScmFailure>, Vec<Value>, String, String) {
+/// file): returns what the undo left, with the folder that holds it (dropped, it is gone).
+/// `dirty`: the project folder changes before the restore.
+async fn claim_fails_after_a_carry(dirty: bool) -> (tempfile::TempDir, Result<(), ScmFailure>, Vec<Value>, String, String) {
     use super::worktree_ops::{Ops, TxScope};
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
@@ -522,14 +523,14 @@ async fn claim_fails_after_a_carry(dirty: bool) -> (Result<(), ScmFailure>, Vec<
     let rows = worktrees.list(None, &KeepAll, &cancel).await.unwrap();
     let carry_refs = git(&repo, &["for-each-ref", "refs/mixdog/carry"]);
     let folder = std::fs::read_to_string(repo.join("f.txt")).unwrap();
-    (result, rows, carry_refs, folder)
+    (dir, result, rows, carry_refs, folder)
 }
 
 /// Node's undo (`transition-steps.mjs:294-300`) restores the carried changes, then removes the worktree,
 /// then drops the recovery ref.
 #[tokio::test]
 async fn a_failed_claim_puts_the_carried_changes_back_then_removes_the_worktree_then_drops_the_ref() {
-    let (result, rows, carry_refs, folder) = claim_fails_after_a_carry(false).await;
+    let (_dir, result, rows, carry_refs, folder) = claim_fails_after_a_carry(false).await;
     assert!(result.is_err(), "the claim's failure is the one surfaced");
     assert_eq!(folder, "changed\n", "the carried changes are back in the project folder");
     assert!(rows.is_empty(), "the worktree is gone");
@@ -540,9 +541,29 @@ async fn a_failed_claim_puts_the_carried_changes_back_then_removes_the_worktree_
 /// worktree was removed first, so nothing but the ref held the carried changes).
 #[tokio::test]
 async fn a_refused_restore_keeps_the_worktree_and_the_recovery_ref() {
-    let (result, rows, carry_refs, _folder) = claim_fails_after_a_carry(true).await;
+    let (_dir, result, rows, carry_refs, _folder) = claim_fails_after_a_carry(true).await;
     assert!(result.is_err());
     assert_eq!(rows.len(), 1, "the worktree that holds the carried changes stays");
     assert!(std::path::Path::new(rows[0]["path"].as_str().unwrap()).exists());
     assert!(carry_refs.contains("refs/mixdog/carry"), "{carry_refs}");
+}
+
+/// The agent tool's spawn admission is this runtime's gate: a spawn for a Lead whose workspace is
+/// changing is refused with Node's thrown text, one after it settles is held, and a worktree-bound
+/// Lead's root is the workers' lock.
+#[test]
+fn the_spawn_admission_is_the_workspace_gate() {
+    use mixdog_agent::agent_tool::flow::world::SpawnAdmission;
+    let rig = rig();
+    let owners = ["lead".to_owned(), "worker".to_owned()];
+    let transition = rig.ws.gate().begin_transition("lead", "tx").unwrap();
+    let refused = rig.ws.enter_worker_spawn(&owners).err();
+    assert_eq!(refused.as_deref(), Some("The Lead workspace is changing; spawn the worker after it settles."));
+    drop(transition);
+    let held = rig.ws.enter_worker_spawn(&owners).expect("admitted once the transition left");
+    assert!(rig.ws.gate().begin_transition("lead", "tx2").is_err(), "no transition while the spawn is held");
+    drop(held);
+    assert_eq!(rig.ws.workspace_cwd_lock(&owners), None);
+    rig.ws.gate().set_workspace_cwd_lock("lead", Some("/wt"));
+    assert_eq!(rig.ws.workspace_cwd_lock(&owners).as_deref(), Some("/wt"));
 }

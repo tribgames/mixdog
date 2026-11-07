@@ -80,6 +80,39 @@ struct Rows {
     unkeyed: Vec<(AgentMessage, Value)>,
 }
 
+/// `ATTACHMENT_REF_RE`: `^[a-f0-9]{64}$`.
+fn is_attachment_ref(reference: &str) -> bool {
+    reference.len() == 64 && reference.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// The record `attachmentsForIntake` makes of one prompt part that names a stored attachment
+/// (an image, a file, or a `paste`/`file` text); `size` is the stored file's (`sizes`, from the
+/// submit options), else the part's own claim, as `attachmentBlobSize` falls back.
+fn part_attachment(part: &PromptPart, sizes: Option<&std::collections::BTreeMap<String, u32>>) -> Option<Value> {
+    let (kind, reference, mime, size, name, default_mime, default_name) = match part {
+        PromptPart::Image { attachment_ref, mime_type, size_bytes, filename, .. } => {
+            ("image", attachment_ref, Some(mime_type), size_bytes, filename, "image/png", "image")
+        }
+        PromptPart::File { attachment_ref, mime_type, size_bytes, filename, .. } => {
+            ("file", attachment_ref, Some(mime_type), size_bytes, filename, "application/octet-stream", "attachment")
+        }
+        PromptPart::Text { attachment_ref, text_kind, mime_type, size_bytes, filename, .. } => match text_kind.as_deref() {
+            Some("paste") => ("text", attachment_ref, mime_type.as_ref(), size_bytes, filename, "text/plain", "pasted-text.txt"),
+            Some("file") => ("text", attachment_ref, mime_type.as_ref(), size_bytes, filename, "text/plain", "attachment.txt"),
+            _ => return None,
+        },
+    };
+    let reference = reference.as_deref().filter(|r| is_attachment_ref(r))?;
+    let pick = |value: Option<&String>, fallback: &str, max: usize| -> String {
+        value.filter(|v| !v.is_empty()).map_or(fallback, String::as_str).chars().take(max).collect()
+    };
+    Some(json!({
+        "id": reference, "kind": kind, "name": pick(name.as_ref(), default_name, 200),
+        "mimeType": pick(mime, default_mime, 100),
+        "size": sizes.and_then(|s| s.get(reference)).copied().or(size.filter(|s| *s > 0)).unwrap_or(0),
+    }))
+}
+
 impl StoredRows {
     pub fn new() -> Self {
         Self::default()
@@ -192,24 +225,9 @@ impl Transcript for RecordTranscript {
     fn user_message(&self, input: &TurnInput) -> Value {
         let content = match &input.prompt {
             PromptContent::Text(text) => json!(text),
-            PromptContent::Parts(parts) => Value::Array(
-                parts
-                    .iter()
-                    .map(|part| match part {
-                        PromptPart::Text { text } => json!({ "type": "text", "text": text }),
-                        PromptPart::Image { data, mime_type } => {
-                            json!({ "type": "image", "data": data, "mimeType": mime_type })
-                        }
-                        PromptPart::File { data, mime_type, filename } => {
-                            let mut part = json!({ "type": "file", "data": data, "mimeType": mime_type });
-                            if let Some(name) = filename {
-                                part["filename"] = json!(name);
-                            }
-                            part
-                        }
-                    })
-                    .collect(),
-            ),
+            // The parts are the model content as they are: the same fields on the wire, a stored
+            // attachment named by its `attachmentRef` included.
+            PromptContent::Parts(parts) => Value::Array(parts.iter().map(|part| serde_json::to_value(part).expect("protocol types serialize")).collect()),
         };
         let options = input.options.as_ref();
         let message_id = options
@@ -225,6 +243,14 @@ impl Transcript for RecordTranscript {
         }
         let bare = |reference: &str| reference.trim_start_matches("sha256:").to_owned();
         let mut stored: Vec<Value> = Vec::new();
+        // `attachmentsForIntake`: the stored attachments the prompt's own parts name come first.
+        if let PromptContent::Parts(parts) = &input.prompt {
+            for part in parts {
+                if let Some(entry) = part_attachment(part, input.options.as_ref().and_then(|o| o.attachment_sizes.as_ref())).filter(|e| !stored.iter().any(|s| s["id"] == e["id"])) {
+                    stored.push(entry);
+                }
+            }
+        }
         for image in options.and_then(|o| o.pasted_images.as_ref()).into_iter().flat_map(|m| m.values()) {
             let Some(reference) = image.attachment_ref.as_deref() else {
                 continue;
@@ -317,5 +343,28 @@ mod tests {
         assert_eq!(rows.row(&keyed), stored);
         assert_eq!(rows.row(&call), call_body);
         assert_eq!(rows.row(&AgentMessage::user("never stored")), Value::Null);
+    }
+
+    /// `handoffContent`'s parts are prompt parts as they are, and each stored attachment is a
+    /// record of the message (`attachmentsForIntake`: kinds, defaults, `text` only for `paste` and
+    /// `file`, a ref that is no digest skipped).
+    #[test]
+    fn a_forwarded_attachment_part_round_trips_and_is_recorded() {
+        let digest = "b".repeat(64);
+        let wire = json!([
+            { "type": "text", "text": "look" },
+            { "type": "text", "textKind": "file", "attachmentRef": digest, "sizeBytes": 5, "mimeType": "text/markdown", "filename": "n.md" },
+            { "type": "image", "attachmentRef": "c".repeat(64), "sizeBytes": 0, "mimeType": "image/png", "filename": "attachment" },
+            { "type": "file", "attachmentRef": "short", "mimeType": "x/y" },
+        ]);
+        let parts: Vec<PromptPart> = serde_json::from_value(wire.clone()).expect("parts");
+        assert_eq!(serde_json::to_value(&parts).unwrap(), wire);
+        let records: Vec<Option<Value>> = parts.iter().map(|part| part_attachment(part, None)).collect();
+        let sizes = std::collections::BTreeMap::from([(digest.clone(), 9_u32)]);
+        assert_eq!(part_attachment(&parts[1], Some(&sizes)).unwrap()["size"], json!(9), "the stored file's size wins");
+        assert_eq!(records[0], None);
+        assert_eq!(records[1], Some(json!({ "id": digest, "kind": "text", "name": "n.md", "mimeType": "text/markdown", "size": 5 })));
+        assert_eq!(records[2], Some(json!({ "id": "c".repeat(64), "kind": "image", "name": "attachment", "mimeType": "image/png", "size": 0 })));
+        assert_eq!(records[3], None);
     }
 }

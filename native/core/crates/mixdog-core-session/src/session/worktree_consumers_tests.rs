@@ -39,7 +39,7 @@ async fn the_consumers_are_the_ones_node_listed_and_an_unreadable_record_refuses
     assert_eq!(got, want);
 
     // A session folder whose record cannot be read: the whole listing is refused.
-    std::fs::create_dir(dir.path().join("data").join("sessions").join("sess_broken")).expect("broken folder");
+    crate::session::fixture_fs::create_dir_all(dir.path().join("data").join("sessions").join("sess_broken"));
     let refused = consumers.list().await.expect_err("an unreadable record refuses");
     assert_eq!(refused.to_string(), golden["refusal"].as_str().expect("refusal"));
 }
@@ -54,9 +54,9 @@ async fn an_unlistable_store_folder_reads_as_nodes_readdir_error() {
     let sessions = dir.path().join("data").join("sessions");
     let said = |error: mixdog_scm::error::ScmFailure| error.to_string().replace(&sessions.display().to_string(), "<sessions>");
 
-    std::fs::remove_dir_all(&sessions).expect("folder removed");
+    crate::session::fixture_fs::remove_dir_all(&sessions);
     assert_eq!(said(consumers.list().await.expect_err("absent")), golden["unlistable"]["absent"].as_str().expect("absent"));
 
-    std::fs::write(&sessions, "not a folder").expect("a file in its place");
+    crate::session::fixture_fs::write(&sessions, "not a folder");
     assert_eq!(said(consumers.list().await.expect_err("not a folder")), golden["unlistable"]["notAFolder"].as_str().expect("notAFolder"));
 }

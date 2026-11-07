@@ -197,6 +197,17 @@ impl BlobStore {
         read_verified(&self.path(digest), digest)
     }
 
+    /// The size of the stored file of `digest` (`statSync(attachmentPath(ref)).size`, no
+    /// verification); `None` when it is not there.
+    pub fn len<L: IoLane>(&self, _lane: &InLane<L>, digest: &Digest) -> Result<Option<u64>, BlobError> {
+        let path = self.path(digest);
+        match std::fs::metadata(&path) {
+            Ok(meta) => Ok(Some(meta.len())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(err(IoOp::Open, &path)(e).into()),
+        }
+    }
+
     pub(crate) fn read_unlaned(&self, digest: &Digest) -> Result<Vec<u8>, BlobError> {
         read_verified(&self.path(digest), digest)
     }

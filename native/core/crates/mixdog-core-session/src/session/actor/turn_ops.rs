@@ -148,14 +148,14 @@ impl SessionActor {
         }
         let (check, jobs) = (self.resume_check(), self.jobs_tx.clone());
         tokio::spawn(async move {
-            let retained = check.retained_retry().await;
-            let _ = jobs.send(JobDone::RetryChecked { op, tx, key, retained });
+            let basis = check.retry_basis().await;
+            let _ = jobs.send(JobDone::RetryChecked { op, tx, key, retained: basis.retained, provenance: basis.provenance });
         });
     }
 
     /// `retryFailedTurn(key)`'s entry: the retained failed message resent as stored (already on
     /// screen), else the prompt the failed turn replays.
-    fn retry_turn(retained: Option<super::super::quota_lane::Retained>, prompt: Option<String>) -> Result<Option<super::super::quota_lane::RetryTurn>, CoreError> {
+    fn retry_turn(retained: Option<super::super::quota_lane::Retained>, prompt: Option<String>, provenance: Option<Value>) -> Result<Option<super::super::quota_lane::RetryTurn>, CoreError> {
         if let Some(retained) = retained {
             let prompt: PromptContent = serde_json::from_value(retained.content)
                 .map_err(|_| super::super::turn_ops::failure("The failed message holds content this daemon cannot resend"))?;
@@ -165,7 +165,7 @@ impl SessionActor {
                 retry_attempt_id: retained.attempt_id,
                 ..Default::default()
             };
-            return Ok(Some(super::super::quota_lane::RetryTurn { input: TurnInput { prompt, options: Some(options) }, hidden: true }));
+            return Ok(Some(super::super::quota_lane::RetryTurn { input: TurnInput { prompt, options: Some(options) }, hidden: true, provenance }));
         }
         Ok(prompt.map(|prompt| {
             let options = mixdog_protocol::thread::SubmitOptions {
@@ -173,18 +173,19 @@ impl SessionActor {
                 retry_failed_turn: Some(true),
                 ..Default::default()
             };
-            super::super::quota_lane::RetryTurn { input: TurnInput { prompt: PromptContent::Text(prompt), options: Some(options) }, hidden: false }
+            super::super::quota_lane::RetryTurn { input: TurnInput { prompt: PromptContent::Text(prompt), options: Some(options) }, hidden: false, provenance }
         }))
     }
 
     fn begin_retry(&mut self, retry: super::super::quota_lane::RetryTurn) {
         self.retry_hidden = retry.hidden;
+        self.retry_provenance = Some(retry.provenance);
         self.start_run(retry.input, None, None, None);
     }
 
     /// The rest of `retryFailedTurn`: the claim, then either the retry turn starts at once (and
     /// the resume entry it answered is finished) or a suspended Goal is revived first.
-    pub(super) fn retry_checked(&mut self, op: Option<OpId>, tx: Waiter, key: String, retained: Option<super::super::quota_lane::Retained>) {
+    pub(super) fn retry_checked(&mut self, op: Option<OpId>, tx: Waiter, key: String, retained: Option<super::super::quota_lane::Retained>, provenance: Option<Value>) {
         let items = self.failed_turn_items();
         let goal_id = self.deps.quota.goals.suspended(self.id.as_str(), &key);
         let prompt = mixdog_core_goal::quota_settlement::failed_turn_retry_prompt(&items, &key);
@@ -195,7 +196,7 @@ impl SessionActor {
             return self.replied(op, tx, Ok(Value::Bool(false)));
         }
         let generation = self.deps.quota.goals.entry_generation(self.id.as_str());
-        let retry = match Self::retry_turn(retained, prompt) {
+        let retry = match Self::retry_turn(retained, prompt, provenance) {
             Ok(retry) => retry,
             Err(error) => return self.replied(op, tx, Err(error)),
         };
@@ -268,23 +269,23 @@ impl SessionActor {
         let current = self.quota_entry().is_some_and(|entry| entry.generation == generation);
         let step = self.fire_step(generation, true);
         if !current || matches!(step, FireStep::Busy | FireStep::Superseded) {
-            return self.quota_fire_act(generation, step, None, tx);
+            return self.quota_fire_act(generation, step, None, None, tx);
         }
         let (check, jobs) = (self.resume_check(), self.jobs_tx.clone());
         tokio::spawn(async move {
-            let retained = check.retained_retry().await;
-            let _ = jobs.send(JobDone::QuotaFireChecked { generation, tx, retained });
+            let basis = check.retry_basis().await;
+            let _ = jobs.send(JobDone::QuotaFireChecked { generation, tx, retained: basis.retained, provenance: basis.provenance });
         });
     }
 
     /// The rest of `fireQuotaResume`, synchronous from the generation check to the admitted retry
     /// (no cancellation lands between them), as in Node.
-    pub(super) fn quota_fire_checked(&mut self, generation: u64, tx: FireReply, retained: Option<super::super::quota_lane::Retained>) {
+    pub(super) fn quota_fire_checked(&mut self, generation: u64, tx: FireReply, retained: Option<super::super::quota_lane::Retained>, provenance: Option<Value>) {
         let step = self.fire_step(generation, retained.is_some());
-        self.quota_fire_act(generation, step, retained, tx);
+        self.quota_fire_act(generation, step, retained, provenance, tx);
     }
 
-    fn quota_fire_act(&mut self, generation: u64, step: super::super::quota_lane::FireStep, retained: Option<super::super::quota_lane::Retained>, tx: FireReply) {
+    fn quota_fire_act(&mut self, generation: u64, step: super::super::quota_lane::FireStep, retained: Option<super::super::quota_lane::Retained>, provenance: Option<Value>, tx: FireReply) {
         use super::super::quota_lane::FireStep;
         use super::super::quota_resume_scheduler::FireOutcome;
         let (turn_key, goal_id) = match step {
@@ -304,7 +305,7 @@ impl SessionActor {
             FireStep::Retry { turn_key } => (turn_key, String::new()),
         };
         let prompt = mixdog_core_goal::quota_settlement::failed_turn_retry_prompt(&self.failed_turn_items(), &turn_key);
-        let retry = match Self::retry_turn(retained, prompt) {
+        let retry = match Self::retry_turn(retained, prompt, provenance) {
             Ok(retry) => retry,
             Err(error) => return drop(tx.send(Err(error_text(&error)))),
         };

@@ -1,305 +1,531 @@
 {
-  "scenarios": [
+  "domain": "oauth-scrub",
+  "recorder": "benchmarks/rust-core/recorders/record-oauth-scrub.mjs",
+  "cases": [
     {
-      "text": "{\"access_token\":\"abc123\",\"token_type\":\"Bearer\",\"expires_in\":3600}",
+      "text": "hello",
       "secrets": [],
-      "scrubbed": "{\"access_token\":\"[REDACTED]\",\"token_type\":\"Bearer\",\"expires_in\":3600}"
-    },
-    {
-      "text": "{\"error\":\"invalid_grant\",\"error_description\":\"Token has been expired or revoked.\"}",
-      "secrets": [],
-      "scrubbed": "{\"error\":\"invalid_grant\",\"error_description\":\"Token has been expired or revoked.\"}"
-    },
-    {
-      "text": "{\"refreshToken\":\"r-1\",\"accessToken\":\"a-1\",\"idToken\":\"i-1\",\"client_secret\":\"cs\",\"code\":\"ok\"}",
-      "secrets": [],
-      "scrubbed": "{\"refreshToken\":\"[REDACTED]\",\"accessToken\":\"[REDACTED]\",\"idToken\":\"[REDACTED]\",\"client_secret\":\"[REDACTED]\",\"code\":\"ok\"}"
-    },
-    {
-      "text": "{\"nested\":{\"api_key\":\"k\",\"list\":[{\"password\":\"p\"},{\"keep\":\"v\"}]},\"n\":1.50,\"big\":12345678901234567890,\"e\":1E5,\"neg\":-0}",
-      "secrets": [],
-      "scrubbed": "{\"nested\":{\"api_key\":\"[REDACTED]\",\"list\":[{\"password\":\"[REDACTED]\"},{\"keep\":\"v\"}]},\"n\":1.50,\"big\":12345678901234567890,\"e\":1E5,\"neg\":-0}"
-    },
-    {
-      "text": "{\"message\":\"visit https://x.test/cb?code_verifier=abc&state=s now\"}",
-      "secrets": [],
-      "scrubbed": "{\"message\":\"visit https://x.test/cb?code_verifier=[REDACTED]&state=s now\"}"
-    },
-    {
-      "text": "{\"detail\":\"{\\\"access_token\\\":\\\"inner\\\"}\"}",
-      "secrets": [],
-      "scrubbed": "{\"detail\":\"{\\\"access_token\\\":\\\"[REDACTED]\\\"}\"}"
-    },
-    {
-      "text": "{\"client\\u005fsecret\":\"escaped\",\"ok\":true,\"nothing\":null}",
-      "secrets": [],
-      "scrubbed": "{\"client_secret\":\"[REDACTED]\",\"ok\":true,\"nothing\":null}"
-    },
-    {
-      "text": "{\"a\":\"x\",\"a\":\"y\",\"access_token\":\"first\",\"access_token\":\"second\"}",
-      "secrets": [],
-      "scrubbed": "{\"a\":\"y\",\"access_token\":\"[REDACTED]\"}"
-    },
-    {
-      "text": "{\"10\":\"ten\",\"2\":\"two\",\"b\":\"bee\",\"1\":\"one\"}",
-      "secrets": [],
-      "scrubbed": "{\"10\":\"ten\",\"2\":\"two\",\"b\":\"bee\",\"1\":\"one\"}"
-    },
-    {
-      "text": "{\"10\":\"Bearer abcdef\",\"2\":\"two\"}",
-      "secrets": [],
-      "scrubbed": "{\"2\":\"two\",\"10\":\"Bearer [REDACTED]\"}"
-    },
-    {
-      "text": "{\"éclair\":\"é\\u00e9 \\/ \\\" \\\\ \\n \\t\",\"emoji\":\"😀 \\ud83d\\ude00 Bearer tok\"}",
-      "secrets": [],
-      "scrubbed": "{\"éclair\":\"éé / \\\" \\\\ \\n \\t\",\"emoji\":\"😀 😀 Bearer [REDACTED]\"}"
-    },
-    {
-      "text": "{\"msg\":\"Bearer abc.def-ghi\"}",
-      "secrets": [],
-      "scrubbed": "{\"msg\":\"Bearer [REDACTED]\"}"
-    },
-    {
-      "text": "{\"msg\":\"sk-ant-oat01-abc\"}",
-      "secrets": [],
-      "scrubbed": "{\"msg\":\"[REDACTED]\"}"
-    },
-    {
-      "text": "{\"msg\":\"eyJhbGci.eyJzdWIiOiJ1MSJ9.sig-part\"}",
-      "secrets": [],
-      "scrubbed": "{\"msg\":\"eyJhbGci.[REDACTED]\"}"
-    },
-    {
-      "text": "{\"msg\":\"the secret-value is here\"}",
-      "secrets": [
-        "secret-value"
-      ],
-      "scrubbed": "{\"msg\":\"the [REDACTED] is here\"}"
-    },
-    {
-      "text": "{\"key\":123,\"token\":true,\"secret\":null,\"password\":[\"a\"]}",
-      "secrets": [],
-      "scrubbed": "{\"key\":123,\"token\":true,\"secret\":null,\"password\":[\"a\"]}"
-    },
-    {
-      "text": "{\"key\":{\"a\":1},\"token\":\"t\"}",
-      "secrets": [],
-      "scrubbed": "{\"key\":{\"a\":1},\"token\":\"[REDACTED]\"}"
-    },
-    {
-      "text": "  {  \"access_token\" : \"spaced\" , \"x\" : [ 1 , 2 ]  }  ",
-      "secrets": [],
-      "scrubbed": "{\"access_token\":\"[REDACTED]\",\"x\":[1,2]}"
-    },
-    {
-      "text": "{\"plain\":\"nothing secret\",\"n\":1.0,\"arr\":[1,2,3]}",
-      "secrets": [],
-      "scrubbed": "{\"plain\":\"nothing secret\",\"n\":1.0,\"arr\":[1,2,3]}"
-    },
-    {
-      "text": "[{\"access_token\":\"in-array\"},\"Bearer zzz\",3,null,true]",
-      "secrets": [],
-      "scrubbed": "[{\"access_token\":\"[REDACTED]\"},\"Bearer [REDACTED]\",3,null,true]"
-    },
-    {
-      "text": "[]",
-      "secrets": [],
-      "scrubbed": "[]"
-    },
-    {
-      "text": "{}",
-      "secrets": [],
-      "scrubbed": "{}"
-    },
-    {
-      "text": "{\"\":\"empty key\",\"access_token\":\"\"}",
-      "secrets": [],
-      "scrubbed": "{\"\":\"empty key\",\"access_token\":\"[REDACTED]\"}"
-    },
-    {
-      "text": "{\"KEY\":\"upper\",\"Token\":\"mixed\",\"API_KEY\":\"snake\"}",
-      "secrets": [],
-      "scrubbed": "{\"KEY\":\"[REDACTED]\",\"Token\":\"[REDACTED]\",\"API_KEY\":\"[REDACTED]\"}"
-    },
-    {
-      "text": "{\"apikey\":\"a\",\"api-key\":\"b\",\"device_code\":\"d\",\"codeVerifier\":\"v\",\"code_challenge\":\"c\",\"assertion\":\"x\"}",
-      "secrets": [],
-      "scrubbed": "{\"apikey\":\"[REDACTED]\",\"api-key\":\"b\",\"device_code\":\"[REDACTED]\",\"codeVerifier\":\"[REDACTED]\",\"code_challenge\":\"[REDACTED]\",\"assertion\":\"[REDACTED]\"}"
-    },
-    {
-      "text": "\"just a string with Bearer abc.def\"",
-      "secrets": [],
-      "scrubbed": "\"just a string with Bearer [REDACTED]\""
-    },
-    {
-      "text": "\"access_token=abc\"",
-      "secrets": [],
-      "scrubbed": "\"access_token=[REDACTED]\""
-    },
-    {
-      "text": "12345",
-      "secrets": [],
-      "scrubbed": "12345"
-    },
-    {
-      "text": "true",
-      "secrets": [],
-      "scrubbed": "true"
-    },
-    {
-      "text": "null",
-      "secrets": [],
-      "scrubbed": "null"
+      "scrubbed": "hello",
+      "muse": "hello",
+      "summary": "hello"
     },
     {
       "text": "",
       "secrets": [],
-      "scrubbed": ""
+      "scrubbed": "",
+      "muse": "",
+      "summary": ""
     },
     {
-      "text": "plain text with no secret",
+      "text": "   ",
       "secrets": [],
-      "scrubbed": "plain text with no secret"
+      "scrubbed": "   ",
+      "muse": "   ",
+      "summary": ""
+    },
+    {
+      "text": "{\"apiKey\":\"abc\",\"n\":1}",
+      "secrets": [],
+      "scrubbed": "{\"apiKey\":\"[REDACTED]\",\"n\":1}",
+      "muse": "{\"apiKey\":\"[REDACTED]\",\"n\":1}",
+      "summary": "{\"apiKey\":\"[REDACTED]\",\"n\":1}"
+    },
+    {
+      "text": "{ \"a\" : 1 }",
+      "secrets": [],
+      "scrubbed": "{ \"a\" : 1 }",
+      "muse": "{ \"a\" : 1 }",
+      "summary": "{ \"a\" : 1 }"
+    },
+    {
+      "text": "  {\"key\" : \"v\"}  ",
+      "secrets": [],
+      "scrubbed": "{\"key\":\"[REDACTED]\"}",
+      "muse": "{\"key\":\"[REDACTED]\"}",
+      "summary": "{\"key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"a\":[{\"access_token\":\"x\"},{\"token\":5}]}",
+      "secrets": [],
+      "scrubbed": "{\"a\":[{\"access_token\":\"[REDACTED]\"},{\"token\":5}]}",
+      "muse": "{\"a\":[{\"access_token\":\"[REDACTED]\"},{\"token\":5}]}",
+      "summary": "{\"a\":[{\"access_token\":\"[REDACTED]\"},{\"token\":5}]}"
+    },
+    {
+      "text": "{\"token\":123,\"key\":null,\"secret\":true}",
+      "secrets": [],
+      "scrubbed": "{\"token\":123,\"key\":null,\"secret\":true}",
+      "muse": "{\"token\":123,\"key\":null,\"secret\":true}",
+      "summary": "{\"token\":123,\"key\":null,\"secret\":true}"
+    },
+    {
+      "text": "{\"client\\u005fsecret\":\"zzz\"}",
+      "secrets": [],
+      "scrubbed": "{\"client_secret\":\"[REDACTED]\"}",
+      "muse": "{\"client_secret\":\"[REDACTED]\"}",
+      "summary": "{\"client_secret\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"b\":1,\"2\":2,\"1\":3,\"password\":\"p\"}",
+      "secrets": [],
+      "scrubbed": "{\"1\":3,\"2\":2,\"b\":1,\"password\":\"[REDACTED]\"}",
+      "muse": "{\"1\":3,\"2\":2,\"b\":1,\"password\":\"[REDACTED]\"}",
+      "summary": "{\"1\":3,\"2\":2,\"b\":1,\"password\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"a\":1,\"a\":2,\"key\":\"k\"}",
+      "secrets": [],
+      "scrubbed": "{\"a\":2,\"key\":\"[REDACTED]\"}",
+      "muse": "{\"a\":2,\"key\":\"[REDACTED]\"}",
+      "summary": "{\"a\":2,\"key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"n\":1.10,\"m\":1e5,\"big\":12345678901234567890,\"neg\":-0,\"password\":\"p\"}",
+      "secrets": [],
+      "scrubbed": "{\"n\":1.10,\"m\":1e5,\"big\":12345678901234567890,\"neg\":-0,\"password\":\"[REDACTED]\"}",
+      "muse": "{\"n\":1.10,\"m\":1e5,\"big\":12345678901234567890,\"neg\":-0,\"password\":\"[REDACTED]\"}",
+      "summary": "{\"n\":1.10,\"m\":1e5,\"big\":12345678901234567890,\"neg\":-0,\"password\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"msg\":\"token=abc&x=1\"}",
+      "secrets": [],
+      "scrubbed": "{\"msg\":\"token=[REDACTED]&x=1\"}",
+      "muse": "{\"msg\":\"token=[REDACTED]&x=1\"}",
+      "summary": "{\"msg\":\"token=[REDACTED]&x=1\"}"
+    },
+    {
+      "text": "{\"h\":\"Bearer abc.def\"}",
+      "secrets": [],
+      "scrubbed": "{\"h\":\"Bearer [REDACTED]\"}",
+      "muse": "{\"h\":\"Bearer [REDACTED]\"}",
+      "summary": "{\"h\":\"Bearer [REDACTED]\"}"
+    },
+    {
+      "text": "{\"jwt\":\"eyJhbGciOiJ.eyJzdWIiO.c2lnbmF0\"}",
+      "secrets": [],
+      "scrubbed": "{\"jwt\":\"[REDACTED]\"}",
+      "muse": "{\"jwt\":\"[REDACTED]\"}",
+      "summary": "{\"jwt\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"t\":\"line\\nbreak \\u2028 \\u00e9 \\ud83d\\ude00 tab\\t \\/ \\b\\f\",\"key\":\"k\"}",
+      "secrets": [],
+      "scrubbed": "{\"t\":\"line\\nbreak   é 😀 tab\\t / \\b\\f\",\"key\":\"[REDACTED]\"}",
+      "muse": "{\"t\":\"line\\nbreak   é 😀 tab\\t / \\b\\f\",\"key\":\"[REDACTED]\"}",
+      "summary": "{\"t\":\"line\\nbreak é 😀 tab\\t / \\b\\f\",\"key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"t\":\"\\u0001\\u001f\\u007f\",\"key\":\"k\"}",
+      "secrets": [],
+      "scrubbed": "{\"t\":\"\\u0001\\u001f\",\"key\":\"[REDACTED]\"}",
+      "muse": "{\"t\":\"\\u0001\\u001f\",\"key\":\"[REDACTED]\"}",
+      "summary": "{\"t\":\"\\u0001\\u001f\",\"key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "\"abc\"",
+      "secrets": [],
+      "scrubbed": "\"abc\"",
+      "muse": "\"abc\"",
+      "summary": "\"abc\""
+    },
+    {
+      "text": "123",
+      "secrets": [],
+      "scrubbed": "123",
+      "muse": "123",
+      "summary": "123"
+    },
+    {
+      "text": "null",
+      "secrets": [],
+      "scrubbed": "null",
+      "muse": "null",
+      "summary": "null"
+    },
+    {
+      "text": "[{\"token\":\"t\"}]",
+      "secrets": [],
+      "scrubbed": "[{\"token\":\"[REDACTED]\"}]",
+      "muse": "[{\"token\":\"[REDACTED]\"}]",
+      "summary": "[{\"token\":\"[REDACTED]\"}]"
+    },
+    {
+      "text": "[]",
+      "secrets": [],
+      "scrubbed": "[]",
+      "muse": "[]",
+      "summary": "[]"
     },
     {
       "text": "{\"access_token\":\"abc",
       "secrets": [],
-      "scrubbed": "{\"access_token\":\"[REDACTED]\""
+      "scrubbed": "{\"access_token\":\"[REDACTED]\"",
+      "muse": "{\"access_token\":\"[REDACTED]\"",
+      "summary": "{\"access_token\":\"[REDACTED]\""
     },
     {
-      "text": "{\"access_token\":\"abc\",\"refresh_token\":\"def\"",
+      "text": "{\"api_key\": abc123, \"x\": 1}",
       "secrets": [],
-      "scrubbed": "{\"access_token\":\"[REDACTED]\",\"refresh_token\":\"[REDACTED]\""
+      "scrubbed": "{\"api_key\":\"[REDACTED]\", \"x\": 1}",
+      "muse": "{\"api_key\":\"[REDACTED]\", \"x\": 1}",
+      "summary": "{\"api_key\":\"[REDACTED]\", \"x\": 1}"
     },
     {
-      "text": "{\"access_token\": abc-bare, \"x\": 1}",
+      "text": "{\"token\": 123, oops",
       "secrets": [],
-      "scrubbed": "{\"access_token\":\"[REDACTED]\", \"x\": 1}"
+      "scrubbed": "{\"token\": 123, oops",
+      "muse": "{\"token\": 123, oops",
+      "summary": "{\"token\": 123, oops"
     },
     {
-      "text": "{\"access_token\": 123, \"other\": \"v\"",
+      "text": "{\"token\": true, oops",
       "secrets": [],
-      "scrubbed": "{\"access_token\": 123, \"other\": \"v\""
+      "scrubbed": "{\"token\": true, oops",
+      "muse": "{\"token\": true, oops",
+      "summary": "{\"token\": true, oops"
     },
     {
-      "text": "{\"access_token\": true, \"k\": null,",
+      "text": "{\"token\": truex, oops",
       "secrets": [],
-      "scrubbed": "{\"access_token\": true, \"k\": null,"
+      "scrubbed": "{\"token\":\"[REDACTED]\", oops",
+      "muse": "{\"token\":\"[REDACTED]\", oops",
+      "summary": "{\"token\":\"[REDACTED]\", oops"
     },
     {
-      "text": "{\"id_token\":\"a\\\"b\",\"x\":\"y\"} trailing",
+      "text": "{\"token\": -5x, oops",
       "secrets": [],
-      "scrubbed": "{\"id_token\":\"[REDACTED]\",\"x\":\"y\"} trailing"
+      "scrubbed": "{\"token\": -5x, oops",
+      "muse": "{\"token\": -5x, oops",
+      "summary": "{\"token\": -5x, oops"
     },
     {
-      "text": "<html><body>{\"access_token\":\"in-html\"}</body></html>",
+      "text": "{\"token\": null}, \"key\": \"v\"",
       "secrets": [],
-      "scrubbed": "<html><body>{\"access_token\":\"[REDACTED]\"}</body></html>"
+      "scrubbed": "{\"token\": null}, \"key\":\"[REDACTED]\"",
+      "muse": "{\"token\": null}, \"key\":\"[REDACTED]\"",
+      "summary": "{\"token\": null}, \"key\":\"[REDACTED]\""
     },
     {
-      "text": "{\"api_key\":\"k1\"} {\"api_key\":\"k2\"}",
+      "text": "{\"password\":\"p\", \"x\":",
       "secrets": [],
-      "scrubbed": "{\"api_key\":\"[REDACTED]\"} {\"api_key\":\"[REDACTED]\"}"
+      "scrubbed": "{\"password\":\"[REDACTED]\", \"x\":",
+      "muse": "{\"password\":\"[REDACTED]\", \"x\":",
+      "summary": "{\"password\":\"[REDACTED]\", \"x\":"
     },
     {
-      "text": "grant_type=refresh_token&refresh_token=r-tok&client_id=cid&client_secret=cs",
+      "text": "{\"password\":\"a\\\"b\",\"y\":1",
       "secrets": [],
-      "scrubbed": "grant_type=refresh_token&refresh_token=[REDACTED]&client_id=cid&client_secret=[REDACTED]"
+      "scrubbed": "{\"password\":\"[REDACTED]\",\"y\":1",
+      "muse": "{\"password\":\"[REDACTED]\",\"y\":1",
+      "summary": "{\"password\":\"[REDACTED]\",\"y\":1"
     },
     {
-      "text": "access_token=abc&token_type=bearer",
+      "text": "a=1&access_token=abc&b=2",
       "secrets": [],
-      "scrubbed": "access_token=[REDACTED]&token_type=bearer"
+      "scrubbed": "a=1&access_token=[REDACTED]&b=2",
+      "muse": "a=1&access_token=[REDACTED]&b=2",
+      "summary": "a=1&access_token=[REDACTED]&b=2"
     },
     {
-      "text": "?code_verifier=xyz&state=1",
+      "text": "token=abc",
       "secrets": [],
-      "scrubbed": "?code_verifier=[REDACTED]&state=1"
+      "scrubbed": "token=[REDACTED]",
+      "muse": "token=[REDACTED]",
+      "summary": "token=[REDACTED]"
     },
     {
-      "text": "x-token=notakey",
+      "text": "xtoken=abc&_key=q&client_secret=s\"x",
       "secrets": [],
-      "scrubbed": "x-token=[REDACTED]"
+      "scrubbed": "xtoken=abc&_key=q&client_secret=[REDACTED]\"x",
+      "muse": "xtoken=abc&_key=q&client_secret=[REDACTED]\"x",
+      "summary": "xtoken=abc&_key=q&client_secret=[REDACTED]\"x"
     },
     {
-      "text": "my_key=1 key=2 \"key=3\"",
+      "text": "code=abc&Code_Verifier=v",
       "secrets": [],
-      "scrubbed": "my_key=1 key=[REDACTED] \"key=[REDACTED]\""
+      "scrubbed": "code=abc&Code_Verifier=[REDACTED]",
+      "muse": "code=abc&Code_Verifier=[REDACTED]",
+      "summary": "code=abc&Code_Verifier=[REDACTED]"
     },
     {
-      "text": "Error: request to https://a.test/token?code=authcode&client_secret=s failed",
+      "text": "Authorization: Bearer abc.DEF-123 end",
       "secrets": [],
-      "scrubbed": "Error: request to https://a.test/token?code=authcode&client_secret=[REDACTED] failed"
+      "scrubbed": "Authorization: Bearer [REDACTED] end",
+      "muse": "Authorization: Bearer [REDACTED] end",
+      "summary": "Authorization: Bearer [REDACTED] end"
     },
     {
-      "text": "Authorization: Bearer abc.DEF-ghi_123 rejected",
+      "text": "authorization: bearer lower.case",
       "secrets": [],
-      "scrubbed": "Authorization: Bearer [REDACTED] rejected"
+      "scrubbed": "authorization: Bearer [REDACTED]",
+      "muse": "authorization: Bearer [REDACTED]",
+      "summary": "authorization: Bearer [REDACTED]"
     },
     {
-      "text": "bearer lowercase.token",
+      "text": "x sk-ant-api03-ABC_def.1 y",
       "secrets": [],
-      "scrubbed": "Bearer [REDACTED]"
+      "scrubbed": "x [REDACTED] y",
+      "muse": "x [REDACTED] y",
+      "summary": "x [REDACTED] y"
     },
     {
-      "text": "upstream said sk-ant-api03-AAAA and eyJhbGci.eyJzdWIiOiJ1MSJ9.sig-part ok",
+      "text": "stack eyJhbGciOiJ.eyJzdWIiO.c2lnbmF0 tail eyJabc.def",
       "secrets": [],
-      "scrubbed": "upstream said [REDACTED] and eyJhbGci.[REDACTED] ok"
+      "scrubbed": "stack [REDACTED] tail eyJabc.def",
+      "muse": "stack [REDACTED] tail eyJabc.def",
+      "summary": "stack [REDACTED] tail eyJabc.def"
     },
     {
-      "text": "jwt without third part eyJhbGci.eyJzdWIiOiJ1MSJ9 end",
-      "secrets": [],
-      "scrubbed": "jwt without third part eyJhbGci.eyJzdWIiOiJ1MSJ9 end"
-    },
-    {
-      "text": "not a jwt eyJshort.eyJshort",
-      "secrets": [],
-      "scrubbed": "not a jwt eyJshort.eyJshort"
-    },
-    {
-      "text": "the code authcode-1 was used, authcode-1 twice",
+      "text": "my secret abc here abc",
       "secrets": [
-        "authcode-1"
+        "abc"
       ],
-      "scrubbed": "the code [REDACTED] was used, [REDACTED] twice"
+      "scrubbed": "my secret [REDACTED] here [REDACTED]",
+      "muse": "my secret [REDACTED] here [REDACTED]",
+      "summary": "my secret [REDACTED] here [REDACTED]"
     },
     {
-      "text": "values a b and ab",
+      "text": "nothing here",
       "secrets": [
-        "a",
-        "b",
-        ""
+        "",
+        "zzz"
       ],
-      "scrubbed": "v[REDACTED]lues [REDACTED] [REDACTED] [REDACTED]nd [REDACTED][REDACTED]"
+      "scrubbed": "nothing here",
+      "muse": "nothing here",
+      "summary": "nothing here"
     },
     {
-      "text": "nothing to hide",
+      "text": "{\"msg\":\"contains abc\"}",
       "secrets": [
-        "absent"
+        "abc"
       ],
-      "scrubbed": "nothing to hide"
+      "scrubbed": "{\"msg\":\"contains [REDACTED]\"}",
+      "muse": "{\"msg\":\"contains [REDACTED]\"}",
+      "summary": "{\"msg\":\"contains [REDACTED]\"}"
     },
     {
-      "text": "{\"msg\":\"authcode-2 inside\"}",
+      "text": "{\"abc\":1}",
       "secrets": [
-        "authcode-2"
+        "abc"
       ],
-      "scrubbed": "{\"msg\":\"[REDACTED] inside\"}"
+      "scrubbed": "{\"[REDACTED]\":1}",
+      "muse": "{\"[REDACTED]\":1}",
+      "summary": "{\"[REDACTED]\":1}"
     },
     {
-      "text": "{\"authcode-3\":\"as a key\"}",
-      "secrets": [
-        "authcode-3"
-      ],
-      "scrubbed": "{\"[REDACTED]\":\"as a key\"}"
+      "text": "{\"API_KEY\":\"x\",\"Token\":\"y\",\"ACCESSTOKEN\":\"z\",\"Access-Token\":\"w\"}",
+      "secrets": [],
+      "scrubbed": "{\"API_KEY\":\"[REDACTED]\",\"Token\":\"[REDACTED]\",\"ACCESSTOKEN\":\"[REDACTED]\",\"Access-Token\":\"w\"}",
+      "muse": "{\"API_KEY\":\"[REDACTED]\",\"Token\":\"[REDACTED]\",\"ACCESSTOKEN\":\"[REDACTED]\",\"Access-Token\":\"w\"}",
+      "summary": "{\"API_KEY\":\"[REDACTED]\",\"Token\":\"[REDACTED]\",\"ACCESSTOKEN\":\"[REDACTED]\",\"Access-Token\":\"w\"}"
     },
     {
-      "text": "first=1 refresh_token=also-secret-value",
+      "text": "{\"code\":\"abc\",\"tokens\":\"x\",\"keys\":\"y\",\"apiKeyId\":\"i\"}",
+      "secrets": [],
+      "scrubbed": "{\"code\":\"abc\",\"tokens\":\"x\",\"keys\":\"y\",\"apiKeyId\":\"i\"}",
+      "muse": "{\"code\":\"abc\",\"tokens\":\"x\",\"keys\":\"y\",\"apiKeyId\":\"i\"}",
+      "summary": "{\"code\":\"abc\",\"tokens\":\"x\",\"keys\":\"y\",\"apiKeyId\":\"i\"}"
+    },
+    {
+      "text": "{\"body\":\"{\\\"api_key\\\":\\\"sk\\\"}\"}",
+      "secrets": [],
+      "scrubbed": "{\"body\":\"{\\\"api_key\\\":\\\"[REDACTED]\\\"}\"}",
+      "muse": "{\"body\":\"{\\\"api_key\\\":\\\"[REDACTED]\\\"}\"}",
+      "summary": "{\"body\":\"{\\\"api_key\\\":\\\"[REDACTED]\\\"}\"}"
+    },
+    {
+      "text": "{\"body\":\"a=1&password=p\"}",
+      "secrets": [],
+      "scrubbed": "{\"body\":\"a=1&password=[REDACTED]\"}",
+      "muse": "{\"body\":\"a=1&password=[REDACTED]\"}",
+      "summary": "{\"body\":\"a=1&password=[REDACTED]\"}"
+    },
+    {
+      "text": "{\"__proto__\":{\"a\":1},\"key\":\"k\"}",
+      "secrets": [],
+      "scrubbed": "{\"__proto__\":{\"a\":1},\"key\":\"[REDACTED]\"}",
+      "muse": "{\"__proto__\":{\"a\":1},\"key\":\"[REDACTED]\"}",
+      "summary": "{\"__proto__\":{\"a\":1},\"key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"\":1,\"key\":\"k\"}",
+      "secrets": [],
+      "scrubbed": "{\"\":1,\"key\":\"[REDACTED]\"}",
+      "muse": "{\"\":1,\"key\":\"[REDACTED]\"}",
+      "summary": "{\"\":1,\"key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"😀\":\"x\",\"key\":\"k\"}",
+      "secrets": [],
+      "scrubbed": "{\"😀\":\"x\",\"key\":\"[REDACTED]\"}",
+      "muse": "{\"😀\":\"x\",\"key\":\"[REDACTED]\"}",
+      "summary": "{\"😀\":\"x\",\"key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"a\":{\"b\":{\"c\":{\"secret\":\"s\"}}}}",
+      "secrets": [],
+      "scrubbed": "{\"a\":{\"b\":{\"c\":{\"secret\":\"[REDACTED]\"}}}}",
+      "muse": "{\"a\":{\"b\":{\"c\":{\"secret\":\"[REDACTED]\"}}}}",
+      "summary": "{\"a\":{\"b\":{\"c\":{\"secret\":\"[REDACTED]\"}}}}"
+    },
+    {
+      "text": "{\"a\":\"b\"}\n{\"key\":\"k\"}",
+      "secrets": [],
+      "scrubbed": "{\"a\":\"b\"}\n{\"key\":\"[REDACTED]\"}",
+      "muse": "{\"a\":\"b\"}\n{\"key\":\"[REDACTED]\"}",
+      "summary": "{\"a\":\"b\"} {\"key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"list\":[\"Bearer x.y\",{\"token\":\"t\"},[{\"key\":\"k\"}]]}",
+      "secrets": [],
+      "scrubbed": "{\"list\":[\"Bearer [REDACTED]\",{\"token\":\"[REDACTED]\"},[{\"key\":\"[REDACTED]\"}]]}",
+      "muse": "{\"list\":[\"Bearer [REDACTED]\",{\"token\":\"[REDACTED]\"},[{\"key\":\"[REDACTED]\"}]]}",
+      "summary": "{\"list\":[\"Bearer [REDACTED]\",{\"token\":\"[REDACTED]\"},[{\"key\":\"[REDACTED]\"}]]}"
+    },
+    {
+      "text": "{\"k\":\"x\"} trailing",
+      "secrets": [],
+      "scrubbed": "{\"k\":\"x\"} trailing",
+      "muse": "{\"k\":\"x\"} trailing",
+      "summary": "{\"k\":\"x\"} trailing"
+    },
+    {
+      "text": "{\"Key\": \"v\", \"KEY\": \"w\"}",
+      "secrets": [],
+      "scrubbed": "{\"Key\":\"[REDACTED]\",\"KEY\":\"[REDACTED]\"}",
+      "muse": "{\"Key\":\"[REDACTED]\",\"KEY\":\"[REDACTED]\"}",
+      "summary": "{\"Key\":\"[REDACTED]\",\"KEY\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"key\":\"v\",\"key\":\"w\"}",
+      "secrets": [],
+      "scrubbed": "{\"key\":\"[REDACTED]\"}",
+      "muse": "{\"key\":\"[REDACTED]\"}",
+      "summary": "{\"key\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"1\":{\"token\":\"t\"},\"01\":2,\"4294967295\":3,\"4294967294\":4}",
+      "secrets": [],
+      "scrubbed": "{\"1\":{\"token\":\"[REDACTED]\"},\"4294967294\":4,\"01\":2,\"4294967295\":3}",
+      "muse": "{\"1\":{\"token\":\"[REDACTED]\"},\"4294967294\":4,\"01\":2,\"4294967295\":3}",
+      "summary": "{\"1\":{\"token\":\"[REDACTED]\"},\"4294967294\":4,\"01\":2,\"4294967295\":3}"
+    },
+    {
+      "text": "  \t{\"a\":1}\n",
+      "secrets": [],
+      "scrubbed": "  \t{\"a\":1}\n",
+      "muse": "  \t{\"a\":1}\n",
+      "summary": "{\"a\":1}"
+    },
+    {
+      "text": "{\"token\" :\n \"v\"}",
+      "secrets": [],
+      "scrubbed": "{\"token\":\"[REDACTED]\"}",
+      "muse": "{\"token\":\"[REDACTED]\"}",
+      "summary": "{\"token\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "\"token\":\"v\" and \"key\":\"w\"",
+      "secrets": [],
+      "scrubbed": "\"token\":\"[REDACTED]\" and \"key\":\"[REDACTED]\"",
+      "muse": "\"token\":\"[REDACTED]\" and \"key\":\"[REDACTED]\"",
+      "summary": "\"token\":\"[REDACTED]\" and \"key\":\"[REDACTED]\""
+    },
+    {
+      "text": "{\"token\":\"v\\u00e9 \\\"q\\\"\"}",
+      "secrets": [],
+      "scrubbed": "{\"token\":\"[REDACTED]\"}",
+      "muse": "{\"token\":\"[REDACTED]\"}",
+      "summary": "{\"token\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"é\":\"x\",\"password\":\"p\"}",
+      "secrets": [],
+      "scrubbed": "{\"é\":\"x\",\"password\":\"[REDACTED]\"}",
+      "muse": "{\"é\":\"x\",\"password\":\"[REDACTED]\"}",
+      "summary": "{\"é\":\"x\",\"password\":\"[REDACTED]\"}"
+    },
+    {
+      "text": "{\"a\":\"xabcx\"}",
       "secrets": [
-        "also-secret-value"
+        "abc",
+        "abc"
       ],
-      "scrubbed": "first=1 refresh_token=[REDACTED]"
+      "scrubbed": "{\"a\":\"x[REDACTED]x\"}",
+      "muse": "{\"a\":\"x[REDACTED]x\"}",
+      "summary": "{\"a\":\"x[REDACTED]x\"}"
+    },
+    {
+      "text": "Bearer ",
+      "secrets": [],
+      "scrubbed": "Bearer ",
+      "muse": "Bearer ",
+      "summary": "Bearer"
+    },
+    {
+      "text": "Bearer a Bearer b",
+      "secrets": [],
+      "scrubbed": "Bearer [REDACTED] Bearer [REDACTED]",
+      "muse": "Bearer [REDACTED] Bearer [REDACTED]",
+      "summary": "Bearer [REDACTED] Bearer [REDACTED]"
+    },
+    {
+      "text": "sk-ant- and sk-ant-x",
+      "secrets": [],
+      "scrubbed": "sk-ant- and [REDACTED]",
+      "muse": "sk-ant- and [REDACTED]",
+      "summary": "sk-ant- and [REDACTED]"
+    },
+    {
+      "text": "{\"api_key\" : \"k1\", \"x\":1} and \"api_key\":\"k2\" and \"api_key\":\"\"",
+      "secrets": [],
+      "scrubbed": "{\"api_key\":\"[REDACTED]\", \"x\":1} and \"api_key\":\"[REDACTED]\" and \"api_key\":\"[REDACTED]\"",
+      "muse": "{\"api_key\":\"[REDACTED]\", \"x\":1} and \"api_key\":\"[REDACTED]\" and \"api_key\":\"[REDACTED]\"",
+      "summary": "{\"api_key\":\"[REDACTED]\", \"x\":1} and \"api_key\":\"[REDACTED]\" and \"api_key\":\"[REDACTED]\""
+    },
+    {
+      "text": "plain \"api_key\" : \"abc\" text",
+      "secrets": [],
+      "scrubbed": "plain \"api_key\":\"[REDACTED]\" text",
+      "muse": "plain \"api_key\":\"[REDACTED]\" text",
+      "summary": "plain \"api_key\":\"[REDACTED]\" text"
+    },
+    {
+      "text": "a   b\n\tc  ",
+      "secrets": [],
+      "scrubbed": "a   b\n\tc  ",
+      "muse": "a   b\n\tc  ",
+      "summary": "a b c"
+    },
+    {
+      "text": "  padded 　 and ﻿",
+      "secrets": [],
+      "scrubbed": "  padded 　 and ﻿",
+      "muse": "  padded 　 and ﻿",
+      "summary": "padded and"
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "secrets": [],
+      "scrubbed": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "muse": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "summary": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "text": "{\"error\":\"bad   request\",\"detail\":\"line1\\nline2\"}",
+      "secrets": [],
+      "scrubbed": "{\"error\":\"bad   request\",\"detail\":\"line1\\nline2\"}",
+      "muse": "{\"error\":\"bad   request\",\"detail\":\"line1\\nline2\"}",
+      "summary": "{\"error\":\"bad request\",\"detail\":\"line1\\nline2\"}"
+    },
+    {
+      "text": "token=abc  \n def",
+      "secrets": [
+        "def"
+      ],
+      "scrubbed": "token=[REDACTED]  \n [REDACTED]",
+      "muse": "token=[REDACTED]  \n [REDACTED]",
+      "summary": "token=[REDACTED] [REDACTED]"
     }
   ]
 }

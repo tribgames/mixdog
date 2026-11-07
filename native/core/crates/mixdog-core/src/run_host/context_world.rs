@@ -14,6 +14,7 @@ use mixdog_agent::compact::pressure::ImageIdentities;
 use mixdog_agent::compact::tool_schema::ToolAnnotations;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::domain::provider::ToolDefinition;
+use mixdog_core_api::domain::tool::Freeform;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::support::failed;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
@@ -74,6 +75,7 @@ fn definition(doc: &Value) -> ToolDefinition {
         description: doc.get("description").and_then(Value::as_str).unwrap_or_default().to_owned(),
         input_schema: schema.cloned().unwrap_or(Value::Null),
         defer_loading: doc.get("deferLoading") == Some(&Value::Bool(true)) || doc.get("defer_loading") == Some(&Value::Bool(true)),
+        freeform: Freeform::from_definition(doc),
     }
 }
 

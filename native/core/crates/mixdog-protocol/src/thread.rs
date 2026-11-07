@@ -230,22 +230,61 @@ pub struct ModelSelection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PromptPart {
+    /// A text, or a stored text attachment: an `attachmentRef` part has no `text` and names its
+    /// `textKind` (`paste` or `file`), as Node's `handoffContent` forwards it.
+    #[serde(rename_all = "camelCase")]
     Text {
-        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        text_kind: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        attachment_ref: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        size_bytes: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        mime_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        filename: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     Image {
-        /// Base64 bytes, or a staged blob digest via `attachmentRef` in the submit options.
-        data: String,
+        /// Base64 bytes; a part that names a stored `attachment_ref` instead has none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        data: Option<String>,
         mime_type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        attachment_ref: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        size_bytes: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        filename: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     File {
-        data: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        data: Option<String>,
         mime_type: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         filename: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        attachment_ref: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        size_bytes: Option<u32>,
     },
 }
 
@@ -353,6 +392,15 @@ pub struct SubmitOptions {
     pub pasted_texts: Option<BTreeMap<String, PastedText>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kickoff: Option<bool>,
+    /// The agent tool's `context` of a queued follow-up (`submitAsync` option `context`): kept on
+    /// the queue entry as Node keeps it. Host-only: a connection's request carrying it is
+    /// `invalidParams`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+    /// The stored files' sizes by `attachmentRef`, which the message's attachment records take
+    /// in place of a part's claimed `sizeBytes` (`attachmentBlobSize`). Host-only, like `context`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment_sizes: Option<BTreeMap<String, u32>>,
 }
 
 /// Today's `DesktopQuotaResume`.

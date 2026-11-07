@@ -316,7 +316,7 @@ pub fn request_in(r: w::ProxyRequest) -> Result<p::ModelRequest, Invalid> {
         tools: r
             .tools
             .into_iter()
-            .map(|t| p::ToolDefinition { name: t.name, description: t.description, input_schema: t.input_schema, defer_loading: t.defer_loading })
+            .map(|t| p::ToolDefinition { name: t.name, description: t.description, input_schema: t.input_schema, defer_loading: t.defer_loading, freeform: None })
             .collect(),
         options: options_in(r.options)?,
     })
@@ -786,7 +786,7 @@ pub trait WireRouter: Send + Sync {
 /// projects it, and whether the registry is loaded.
 #[async_trait]
 pub trait ProviderConfigSource: Send + Sync {
-    async fn public(&self) -> (std::collections::BTreeMap<String, w::ProxyProviderInfo>, bool);
+    async fn public(&self) -> (Vec<(String, w::ProxyProviderInfo)>, bool);
 }
 
 pub struct ProxyRunner {
@@ -826,7 +826,7 @@ impl ProxyRunner {
         match call {
             w::ProxyCall::ProviderConfig => {
                 let (providers, ready) = self.config.public().await;
-                Ok(w::ProxyAnswer::ProviderConfig { providers, ready })
+                Ok(w::ProxyAnswer::ProviderConfig { providers, ready: Some(ready) })
             }
             w::ProxyCall::QuotaUsable { provider, model } => {
                 self.adapter(&provider).await?;

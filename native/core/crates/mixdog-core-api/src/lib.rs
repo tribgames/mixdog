@@ -43,6 +43,7 @@ pub use feed::ScopedFeeds;
 pub use handle::CoreHandle;
 pub use handle::CoreState;
 pub use host::ClaimedHostChannel;
+pub use host::ClientEpoch;
 pub use host::ConnectionNotifier;
 pub use host::ApprovalPresence;
 pub use host::ApprovalSurfaces;

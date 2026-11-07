@@ -2,7 +2,6 @@
 //! `tool-approval.mjs` queue driven through the real delegated host: after each scripted step what
 //! it returned, what it published as `handoffQuestions` and what the owner's callback received.
 
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
@@ -104,8 +103,7 @@ impl Rig {
 
 #[test]
 fn every_scripted_step_publishes_what_the_node_queue_published() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/handoff-questions/golden.json");
-    let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let golden: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/handoff-questions/golden.json"))).unwrap();
     let mut failures = Vec::new();
     for scenario in golden["scenarios"].as_array().unwrap() {
         let mut rig = Rig {

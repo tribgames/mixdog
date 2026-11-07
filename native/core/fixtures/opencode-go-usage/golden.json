@@ -1,0 +1,2615 @@
+{
+  "domain": "opencode-go-usage",
+  "recorder": "benchmarks/rust-core/recorders/record-opencode-go-usage.mjs",
+  "now": 1800000000000,
+  "flows": [
+    {
+      "name": "three meters",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "1200000000",
+                  "usedMicroCents": "300000000",
+                  "resetsAt": "2027-01-01T00:00:00Z"
+                },
+                "week": {
+                  "limitMicroCents": "3000000000",
+                  "usedMicroCents": "0",
+                  "resetsAt": "2027-01-05T00:00:00Z"
+                },
+                "month": {
+                  "limitMicroCents": "6000000000",
+                  "usedMicroCents": "5999999999",
+                  "resetsAt": "2027-02-01T00:00:00Z"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 25,
+            "limitUsd": 12,
+            "usedUsd": 3,
+            "remainingUsd": 9,
+            "resetAt": 1798761600000
+          },
+          {
+            "label": "7D",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 30,
+            "usedUsd": 0,
+            "remainingUsd": 30,
+            "resetAt": 1799107200000
+          },
+          {
+            "label": "M",
+            "source": "opencode-go-console",
+            "usedPct": 100,
+            "limitUsd": 60,
+            "usedUsd": 60,
+            "remainingUsd": 0,
+            "resetAt": 1801440000000
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "one meter, no reset yet",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "1200000000",
+                  "usedMicroCents": "600000000",
+                  "resetsAt": null
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 50,
+            "limitUsd": 12,
+            "usedUsd": 6,
+            "remainingUsd": 6
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "a zero limit",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "week": {
+                  "limitMicroCents": "0",
+                  "usedMicroCents": "5"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "7D",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 0,
+            "usedUsd": 0,
+            "remainingUsd": 0
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "numbers, empty text, null and text values",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": 1200000000,
+                  "usedMicroCents": 300000000
+                },
+                "week": {
+                  "limitMicroCents": "",
+                  "usedMicroCents": ""
+                },
+                "month": {
+                  "limitMicroCents": null,
+                  "usedMicroCents": 5
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 25,
+            "limitUsd": 12,
+            "usedUsd": 3,
+            "remainingUsd": 9
+          },
+          {
+            "label": "7D",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 0,
+            "usedUsd": 0,
+            "remainingUsd": 0
+          },
+          {
+            "label": "M",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 0,
+            "usedUsd": 0,
+            "remainingUsd": 0
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "a missing and a non-numeric value drop the window",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "1"
+                },
+                "week": {
+                  "limitMicroCents": "x",
+                  "usedMicroCents": "1"
+                },
+                "month": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "50000000"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "M",
+            "source": "opencode-go-console",
+            "usedPct": 50,
+            "limitUsd": 1,
+            "usedUsd": 0.5,
+            "remainingUsd": 0.5
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "fractional dollars round",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "123456789",
+                  "usedMicroCents": "12345678"
+                },
+                "week": {
+                  "limitMicroCents": "333333333",
+                  "usedMicroCents": "111111111"
+                },
+                "month": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "-100000000"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 10,
+            "limitUsd": 1.2346,
+            "usedUsd": 0.1235,
+            "remainingUsd": 1.1111
+          },
+          {
+            "label": "7D",
+            "source": "opencode-go-console",
+            "usedPct": 33.33,
+            "limitUsd": 3.3333,
+            "usedUsd": 1.1111,
+            "remainingUsd": 2.2222
+          },
+          {
+            "label": "M",
+            "source": "opencode-go-console",
+            "usedPct": -100,
+            "limitUsd": 1,
+            "usedUsd": -1,
+            "remainingUsd": 2
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "reset text",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "1",
+                  "resetsAt": "  2027-03-01T10:00:00Z  "
+                },
+                "week": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "1",
+                  "resetsAt": "soon"
+                },
+                "month": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "1",
+                  "resetsAt": 12345
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 1,
+            "usedUsd": 0,
+            "remainingUsd": 1,
+            "resetAt": 1803895200000
+          },
+          {
+            "label": "7D",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 1,
+            "usedUsd": 0,
+            "remainingUsd": 1
+          },
+          {
+            "label": "M",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 1,
+            "usedUsd": 0,
+            "remainingUsd": 1
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "unknown meters are ignored",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "day": {
+                  "limitMicroCents": "1",
+                  "usedMicroCents": "1"
+                },
+                "fiveHour": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "50000000"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 50,
+            "limitUsd": 1,
+            "usedUsd": 0.5,
+            "remainingUsd": 0.5
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "no meters",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {}
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "OpenCode Go subscription meters were not found",
+        "status": null,
+        "reauthRequired": false,
+        "kind": null,
+        "code": "OPENCODE_GO_USAGE_PARSE_FAILED"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "meters are not an object",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": "x"
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "OpenCode Go subscription meters were not found",
+        "status": null,
+        "reauthRequired": false,
+        "kind": null,
+        "code": "OPENCODE_GO_USAGE_PARSE_FAILED"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "every meter unusable",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": 5,
+                "week": null,
+                "month": {}
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "OpenCode Go subscription meters were not found",
+        "status": null,
+        "reauthRequired": false,
+        "kind": null,
+        "code": "OPENCODE_GO_USAGE_PARSE_FAILED"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "not JSON",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "text": "nope"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "OpenCode Go subscription meters were not found",
+        "status": null,
+        "reauthRequired": false,
+        "kind": null,
+        "code": "OPENCODE_GO_USAGE_PARSE_FAILED"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "an empty body",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "text": ""
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "OpenCode Go subscription meters were not found",
+        "status": null,
+        "reauthRequired": false,
+        "kind": null,
+        "code": "OPENCODE_GO_USAGE_PARSE_FAILED"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "null body",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "text": "null"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "OpenCode Go subscription meters were not found",
+        "status": null,
+        "reauthRequired": false,
+        "kind": null,
+        "code": "OPENCODE_GO_USAGE_PARSE_FAILED"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "server error",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 500,
+          "body": {}
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "OpenCode Go usage fetch failed (500)",
+        "status": 500,
+        "reauthRequired": false,
+        "kind": null,
+        "code": "OPENCODE_GO_USAGE_FETCH_FAILED"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "forbidden",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 403,
+          "body": {}
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "OpenCode Go usage fetch failed (403)",
+        "status": 403,
+        "reauthRequired": false,
+        "kind": null,
+        "code": "OPENCODE_GO_USAGE_FETCH_FAILED"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "transport failure",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "fail": true
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "fetch failed",
+        "status": null,
+        "reauthRequired": false,
+        "kind": null,
+        "code": null
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "no email, no account",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "1"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 1,
+            "usedUsd": 0,
+            "remainingUsd": 1
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "padded identity",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": " acct-9 ",
+        "email": " a@b.test ",
+        "org_id": " org-1 ",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "1"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 1,
+            "usedUsd": 0,
+            "remainingUsd": 1
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": " acct-9 ",
+        "email": " a@b.test ",
+        "org_id": " org-1 ",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "no organization",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "1"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 1,
+            "usedUsd": 0,
+            "remainingUsd": 1
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "401 then refreshed",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 401,
+          "body": {}
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "status": 200,
+          "body": {
+            "access_token": "acc-2",
+            "refresh_token": "ref-2",
+            "expires_in": 3600
+          }
+        },
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "1"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"ref-1\",\"client_id\":\"opencode-cli\"}",
+          "redirect": "error",
+          "timeoutMs": 20000
+        },
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-2"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 1,
+            "usedUsd": 0,
+            "remainingUsd": 1
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-2",
+        "refresh_token": "ref-2",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "401 twice",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 401,
+          "body": {}
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "status": 200,
+          "body": {
+            "access_token": "acc-2",
+            "refresh_token": "ref-2",
+            "expires_in": 3600
+          }
+        },
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 401,
+          "body": {}
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"ref-1\",\"client_id\":\"opencode-cli\"}",
+          "redirect": "error",
+          "timeoutMs": 20000
+        },
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-2"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "error": {
+        "message": "[opencode-go-oauth] invalid_grant: OpenCode sign-in expired (console 401) — open /providers in mixdog to sign in again",
+        "status": 401,
+        "reauthRequired": true,
+        "kind": "reauth",
+        "code": null
+      },
+      "stored": {
+        "access_token": "acc-2",
+        "refresh_token": "ref-2",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "401 then the refresh is rejected",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 401,
+          "body": {}
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "status": 401,
+          "body": {
+            "error": "invalid_grant"
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"ref-1\",\"client_id\":\"opencode-cli\"}",
+          "redirect": "error",
+          "timeoutMs": 20000
+        }
+      ],
+      "error": {
+        "message": "[opencode-go-oauth] invalid_grant: OpenCode sign-in expired (refresh rejected) — open /providers in mixdog to sign in again",
+        "status": 401,
+        "reauthRequired": true,
+        "kind": "reauth",
+        "code": null
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "401 then an invalid grant",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 401,
+          "body": {}
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "status": 400,
+          "body": {
+            "error": "invalid_grant"
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"ref-1\",\"client_id\":\"opencode-cli\"}",
+          "redirect": "error",
+          "timeoutMs": 20000
+        }
+      ],
+      "error": {
+        "message": "[opencode-go-oauth] invalid_grant: OpenCode sign-in expired (refresh rejected) — open /providers in mixdog to sign in again",
+        "status": 400,
+        "reauthRequired": true,
+        "kind": "reauth",
+        "code": null
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "401 then the refresh fails",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 401,
+          "body": {}
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "status": 503,
+          "text": "unavailable acc-1 ref-1 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"ref-1\",\"client_id\":\"opencode-cli\"}",
+          "redirect": "error",
+          "timeoutMs": 20000
+        }
+      ],
+      "error": {
+        "message": "[opencode-go-oauth] token refresh 503: unavailable [REDACTED] [REDACTED] zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        "status": 503,
+        "reauthRequired": false,
+        "kind": null,
+        "code": null
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "401 then the organization changes",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 401,
+          "body": {}
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "status": 200,
+          "body": {
+            "access_token": "acc-2",
+            "refresh_token": "ref-2",
+            "expires_in": 3600,
+            "org_id": "org-2"
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"ref-1\",\"client_id\":\"opencode-cli\"}",
+          "redirect": "error",
+          "timeoutMs": 20000
+        }
+      ],
+      "error": {
+        "message": "[opencode-go-oauth] the OpenCode sign-in changed during the request",
+        "status": null,
+        "reauthRequired": false,
+        "kind": "superseded",
+        "code": null
+      },
+      "stored": {
+        "access_token": "acc-2",
+        "refresh_token": "ref-2",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-2",
+        "org_name": "org-2"
+      }
+    },
+    {
+      "name": "401 then a grant without a refresh token",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 401,
+          "body": {}
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "status": 200,
+          "body": {
+            "access_token": "x"
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        },
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"ref-1\",\"client_id\":\"opencode-cli\"}",
+          "redirect": "error",
+          "timeoutMs": 20000
+        }
+      ],
+      "error": {
+        "message": "[opencode-go-oauth] token response is missing access_token or refresh_token",
+        "status": null,
+        "reauthRequired": false,
+        "kind": "validation",
+        "code": null
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "an expiring token is refreshed first",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1800000060000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "status": 200,
+          "body": {
+            "access_token": "acc-2",
+            "refresh_token": "ref-2",
+            "expires_in": 3600
+          }
+        },
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "1"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"ref-1\",\"client_id\":\"opencode-cli\"}",
+          "redirect": "error",
+          "timeoutMs": 20000
+        },
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-2"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 1,
+            "usedUsd": 0,
+            "remainingUsd": 1
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-2",
+        "refresh_token": "ref-2",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "an expired token and a rejected refresh",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1799999999000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "status": 401,
+          "body": {}
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"ref-1\",\"client_id\":\"opencode-cli\"}",
+          "redirect": "error",
+          "timeoutMs": 20000
+        }
+      ],
+      "error": {
+        "message": "[opencode-go-oauth] invalid_grant: OpenCode sign-in expired (refresh rejected) — open /providers in mixdog to sign in again",
+        "status": 401,
+        "reauthRequired": true,
+        "kind": "reauth",
+        "code": null
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 1799999999000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "a token without expiry is not refreshed",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 0,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "status": 200,
+          "body": {
+            "access": {
+              "meters": {
+                "fiveHour": {
+                  "limitMicroCents": "100000000",
+                  "usedMicroCents": "1"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wire": [
+        {
+          "url": "https://opencode.ai/console/api/go/status",
+          "method": "GET",
+          "headers": [
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36"
+            ],
+            [
+              "Authorization",
+              "Bearer acc-1"
+            ],
+            [
+              "x-org-id",
+              "org-1"
+            ]
+          ],
+          "body": null,
+          "redirect": "error",
+          "timeoutMs": 6500
+        }
+      ],
+      "snapshot": {
+        "provider": "opencode-go-oauth",
+        "source": "opencode-go-console",
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "source": "opencode-go-console",
+            "usedPct": 0,
+            "limitUsd": 1,
+            "usedUsd": 0,
+            "remainingUsd": 1
+          }
+        ],
+        "model": null,
+        "fetchedAt": 1800000000000,
+        "email": "a@b.test",
+        "accountId": "acct-9"
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "ref-1",
+        "expires_at": 0,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "no credentials file",
+      "creds": null,
+      "replies": [],
+      "wire": [],
+      "error": {
+        "message": "[opencode-go-oauth] credentials not found — open /providers in mixdog to sign in first",
+        "status": 401,
+        "reauthRequired": false,
+        "kind": null,
+        "code": null
+      },
+      "stored": null
+    },
+    {
+      "name": "a blank refresh token",
+      "creds": {
+        "access_token": "acc-1",
+        "refresh_token": "  ",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      },
+      "replies": [],
+      "wire": [],
+      "error": {
+        "message": "[opencode-go-oauth] credentials not found — open /providers in mixdog to sign in first",
+        "status": 401,
+        "reauthRequired": false,
+        "kind": null,
+        "code": null
+      },
+      "stored": {
+        "access_token": "acc-1",
+        "refresh_token": "  ",
+        "expires_at": 1800003600000,
+        "account_id": "acct-9",
+        "email": "a@b.test",
+        "org_id": "org-1",
+        "org_name": "Org"
+      }
+    },
+    {
+      "name": "a file without an access token",
+      "creds": {
+        "refresh_token": "r"
+      },
+      "replies": [],
+      "wire": [],
+      "error": {
+        "message": "[opencode-go-oauth] credentials not found — open /providers in mixdog to sign in first",
+        "status": 401,
+        "reauthRequired": false,
+        "kind": null,
+        "code": null
+      },
+      "stored": {
+        "refresh_token": "r"
+      }
+    }
+  ]
+}

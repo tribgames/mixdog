@@ -12,6 +12,7 @@
 //!
 //! Recorded from Node per kind: `fixtures/room-approvals/golden.json`.
 
+use mixdog_app_protocol::v2::thread::ThreadRoomView;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::domain::approval::ApprovalKind;
 use mixdog_core_api::domain::approval::ApprovalRequest;
@@ -374,35 +375,68 @@ pub struct RoomViewState {
     pub approval: Option<Value>,
 }
 
-/// `decorateRoomSnapshot(state, snapshot, handoffQuestions)`: the room log as its views see it,
-/// busy while members speak, the speaking member's approval, a typing row naming who speaks,
-/// and the questions of sessions its members handed work to.
-pub fn decorate_room_view(state: Option<&RoomViewState>, snapshot: &Value, handoff_questions: &[Value]) -> Value {
-    let Value::Object(base) = snapshot else { return snapshot.clone() };
-    let mut out = base.clone();
-    if !handoff_questions.is_empty() {
-        out.insert("handoffQuestions".into(), Value::Array(handoff_questions.to_vec()));
-    }
-    let Some(state) = state else { return Value::Object(out) };
-    out.insert("busy".into(), json!(true));
-    if let Some(approval) = state.approval.as_ref().filter(|a| truthy(Some(a))) {
-        out.insert("toolApproval".into(), approval.clone());
-    }
-    let mut items = base.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
-    if !state.speaking.is_empty() {
-        items.push(json!({
+/// The `roomView` section of a room log (`thread/roomView/updated`): what
+/// `decorateRoomSnapshot(state, snapshot, handoffQuestions)` lays over the log's own state. `None`
+/// when there is nothing to lay (no exchange state, no handed-off questions).
+pub fn room_view(state: Option<&RoomViewState>, handoff_questions: &[Value]) -> Option<ThreadRoomView> {
+    let questions = (!handoff_questions.is_empty()).then(|| handoff_questions.to_vec());
+    let Some(state) = state else { return questions.map(|q| ThreadRoomView { handoff_questions: Some(q), ..ThreadRoomView::default() }) };
+    let typing = (!state.speaking.is_empty()).then(|| {
+        json!({
             "kind": "notice",
             "id": state.typing_id,
             "tone": "info",
             "text": format!("{}…", state.speaking_name),
             "room": { "kind": "typing", "speaker": state.speaking, "name": state.speaking_name },
-        }));
+        })
+    });
+    Some(ThreadRoomView {
+        busy: true,
+        tool_approval: state.approval.clone().filter(|a| truthy(Some(a))),
+        typing,
+        handoff_questions: questions,
+    })
+}
+
+/// A room log's state with its `roomView` laid over it, as the client fold does
+/// (`packages/protocol-client` `desktopSessionState`): `busy` while the room has an exchange
+/// state, its `toolApproval`, the questions, and the typing row after the transcript.
+pub fn apply_room_view(snapshot: &Value, view: Option<&ThreadRoomView>) -> Value {
+    let (Value::Object(base), Some(view)) = (snapshot, view) else { return snapshot.clone() };
+    let mut out = base.clone();
+    if view.busy {
+        out.insert("busy".into(), json!(true));
     }
-    out.insert("items".into(), Value::Array(items));
+    if let Some(approval) = &view.tool_approval {
+        out.insert("toolApproval".into(), approval.clone());
+    }
+    if let Some(questions) = &view.handoff_questions {
+        out.insert("handoffQuestions".into(), Value::Array(questions.clone()));
+    }
+    if view.busy {
+        let mut items = base.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+        items.extend(view.typing.clone());
+        out.insert("items".into(), Value::Array(items));
+    }
     Value::Object(out)
 }
 
+/// `decorateRoomSnapshot(state, snapshot, handoffQuestions)`: the room log as its views see it,
+/// busy while members speak, the speaking member's approval, a typing row naming who speaks,
+/// and the questions of sessions its members handed work to.
+pub fn decorate_room_view(state: Option<&RoomViewState>, snapshot: &Value, handoff_questions: &[Value]) -> Value {
+    apply_room_view(snapshot, room_view(state, handoff_questions).as_ref())
+}
+
 impl SessionDirectory {
+    /// The question copies `thread` holds now for the sessions it handed work to (its approvals
+    /// section's `handoffQuestions`, the catalog row's `handoffQuestions` a room reads); none when
+    /// it is not loaded (no runtime holds copies).
+    pub fn member_handoff_questions(&self, thread: &ThreadId) -> Vec<Value> {
+        let Some(handle) = self.handle(thread) else { return Vec::new() };
+        handle.cell.view.load_full().state.approvals.as_ref().and_then(|approvals| approvals.handoff_questions.clone()).unwrap_or_default()
+    }
+
     /// The approval `thread` shows now as its room reads it (`state.toolApproval`); `None` when
     /// it is not loaded or waits on nothing.
     pub fn member_approval(&self, thread: &ThreadId) -> Option<Value> {

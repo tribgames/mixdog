@@ -194,7 +194,7 @@ impl ArchiveRetention for ConfigArchiveRetention {
         // auto-archive until it is used again.
         self.update(move |restored, now| {
             if archived {
-                restored.remove(&id).is_some()
+                restored.shift_remove(&id).is_some()
             } else {
                 restored.insert(id, json!(now));
                 true
@@ -205,7 +205,7 @@ impl ArchiveRetention for ConfigArchiveRetention {
 
     async fn forget(&self, session_id: &str) -> Result<(), String> {
         let id = session_id.to_owned();
-        self.update(move |restored, _| restored.remove(&id).is_some()).await
+        self.update(move |restored, _| restored.shift_remove(&id).is_some()).await
     }
 }
 

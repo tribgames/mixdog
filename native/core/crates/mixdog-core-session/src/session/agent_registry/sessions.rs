@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_agent::agent_tool::board::{CancelAll, JobBoard};
 use mixdog_agent::agent_tool::host::CloseOptions;
+use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::host::Sessions;
 use mixdog_core_api::ids::ThreadId;
 use serde_json::Map;
@@ -70,6 +72,43 @@ fn last_handoff(header: &Map<String, Value>, messages: &[Value]) -> String {
         .unwrap_or_default()
 }
 
+impl AgentSessions {
+    /// `cancelAgentDescendants(parentSessionId, reason)` (`agent-cancel.mjs:152-170`): the parent
+    /// refuses admission while it runs; the agent jobs it started are cancelled
+    /// (`cancelBackgroundTasks({ surface: 'agent', callerSessionId })`, the owner told as the
+    /// board's default says); then every child's tree is cancelled, together. Whether any child
+    /// was there to cancel.
+    pub async fn cancel_descendants(&self, parent: &str, reason: &str, board: &JobBoard) -> bool {
+        let parent = mixdog_js::js_trim(parent).to_owned();
+        let _cancelling = self.registry.begin_cancellation(std::slice::from_ref(&parent));
+        board.cancel_all(&CancelAll {
+            reason: reason.to_owned(),
+            scope: Scope { caller_session_id: Some(parent.clone()), host_pid: None },
+            ..CancelAll::default()
+        });
+        let children = self.registry.children_of(&parent);
+        if children.is_empty() {
+            return false;
+        }
+        futures::future::join_all(children.iter().map(|child| self.close_session(child, reason, CloseOptions::default()))).await;
+        true
+    }
+
+    /// Node's only caller of `cancelAgentDescendants` is the runtime teardown of a Lead
+    /// (`__close_all`, `daemon-agent-control.mjs:75-82`, from `teardown.mjs:231`): every Lead
+    /// the process hosts has its agents cancelled with `agent owner closed`. A Lead is a loaded
+    /// thread that is not itself an agent session.
+    pub async fn cancel_all_owners(&self, board: &JobBoard) {
+        for handle in self.directory.loaded_handles() {
+            let header = handle.cell.header.load();
+            let agent_owned = header.get("owner").and_then(Value::as_str) == Some("agent") || header.get("visibility").and_then(Value::as_str) == Some("agent-only");
+            if !agent_owned {
+                self.cancel_descendants(handle.id.as_str(), "agent owner closed", board).await;
+            }
+        }
+    }
+}
+
 #[async_trait]
 impl Sessions for AgentSessions {
     /// Stored agent sessions open on demand, so there is nothing to load ahead: the registry's
@@ -101,6 +140,11 @@ impl Sessions for AgentSessions {
         if options.tombstone || session_id.is_empty() {
             return false;
         }
+        // `cancelAgentTree` (`agent-cancel.mjs:111-114`): the session and its descendants refuse
+        // admission (a spawn or send under them) until the close has ended.
+        let mut covered = self.registry.descendants(session_id);
+        covered.push(session_id.to_owned());
+        let _cancelling = self.registry.begin_cancellation(&covered);
         let thread = ThreadId::from(session_id);
         let now = self.clock.now_ms();
         let mut set = Map::new();

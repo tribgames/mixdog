@@ -217,7 +217,7 @@ pub async fn start(
         },
     );
     // Bound before the listener accepts (the spawn of `server.rpc` below): a request admitted earlier would not be counted.
-    core.lifecycle().bind(lifecycle.clone()).expect("serving::start binds the lifecycle once");
+    core.late_lifecycle().bind(lifecycle.clone()).expect("serving::start binds the lifecycle once");
     let control = ControlServer::serve(
         control,
         ControlConfig {

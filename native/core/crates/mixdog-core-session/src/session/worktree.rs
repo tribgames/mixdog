@@ -656,3 +656,20 @@ impl Inner {
         Ok(view)
     }
 }
+
+/// The agent tool's spawn admission over this runtime's gate (`spawn-prep.mjs:127`
+/// `enterWorkerSpawn`, `spawn-plan.mjs` `workspaceCwdLock`).
+impl mixdog_agent::agent_tool::flow::world::SpawnAdmission for SessionWorkspaces {
+    fn workspace_cwd_lock(&self, owner_ids: &[String]) -> Option<String> {
+        let ids: Vec<&str> = owner_ids.iter().map(String::as_str).collect();
+        self.inner.gate.workspace_cwd_lock(&ids)
+    }
+
+    fn enter_worker_spawn(&self, owner_ids: &[String]) -> Result<Box<dyn Send>, String> {
+        let ids: Vec<&str> = owner_ids.iter().map(String::as_str).collect();
+        match self.inner.gate.enter_worker_spawn(&ids) {
+            Ok(guard) => Ok(Box::new(guard)),
+            Err(failure) => Err(thrown_message(&failure)),
+        }
+    }
+}

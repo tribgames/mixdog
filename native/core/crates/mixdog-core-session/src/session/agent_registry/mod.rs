@@ -27,6 +27,7 @@ mod sessions;
 mod workers;
 mod worker_view;
 mod pool_docs;
+mod world_rows;
 pub mod restart;
 pub mod signals;
 pub mod status_rows;
@@ -40,6 +41,7 @@ pub use self::flow::RuntimeRelease;
 pub use self::flow::SessionTurns;
 pub use self::flow::SessionCompletions;
 pub use self::workers::AgentWorkers;
+pub use self::world_rows::CancelScope;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -134,6 +136,10 @@ struct State {
     /// The sessions whose row this process wrote as active (`activeWorkerKeys`/`trackActiveRow`):
     /// settled as failed when the process exits (restart.rs).
     active: HashSet<String>,
+    /// `cancellationCounts`: the cancellations in progress that cover a session.
+    cancelling: HashMap<String, usize>,
+    /// `cancellationEpochs`: how many cancellations have covered a session.
+    epochs: HashMap<String, u64>,
 }
 
 impl State {

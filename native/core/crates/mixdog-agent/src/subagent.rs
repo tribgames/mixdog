@@ -43,6 +43,8 @@ pub struct DispatchRequest {
     pub default_cwd: Option<String>,
     pub default_idle_timeout_ms: Option<f64>,
     pub default_source_name: Option<String>,
+    /// `opts.permission`: the permission the factory asks for; `None` is unset (`??`).
+    pub default_permission: Option<String>,
     pub parent_session_id: Option<String>,
     /// `opts.ownerSessionId`: `None` is unset (the owner is the parent), `Some(None)` is `null`.
     pub owner_session_id: Option<Option<String>>,

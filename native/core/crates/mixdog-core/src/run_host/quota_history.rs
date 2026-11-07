@@ -122,8 +122,17 @@ mod tests {
                 for sample in &samples {
                     let options: QuotaHistoryOptions = serde_json::from_value(json!({ "provider": sample.provider, "account": sample.account, "window": sample.label })).unwrap();
                     let page = ledger.reader.quota_history(options, BTreeMap::new(), sample.ts + 1).await.unwrap();
-                    let points = page["points"].as_array().unwrap();
-                    assert!(!points.is_empty(), "{} {} {} is stored", sample.provider, sample.account, sample.label);
+                    // Stored = the reader selects exactly this series. Not the points: a lone reading whose window
+                    // has no reset ends where it starts, and Node's `overlapping` (usage-ledger-quota.mjs:893,
+                    // `endMs > domainFrom`) shows no window for it.
+                    assert_eq!(
+                        page["selection"],
+                        json!({ "provider": sample.provider, "account": sample.account, "label": sample.label }),
+                        "{} {} {} is stored",
+                        sample.provider,
+                        sample.account,
+                        sample.label
+                    );
                     stored += 1;
                 }
             }

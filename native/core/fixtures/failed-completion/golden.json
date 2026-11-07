@@ -1,0 +1,174 @@
+{
+  "cases": [
+    {
+      "message": "boom",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "boom",
+      "errorDetails": "boom"
+    },
+    {
+      "message": "Error: already prefixed",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "already prefixed",
+      "errorDetails": "Error: already prefixed"
+    },
+    {
+      "message": "error : spaced prefix",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "spaced prefix",
+      "errorDetails": "error : spaced prefix"
+    },
+    {
+      "message": "Cancelled by user",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Cancelled by user",
+      "errorDetails": "Cancelled by user"
+    },
+    {
+      "message": "Search failed: network down",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Search failed: network down",
+      "errorDetails": "Search failed: network down"
+    },
+    {
+      "message": "No first response from the provider",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "No first response from the provider",
+      "errorDetails": "No first response from the provider"
+    },
+    {
+      "message": "The request failed: Authorization: Bearer abcdef0123456789abcdef",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "The request failed: Authorization: [redacted] [redacted]",
+      "errorDetails": "The request failed: Authorization: [redacted] [redacted]"
+    },
+    {
+      "message": "line one\nline two",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "line one line two",
+      "errorDetails": "line one\nline two"
+    },
+    {
+      "message": "long xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "long xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...",
+      "errorDetails": "long xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "message": "",
+      "route": {
+        "provider": "anthropic",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Error",
+      "errorDetails": "Error"
+    }
+  ]
+}

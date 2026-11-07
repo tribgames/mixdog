@@ -38,7 +38,8 @@ fn message_of(error: CoreError) -> String {
     }
 }
 
-async fn call(service: &dyn DomainService, method: &'static str, params: Value) -> Result<Value, String> {
+/// One call of `service` as the setup tool makes it (an internal caller); also the status readers' way in.
+pub async fn call(service: &dyn DomainService, method: &'static str, params: Value) -> Result<Value, String> {
     let request = CoreRequest { method: Method(method), params, op: None, ctx: CallContext::internal("setup") };
     match service.call(request).await.map_err(message_of)? {
         Reply::Value(value) => Ok(value),

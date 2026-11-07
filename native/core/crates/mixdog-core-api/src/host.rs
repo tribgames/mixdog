@@ -252,6 +252,14 @@ pub trait DesktopPresence: Send + Sync {
     fn desktop_attached(&self) -> bool;
 }
 
+/// The model-proxy client's generation, as Node's `ModelProxyChannel.generation`: the value changes
+/// whenever the client behind the channel may have changed (one connects, one goes away), and the
+/// receiver wakes then. An answer learned under one generation is not served to the next, and a read
+/// that found no client waits on it for one to connect.
+pub trait ClientEpoch: Send + Sync {
+    fn client_epoch(&self) -> tokio::sync::watch::Receiver<u64>;
+}
+
 /// Whether a connection that can answer a server request of `thread`, shown on `surface`, is
 /// attached right now: the eligibility rule of P §8.3 (a live subscriber of either feed, or an
 /// `approvalsInbox` connection past its handshake), asked of the connections as they are.

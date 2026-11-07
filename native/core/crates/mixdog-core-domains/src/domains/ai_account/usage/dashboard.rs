@@ -717,7 +717,7 @@ pub trait UsageSources: Send + Sync {
     /// Whether the registry holds a provider object for `provider`.
     fn oauth_provider_ready(&self, provider: &str) -> bool;
     async fn fetch_oauth(&self, provider: &str, force: bool) -> Result<Option<Value>, String>;
-    fn cached_api(&self, provider: &str) -> Option<Value>;
+    async fn cached_api(&self, provider: &str) -> Option<Value>;
     async fn fetch_api(&self, provider: &str, force: bool) -> Result<Option<Value>, String>;
 }
 
@@ -738,7 +738,7 @@ async fn oauth_snapshot(sources: &dyn UsageSources, provider: &str, refresh: boo
 }
 
 async fn api_snapshot(sources: &dyn UsageSources, provider: &str, refresh: bool) -> Option<Value> {
-    let cached = sources.cached_api(provider);
+    let cached = sources.cached_api(provider).await;
     if !refresh && cached.is_some() {
         return cached;
     }

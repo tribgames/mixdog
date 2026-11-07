@@ -174,6 +174,22 @@ impl CatalogService {
         self.refresh_asking(Ask::Due).await
     }
 
+    /// A provider-scoped forced refresh (`catalog-load.mjs` `prepare`, `forceRefresh && provider`):
+    /// only the providers whose id `wanted` names are asked (`providerRows`: the ids that equal
+    /// it once reduced to lowercase letters and digits, else the ids that contain it); every other
+    /// provider keeps what it loaded.
+    pub async fn refresh_matching(&self, wanted: &str) -> RefreshOutcome {
+        let only: Vec<ModelSource> = {
+            let ids: Vec<&str> = self.sources.iter().map(|s| s.provider().as_str()).collect();
+            let names = matching_providers(&ids, wanted);
+            self.sources.iter().filter(|s| names.contains(&s.provider().as_str())).cloned().collect()
+        };
+        let outcome = self.catalog.refresh_asking(&only, Ask::All).await;
+        self.reload_rosters().await;
+        self.publish_listing();
+        outcome
+    }
+
     /// An auth/account change: the rows listed under the previous account are
     /// dropped (`invalidateSharedProviderCatalog`).
     pub fn invalidate_accounts(&self) {
@@ -195,5 +211,38 @@ impl CatalogService {
         self.reload_rosters().await;
         self.publish_listing();
         outcome
+    }
+}
+
+/// `norm(value)` of `model-select.mjs`: lower-cased, reduced to ASCII letters and digits.
+fn norm(value: &str) -> String {
+    value.to_lowercase().chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit()).collect()
+}
+
+/// `providerRows(rows, provider)` over provider ids: the ids that equal `wanted` once normalized,
+/// else the ids that contain it; every id when `wanted` is empty.
+fn matching_providers<'a>(ids: &[&'a str], wanted: &str) -> Vec<&'a str> {
+    if wanted.is_empty() {
+        return ids.to_vec();
+    }
+    let wanted = norm(wanted);
+    let exact: Vec<&str> = ids.iter().copied().filter(|id| norm(id) == wanted).collect();
+    if !exact.is_empty() {
+        return exact;
+    }
+    ids.iter().copied().filter(|id| norm(id).contains(&wanted)).collect()
+}
+
+#[cfg(test)]
+mod matching_tests {
+    use super::matching_providers;
+
+    #[test]
+    fn a_name_picks_the_exact_provider_else_the_ones_containing_it() {
+        let ids = ["openai", "openai-oauth", "anthropic"];
+        assert_eq!(matching_providers(&ids, "OpenAI"), ["openai"]);
+        assert_eq!(matching_providers(&ids, "oauth"), ["openai-oauth"]);
+        assert_eq!(matching_providers(&ids, "zzz"), Vec::<&str>::new());
+        assert_eq!(matching_providers(&ids, ""), ids);
     }
 }

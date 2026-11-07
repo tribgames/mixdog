@@ -96,9 +96,14 @@ impl HydrationFacts for RowFacts<'_> {
 impl ModelListService {
     /// The catalog before the first read: a snapshot nothing was listed into (the compiled-in
     /// generation) is listed now, as Node's first full read loads every provider.
-    async fn ready(&self, force: bool) {
+    async fn ready(&self, force: bool, provider: Option<&str>) {
         if force {
-            self.catalog.refresh().await;
+            // `forceRefresh && provider` (`catalog-load.mjs` `prepare`): only the providers the
+            // name matches are asked again.
+            match provider.filter(|p| !p.is_empty()) {
+                Some(provider) => self.catalog.refresh_matching(provider).await,
+                None => self.catalog.refresh().await,
+            };
             return;
         }
         let snapshot = self.catalog.snapshot();
@@ -109,7 +114,12 @@ impl ModelListService {
 
     /// `collectProviderModels({ force, quick })`.
     pub async fn rows(&self, force: bool, quick: bool) -> Vec<Value> {
-        self.ready(force).await;
+        self.rows_for(force, quick, None).await
+    }
+
+    /// `collectProviderModels({ force, quick, provider })`: `provider` scopes a forced refresh.
+    pub async fn rows_for(&self, force: bool, quick: bool, provider: Option<&str>) -> Vec<Value> {
+        self.ready(force, provider).await;
         let snapshot = self.catalog.snapshot();
         let config = self.config.agent();
         let developer = config.get("developer").cloned().unwrap_or(Value::Null);

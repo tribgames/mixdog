@@ -140,7 +140,7 @@ pub(crate) async fn turn(handle: &SessionHandle, prompt: &str, op: &str) -> Valu
 }
 
 /// Each run answers its prompt with `re: <prompt>` and completes.
-fn echo() -> Script {
+pub(crate) fn echo() -> Script {
     Arc::new(|run| {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
@@ -245,13 +245,11 @@ async fn a_turn_publishes_its_rows_in_order_after_they_are_durable() {
 }
 
 #[tokio::test(start_paused = true)]
-#[allow(clippy::disallowed_methods, reason = "test setup writes and reads the history file")]
 async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
     let rig = Rig::new();
     rig.set_script(echo());
     let file = rig.prompts.file("/ws").expect("history file");
-    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-    std::fs::write(&file, br#"{"version":1,"entries":["older","one"]}"#).unwrap();
+    crate::session::fixture_fs::write(&file, br#"{"version":1,"entries":["older","one"]}"#);
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     eventually(|| (prompt_list(&handle) == ["one", "older"]).then_some(())).await;
@@ -261,9 +259,15 @@ async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
     turn(&handle, "  one  ", "op-2").await;
     eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     eventually(|| (prompt_list(&handle) == ["one", "two", "older"]).then_some(())).await;
-    // The persisted history of the cwd took both submits (`appendPromptHistory`).
-    let saved: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
-    assert_eq!(saved, json!({ "version": 1, "entries": ["older", "two", "one"] }));
+    // The persisted history of the cwd took both submits (`appendPromptHistory`), written behind
+    // the window (`WRITE_BEHIND_MS`) after the last of them.
+    let want = json!({ "version": 1, "entries": ["older", "two", "one"] });
+    let saved = eventually(|| {
+        let text = crate::session::fixture_fs::read_to_string(&file).ok()?;
+        serde_json::from_str::<Value>(&text).ok().filter(|saved| *saved == want)
+    })
+    .await;
+    assert_eq!(saved, want);
 
     let updates: Vec<Value> = rig
         .feeds
@@ -804,7 +808,7 @@ async fn a_held_route_leaves_a_completion_to_the_next_turn() {
     assert_eq!(runs_started(&rig, &handle.id), 2, "the next turn is the completion's");
 }
 
-fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
+pub(crate) fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
     use mixdog_store::schema::record::Record;
     use mixdog_store::schema::record::RunPhase;
     rig.store
@@ -814,7 +818,7 @@ fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
         .count()
 }
 
-async fn start_with_session(directory: &SessionDirectory, session: Value) -> Arc<SessionHandle> {
+pub(crate) async fn start_with_session(directory: &SessionDirectory, session: Value) -> Arc<SessionHandle> {
     let reply = directory
         .request(request(
             "thread/start",
@@ -1572,7 +1576,7 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
             let excluded = "Tool \"mcp__x__broken\" was excluded from this session's requests: its input schema is invalid at / (bad). Fix the tool's schema or disable the tool.";
             run.port.notice(excluded.into(), mixdog_agent::env::Tone::Warn).await.expect("warn notice");
             let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, cache_read_tokens: 3, cache_write_tokens: 2, ..Default::default() };
-            let tool = mixdog_core_api::domain::provider::ToolDefinition { name: "read".into(), description: "d".into(), input_schema: json!({ "type": "object" }), defer_loading: true };
+            let tool = mixdog_core_api::domain::provider::ToolDefinition { name: "read".into(), description: "d".into(), input_schema: json!({ "type": "object" }), defer_loading: true, freeform: None };
             run.port
                 .usage(crate::session::UsageReport {
                     iteration: 1,
@@ -2647,7 +2651,9 @@ async fn runs_get_the_sessions_tool_surface() {
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
     eventually(|| (lock(&seen).len() == 1).then_some(())).await;
-    assert_eq!(lock(&seen)[0], Vec::<String>::new());
+    // A user thread denies the Lead-only goal tools (`createSession`'s `disallowedTools`,
+    // `LEAD_DISALLOWED_TOOLS`, `tool-defs.mjs:228`).
+    assert_eq!(lock(&seen)[0], ["get_goal", "create_goal", "set_goal_tasks", "update_goal"]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2887,8 +2893,8 @@ async fn a_cancel_whose_store_write_fails_still_disarms_the_pending_resume() {
     eventually(|| idle(&handle).then_some(())).await;
     // The next store write fails: the file's place becomes a directory (the atomic rename cannot land).
     let file = rig._data.path().join(mixdog_core_base::quota_resume::QUOTA_RESUME_FILE);
-    std::fs::remove_file(&file).unwrap();
-    std::fs::create_dir(&file).unwrap();
+    crate::session::fixture_fs::remove_file(&file);
+    crate::session::fixture_fs::create_dir_all(&file);
     directory.cancelled(&handle.id).await.unwrap();
     assert!(rig.quota.entry(&id).is_some(), "the entry is still stored: the write failed");
 

@@ -21,9 +21,9 @@ use mixdog_agent::with_tail_reminder;
 use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::providers::anthropic::fast_mode;
 use mixdog_ai::registry::providers::ProviderRegistry;
-use mixdog_ai::warmer::chain::{WarmRequest, WarmTarget};
+use mixdog_ai::warmer::chain::{Turn, WarmRequest, WarmTarget, Warmer};
 use mixdog_ai::warmer::gate::AccountGate;
-use mixdog_ai::warmer::plan::CacheStrategy;
+use mixdog_ai::warmer::plan::{CacheStrategy, turn_kind};
 use mixdog_ai::warmer::process::{WarmConfig, WarmProviders, WarmSessions};
 use mixdog_ai::warmer::send::{Deadlines, gate_target};
 use mixdog_ai::warmer::stores::Log;
@@ -33,6 +33,7 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_config::config::Config;
 use mixdog_core_session::session::home_threads::DirectoryHomeThreads;
+use mixdog_core_session::session::turn_warm::TurnWarmth;
 use mixdog_services::bots::delivery::env::HomeThreads;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -251,6 +252,39 @@ impl WarmProviders for ProvidersWarm {
     }
 }
 
+/// `noteCacheWarmTurn(sessionId, cacheWarmTurnKind(input))` and `endCacheWarmTurn` (`cache-warm.mjs:563-571,
+/// 576-611`) over the process's one `Warmer`: the session actor calls [`TurnWarmth::begin`] at each turn
+/// start (`noteTurnForCacheWarm`, `ask-session.mjs:198-201`) and drops the guard when the turn ends.
+pub struct WarmedTurns(Arc<Warmer>);
+
+impl WarmedTurns {
+    pub fn new(warmer: Arc<Warmer>) -> Self {
+        Self(warmer)
+    }
+}
+
+/// A running turn's warmer entry; dropping it ends the turn (a later turn's own entry stays).
+struct WarmedTurn {
+    warmer: Arc<Warmer>,
+    session: String,
+    turn: Arc<Turn>,
+}
+
+impl Drop for WarmedTurn {
+    fn drop(&mut self) {
+        self.warmer.end_turn(&self.session, &self.turn);
+    }
+}
+
+impl TurnWarmth for WarmedTurns {
+    fn begin(&self, thread: &ThreadId, input: &Value, messages: Option<&Value>) -> Box<dyn Send> {
+        let kind = turn_kind(input, messages);
+        match self.0.note_turn(thread.as_str(), kind) {
+            Some(turn) => Box::new(WarmedTurn { warmer: self.0.clone(), session: thread.as_str().to_owned(), turn }),
+            None => Box::new(()),
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;

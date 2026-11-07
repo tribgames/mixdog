@@ -77,7 +77,7 @@ fn golden() -> Value {
 /// own list does not hold them.
 fn pool_of(g: &Value) -> Vec<Arc<dyn Tool>> {
     let mut pool: Vec<Arc<dyn Tool>> = g["pool"].as_array().expect("pool").iter().map(stub).collect();
-    let registered: Vec<&str> = g["standalone"].as_array().expect("standalone").iter().map(|doc| doc["name"].as_str().expect("name")).collect();
+    let registered: Vec<&str> = g["standalone"].as_array().expect("standalone").iter().map(|name| name.as_str().expect("name")).collect();
     let rank = |tool: &Arc<dyn Tool>| registered.iter().position(|name| *name == tool.spec().name);
     let slots: Vec<usize> = (0..pool.len()).filter(|at| rank(&pool[*at]).is_some()).collect();
     let mut in_order: Vec<Arc<dyn Tool>> = slots.iter().map(|at| pool[*at].clone()).collect();

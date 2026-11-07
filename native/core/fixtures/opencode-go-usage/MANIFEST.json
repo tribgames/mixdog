@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-opencode-go-usage.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 68647,
+      "path": "golden.json",
+      "sha256": "bf31d67f3978f734208d863e509a5cc85811f898a538845bc355e34de7cd9724"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "dab8866732c9faa29c2465def3574a8e6fb51da4",
+      "commitFilesMissingFromTree": 2,
+      "exact": false,
+      "filesDifferingFromCommit": 43481
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-opencode-go-usage.mjs",
+  "set": "opencode-go-usage",
+  "totalBytes": 68647
+}

@@ -411,6 +411,7 @@ impl SessionState {
             Section::ProviderAccount(value) => s.provider_account_change = Some(value),
             Section::Remote(value) => s.remote_enabled = Some(value),
             Section::SetupUiRequest(value) => s.setup_ui_request = value,
+            Section::RoomView(value) => s.room_view = value,
         }
     }
 

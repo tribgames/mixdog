@@ -376,11 +376,12 @@ impl ComposedCore {
         &self.tidy_processes
     }
 
-    /// Bind the terminal, screen, workspace, system and device owners once; a close before that is written to the daemon log.
-    pub fn lifecycle(&self) -> &Arc<crate::late_lifecycle::LateLifecycle> {
+    /// The cell `serving::start` binds the built `Lifecycle` into. Not `lifecycle()`: that is `CoreHandle::lifecycle` (the state watch), which a call through the `Arc` would pick.
+    pub fn late_lifecycle(&self) -> &Arc<crate::late_lifecycle::LateLifecycle> {
         &self.lifecycle
     }
 
+    /// Bind the terminal, screen, workspace, system and device owners once; a close before that is written to the daemon log.
     pub fn connection_owners(&self) -> &crate::connection_close::ConnectionOwnersCell {
         &self.connection_owners
     }

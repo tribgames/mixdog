@@ -421,8 +421,8 @@ impl OpenCodeKey {
     async fn token(&self, force: bool) -> Result<String, ProviderError> {
         match self.0.ensure_fresh(force).await {
             Ok(credentials) => Ok(credentials.access_token),
-            Err(RefreshError::Reauth(message)) => Err(reauth(&format!("OpenCode sign-in expired: {message}"))),
-            Err(RefreshError::Failed(message)) => {
+            Err(RefreshError::Reauth(message, _)) => Err(reauth(&format!("OpenCode sign-in expired: {message}"))),
+            Err(RefreshError::Failed(message, _)) => {
                 let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
                 err.message = message;
                 Err(err)

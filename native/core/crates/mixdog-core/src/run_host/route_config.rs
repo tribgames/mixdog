@@ -39,7 +39,9 @@ impl RouteConfig for ConfigRouteConfig {
 mod tests {
     use mixdog_core_api::mock::MockStatePublisher;
     use mixdog_core_config::config::ConfigLanes;
+    use mixdog_rt::LaneToken as _;
     use serde_json::json;
+    use tokio_util::sync::CancellationToken;
 
     use super::*;
 
@@ -49,7 +51,15 @@ mod tests {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let path = dir.path().join("mixdog-config.json");
-        std::fs::write(&path, serde_json::to_vec(&json!({ "agent": { "marker": 1 } })).unwrap()).unwrap();
+        let bytes = serde_json::to_vec(&json!({ "agent": { "marker": 1 } })).unwrap();
+        let file = path.clone();
+        tokens
+            .durability_io
+            .submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &file, &bytes, &mixdog_statefile::Opts::default()))
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         let bots = Arc::new(BotRouteStore::new(dir.path(), tokens.interactive_io));
         let route_config = ConfigRouteConfig::new(config.clone(), bots.clone());

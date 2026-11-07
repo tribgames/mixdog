@@ -202,6 +202,7 @@ pub(super) fn tool_of(recorded: &Value) -> ToolDefinition {
         description: recorded["description"].as_str().expect("description").into(),
         input_schema: recorded["inputSchema"].clone(),
         defer_loading: recorded["deferLoading"] == true,
+        freeform: None,
     }
 }
 

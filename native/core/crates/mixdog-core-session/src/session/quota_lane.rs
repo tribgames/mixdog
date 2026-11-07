@@ -187,6 +187,33 @@ pub(crate) fn retained_retry_input(messages: &[Value]) -> Option<Retained> {
 pub(crate) struct RetryTurn {
     pub input: TurnInput,
     pub hidden: bool,
+    /// `failedTurnProvenance` of the turn it retries: stored on the retry row as `meta.provenance`.
+    pub provenance: Option<Value>,
+}
+
+/// `failedTurnProvenance(messages, input)` as the object a retry row stores: the `{ source, origin }` of the
+/// failed turn (`retry_turn_id` names its message when the retry does), `None` when it cannot be resolved.
+pub(crate) fn failed_provenance(messages: &[Value], retry_turn_id: Option<&str>) -> Option<Value> {
+    let input = match retry_turn_id {
+        Some(id) => json!({ "retryFailedTurn": true, "retryTurnId": id }),
+        None => json!({ "retryFailedTurn": true }),
+    };
+    mixdog_ai::warmer::plan::failed_turn_provenance(Some(&Value::Array(messages.to_vec())), &input).map(|(source, origin)| {
+        let mut object = serde_json::Map::new();
+        for (key, value) in [("source", source), ("origin", origin)] {
+            if let Some(value) = value {
+                object.insert(key.into(), value);
+            }
+        }
+        Value::Object(object)
+    })
+}
+
+/// What a retry reads of the model context in one read: the failed message to resend and the
+/// failed turn's provenance (`failedTurnProvenance(preSession.messages, input)`).
+pub(crate) struct RetryBasis {
+    pub retained: Option<Retained>,
+    pub provenance: Option<Value>,
 }
 
 /// `resumeGoal`'s `token`: the admission the Goal runtime asked of the session, and the retry
@@ -234,6 +261,14 @@ impl ResumeCheck {
     pub(crate) async fn retained_retry(&self) -> Option<Retained> {
         let messages: Vec<Value> = self.context.read().await.map(|rows| rows.into_iter().map(|(_, m)| m).collect()).unwrap_or_default();
         retained_retry_input(&messages)
+    }
+
+    /// The retry's inputs from one read of the model context.
+    pub(crate) async fn retry_basis(&self) -> RetryBasis {
+        let messages: Vec<Value> = self.context.read().await.map(|rows| rows.into_iter().map(|(_, m)| m).collect()).unwrap_or_default();
+        let retained = retained_retry_input(&messages);
+        let provenance = failed_provenance(&messages, retained.as_ref().map(|retained| retained.message_id.as_str()));
+        RetryBasis { retained, provenance }
     }
 
     /// What `beginQuotaSettlement` reads of the session.

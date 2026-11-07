@@ -277,7 +277,7 @@ fn newest_provider_snapshot<'a>(
 // The file functions below are the bodies of lane jobs (`CredentialIo`): reads run on the
 // interactive lane, the locked read-modify-write on the durability lane.
 #[allow(clippy::disallowed_methods, reason = "body of a lane job")]
-fn read_json_file(path: &std::path::Path) -> Option<Value> {
+pub(super) fn read_json_file(path: &std::path::Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
@@ -286,7 +286,7 @@ fn read_json_file(path: &std::path::Path) -> Option<Value> {
 /// that does not parse is recovered as `mixdog-statefile` does), and the new content published
 /// atomically. Errors are returned; Node's callers drop them because usage display must never
 /// affect the request path.
-fn update_json_atomic(
+pub(super) fn update_json_atomic(
     lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
     path: &std::path::Path,
     mutate: impl FnOnce(Option<Value>) -> Value,

@@ -489,7 +489,19 @@ pub enum ProxyAnswer {
     Usable { usable: bool },
     /// `None` for a single-wire adapter or a model no offered wire serves.
     Route { route: Option<ProxyWireRoute> },
-    ProviderConfig { providers: BTreeMap<String, ProxyProviderInfo>, ready: bool },
+    ProviderConfig {
+        /// In the order the PC advertised them: a JSON object on the wire, whose key order Node keeps
+        /// (the setup lists custom providers in it).
+        #[serde(with = "ordered_providers")]
+        #[schemars(with = "BTreeMap<String, ProxyProviderInfo>")]
+        #[ts(as = "BTreeMap<String, ProxyProviderInfo>")]
+        providers: Vec<(String, ProxyProviderInfo)>,
+        /// Whether the PC's registry is loaded. An older PC omits it, and the server then reads the
+        /// answer as loaded only when it names an enabled provider.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        ready: Option<bool>,
+    },
     /// `modelProxy/run` reports a failed call as its result: the error vocabulary of the server has
     /// no place for a [`ProxyFailure`]. The connection relays it to the server as the JSON-RPC error
     /// of `model/proxy/execute` whose data is the failure.
@@ -677,4 +689,47 @@ pub struct ProxyFailure {
     pub account_blocked: bool,
     pub unsafe_to_retry: bool,
     pub quota_limit: Option<String>,
+}
+
+/// The provider set as an ordered JSON object.
+mod ordered_providers {
+    use std::fmt;
+
+    use serde::Deserializer;
+    use serde::Serializer;
+    use serde::de::MapAccess;
+    use serde::de::Visitor;
+    use serde::ser::SerializeMap;
+
+    use super::ProxyProviderInfo;
+
+    pub fn serialize<S: Serializer>(providers: &[(String, ProxyProviderInfo)], serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(providers.len()))?;
+        for (id, info) in providers {
+            map.serialize_entry(id, info)?;
+        }
+        map.end()
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<(String, ProxyProviderInfo)>, D::Error> {
+        struct Entries;
+
+        impl<'de> Visitor<'de> for Entries {
+            type Value = Vec<(String, ProxyProviderInfo)>;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("an object of providers")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
+                while let Some(entry) = map.next_entry()? {
+                    entries.push(entry);
+                }
+                Ok(entries)
+            }
+        }
+
+        deserializer.deserialize_map(Entries)
+    }
 }

@@ -161,7 +161,7 @@ fn normalized_or_null(stored: &Value) -> Option<Value> {
 }
 
 /// `configuredAgentRouteCandidates(config, agentId)`.
-async fn route_candidates(config: &Obj, agent_id: &str, bots: &dyn BotRoutes) -> Result<Vec<Value>, RouteReadUnavailable> {
+pub async fn route_candidates(config: &Obj, agent_id: &str, bots: &dyn BotRoutes) -> Result<Vec<Value>, RouteReadUnavailable> {
     let id = js_trim(agent_id);
     if id.is_empty() {
         return Ok(Vec::new());

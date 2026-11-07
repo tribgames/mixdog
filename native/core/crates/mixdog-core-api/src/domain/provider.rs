@@ -17,6 +17,7 @@ use mixdog_protocol::JsonValue;
 use super::keepalive::KeepaliveSchedule;
 use super::keepalive::TransportKind;
 use super::retry::RetryPolicy;
+use super::tool::Freeform;
 use mixdog_protocol::ProviderId;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::TurnId;
@@ -218,6 +219,10 @@ pub struct ToolDefinition {
     /// Sent with `defer_loading: true` where the wire supports deferred
     /// tools (Responses tool search); other wires ignore it.
     pub defer_loading: bool,
+    /// The raw-text form of the tool (`freeformDescription`, `freeform`): a Responses route that
+    /// takes custom tools (`openai`, `openai-oauth`) sends it as a `custom` tool under this grammar
+    /// instead of a function; every other wire ignores it.
+    pub freeform: Option<Freeform>,
 }
 
 /// A tool a provider left out of a request because it cannot accept the tool's input schema

@@ -1,15 +1,13 @@
 //! The answer readers against `fixtures/room-answer/golden.json`, recorded from the real desktop
 //! `agent-room-turn.ts` / `session-final-answer.ts` by `record-room-answer.mjs`.
 
-use std::path::Path;
 
 use serde_json::{Value, json};
 
 use super::{SessionAnswer, empty_finished_turn, session_final_answer, spoken_text, tool_summaries};
 
 fn golden() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-answer/golden.json");
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/room-answer/golden.json"))).unwrap()
 }
 
 fn shown(answer: Option<SessionAnswer>) -> Value {

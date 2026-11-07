@@ -86,6 +86,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_run_is_working_while_its_stage_is_in_flight_and_gone_when_the_guard_drops() {
+        // egin spawns its watcher on the lane runtime: installed here as every test of the tree that spawns does.
+        let _tokens = mixdog_rt::testing::tokens();
         let liveness = RuntimeLiveness::new();
         let (tx, rx) = watch::channel(RunProgress::default());
         let publisher = ProgressPublisher::new(tx, Arc::new(Fixed));

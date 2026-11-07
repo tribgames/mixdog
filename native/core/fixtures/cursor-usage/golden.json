@@ -1,0 +1,5208 @@
+{
+  "domain": "cursor-usage",
+  "recorder": "benchmarks/rust-core/recorders/record-cursor-usage.mjs",
+  "clientVersion": "cli-9999.01.01-abcdef0",
+  "flows": [
+    {
+      "name": "every section",
+      "usage": {
+        "hex": "0880d8c1a28c341080a0f1c2b1341a2f08d20910e80718ea0120be4428904e406448ee08610000000000002940690000000000204440710000000000003e40221408f40310882718f4032094234206706f6f6c6564285a30013a084f6e20747261636b"
+      },
+      "plan": {
+        "hex": "0a190a0350726f10904e1a062432302f6d6f2080b4dc9fb5342801"
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 12.5,
+            "resetAt": 1800000000000,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "API",
+            "source": "cursor-dashboard",
+            "usedPct": 40.25,
+            "resetAt": 1800000000000,
+            "except": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "Usage-based spend",
+            "source": "cursor-dashboard",
+            "limitUsd": 50,
+            "usedUsd": 5,
+            "remainingUsd": 45,
+            "resetAt": 1800000000000
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 87.66,
+          "usedUsd": 12.34,
+          "limitUsd": 100
+        },
+        "plan": {
+          "name": "Pro",
+          "price": "$20/mo",
+          "includedUsd": 100,
+          "resetAt": 1800000000000
+        },
+        "enabled": true,
+        "detail": "On track",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "only the Basic lane",
+      "usage": {
+        "hex": "1a09610000000000004940"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 50,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "only the API lane",
+      "usage": {
+        "hex": "1a0969b77efacf9a1f3940"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "API",
+            "source": "cursor-dashboard",
+            "usedPct": 25.1235,
+            "except": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "lane percentages are clamped and rounded",
+      "usage": {
+        "hex": "1a12610000000000c062406900000000000014c0"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 100,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "API",
+            "source": "cursor-dashboard",
+            "usedPct": 0,
+            "except": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "a lane at the rounding edge",
+      "usage": {
+        "hex": "1a1261910f7a36abaa4040692d431cebe2360a3f"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 33.3334,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "API",
+            "source": "cursor-dashboard",
+            "usedPct": 0.0001,
+            "except": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "a non-finite lane is dropped",
+      "usage": {
+        "hex": "1a1261000000000000f07f690000000000002440"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "API",
+            "source": "cursor-dashboard",
+            "usedPct": 10,
+            "except": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the included balance without lanes",
+      "usage": {
+        "hex": "1080a0f1c2b1341a0908c41320c413288827"
+      },
+      "plan": {
+        "hex": "0a060a0450726f2b"
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Pro+ included",
+            "source": "cursor-dashboard",
+            "limitUsd": 50,
+            "usedUsd": 25,
+            "remainingUsd": 25,
+            "resetAt": 1800000000000
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 25,
+          "usedUsd": 25,
+          "limitUsd": 50
+        },
+        "plan": {
+          "name": "Pro+",
+          "price": "",
+          "includedUsd": 50,
+          "resetAt": 1800000000000
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the included balance without a plan name",
+      "usage": {
+        "hex": "1a05086428d00f"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Included usage",
+            "source": "cursor-dashboard",
+            "limitUsd": 20,
+            "usedUsd": 1,
+            "remainingUsd": 19
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 19,
+          "usedUsd": 1,
+          "limitUsd": 20
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 20,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "remaining absent is derived from the limit",
+      "usage": {
+        "hex": "1a0608ac0228e807"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Included usage",
+            "source": "cursor-dashboard",
+            "limitUsd": 10,
+            "usedUsd": 3,
+            "remainingUsd": 7
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 7,
+          "usedUsd": 3,
+          "limitUsd": 10
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 10,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "remaining present and zero stays zero",
+      "usage": {
+        "hex": "1a0808ac02200028e807"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Included usage",
+            "source": "cursor-dashboard",
+            "limitUsd": 10,
+            "usedUsd": 3,
+            "remainingUsd": 0
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 0,
+          "usedUsd": 3,
+          "limitUsd": 10
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 10,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the limit from the plan",
+      "usage": {
+        "hex": "1a0308ac02"
+      },
+      "plan": {
+        "hex": "0a090a045465616d10a01f"
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Team included",
+            "source": "cursor-dashboard",
+            "limitUsd": 40,
+            "usedUsd": 3,
+            "remainingUsd": 37
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 37,
+          "usedUsd": 3,
+          "limitUsd": 40
+        },
+        "plan": {
+          "name": "Team",
+          "price": "",
+          "includedUsd": 40,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "overspent clamps the derived remainder",
+      "usage": {
+        "hex": "1a0608dc0b28e807"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Included usage",
+            "source": "cursor-dashboard",
+            "limitUsd": 10,
+            "usedUsd": 15,
+            "remainingUsd": 0
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 0,
+          "usedUsd": 15,
+          "limitUsd": 10
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 10,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "fractional cents round half up",
+      "usage": {
+        "hex": "1a0908ed0720f20728df0f"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Included usage",
+            "source": "cursor-dashboard",
+            "limitUsd": 20.15,
+            "usedUsd": 10.05,
+            "remainingUsd": 10.1
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 10.1,
+          "usedUsd": 10.05,
+          "limitUsd": 20.15
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 20.15,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "negative amounts",
+      "usage": {
+        "hex": "1a1808fbffffffffffffffff012086feffffffffffffff012864"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Included usage",
+            "source": "cursor-dashboard",
+            "limitUsd": 1,
+            "usedUsd": -0.05,
+            "remainingUsd": -2.5
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": -2.5,
+          "usedUsd": -0.05,
+          "limitUsd": 1
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 1,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "amounts past 2^53",
+      "usage": {
+        "hex": "1a12088080808080808010288080808080808010"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Included usage",
+            "source": "cursor-dashboard",
+            "limitUsd": 90071992547409.92,
+            "usedUsd": 90071992547409.92,
+            "remainingUsd": 0
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 0,
+          "usedUsd": 90071992547409.92,
+          "limitUsd": 90071992547409.92
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 90071992547409.92,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "nothing included",
+      "usage": {
+        "hex": "3001"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": true,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "spend limit overall wins",
+      "usage": {
+        "hex": "2216080710041805200628013002380348a846506458c445"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Usage-based spend",
+            "source": "cursor-dashboard",
+            "limitUsd": 90,
+            "usedUsd": 1,
+            "remainingUsd": 89
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "spend limit individual then pooled",
+      "usage": {
+        "hex": "220a1832209e0f28d00f3000"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Usage-based spend",
+            "source": "cursor-dashboard",
+            "limitUsd": 20,
+            "usedUsd": 0.5,
+            "remainingUsd": 19.5
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "spend limit with only the total",
+      "usage": {
+        "hex": "220308c102"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Usage-based spend",
+            "source": "cursor-dashboard",
+            "limitUsd": 0,
+            "usedUsd": 3.21,
+            "remainingUsd": 0
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "spend limit remaining only",
+      "usage": {
+        "hex": "220320bc05"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Usage-based spend",
+            "source": "cursor-dashboard",
+            "limitUsd": 0,
+            "usedUsd": 0,
+            "remainingUsd": 7
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "spend limit all zero is no window",
+      "usage": {
+        "hex": "2206480050005800"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "spend limit negative values are no window",
+      "usage": {
+        "hex": "222148ffffffffffffffffff0150feffffffffffffffff0158fdffffffffffffffff01"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the reset from the plan",
+      "usage": {
+        "hex": "1a09610000000000001440"
+      },
+      "plan": {
+        "hex": "0a072080b4dc9fb534"
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 5,
+            "resetAt": 1801000000000,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": 1801000000000
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the usage reset wins over the plan",
+      "usage": {
+        "hex": "1080a0f1c2b1341a09610000000000001440"
+      },
+      "plan": {
+        "hex": "0a072080b4dc9fb534"
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 5,
+            "resetAt": 1800000000000,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          }
+        ],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": 1800000000000
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the plan block alone",
+      "usage": {
+        "hex": ""
+      },
+      "plan": {
+        "hex": "0a0f0a05486f62627910001a0466726565"
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [],
+        "plan": {
+          "name": "Hobby",
+          "price": "free",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the plan call fails, the usage stands",
+      "usage": {
+        "hex": "0880d8c1a28c341080a0f1c2b1341a2f08d20910e80718ea0120be4428904e406448ee08610000000000002940690000000000204440710000000000003e40221408f40310882718f4032094234206706f6f6c6564285a30013a084f6e20747261636b"
+      },
+      "plan": {
+        "status": 500
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 12.5,
+            "resetAt": 1800000000000,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "API",
+            "source": "cursor-dashboard",
+            "usedPct": 40.25,
+            "resetAt": 1800000000000,
+            "except": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "Usage-based spend",
+            "source": "cursor-dashboard",
+            "limitUsd": 50,
+            "usedUsd": 5,
+            "remainingUsd": 45,
+            "resetAt": 1800000000000
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 87.66,
+          "usedUsd": 12.34,
+          "limitUsd": 100
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 100,
+          "resetAt": 1800000000000
+        },
+        "enabled": true,
+        "detail": "On track",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the plan call is refused",
+      "usage": {
+        "hex": "0880d8c1a28c341080a0f1c2b1341a2f08d20910e80718ea0120be4428904e406448ee08610000000000002940690000000000204440710000000000003e40221408f40310882718f4032094234206706f6f6c6564285a30013a084f6e20747261636b"
+      },
+      "plan": {
+        "status": 403
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 12.5,
+            "resetAt": 1800000000000,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "API",
+            "source": "cursor-dashboard",
+            "usedPct": 40.25,
+            "resetAt": 1800000000000,
+            "except": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "Usage-based spend",
+            "source": "cursor-dashboard",
+            "limitUsd": 50,
+            "usedUsd": 5,
+            "remainingUsd": 45,
+            "resetAt": 1800000000000
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 87.66,
+          "usedUsd": 12.34,
+          "limitUsd": 100
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 100,
+          "resetAt": 1800000000000
+        },
+        "enabled": true,
+        "detail": "On track",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the plan answer is garbage",
+      "usage": {
+        "hex": "0880d8c1a28c341080a0f1c2b1341a2f08d20910e80718ea0120be4428904e406448ee08610000000000002940690000000000204440710000000000003e40221408f40310882718f4032094234206706f6f6c6564285a30013a084f6e20747261636b"
+      },
+      "plan": {
+        "hex": "ffff"
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Truncated Cursor protobuf varint",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "the plan answer is empty",
+      "usage": {
+        "hex": "0880d8c1a28c341080a0f1c2b1341a2f08d20910e80718ea0120be4428904e406448ee08610000000000002940690000000000204440710000000000003e40221408f40310882718f4032094234206706f6f6c6564285a30013a084f6e20747261636b"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 12.5,
+            "resetAt": 1800000000000,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "API",
+            "source": "cursor-dashboard",
+            "usedPct": 40.25,
+            "resetAt": 1800000000000,
+            "except": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "Usage-based spend",
+            "source": "cursor-dashboard",
+            "limitUsd": 50,
+            "usedUsd": 5,
+            "remainingUsd": 45,
+            "resetAt": 1800000000000
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 87.66,
+          "usedUsd": 12.34,
+          "limitUsd": 100
+        },
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 100,
+          "resetAt": 1800000000000
+        },
+        "enabled": true,
+        "detail": "On track",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "disabled with a message",
+      "usage": {
+        "hex": "30003a06506175736564"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "Paused",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "no flags",
+      "usage": {
+        "hex": ""
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "unknown fields are skipped",
+      "usage": {
+        "hex": "30019a0603616263a806ffffff0f7d01020304710102030405060708"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": true,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "an unsupported wire type",
+      "usage": {
+        "hex": "0b"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Truncated Cursor protobuf varint",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "a truncated varint",
+      "usage": {
+        "hex": "08ff"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Truncated Cursor protobuf varint",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "a truncated field",
+      "usage": {
+        "hex": "1a05010203"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Truncated Cursor protobuf field",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "a varint that never ends",
+      "usage": {
+        "hex": "08ffffffffffffffffffffffff"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Invalid Cursor protobuf varint",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "a double on the wrong wire type",
+      "usage": {
+        "hex": "60001a026200"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Invalid Cursor protobuf double",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "a nested message on a varint",
+      "usage": {
+        "hex": "1801"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Truncated Cursor protobuf field",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "a string over a truncated length",
+      "usage": {
+        "hex": "3a0a41"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Truncated Cursor protobuf field",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "field zero",
+      "usage": {
+        "hex": "0001"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "the answer in one envelope",
+      "usage": {
+        "hex": "00000000630880d8c1a28c341080a0f1c2b1341a2f08d20910e80718ea0120be4428904e406448ee08610000000000002940690000000000204440710000000000003e40221408f40310882718f4032094234206706f6f6c6564285a30013a084f6e20747261636b"
+      },
+      "plan": {
+        "hex": "00000000070a050a0350726f"
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [
+          {
+            "label": "Basic",
+            "source": "cursor-dashboard",
+            "usedPct": 12.5,
+            "resetAt": 1800000000000,
+            "models": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "API",
+            "source": "cursor-dashboard",
+            "usedPct": 40.25,
+            "resetAt": 1800000000000,
+            "except": [
+              "auto",
+              "default",
+              "composer"
+            ]
+          },
+          {
+            "label": "Usage-based spend",
+            "source": "cursor-dashboard",
+            "limitUsd": 50,
+            "usedUsd": 5,
+            "remainingUsd": 45,
+            "resetAt": 1800000000000
+          }
+        ],
+        "balance": {
+          "source": "cursor-dashboard",
+          "remainingUsd": 87.66,
+          "usedUsd": 12.34,
+          "limitUsd": 100
+        },
+        "plan": {
+          "name": "Pro",
+          "price": "",
+          "includedUsd": 100,
+          "resetAt": 1800000000000
+        },
+        "enabled": true,
+        "detail": "On track",
+        "provider": "cursor-oauth"
+      }
+    },
+    {
+      "name": "an end-stream envelope is not unwrapped",
+      "usage": {
+        "hex": "02000000630880d8c1a28c341080a0f1c2b1341a2f08d20910e80718ea0120be4428904e406448ee08610000000000002940690000000000204440710000000000003e40221408f40310882718f4032094234206706f6f6c6564285a30013a084f6e20747261636b"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Unsupported Cursor protobuf wire type: 4",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "a compressed envelope is not unwrapped",
+      "usage": {
+        "hex": "01000000630880d8c1a28c341080a0f1c2b1341a2f08d20910e80718ea0120be4428904e406448ee08610000000000002940690000000000204440710000000000003e40221408f40310882718f4032094234206706f6f6c6564285a30013a084f6e20747261636b"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Unsupported Cursor protobuf wire type: 4",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "an envelope shorter than it says",
+      "usage": {
+        "hex": "00000000ff0102"
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Unsupported Cursor protobuf wire type: 7",
+        "status": null,
+        "code": null
+      }
+    },
+    {
+      "name": "rejected token",
+      "usage": {
+        "hex": "",
+        "status": 401
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Cursor request failed (401)",
+        "status": 401,
+        "code": "unauthenticated"
+      }
+    },
+    {
+      "name": "forbidden",
+      "usage": {
+        "hex": "",
+        "status": 403
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Cursor request failed (403)",
+        "status": 403,
+        "code": "permission_denied"
+      }
+    },
+    {
+      "name": "throttled with a retry-after",
+      "usage": {
+        "hex": "",
+        "status": 429,
+        "headers": {
+          "retry-after": "7"
+        }
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Cursor request failed (429)",
+        "status": 429,
+        "code": "resource_exhausted"
+      }
+    },
+    {
+      "name": "not found",
+      "usage": {
+        "hex": "",
+        "status": 404
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Cursor request failed (404)",
+        "status": 404,
+        "code": "not_found"
+      }
+    },
+    {
+      "name": "server error",
+      "usage": {
+        "hex": "",
+        "status": 500
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Cursor request failed (500)",
+        "status": 500,
+        "code": "internal"
+      }
+    },
+    {
+      "name": "bad gateway",
+      "usage": {
+        "hex": "",
+        "status": 502
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Cursor request failed (502)",
+        "status": 502,
+        "code": "unavailable"
+      }
+    },
+    {
+      "name": "an unmapped status",
+      "usage": {
+        "hex": "",
+        "status": 418
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "error": {
+        "message": "Cursor request failed (418)",
+        "status": 418,
+        "code": null
+      }
+    },
+    {
+      "name": "a redirect is not followed",
+      "usage": {
+        "hex": "",
+        "status": 302,
+        "headers": {
+          "location": "http://127.0.0.1:1/"
+        }
+      },
+      "plan": {
+        "hex": ""
+      },
+      "seen": [
+        {
+          "path": "/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        },
+        {
+          "path": "/aiserver.v1.DashboardService/GetPlanInfo",
+          "method": "POST",
+          "headers": [
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer cursor-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-9999.01.01-abcdef0"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "<uuid>"
+            ]
+          ],
+          "bodyBytes": 0
+        }
+      ],
+      "snapshot": {
+        "source": "cursor-dashboard",
+        "quotaWindows": [],
+        "plan": {
+          "name": "",
+          "price": "",
+          "includedUsd": 0,
+          "resetAt": null
+        },
+        "enabled": false,
+        "detail": "",
+        "provider": "cursor-oauth"
+      }
+    }
+  ]
+}

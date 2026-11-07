@@ -127,6 +127,14 @@ fn make_private_dir(dir: &Path) -> std::io::Result<()> {
     builder.create(dir)
 }
 
+/// The usage services ask for the ledger per call, as Node calls `getUsageLedger()`: the same source
+/// that opens it for the sends and the quota history, so every reader sees one ledger per path.
+impl mixdog_core_domains::domains::ai_account::usage::LedgerAccess for LedgerSource {
+    fn ledger(&self) -> Result<Arc<UsageLedger>> {
+        self.get()
+    }
+}
+
 struct FailedOpen(String);
 
 #[async_trait]

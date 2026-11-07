@@ -43,6 +43,30 @@ pub(crate) fn groups(entries: &[(QueuedId, Value)]) -> Vec<SteerInput> {
     out
 }
 
+/// `entry.transcriptMeta` when it is an object (`steeringEntryMetadata`, `steering.mjs:33`).
+fn meta_of(entry: &Value) -> Option<&Value> {
+    entry.get("transcriptMeta").filter(|meta| meta.is_object())
+}
+
+/// The `transcriptMeta` of the steering inputs [`groups`] makes of `entries`, in the same order
+/// (`mergeSteeringMetadata`, `steering.mjs:62-83`): the merged prompts carry the first prompt
+/// entry's, each task notification its own. A group without one is absent.
+pub(crate) fn group_metas(entries: &[(QueuedId, Value)]) -> Vec<&Value> {
+    let (notes, prompts): (Vec<_>, Vec<_>) = entries.iter().partition(|(_, entry)| completions::is_notification(entry));
+    let mut out = Vec::new();
+    let any_prompt = prompts.iter().any(|(_, entry)| normalize(entry).is_some());
+    if any_prompt && let Some(meta) = prompts.iter().find_map(|(_, entry)| meta_of(entry)) {
+        out.push(meta);
+    }
+    out.extend(notes.iter().filter(|(_, entry)| normalize(entry).is_some()).filter_map(|(_, entry)| meta_of(entry)));
+    out
+}
+
+/// A steered entry's own `transcriptMeta`.
+pub(crate) fn steered_meta(entry: &Value) -> Option<&Value> {
+    meta_of(entry)
+}
+
 fn input(queued_ids: Vec<QueuedId>, merged: Normalized, mode: SteerMode, execution: Option<Value>) -> SteerInput {
     SteerInput {
         queued_ids,
@@ -220,5 +244,23 @@ mod tests {
         assert_eq!(merged.text.as_deref(), Some("look\nat this\n[Image]"));
         assert_eq!(merged.queued_ids, [id("u1"), id("u2"), id("u3")]);
         assert!(groups(&[(id("u4"), json!({ "message": " \n" }))]).is_empty());
+    }
+
+    /// `mergeSteeringMetadata`: the merged prompts carry the first prompt entry's
+    /// `transcriptMeta`, each task notification its own; an entry that is no object has none.
+    #[test]
+    fn a_group_carries_the_first_entry_meta_and_a_notification_its_own() {
+        let shell = json!({ "surface": "shell", "id": "j1" });
+        let entries = [
+            (id("u1"), json!({ "message": "a" })),
+            (id("u2"), json!({ "message": "b", "transcriptMeta": { "hop": 2, "botChain": ["x"] } })),
+            (id("u3"), json!({ "message": "c", "transcriptMeta": { "hop": 5 } })),
+            (id("n1"), json!({ "message": "done", "mode": "task-notification", "execution": shell, "transcriptMeta": { "hop": 1 } })),
+            (id("n2"), json!({ "message": "done too", "mode": "task-notification", "transcriptMeta": "no" })),
+        ];
+        let metas = group_metas(&entries);
+        assert_eq!(metas, [&json!({ "hop": 2, "botChain": ["x"] }), &json!({ "hop": 1 })]);
+        assert_eq!(steered_meta(&entries[2].1), Some(&json!({ "hop": 5 })));
+        assert_eq!(steered_meta(&entries[0].1), None);
     }
 }

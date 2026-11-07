@@ -42,7 +42,7 @@ pub type HaltFuture = Pin<Box<dyn Future<Output = HaltOutcome> + Send>>;
 const MISSES: u32 = 6;
 
 /// `String(approval?.id ?? '')`.
-fn approval_id(approval: Option<&Value>) -> String {
+pub(super) fn approval_id(approval: Option<&Value>) -> String {
     match approval.and_then(|approval| approval.get("id")) {
         None | Some(Value::Null) => String::new(),
         Some(id) => value_to_string(id),

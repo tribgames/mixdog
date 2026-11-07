@@ -104,10 +104,7 @@ impl ApplyPatchTool {
         let entry: JsonValue = serde_json::from_str(PATCH_SPEC).expect("embedded tool spec is valid JSON");
         Self {
             spec: spec_from_def(PATCH_SPEC, false, &["fs-write"]),
-            freeform: Freeform {
-                description: entry["freeformDescription"].as_str().expect("the spec's freeformDescription").to_owned(),
-                grammar: entry["freeform"].clone(),
-            },
+            freeform: Freeform::from_definition(&entry).expect("the spec's freeform"),
             seen: Mutex::new(Vec::new()),
             state: None,
         }

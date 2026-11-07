@@ -21,12 +21,14 @@ use super::Http;
 use crate::oauth::Pace;
 use crate::oauth::http::Reply;
 use crate::oauth::FlowGuard;
-use crate::oauth::http::call;
+use crate::oauth::http::call_under;
+use crate::transport::deadlines::OPENCODE_CONSOLE;
 use crate::oauth::device;
 use crate::oauth::device::Poll;
 use crate::oauth::device::Schedule;
 use crate::oauth::http::failed;
-use crate::oauth::http::scrub;
+use crate::oauth::scrub::scrubbed_excerpt;
+use crate::oauth::scrub::scrubbed_prefix;
 use crate::oauth::start_session;
 use crate::oauth::CredentialFile;
 use crate::oauth::Probe;
@@ -57,7 +59,7 @@ fn json_headers(extra: Vec<(&'static str, String)>) -> Vec<(&'static str, String
 }
 
 async fn post_json(http: &Http, path: &str, body: JsonValue) -> Result<Reply, LoginFailure> {
-    call(http.as_ref(), "POST", &endpoint(path), json_headers(Vec::new()), body.to_string().into_bytes()).await
+    call_under(http.as_ref(), OPENCODE_CONSOLE, "POST", &endpoint(path), json_headers(Vec::new()), body.to_string().into_bytes()).await
 }
 
 /// The device code response, validated; the verification URL is resolved
@@ -75,7 +77,7 @@ fn device_code(reply: &Reply) -> Result<DeviceCode, LoginFailure> {
     if !reply.ok() {
         return Err(failed(
             "device_auth",
-            format!("device authorization {}: {}", reply.status, scrub(&reply.text(), &[], 300)),
+            format!("device authorization {}: {}", reply.status, scrubbed_prefix(&reply.text(), &[], 300)),
         ));
     }
     let doc = reply.json().unwrap_or(JsonValue::Null);
@@ -149,7 +151,7 @@ fn classify_poll(reply: &Reply, device_code: &str, now_ms: u64) -> Poll<Grant> {
             fault: failed("device_token", format!("device token {}", reply.status)),
         },
         _ => {
-            let detail = if error.is_empty() { scrub(&reply.text(), &[device_code], 300) } else { error.to_owned() };
+            let detail = if error.is_empty() { scrubbed_prefix(&reply.text(), &[device_code], 300) } else { error.to_owned() };
             Poll::Fatal(failed(
                 if error.is_empty() { "device_token" } else { error },
                 format!("device token {}: {detail}", reply.status),
@@ -188,8 +190,9 @@ fn console_headers(access_token: &str, org_id: Option<&str>) -> Vec<(&'static st
 }
 
 async fn console_get(http: &Http, path: &str, grant: &Grant) -> Result<JsonValue, LoginFailure> {
-    let reply = call(
+    let reply = call_under(
         http.as_ref(),
+        OPENCODE_CONSOLE,
         "GET",
         &endpoint(path),
         console_headers(&grant.access_token, grant.org_id.as_deref()),
@@ -206,7 +209,7 @@ async fn console_get(http: &Http, path: &str, grant: &Grant) -> Result<JsonValue
             format!(
                 "{path} {}: {}",
                 reply.status,
-                scrub(mixdog_js::js_trim(&reply.text()), &[&grant.access_token, &grant.refresh_token], 300)
+                scrubbed_excerpt(&reply.text(), &[&grant.access_token, &grant.refresh_token], 300)
             ),
         )),
     }
@@ -300,11 +303,12 @@ impl LoginFlow for OpenCodeGoLogin {
 #[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
 pub enum RefreshError {
     /// The grant is dead or the credential is gone: sign in again.
+    /// With the HTTP status of the answer that said so (Node's `openCodeGoReauthError(detail, status)`).
     #[error("OpenCode sign-in expired: {0}")]
-    Reauth(String),
-    /// Try again later.
+    Reauth(String, u16),
+    /// Try again later; the status is that of the answer, when there was one.
     #[error("{0}")]
-    Failed(String),
+    Failed(String, Option<u16>),
 }
 
 /// The stored credential, refreshed when it is about to expire.
@@ -322,8 +326,8 @@ impl OpenCodeGoAuth {
     async fn stored(&self) -> Result<OpenCodeGoCredentials, RefreshError> {
         match self.file.load().await {
             Probe::Present(credentials) => Ok(credentials),
-            Probe::Absent => Err(RefreshError::Reauth("credentials removed".into())),
-            Probe::Unreadable => Err(RefreshError::Failed("credential file is unreadable".into())),
+            Probe::Absent => Err(RefreshError::Reauth("credentials removed".into(), 401)),
+            Probe::Unreadable => Err(RefreshError::Failed("credential file is unreadable".into(), None)),
         }
     }
 
@@ -343,7 +347,7 @@ impl OpenCodeGoAuth {
             .refresh_once(async move { this.refresh_unshared(held, force).await })
             .await
             .unwrap_or_else(|expired| {
-                Err(RefreshError::Failed(format!("token refresh: request timed out after {}ms", expired.after.as_millis())))
+                Err(RefreshError::Failed(format!("token refresh: request timed out after {}ms", expired.after.as_millis()), None))
             })
     }
 
@@ -363,7 +367,7 @@ impl OpenCodeGoAuth {
             serde_json::json!({"grant_type": "refresh_token", "refresh_token": disk.refresh_token, "client_id": CLIENT_ID}),
         )
         .await
-        .map_err(|f| RefreshError::Failed(format!("token refresh: {f:?}")))?;
+        .map_err(|f| RefreshError::Failed(format!("token refresh: {f:?}"), None))?;
         if !reply.ok() {
             if reply.status == 401 || classify_refresh_failure(Some(reply.status), &reply.body) == RefreshFailure::Definitive {
                 // Another process may have rotated the pair while we held the old one.
@@ -371,13 +375,13 @@ impl OpenCodeGoAuth {
                 if now.refresh_token != disk.refresh_token {
                     return Ok(now);
                 }
-                return Err(RefreshError::Reauth("refresh rejected".into()));
+                return Err(RefreshError::Reauth("refresh rejected".into(), reply.status));
             }
-            let detail = scrub(mixdog_js::js_trim(&reply.text()), &[&disk.access_token, &disk.refresh_token], 200);
-            return Err(RefreshError::Failed(format!("token refresh {}: {detail}", reply.status)));
+            let detail = scrubbed_excerpt(&reply.text(), &[&disk.access_token, &disk.refresh_token], 200);
+            return Err(RefreshError::Failed(format!("token refresh {}: {detail}", reply.status), Some(reply.status)));
         }
         let doc = reply.json().unwrap_or(JsonValue::Null);
-        let grant = grant_from(&doc, self.pace.now_ms()).map_err(|f| RefreshError::Failed(format!("{f:?}")))?;
+        let grant = grant_from(&doc, self.pace.now_ms()).map_err(|_| RefreshError::Failed("token response is missing access_token or refresh_token".into(), None))?;
         // A grant naming another organization moves the account to it; its
         // name is unknown until the next sign-in.
         let org_changed = grant.org_id.as_ref().is_some_and(|o| Some(o) != disk.org_id.as_ref());
@@ -391,7 +395,7 @@ impl OpenCodeGoAuth {
         };
         let update = match serde_json::to_value(&next) {
             Ok(JsonValue::Object(map)) => map,
-            _ => return Err(RefreshError::Failed("credential is not an object".into())),
+            _ => return Err(RefreshError::Failed("credential is not an object".into(), None)),
         };
         let (spent_access, spent_refresh) = (disk.access_token.clone(), disk.refresh_token.clone());
         let published = self
@@ -404,7 +408,7 @@ impl OpenCodeGoAuth {
                 update,
             )
             .await
-            .map_err(|e| RefreshError::Failed(e.to_string()))?;
+            .map_err(|e| RefreshError::Failed(e.to_string(), None))?;
         // A sign-in or another refresh replaced the pair meanwhile: it wins.
         if published { Ok(next) } else { self.stored().await }
     }
@@ -494,7 +498,7 @@ use crate::oauth::http::testing::finish;
         // A dead grant with nothing newer asks for a new sign-in.
         let dead = OpenCodeGoAuth::new(Scripted::new(&[(401, "")]), pace, file);
         let current = dead.stored().await.unwrap();
-        assert!(matches!(dead.refresh(current, true).await, Err(RefreshError::Reauth(_))));
+        assert!(matches!(dead.refresh(current, true).await, Err(RefreshError::Reauth(..))));
     }
 
     #[tokio::test]

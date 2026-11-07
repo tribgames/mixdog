@@ -100,7 +100,7 @@ fn summaries(rules: &[Value]) -> Vec<Value> {
 
 /// `publicHookRule`: rule metadata only. Argument edits may embed credentials, so setup reports
 /// their presence, never their contents.
-fn public_rule(summary: &Value) -> Value {
+pub(crate) fn public_rule(summary: &Value) -> Value {
     let mut out = Map::new();
     for key in ["index", "enabled", "tool", "action", "match", "cwd", "reason"] {
         if let Some(value) = summary.get(key) {
