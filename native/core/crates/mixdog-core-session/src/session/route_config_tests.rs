@@ -24,11 +24,14 @@ fn newest(rig: &Rig, thread: &str, method: &str) -> Option<Value> {
     rig.feeds.frames(thread).into_iter().rev().find(|(_, name, _)| name == method).map(|(_, _, params)| params["value"].clone())
 }
 
-/// The Node daemon's recorded `setupChanged` for a thread started with a draft route (`testdata/node-setup-changed.json`): what the
-/// session's one settings announcement published, and how Node's router counts successive deliveries.
+/// What Node recorded for `setupChanged` (`testdata/node-setup-changed.json`): the value its session published for a thread started with a
+/// draft route (the real-turn harness's recording), and the `seq` of each of two settings announcements delivered before the state was read
+/// (`testdata/record-setup-changed.mjs` runs Node's own modules through them; the state ends on the last).
 fn node_setup_changed() -> (Value, Vec<u64>) {
     let recorded: Value = serde_json::from_str(include_str!("../../testdata/node-setup-changed.json")).expect("the recording parses");
-    let seqs = recorded["router"]["seqs"].as_array().expect("seqs").iter().map(|seq| seq.as_u64().expect("a seq")).collect();
+    let deliveries = &recorded["twoDeliveries"];
+    let seqs: Vec<u64> = deliveries["published"].as_array().expect("the recorded deliveries").iter().map(|delivery| delivery["seq"].as_u64().expect("a seq")).collect();
+    assert_eq!(deliveries["final"]["seq"].as_u64(), seqs.last().copied(), "the recorded state is the last delivery");
     (recorded["frame"]["patch"]["set"]["setupChanged"].clone(), seqs)
 }
 
@@ -198,19 +201,20 @@ async fn a_settings_change_the_creation_makes_reaches_the_new_threads_setup_chan
     assert_eq!(first["setupChanged"]["action"], recorded["action"]);
 }
 
-/// Two announcements made before the thread's actor runs (the counter moves twice while it is created) are two deliveries to a Node session:
-/// the thread publishes setupChanged once for each, counted as Node's router counts them, and holds the second.
+/// Announcements made before the thread's actor runs (the counter moves once per recorded delivery while it is created) are separate
+/// deliveries to a Node session: the thread publishes setupChanged once for each, with the seqs Node recorded, and holds the last.
 #[tokio::test(start_paused = true)]
 async fn announcements_made_before_install_each_count() {
     let rig = Rig::new();
     let (announce, changes) = tokio::sync::watch::channel(0_u64);
     *lock(&rig.compaction.settings) = Some(changes);
+    let (_, seqs) = node_setup_changed();
     let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(SavingRoute { counter: announce, saves: 2 });
+    deps.new_route = Arc::new(SavingRoute { counter: announce, saves: seqs.len() as u64 });
     let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
-    let (_, seqs) = node_setup_changed();
-    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(seqs[1]))).await;
+    let last = *seqs.last().expect("a recorded delivery");
+    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(last))).await;
     assert_eq!(published_setup_seqs(&rig, handle.id.as_str()), seqs);
 }
 
