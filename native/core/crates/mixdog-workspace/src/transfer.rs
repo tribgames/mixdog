@@ -94,8 +94,7 @@ struct Upload {
     file: File,
     size: u64,
     written: u64,
-    /// A staged upload: the name is made unique at commit (
-ame (2).ext) instead of refused.
+    /// A staged upload: the name is made unique at commit (name (2).ext) instead of refused.
     unique: bool,
 }
 

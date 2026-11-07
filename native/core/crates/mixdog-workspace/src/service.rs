@@ -1027,7 +1027,7 @@ impl DomainService for WorkspaceService {
         if let Some(host_method) = host_method {
             // The path is confined here; the window only renders it.
             let confined = async {
-                let root = this.root(&req.params).await?;
+                let root = this.root(req.ctx.origin, &req.params).await?;
                 let rel = s(&req.params, "rel")?;
                 project_entry_path(&root, rel)?;
                 Ok::<_, WsError>(json!({ "root": root.to_string_lossy(), "rel": rel }))
