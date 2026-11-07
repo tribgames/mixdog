@@ -67,7 +67,7 @@ async fn model_list_matches_node() {
             "warm-quick" => (false, true),
             _ => (false, false),
         };
-        let got = service.rows(force, quick).await;
+        let got = service.rows(force, quick).await.unwrap();
         let want = case["value"].as_array().unwrap();
         let label = format!("case {i} ({})", case["read"]);
         assert_eq!(got.len(), want.len(), "{label}: row count");
@@ -113,7 +113,7 @@ async fn a_snapshot_the_provider_listing_produced_reaches_the_rows() {
         unsupported: Arc::new(UnsupportedEfforts::default()),
             host: None,
     };
-    let rows = service.rows(false, false).await;
+    let rows = service.rows(false, false).await.unwrap();
     let row = |id: &str| rows.iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("{id} in {rows:?}"));
     let (stated, silent) = (row("gpt-5-codex"), row("gpt-6-mini"));
     assert_eq!(stated["display"], "GPT 5.4");

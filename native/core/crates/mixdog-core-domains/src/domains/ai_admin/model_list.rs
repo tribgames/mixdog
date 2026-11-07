@@ -61,20 +61,31 @@ pub struct ModelListService {
 pub struct ListHost {
     pub readiness: Arc<ProviderReadiness>,
     pub effective: Arc<EffectiveProviders>,
+    /// The config whose canonical agent section the providers are merged onto.
+    pub config: Config,
     /// `getRoute()`: the live Main route.
     pub route: Arc<dyn Fn() -> Obj + Send + Sync>,
     /// `config.providers` as the last load saw it (what the sync readers show).
     last: Arc<Mutex<serde_json::Map<String, Value>>>,
+    /// The background load a quick read started (`warmProviderModelCache`).
+    warm: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+}
+
+/// The loaded config's agent section and its providers.
+pub struct Loaded {
+    pub agent: Obj,
+    pub providers: serde_json::Map<String, Value>,
 }
 
 impl ListHost {
     pub fn new(
         readiness: Arc<ProviderReadiness>,
         effective: Arc<EffectiveProviders>,
+        config: Config,
         route: Arc<dyn Fn() -> Obj + Send + Sync>,
         initial: serde_json::Map<String, Value>,
     ) -> Self {
-        Self { readiness, effective, route, last: Arc::new(Mutex::new(initial)) }
+        Self { readiness, effective, config, route, last: Arc::new(Mutex::new(initial)), warm: Arc::new(Mutex::new(None)) }
     }
 
     /// The providers of the last load, in configuration order.
@@ -82,19 +93,42 @@ impl ListHost {
         self.last.lock().unwrap_or_else(PoisonError::into_inner).iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 
-    /// Loads the providers of `agent` and makes them ready. `None`: no provider is enabled, a
-    /// fresh install has nothing to load (the registry refuses an all-disabled init by design).
-    async fn prepare(&self, agent: &Obj) -> Result<Option<serde_json::Map<String, Value>>, String> {
-        let providers = self.effective.load(agent, true).await?;
+    /// Waits for the background load a quick read started; nothing when none runs.
+    pub async fn settle_warm(&self) {
+        let running = self.warm.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(handle) = running {
+            // A warm that panicked has nothing to report here; a failed one logged itself.
+            let _ = handle.await;
+        }
+    }
+
+    /// `loadConfig()`: the canonical agent section with the providers merged onto it.
+    pub async fn loaded(&self) -> Result<Loaded, String> {
+        let agent = self.config.loaded_agent().await.map_err(|error| error.to_string())?;
+        let providers = self.effective.load(&agent, true).await?;
         *self.last.lock().unwrap_or_else(PoisonError::into_inner) = providers.clone();
-        match self.readiness.ensure_providers_ready(Some(providers.clone())).await {
-            Ok(_) => Ok(Some(providers)),
+        Ok(Loaded { agent, providers })
+    }
+
+    /// `ensureProvidersReady(config.providers)`: the providers of the loaded config, initialized in
+    /// the registry; every failure is the caller's, `NO_ENABLED_PROVIDERS` included.
+    pub async fn ensure_ready(&self) -> Result<Loaded, String> {
+        let loaded = self.loaded().await?;
+        self.readiness.ensure_providers_ready(Some(loaded.providers.clone())).await.map_err(|error| error.message)?;
+        Ok(loaded)
+    }
+
+    /// `prepare` of the catalog load. `None`: no provider is enabled, a fresh install has nothing to
+    /// load (the registry refuses an all-disabled init by design).
+    async fn prepare(&self) -> Result<Option<Loaded>, String> {
+        let loaded = self.loaded().await?;
+        match self.readiness.ensure_providers_ready(Some(loaded.providers.clone())).await {
+            Ok(_) => Ok(Some(loaded)),
             Err(error) if error.code == Some(NO_ENABLED_PROVIDERS) => Ok(None),
             Err(error) => Err(error.message),
         }
     }
 }
-
 /// The facts row hydration reads, over the catalog and the effort modules.
 struct RowFacts<'a> {
     catalog: &'a CatalogService,
@@ -160,44 +194,53 @@ impl ModelListService {
     }
 
     /// `collectProviderModels({ force, quick })`.
-    pub async fn rows(&self, force: bool, quick: bool) -> Vec<Value> {
+    pub async fn rows(&self, force: bool, quick: bool) -> Result<Vec<Value>, String> {
         self.rows_for(force, quick, None).await
     }
 
-    /// `collectProviderModels({ force, quick, provider })`: `provider` scopes a forced refresh.
-    pub async fn rows_for(&self, force: bool, quick: bool, provider: Option<&str>) -> Vec<Value> {
-        // The callers of this form have no error channel; `call` reports the failure.
-        self.try_rows_for(force, quick, provider).await.unwrap_or_default()
-    }
-
-    /// The providers of the loaded config, ready in the registry (`ensureProvidersReady`); a
-    /// no-op without a host. `false`: no provider is enabled.
-    pub async fn prepare(&self) -> Result<bool, String> {
+    /// The providers of the loaded config, read again (`ensureFullConfig()` and the keychain
+    /// prewarm of the web-search load); a no-op without a host.
+    pub async fn refresh_providers(&self) -> Result<(), String> {
         match &self.host {
-            Some(host) => Ok(host.prepare(&self.config.agent()).await?.is_some()),
-            None => Ok(true),
+            Some(host) => host.loaded().await.map(|_| ()),
+            None => Ok(()),
         }
     }
 
-    /// `collectProviderModels({ force, quick, provider })`; `Err` is a provider load that failed.
-    pub async fn try_rows_for(&self, force: bool, quick: bool, provider: Option<&str>) -> Result<Vec<Value>, String> {
+    /// `ensureProvidersReady(config.providers)` as the web-search load runs it, which does not
+    /// catch (`web-search-catalog.mjs`, `loadWebSearchProviderModelsFresh`); a no-op without a host.
+    pub async fn ensure_ready(&self) -> Result<(), String> {
+        match &self.host {
+            Some(host) => host.ensure_ready().await.map(|_| ()),
+            None => Ok(()),
+        }
+    }
+
+    /// `collectProviderModels({ force, quick, provider })`: `provider` scopes a forced refresh. `Err`
+    /// is a provider load that failed, which Node's `collectProviderModels` rejects with.
+    pub async fn rows_for(&self, force: bool, quick: bool, provider: Option<&str>) -> Result<Vec<Value>, String> {
         if let Some(host) = &self.host {
             let snapshot = self.catalog.snapshot();
             let loaded = snapshot.generation != 0 || !snapshot.status.is_empty();
-            let agent = self.config.agent();
             if quick && !force && !loaded {
-                // A quick read before any load answers from the profile and seeds the full load
-                // in the background (`warmProviderModelCache`).
-                let (warm, catalog, agent_for_warm) = (host.clone(), self.catalog.clone(), agent.clone());
-                mixdog_rt::spawn("model-list-warm", mixdog_rt::TaskClass::Work, async move {
-                    if let Ok(Some(_)) = warm.prepare(&agent_for_warm).await {
-                        catalog.refresh_due().await;
+                // A quick read before any load answers from the profile and seeds the full load in
+                // the background (`warmProviderModelCache`); a failed warm is logged and leaves the
+                // cache empty, as its `onFailed` does (`provider-models.mjs`).
+                let (warm, catalog) = (host.clone(), self.catalog.clone());
+                let started = mixdog_rt::spawn("model-list-warm", mixdog_rt::TaskClass::Work, async move {
+                    match warm.prepare().await {
+                        Ok(Some(_)) => {
+                            catalog.refresh_due().await;
+                        }
+                        Ok(None) => {}
+                        Err(error) => tracing::warn!(%error, "[provider-models] the warm load failed"),
                     }
                 });
-                let providers = host.effective.load(&agent, true).await?;
+                *host.warm.lock().unwrap_or_else(PoisonError::into_inner) = Some(started);
+                let Loaded { agent, providers } = host.loaded().await?;
                 return Ok(self.quick_rows(&snapshot, &providers, &agent, &(host.route)()));
             }
-            if host.prepare(&agent).await?.is_none() {
+            if host.prepare().await?.is_none() {
                 return Ok(Vec::new());
             }
         }
@@ -220,7 +263,6 @@ impl ModelListService {
         }
         Ok(rows)
     }
-
     /// The catalog flattened into deduplicated cache rows; a hidden custom model leaves the picker.
     pub fn cache_rows(&self, snapshot: &CatalogSnapshot) -> Vec<Value> {
         let mut seen = HashSet::new();
@@ -275,7 +317,7 @@ impl DomainService for ModelListService {
         // `refresh` is the setup tool's name for `force`.
         let force = params.force == Some(true) || params.refresh == Some(true);
         let rows = self
-            .try_rows_for(force, params.quick == Some(true), None)
+            .rows(force, params.quick == Some(true))
             .await
             .map_err(|message| CoreError::DomainError { domain: "providers".into(), code: None, message: Some(message.into()), detail: None })?;
         Ok(Reply::Value(Value::Array(rows)))

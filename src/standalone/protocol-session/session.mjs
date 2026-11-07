@@ -7,6 +7,7 @@
 // stop request: the core keeps running work after its last client leaves.
 import { TRANSCRIPT_LIVE_ITEM_CAP } from '../../tui/session/transcript-spill.mjs';
 import { SESSION_ACTIONS, resolveAction } from './action-route.mjs';
+import { createRuntimeNotifications } from './runtime-notifications.mjs';
 import { toSessionError } from './session-error.mjs';
 
 const LOCAL_TARGET = Object.freeze({ id: 'local' });
@@ -114,7 +115,10 @@ export function createProtocolSessionFactory({
     // recomputed once per change of any of them, so `getState()` is stable between changes (React compares it by
     // identity).
     let version = 0;
+    // Node's runtime notifications (the updater's `update-notice`) arrive as the app feed's `notice` entry.
+    const runtimeNotifications = createRuntimeNotifications({ store: client.store, log });
     const stopStore = client.store.subscribe((change) => {
+      runtimeNotifications.onChange(change);
       const mine =
         (change.type === 'thread' && change.threadId === binding.threadId) ||
         (change.type === 'section' && change.section === 'hostShellJobs');
@@ -287,6 +291,7 @@ export function createProtocolSessionFactory({
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
+      onNotification: (listener) => runtimeNotifications.onNotification(listener),
       async listSessions(listOptions = {}) {
         const filter = defined(Object.fromEntries(THREAD_LIST_KEYS.map((key) => [key, listOptions?.[key]])));
         if (listOptions?.page && typeof listOptions.page === 'object') {
@@ -364,6 +369,7 @@ export function createProtocolSessionFactory({
         stopStore();
         stopEvents();
         listeners.clear();
+        runtimeNotifications.clear();
         const threadId = binding.threadId;
         try {
           await client.unsubscribeThread(threadId);

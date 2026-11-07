@@ -40,7 +40,7 @@ impl mixdog_core_domains::domains::ai_account::SetupSource for SetupSourceOf {
     }
 
     async fn display_config(&self) -> Result<serde_json::Value, String> {
-        let mut config = self.config.agent();
+        let mut config = self.config.loaded_agent().await.map_err(|error| error.to_string())?;
         let providers = self.effective.load(&config, true).await?;
         config.insert("providers".into(), serde_json::Value::Object(providers));
         Ok(serde_json::Value::Object(config))

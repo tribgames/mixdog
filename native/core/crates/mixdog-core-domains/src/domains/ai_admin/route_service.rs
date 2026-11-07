@@ -353,7 +353,7 @@ impl RouteService {
     /// it loaded (a new task's draft landing meanwhile) stands (`route-resolution.mjs:28-30`).
     pub async fn ready_default(&self, thread: &ThreadId) -> Result<(), String> {
         if self.route_lacks_model(thread) {
-            let listed = !self.models.rows(false, false).await.is_empty();
+            let listed = !self.models.rows(false, false).await?.is_empty();
             if self.route_lacks_model(thread) {
                 return Err(if listed {
                     "No model selected. Choose a model with /model first.".to_owned()

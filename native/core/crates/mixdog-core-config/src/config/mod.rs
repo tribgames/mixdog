@@ -286,6 +286,21 @@ impl Config {
         self.shared.doc.load().get(AGENT_SECTION).and_then(Value::as_object).cloned().unwrap_or_default()
     }
 
+    /// The agent section as `loadConfig` reads it before it merges anything onto it:
+    /// `canonicalizeAgentStorage` against the openai-oauth catalog saved beside the file
+    /// (retired local providers and fields dropped, incomplete or superseded routes migrated,
+    /// `providers` and `webSearchRoute` always present, …). The catalog is read as a lane job.
+    pub async fn loaded_agent(&self) -> Result<Doc, ConfigError> {
+        let agent = self.agent();
+        let dir = self.shared.path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        on_lane(self.lanes.read, move |_lane| {
+            let catalog = storage::saved_catalog(&dir).unwrap_or_default();
+            storage::canonical_agent_storage(&agent, &catalog, now_ms)
+        })
+        .await
+    }
+
     /// `readSection('agent').instructionFiles`: the stored setting as written (`None` when the
     /// file has none); the caller normalises it, as Node does.
     pub fn stored_instruction_files(&self) -> Option<Value> {

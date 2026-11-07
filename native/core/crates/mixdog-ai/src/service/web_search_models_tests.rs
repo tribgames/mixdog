@@ -144,23 +144,28 @@ impl CatalogFacts for World {
         out
     }
 
-    async fn collect_provider_models(&self, force: bool) -> Vec<Value> {
+    async fn collect_provider_models(&self, force: bool) -> Result<Vec<Value>, String> {
         self.rec(|log| log.collected.push(force));
-        self.collected.lock().unwrap().clone()
+        Ok(self.collected.lock().unwrap().clone())
     }
 
-    async fn prepare(&self) {
+    async fn prepare(&self) -> Result<(), String> {
         self.rec(|log| log.prepared += 1);
+        Ok(())
     }
 
     fn providers_config(&self) -> Vec<(String, Value)> {
         self.display_providers()
     }
 
-    async fn ensure_providers_ready(&self) {
+    async fn ensure_providers_ready(&self) -> Result<(), String> {
         let mut names: Vec<String> = self.display_providers().into_iter().map(|(name, _)| name).collect();
         names.sort();
         self.rec(|log| log.ready.push(names));
+        match self.spec["readyError"].as_str() {
+            Some(message) => Err(message.to_owned()),
+            None => Ok(()),
+        }
     }
 
     fn can_list(&self, name: &str) -> bool {
@@ -196,6 +201,25 @@ fn names(trace: &Value, kind: &str) -> Vec<Value> {
     trace.as_array().unwrap().iter().filter(|t| t[0] == kind).cloned().collect()
 }
 
+fn world_of(scenario: &Value) -> World {
+    let mut spec = scenario["world"].clone();
+    for (field, empty) in [("config", json!({ "providers": {} })), ("providers", json!({})), ("rosters", json!({})), ("capable", json!({})), ("rowCapable", json!({})), ("webSearchRoute", Value::Null)] {
+        if spec.get(field).is_none() {
+            spec[field] = empty;
+        }
+    }
+    World {
+        rosters: Mutex::new(spec["rosters"].as_object().unwrap().clone()),
+        models_cache: Mutex::new(spec["modelsCache"].as_array().cloned()),
+        collected: Mutex::new(spec["collected"].as_array().cloned().unwrap_or_default()),
+        listings: Mutex::new(spec["providers"].as_object().unwrap().clone()),
+        revision: Mutex::new(0.0),
+        cached: Mutex::new(json!({})),
+        log: Mutex::default(),
+        spec,
+    }
+}
+
 #[tokio::test]
 async fn the_web_search_list_is_nodes_collect() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -203,22 +227,7 @@ async fn the_web_search_list_is_nodes_collect() {
     assert!(scenarios.len() >= 40);
     for scenario in scenarios {
         let name = scenario["name"].as_str().unwrap();
-        let mut spec = scenario["world"].clone();
-        for (field, empty) in [("config", json!({ "providers": {} })), ("providers", json!({})), ("rosters", json!({})), ("capable", json!({})), ("rowCapable", json!({})), ("webSearchRoute", Value::Null)] {
-            if spec.get(field).is_none() {
-                spec[field] = empty;
-            }
-        }
-        let world = World {
-            rosters: Mutex::new(spec["rosters"].as_object().unwrap().clone()),
-            models_cache: Mutex::new(spec["modelsCache"].as_array().cloned()),
-            collected: Mutex::new(spec["collected"].as_array().cloned().unwrap_or_default()),
-            listings: Mutex::new(spec["providers"].as_object().unwrap().clone()),
-            revision: Mutex::new(0.0),
-            cached: Mutex::new(json!({})),
-            log: Mutex::default(),
-            spec,
-        };
+        let world = world_of(scenario);
         let catalog = WebSearchCatalog::new(world);
         for step in scenario["steps"].as_array().unwrap() {
             let w = &catalog.facts;
@@ -237,7 +246,7 @@ async fn the_web_search_list_is_nodes_collect() {
                     *w.cached.lock().unwrap() = step["cachedModels"].clone();
                     *w.log.lock().unwrap() = Log::default();
                     let force = step["force"] == true;
-                    let rows = catalog.collect(force).await;
+                    let rows = catalog.collect(force).await.unwrap();
                     assert_eq!(Value::Array(rows), step["rows"], "{name}: rows (force {force})");
                     let log = w.log.lock().unwrap();
                     let trace = &step["trace"];
@@ -267,4 +276,22 @@ fn the_newest_quick_rows_are_nodes() {
         let models = case["models"].as_object();
         assert_eq!(Value::Array(quick_web_search_models(models)), case["rows"], "{}", case["name"]);
     }
+}
+
+/// `loadWebSearchProviderModelsFresh` awaits `ensureProvidersReady` outside any `try`, so its
+/// rejection rejects the collect (`web-search-catalog.mjs`); only a provider's own listing failure
+/// is swallowed (`scanProvider`'s `catch { return [] }`).
+#[tokio::test]
+async fn a_readiness_failure_rejects_a_fresh_load() {
+    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let fresh = golden["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|scenario| scenario["steps"].as_array().unwrap().iter().any(|step| step["op"] == "collect" && step["force"] == true && !names(&step["trace"], "ensureProvidersReady").is_empty()))
+        .expect("a scenario whose forced read makes the providers ready");
+    let mut world = world_of(fresh);
+    world.spec["readyError"] = json!("providers are not ready");
+    let catalog = WebSearchCatalog::new(world);
+    assert_eq!(catalog.collect(true).await, Err("providers are not ready".to_owned()));
 }

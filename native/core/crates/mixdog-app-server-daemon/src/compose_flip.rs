@@ -418,24 +418,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The providers of the loaded config (`loadConfig().providers`): the runtime's own provider config that
     // `ensure_providers_ready(None)` initializes, and the view the dashboards and the model lists read.
     let effective = Arc::new(mixdog_ai::registry::effective::EffectiveProviders::new(default_builder.clone(), media_keys.clone(), process.env.clone()));
-    let loaded_providers = effective.load(&config.agent(), true).await.map_err(ComposeError::Providers)?;
+    let loaded_providers = effective.load(&config.loaded_agent().await.map_err(|error| ComposeError::Providers(error.to_string()))?, true).await.map_err(ComposeError::Providers)?;
     readiness.set_providers(loaded_providers.clone());
-    mixdog_rt::spawn("providers.sync", mixdog_rt::TaskClass::Work, {
-        let (effective, readiness, config, stop) = (effective.clone(), readiness.clone(), config.clone(), b.cancel.child_token());
-        async move {
-            let mut changes = config.changes();
-            loop {
-                tokio::select! {
-                    () = stop.cancelled() => return,
-                    changed = changes.changed() => if changed.is_err() { return },
-                }
-                match effective.load(&config.agent(), true).await {
-                    Ok(providers) => readiness.set_providers(providers),
-                    Err(error) => tracing::warn!(%error, "[providers] the loaded config could not be rebuilt; the previous one stays"),
-                }
-            }
-        }
-    });
+    // The runtime's own provider config follows the loaded config.
+    let _provider_sync = mixdog_core_domains::domains::ai_admin::provider_sync::spawn_provider_sync(config.clone(), effective.clone(), readiness.clone(), b.cancel.child_token());
 
     // The stores the warm gate, the resume timer, the media layer and the provider admin share (built here, ahead of step 5: the warmer\n    // needs the gate, and the gate needs the registry above).
     // The one `quota-resume.json` store: the setup tool's switch (`DomainSeams.quota_resume`, wp-config-setup-1), the goal
@@ -607,6 +593,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         host: Some(mixdog_core_domains::domains::ai_admin::model_list::ListHost::new(
             readiness.clone(),
             effective.clone(),
+            config.clone(),
             { let main = main_route.clone(); Arc::new(move || main.route()) },
             loaded_providers.clone(),
         )),
