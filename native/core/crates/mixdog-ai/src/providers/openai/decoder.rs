@@ -147,6 +147,8 @@ pub struct ResponsesDecoder {
     reasoning_ids: HashSet<String>,
     /// The stream is a compatible route's, folded by Node's compatible events collector.
     compat: bool,
+    /// `state.model`: the model the response named (`response.created`, a terminal frame).
+    model: Option<String>,
 }
 
 fn str_of<'a>(value: &'a Value, key: &str) -> &'a str {
@@ -308,6 +310,7 @@ impl ResponsesDecoder {
             flight: ToolFlight::default(),
             reasoning_ids: HashSet::new(),
             compat: false,
+            model: None,
         }
     }
 
@@ -410,6 +413,9 @@ impl ResponsesDecoder {
                 if let Some(id) = event.get("response").map(|r| str_of(r, "id")).filter(|i| !i.is_empty()) {
                     self.outcome.response_id = Some(id.to_owned());
                 }
+                if let Some(model) = event.get("response").map(|r| str_of(r, "model")).filter(|m| !m.is_empty()) {
+                    self.model = Some(model.to_owned());
+                }
                 // The compatible collector reports the ack as a boundary once the stream has seen output.
                 if self.collector() == Collector::Compat && self.semantic_seen {
                     out.push(StreamEvent::Progress(ProgressKind::Semantic));
@@ -505,7 +511,7 @@ impl ResponsesDecoder {
             }
             "response.completed" => return self.completed(event, out, true),
             "response.done" => return self.response_done(event, out),
-            "response.incomplete" => return self.incomplete(event, out),
+            "response.incomplete" => return self.incomplete(event, out, "response.incomplete"),
             "response.failed" => {
                 self.terminal = true;
                 let error = event
@@ -591,7 +597,11 @@ impl ResponsesDecoder {
         }
         // The compatible fold adopts the bundle's text first, then sweeps the other items; none is skipped as seen.
         let start = out.len();
+        let relay = self.nothing_streamed();
         for item in output.iter().filter(|item| str_of(item, "type") == "message") {
+            if relay {
+                self.bundle_text(item, out);
+            }
             self.item_done(item, out);
         }
         let mut reported = out[start..].iter().any(|event| matches!(event, StreamEvent::TextDelta(_)));
@@ -619,6 +629,10 @@ impl ResponsesDecoder {
         // The WebSocket collector skips a reasoning item whose copy was already collected; HTTP/SSE reports every one.
         let collected = self.collector() == Collector::WebSocket && self.reasoning_ids.contains(str_of(item, "id"));
         let start = out.len();
+        // The bundle relays a message's text only while nothing has streamed (`relayText = !content`).
+        if kind == "message" && self.nothing_streamed() {
+            self.bundle_text(item, out);
+        }
         self.item_done(item, out);
         if is_incomplete_tool_item(item) {
             self.flight.started(item);
@@ -744,8 +758,8 @@ impl ResponsesDecoder {
         self.emit_call(&call_id, &name, arguments, out);
     }
 
-    /// The text of a finished message that the deltas did not already carry.
-    fn relay_final_text(&mut self, item: &Value, key: &str, out: &mut Vec<StreamEvent>) {
+    /// The refusal parts of a finished message (`refusals.absorbMessage`).
+    fn absorb_refusals(&mut self, item: &Value, key: &str) {
         let Some(parts) = item.get("content").and_then(Value::as_array) else {
             return;
         };
@@ -759,26 +773,30 @@ impl ResponsesDecoder {
                 }
             }
         }
-        let full: String = parts
-            .iter()
-            .filter(|p| str_of(p, "type") == "output_text")
-            .map(|p| str_of(p, "text"))
-            .collect();
-        let streamed = self.texts.entry(key.to_owned()).or_default();
-        let remaining = if streamed.is_empty() {
-            full.clone()
-        } else if full.len() > streamed.len() && full.starts_with(streamed.as_str()) {
-            full[streamed.len()..].to_owned()
-        } else {
-            String::new()
-        };
-        if !remaining.is_empty() {
-            streamed.push_str(&remaining);
-            self.exposure.text_emitted = true;
-            out.push(StreamEvent::TextDelta(remaining));
-        }
     }
 
+    /// Whether no text has streamed yet (`!content`).
+    fn nothing_streamed(&self) -> bool {
+        self.texts.values().all(String::is_empty)
+    }
+
+    /// The text of a message of the terminal bundle, relayed whole (`relayFinalText`, `absorbCompletedText`). The caller
+    /// decides whether the bundle may relay at all: only a stream whose deltas carried no text does.
+    fn bundle_text(&mut self, item: &Value, out: &mut Vec<StreamEvent>) {
+        let text: String = item
+            .get("content")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|part| str_of(part, "type") == "output_text")
+            .map(|part| str_of(part, "text"))
+            .collect();
+        if !text.is_empty() {
+            self.texts.entry(str_of(item, "id").to_owned()).or_default().push_str(&text);
+            self.exposure.text_emitted = true;
+            out.push(StreamEvent::TextDelta(text));
+        }
+    }
     fn item_done(&mut self, item: &Value, out: &mut Vec<StreamEvent>) {
         let item_id = str_of(item, "id").to_owned();
         if is_incomplete_tool_item(item) {
@@ -797,7 +815,7 @@ impl ResponsesDecoder {
         }
         self.outcome.output_items.push(item.clone());
         match str_of(item, "type") {
-            "message" => self.relay_final_text(item, &item_id, out),
+            "message" => self.absorb_refusals(item, &item_id),
             kind @ ("function_call" | "custom_tool_call" | "tool_search_call") => {
                 let flavor = match kind {
                     "function_call" => ToolFlavor::Function,
@@ -942,7 +960,7 @@ impl ResponsesDecoder {
                     .or_else(|| event.get("error"));
                 Err(self.wire_error(event, error, "response.done failed"))
             }
-            "incomplete" => self.incomplete(event, out),
+            "incomplete" => self.incomplete(event, out, "response.done incomplete"),
             // The compatible collector settles a success-shaped `response.done` without folding its bundle's progress.
             "" | "completed" => self.completed(event, out, self.collector() != Collector::Compat),
             other => {
@@ -955,26 +973,49 @@ impl ResponsesDecoder {
         }
     }
 
-    fn incomplete(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
+    /// A failure of an incomplete response still carries the usage it was billed and, but for the WebSocket
+    /// collector's plain failure, the model that reported it.
+    fn billed(&self, mut err: ProviderError, response: &Value, with_model: bool) -> ProviderError {
+        if let Some(usage) = response.get("usage").filter(|u| u.is_object()) {
+            err.partial_usage = Some(Box::new(usage_from(usage, response.get("service_tier").and_then(Value::as_str))));
+        }
+        if with_model {
+            let model = self.model.as_deref().or_else(|| Some(str_of(response, "model")).filter(|m| !m.is_empty()));
+            err.partial_model = model.map(Box::from);
+        }
+        err
+    }
+
+    /// `response.incomplete` / an incomplete `response.done` (`settleIncomplete`, `onIncomplete`,
+    /// `settleMaxOutputIncomplete`). A max-output cutoff holds the bundle's truncated calls in flight and, with a call
+    /// in flight, is a cut stream; otherwise it completes as a length stop. The bundle's items are not collected.
+    fn incomplete(&mut self, event: &Value, out: &mut Vec<StreamEvent>, frame: &str) -> Result<(), ProviderError> {
         let reason = incomplete_reason(event);
         let response = event.get("response").unwrap_or(&Value::Null);
+        let collector = self.collector();
+        if self.model.is_none() {
+            self.model = Some(str_of(response, "model")).filter(|m| !m.is_empty()).map(str::to_owned);
+        }
         if is_max_output_reason(&reason) {
-            if let Some(output) = response.get("output").and_then(Value::as_array) {
-                for item in output {
-                    self.item_done(item, out);
+            // `holdIncompleteBundleItems`: a truncated call of the bundle stays in flight (the compatible fold has no such step).
+            if collector != Collector::Compat {
+                for item in response.get("output").and_then(Value::as_array).into_iter().flatten().filter(|item| is_incomplete_tool_item(item)) {
+                    self.flight.started(item);
                 }
             }
-            if self.in_flight() || response_has_incomplete_tool(response) {
-                // The cutoff hit a tool call's input: its arguments are
-                // truncated, so this is a cut stream, never a clean length stop.
+            let pending = if collector == Collector::Compat { self.flight.compat_pending() } else { self.flight.pending_tool_use() };
+            if pending {
+                // The cutoff hit a tool call's input: its arguments are truncated, so this is a cut stream, never a
+                // clean length stop.
                 self.terminal = true;
-                let mut err = ProviderError::transport(
-                    TransportFault::TruncatedStream,
-                    DeliveryState::Accepted,
-                );
+                let mut err = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
+                err.message = if collector == Collector::Compat {
+                    format!("incomplete ({reason}) with tool call in flight")
+                } else {
+                    format!("{frame} (max_output_tokens) with tool call in flight")
+                };
                 err.code = Some(reason);
-                err.message = "response incomplete (max_output_tokens) with a tool call in flight".into();
-                let mut err = self.fail(err);
+                let mut err = self.billed(self.fail(err), response, true);
                 err.exposure.tool_input_cut = true;
                 return Err(err);
             }
@@ -988,17 +1029,12 @@ impl ResponsesDecoder {
             ErrorKind::Unknown
         };
         let mut err = ProviderError::new(kind, DeliveryState::Accepted);
-        err.message = format!("response incomplete: {reason}");
+        err.message = if collector == Collector::Compat { format!("stream {frame}: {reason}") } else { format!("{frame}: {reason}") };
         err.code = Some(reason.to_ascii_lowercase());
-        Err(self.fail(err))
+        // The WebSocket collector's plain failure carries the billed usage only.
+        let with_model = collector != Collector::WebSocket;
+        Err(self.billed(self.fail(err), response, with_model))
     }
-}
-
-fn response_has_incomplete_tool(response: &Value) -> bool {
-    response
-        .get("output")
-        .and_then(Value::as_array)
-        .is_some_and(|items| items.iter().any(is_incomplete_tool_item))
 }
 
 impl WireDecoder for ResponsesDecoder {
@@ -1098,13 +1134,51 @@ mod progress_tests {
             if scenario["framing"] == "compat" {
                 decoder = decoder.compat_events();
             }
+            let at = |step: &Value| format!("{} / {}: {}", scenario["framing"], scenario["name"], step["wire"]);
+            let mut failure = None;
+            let mut stop = None;
             for step in scenario["steps"].as_array().expect("steps") {
                 let unit = match framing {
                     Framing::WebSocket => step["wire"].to_string(),
                     Framing::Sse => format!("data: {}\n\n", step["wire"]),
                 };
-                let events = decoder.feed(unit.as_bytes()).expect("feed");
-                assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{} / {}: {}", scenario["framing"], scenario["name"], step["wire"]);
+                match decoder.feed(unit.as_bytes()) {
+                    Ok(events) => {
+                        assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", at(step));
+                        for event in &events {
+                            if let StreamEvent::Completed { stop: reason, .. } = event {
+                                stop = Some(reason.clone());
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        // A failing frame reports no progress of its own.
+                        assert!(node_names(&step["kinds"]).is_empty(), "{}", at(step));
+                        failure = Some(error);
+                        break;
+                    }
+                }
+            }
+            // How the stream ended: Node's error (its label aside), the cut-stream flags, the billed usage and model.
+            let name = &scenario["name"];
+            match (&scenario["outcome"]["error"], failure) {
+                (Value::Null, None) => {
+                    if scenario["outcome"]["stopReason"] == "length" {
+                        assert_eq!(stop, Some(Some(StopReason::MaxTokens)), "{} / {name}", scenario["framing"]);
+                    }
+                }
+                (Value::Null, Some(error)) => panic!("{} / {name}: unexpected {error:?}", scenario["framing"]),
+                (node, Some(error)) => {
+                    let label = format!("{} / {name}", scenario["framing"]);
+                    assert!(node["message"].as_str().expect("message").ends_with(&error.message), "{label}: {} vs {}", node["message"], error.message);
+                    assert_eq!(error.exposure.tool_input_cut, node["pendingToolUse"] == true, "{label}");
+                    assert_eq!(error.partial_usage.is_some(), node["partialUsage"] == true, "{label}");
+                    assert_eq!(error.partial_model.as_deref(), node["partialModel"].as_str(), "{label}");
+                    if let Some(reason) = node["incompleteReason"].as_str() {
+                        assert_eq!(error.code.as_deref().map(str::to_lowercase), Some(reason.to_lowercase()), "{label}");
+                    }
+                }
+                (_, None) => panic!("{} / {name}: Node failed, Rust did not", scenario["framing"]),
             }
         }
     }

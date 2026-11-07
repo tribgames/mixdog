@@ -39,6 +39,16 @@ impl ToolFlight {
         self.in_flight
     }
 
+    /// `pendingToolUse` / `toolInputPending`: a call is pending, active, or latched in flight.
+    pub(super) fn pending_tool_use(&self) -> bool {
+        !self.pending.is_empty() || !self.items.is_empty() || self.in_flight
+    }
+
+    /// The compatible collector's test of the same cutoff (`state.toolInFlight || pendingCalls.size > 0`).
+    pub(super) fn compat_pending(&self) -> bool {
+        self.in_flight || !self.pending.is_empty()
+    }
+
     /// `activeToolKeys` plus every alias already recorded for any of them.
     fn keys(&self, item: Option<&Value>, fallback: &str) -> HashSet<String> {
         let mut keys: HashSet<String> = HashSet::new();

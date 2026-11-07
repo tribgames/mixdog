@@ -492,34 +492,60 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
     const { createTerminalFrameHandlers } = await load(`${providerDir}/openai-ws-stream/terminal-frames.mjs`);
     const { createHttpSseResponseState } = await load(`${providerDir}/openai-http-sse-response-state.mjs`);
     const noop = () => {};
+    const describeOutcome = (error, stopReason) => ({
+      error: error ? { message: error.message, incompleteReason: error.incompleteReason ?? null, pendingToolUse: error.pendingToolUse === true, partialUsage: error.partialUsage != null, partialModel: error.partialModel ?? null } : null,
+      stopReason: stopReason ?? null,
+    });
     const makeWs = () => {
+      let text = '';
+      const outcome = {};
       let kinds = [];
       const progress = (kind) => kinds.push(kind);
       const midState = {};
       const response = createWsResponseState({ onToolCall() {}, onStreamDelta: progress, midState, traceProvider: 'openai-oauth' });
-      const textRelay = createWsTextRelay({ response, knownToolNames: ['read'], sessionState: midState, onTextDelta() {}, onStreamDelta: progress });
+      const textRelay = createWsTextRelay({ response, knownToolNames: ['read'], sessionState: midState, onTextDelta: (delta) => { text += delta; }, onStreamDelta: progress });
       let seen = false;
       const watchdogs = { clearFirstMeaningful: noop, semanticSeen: () => seen, bumpSemantic() { seen = true; } };
-      const terminal = createTerminalFrameHandlers({ response, textRelay, midState, errLabel: 'ws', progress, outcome: {}, finish: noop });
-      const handlers = { onResponseCompleted: terminal.onResponseCompleted, onResponseDone: terminal.onResponseDone, onResponseIncomplete: noop, onResponseFailed: noop, onErrorFrame: noop };
+      const terminal = createTerminalFrameHandlers({ response, textRelay, midState, errLabel: 'ws', progress, outcome, finish: noop });
+      const handlers = { onResponseCompleted: terminal.onResponseCompleted, onResponseDone: terminal.onResponseDone, onResponseIncomplete: terminal.onResponseIncomplete, onResponseFailed: noop, onErrorFrame: noop };
       const onEvent = createWsEventSwitch({ response, textRelay, watchdogs, midState, progress, terminal: handlers, streamingStart: Date.now(), onStreamItemStart: null });
-      return (event) => {
+      const feed = (event) => {
         kinds = [];
         onEvent(event);
         return kinds;
       };
+      return { feed, text: () => text, outcome: () => describeOutcome(outcome.terminalError, outcome.terminalError ? null : response.result().stopReason) };
     };
     const makeSse = () => {
+      let text = '';
+      let error = null;
       let kinds = [];
       let seen = false;
       const meaningful = (kind = 'semantic') => { seen = true; kinds.push(kind); };
       const lifecycle = (kind = 'semantic') => { if (seen) meaningful(kind); };
-      const state = createHttpSseResponseState({ body: { tools: [{ name: 'read' }] }, onToolCall() {}, onTextDelta() {}, meaningful, lifecycle, onServerEvent: noop, label: 'sse' });
-      return (event) => {
+      const state = createHttpSseResponseState({ body: { tools: [{ name: 'read' }] }, onToolCall() {}, onTextDelta: (delta) => { text += delta; }, meaningful, lifecycle, onServerEvent: noop, label: 'sse' });
+      const feed = (event) => {
         kinds = [];
-        state.handleEvent(event);
+        if (error) return kinds;
+        try {
+          state.handleEvent(event);
+        } catch (thrown) {
+          error = thrown;
+        }
         return kinds;
       };
+      const outcome = () => {
+        let stopReason = null;
+        if (!error) {
+          try {
+            stopReason = state.finish({ useModel: 'm', poolKey: 'k', iteration: 1, sseStartedAt: Date.now(), ttftMs: 1 }).stopReason;
+          } catch {
+            /* a stream that never completed */
+          }
+        }
+        return describeOutcome(error, stopReason);
+      };
+      return { feed, text: () => text, outcome };
     };
     const fc = { type: 'function_call', id: 'fc1', call_id: 'c1', name: 'read', arguments: '' };
     const fcDone = { ...fc, arguments: '{"path":"a.txt"}', status: 'completed' };
@@ -567,7 +593,45 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
         { type: 'response.output_item.added', output_index: 3, item: { type: 'message', id: 'm4', role: 'assistant', content: [] } },
         { type: 'response.output_item.done', output_index: 3, item: { type: 'message', id: 'm4', role: 'assistant', content: [] } },
       ]],
-      ['an argument delta for an unknown item', [
+      ['a cutoff with nothing pending', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.output_text.delta', item_id: 'm1', delta: 'Hello ' },
+        { type: 'response.incomplete', response: { id: 'r1', model: 'm', status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [{ type: 'message', id: 'm1', role: 'assistant', content: [{ type: 'output_text', text: 'Hello there. ' }] }], usage: { input_tokens: 3, output_tokens: 2 } } },
+      ]],
+      ['a cutoff with a truncated call in the bundle', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.incomplete', response: { id: 'r1', model: 'm', status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [{ ...fc, arguments: '{"pa', status: 'incomplete' }], usage: { input_tokens: 3, output_tokens: 2 } } },
+      ]],
+      ['a cutoff in the middle of a tool input', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.output_item.added', output_index: 0, item: fc },
+        { type: 'response.function_call_arguments.delta', item_id: 'fc1', delta: '{"pa' },
+        { type: 'response.incomplete', response: { id: 'r1', model: 'm', status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [], usage: { input_tokens: 3, output_tokens: 2 } } },
+      ]],
+      ['an incomplete response that is not a cutoff', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.incomplete', response: { id: 'r1', model: 'm', status: 'incomplete', incomplete_details: { reason: 'content_filter' }, output: [], usage: { input_tokens: 3, output_tokens: 2 } } },
+      ]],
+      ['an incomplete done frame with a call in flight', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.output_item.added', output_index: 0, item: fc },
+        { type: 'response.done', response: { id: 'r1', model: 'm', status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [], usage: { input_tokens: 3, output_tokens: 2 } } },
+      ]],
+      ['an item done and a bundle, no deltas', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.output_item.added', output_index: 0, item: { type: 'message', id: 'm1', role: 'assistant', content: [] } },
+        { type: 'response.output_item.done', output_index: 0, item: message },
+        completed([message]),
+      ]],
+      ['a delta shorter than the bundle', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        { type: 'response.output_text.delta', item_id: 'm1', delta: 'Hello ' },
+        completed([message]),
+      ]],
+      ['two messages in a bundle', [
+        { type: 'response.created', response: { id: 'r1', model: 'm' } },
+        completed([message, { ...message, id: 'm2', content: [{ type: 'output_text', text: 'Again.' }] }]),
+      ]],      ['an argument delta for an unknown item', [
         { type: 'response.created', response: { id: 'r1', model: 'm' } },
         { type: 'response.reasoning_summary_text.delta', item_id: 'rs1', delta: 'hm' },
         { type: 'response.function_call_arguments.delta', item_id: 'ghost', delta: '' },
@@ -581,6 +645,7 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
     const compatSteps = async (wire) => {
       const per = wire.map(() => []);
       let current = -1;
+      let text = '';
       async function* source() {
         for (let index = 0; index < wire.length; index += 1) {
           current = index;
@@ -588,19 +653,22 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
         }
         current = -1;
       }
+      let error = null;
+      let result = null;
       try {
-        await consumeCompatResponsesStream(source(), { label: 'compat', knownToolNames: ['read'], onStreamDelta: (kind) => { if (current >= 0) per[current].push(kind); }, onToolCall() {}, onTextDelta() {}, parseResponsesToolCalls, responseOutputText });
-      } catch {
-        /* the kinds were reported before the settlement */
+        result = await consumeCompatResponsesStream(source(), { label: 'compat', knownToolNames: ['read'], onStreamDelta: (kind) => { if (current >= 0) per[current].push(kind); }, onToolCall() {}, onTextDelta: (delta) => { text += delta; }, parseResponsesToolCalls, responseOutputText });
+      } catch (thrown) {
+        error = thrown;
       }
-      return wire.map((event, index) => ({ wire: event, kinds: nonTransport(per[index]) }));
+      return { steps: wire.map((event, index) => ({ wire: event, kinds: nonTransport(per[index]) })), text, outcome: describeOutcome(error, result?.stopReason) };
     };
     decoders.responses = [];
-    for (const [name, wire] of scenarios) decoders.responses.push({ name, framing: 'compat', steps: await compatSteps(wire) });
+    for (const [name, wire] of scenarios) decoders.responses.push({ name, framing: 'compat', ...(await compatSteps(wire)) });
     for (const framing of ['ws', 'sse']) {
       for (const [name, wire] of scenarios) {
-        const feed = framing === 'ws' ? makeWs() : makeSse();
-        decoders.responses.push({ name, framing, steps: wire.map((event) => ({ wire: event, kinds: nonTransport(feed(event)) })) });
+        const driver = framing === 'ws' ? makeWs() : makeSse();
+        const steps = wire.map((event) => ({ wire: event, kinds: nonTransport(driver.feed(event)) }));
+        decoders.responses.push({ name, framing, steps, text: driver.text(), outcome: driver.outcome() });
       }
     }
   }

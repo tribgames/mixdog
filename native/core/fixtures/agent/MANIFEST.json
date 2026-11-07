@@ -53,9 +53,9 @@
       "sha256": "bf7e89f2b4c7fb36d6f93f36b2de44fae6b6972cd4291932ab9f3eb759c4b1d6"
     },
     {
-      "bytes": 71912,
+      "bytes": 115005,
       "path": "compact/golden/stream_progress.json",
-      "sha256": "d85747cdd2acc4b038c6b03c704af5797f679642463e2dda58a1f5f7bc76afe5"
+      "sha256": "b5edb7000f2676048f3fc5bc6b077131d832b48a635bb78d5c5e507691d2a554"
     },
     {
       "bytes": 23095,
@@ -88,9 +88,9 @@
       "sha256": "217304c5f70827657253bc6a1dd3b57ab187c7158962dead7f179cf4a72ccc31"
     },
     {
-      "bytes": 47369,
+      "bytes": 51856,
       "path": "compact/record_usage.mjs",
-      "sha256": "8d5abf66202502f20905a9bcabf6fb59e5c97b2642c9816eb694f4ee8294747e"
+      "sha256": "7d7628da0d31f4f1cc81204d624d965fb471dfb579892b5296bd8146420125f6"
     },
     {
       "bytes": 3313,
@@ -405,11 +405,11 @@
   ],
   "product": {
     "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
-    "commit": "301b27aae27b30a7c2a5ced26724d006dcb24ea6",
+    "commit": "f009f74565eeefabae2d153c1b917dedd7b3f46e",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9252,
     "refComparison": {
-      "closestCommit": "301b27aae27b30a7c2a5ced26724d006dcb24ea6",
+      "closestCommit": "f009f74565eeefabae2d153c1b917dedd7b3f46e",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -421,5 +421,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 2802822
+  "totalBytes": 2850402
 }
